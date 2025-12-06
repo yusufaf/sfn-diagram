@@ -1,0 +1,40 @@
+{
+  "Comment": "State machine with Choice state",
+  "StartAt": "CheckValue",
+  "States": {
+    "CheckValue": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.value",
+          "NumericGreaterThan": 10,
+          "Next": "HighValue"
+        },
+        {
+          "Variable": "$.value",
+          "NumericLessThanEquals": 10,
+          "Next": "LowValue"
+        }
+      ],
+      "Default": "DefaultPath"
+    },
+    "HighValue": {
+      "Type": "Pass",
+      "Result": "High",
+      "Next": "Done"
+    },
+    "LowValue": {
+      "Type": "Pass",
+      "Result": "Low",
+      "Next": "Done"
+    },
+    "DefaultPath": {
+      "Type": "Pass",
+      "Result": "Default",
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

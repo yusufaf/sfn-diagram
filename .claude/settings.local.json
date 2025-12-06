@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "mcp__basic-memory__write_note",
+      "Bash(npm install:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run build:*)",
+      "mcp__basic-memory__edit_note",
+      "mcp__basic-memory__read_note",
+      "mcp__basic-memory__list_memory_projects",
+      "Bash(npm test:*)",
+      "Bash(git mv:*)",
+      "mcp__github__get_file_contents",
+      "Bash(npx tsc:*)",
+      "Bash(npm run examples:*)",
+      "Bash(node -e:*)",
+      "Bash(node test-dagre.js:*)",
+      "Bash(node test-error-handling.js:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(pnpm run test)",
+      "Bash(pnpm test:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

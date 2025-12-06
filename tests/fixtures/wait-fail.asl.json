@@ -1,0 +1,30 @@
+{
+  "Comment": "State machine with Wait and Fail states",
+  "StartAt": "WaitState",
+  "States": {
+    "WaitState": {
+      "Type": "Wait",
+      "Seconds": 5,
+      "Next": "CheckCondition"
+    },
+    "CheckCondition": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.status",
+          "StringEquals": "success",
+          "Next": "SuccessState"
+        }
+      ],
+      "Default": "FailState"
+    },
+    "SuccessState": {
+      "Type": "Succeed"
+    },
+    "FailState": {
+      "Type": "Fail",
+      "Error": "InvalidStatus",
+      "Cause": "Status was not success"
+    }
+  }
+}

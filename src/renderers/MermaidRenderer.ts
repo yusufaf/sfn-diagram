@@ -1,0 +1,160 @@
+import type {
+    StateNode,
+    GraphEdge,
+    MermaidOutput,
+    AslDefinition,
+} from '../types';
+
+// Internal parameter types for methods
+interface RenderMermaidParams {
+    asl?: AslDefinition;
+    edges: GraphEdge[];
+    nodes: StateNode[];
+}
+
+interface FindStartStateParams {
+    asl: AslDefinition | undefined;
+    edges: GraphEdge[];
+    nodes: StateNode[];
+}
+
+/**
+ * MermaidRenderer - Generates Mermaid state diagram syntax from ASL
+ */
+export class MermaidRenderer {
+    /**
+     * Render nodes and edges to Mermaid syntax
+     */
+    render(params: RenderMermaidParams): MermaidOutput {
+        const { asl, edges, nodes } = params;
+        const lines: string[] = [];
+
+        // Header
+        lines.push('stateDiagram-v2');
+        lines.push('');
+
+        // Find start state from ASL or edges
+        const startState = this.findStartState({ asl, edges, nodes });
+        if (startState) {
+            lines.push(`    [*] --> ${this.sanitizeId(startState)}`);
+        }
+
+        // Define states with labels
+        const stateDefinitions = new Set<string>();
+        nodes.forEach((node) => {
+            const id = this.sanitizeId(node.id);
+
+            // Add state with label if different from ID
+            if (node.label !== node.id && !stateDefinitions.has(id)) {
+                lines.push(`    ${id}: ${this.escapeLabel(node.label)}`);
+                stateDefinitions.add(id);
+            }
+        });
+
+        if (stateDefinitions.size > 0) {
+            lines.push('');
+        }
+
+        // Define transitions
+        edges.forEach((edge) => {
+            const from = this.sanitizeId(edge.from);
+            const to = this.sanitizeId(edge.to);
+
+            if (edge.label || edge.condition) {
+                const label = this.escapeLabel(
+                    edge.condition || edge.label || '',
+                );
+                lines.push(`    ${from} --> ${to}: ${label}`);
+            } else {
+                lines.push(`    ${from} --> ${to}`);
+            }
+        });
+
+        // Add end states (Succeed/Fail)
+        const endStates = nodes.filter(
+            (node) => node.type === 'Succeed' || node.type === 'Fail',
+        );
+        if (endStates.length > 0) {
+            lines.push('');
+            endStates.forEach((node) => {
+                const id = this.sanitizeId(node.id);
+                lines.push(`    ${id} --> [*]`);
+            });
+        }
+
+        // Add styling classes
+        lines.push('');
+        lines.push(
+            '    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px',
+        );
+        lines.push(
+            '    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px',
+        );
+        lines.push(
+            '    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px',
+        );
+        lines.push(
+            '    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px',
+        );
+
+        // Apply classes to states
+        lines.push('');
+        nodes.forEach((node) => {
+            const id = this.sanitizeId(node.id);
+            switch (node.type) {
+                case 'Succeed':
+                    lines.push(`    class ${id} successState`);
+                    break;
+                case 'Fail':
+                    lines.push(`    class ${id} failState`);
+                    break;
+                case 'Choice':
+                    lines.push(`    class ${id} choiceState`);
+                    break;
+                case 'Task':
+                    lines.push(`    class ${id} taskState`);
+                    break;
+            }
+        });
+
+        return {
+            code: lines.join('\n'),
+            metadata: {
+                stateCount: nodes.length,
+                edgeCount: edges.length,
+            },
+        };
+    }
+
+    /**
+     * Sanitize state ID for Mermaid (no spaces, special chars)
+     */
+    private sanitizeId(id: string): string {
+        return id.replace(/[^a-zA-Z0-9_]/g, '_');
+    }
+
+    /**
+     * Escape label text for Mermaid
+     */
+    private escapeLabel(label: string): string {
+        // Remove or escape characters that might break Mermaid syntax
+        return label.replace(/"/g, "'").replace(/\n/g, ' ');
+    }
+
+    /**
+     * Find the start state from ASL definition or by analyzing edges
+     */
+    private findStartState(params: FindStartStateParams): string | null {
+        const { asl, edges, nodes } = params;
+
+        // If ASL definition provided, use StartAt
+        if (asl?.StartAt) {
+            return asl.StartAt;
+        }
+
+        // Otherwise, find node that has no incoming edges
+        const targetNodes = new Set(edges.map((edge) => edge.to));
+        const startNode = nodes.find((node) => !targetNodes.has(node.id));
+        return startNode?.id || nodes[0]?.id || null;
+    }
+}
