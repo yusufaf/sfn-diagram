@@ -31,13 +31,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive JSDoc documentation for public API
 - Dual ESM/CJS module format support
 - Node.js-only package optimized for server-side rendering
+- AWS service icons for Task states (opt-in via `showIcons` option)
+  - Support for 30+ AWS services (Lambda, DynamoDB, S3, SQS, SNS, ECS, etc.)
+  - Configurable icon positioning (left, top, right)
+  - Customizable icon size
+  - Custom icon resolver support for user-provided icon URLs
+  - Icons sourced from jsDelivr CDN (aws-icons package)
+  - Automatic service detection from ARN patterns:
+    - Direct service ARNs (e.g., `arn:aws:lambda:...`)
+    - Service integration ARNs (e.g., `arn:aws:states:::lambda:invoke`)
+    - SDK integration ARNs (e.g., `arn:aws:states:::aws-sdk:dynamodb:getItem`)
+  - Graceful fallback for unsupported services
 
 ### Documentation
 - Comprehensive README with installation, usage examples, and API reference
 - Contributing guidelines with code style standards
 - MIT License
 
-## [0.1.0] - 2024-12-06
+## [0.1.0] - 2025-12-06
 
 ### Added
 - Initial release

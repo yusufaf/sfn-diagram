@@ -33,6 +33,10 @@ export class PngExporter {
 
     /**
      * Convert SVG string to PNG buffer
+     *
+     * Note: External images (like AWS service icons from CDN) may not render in PNG export
+     * due to limitations with headless browser rendering. Use SVG output for best results
+     * when showIcons is enabled.
      */
     async convert(params: ConvertParams): Promise<PngOutput> {
         const { svg, width, height } = params;

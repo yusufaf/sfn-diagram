@@ -72,12 +72,16 @@ export interface StateNode {
     /** Child node IDs (for container nodes like Parallel/Map) */
     children?: string[];
     height?: number;
+    /** URL to AWS service icon (CDN path for Task states) */
+    iconUrl?: string;
     id: string;
     /** Whether this node is a container (Parallel or Map state) */
     isContainer?: boolean;
     label: string;
     /** Parent node ID (for nodes inside Parallel/Map containers) */
     parent?: string;
+    /** AWS service identifier for Task states (e.g., 'lambda', 's3') */
+    serviceType?: string;
     style?: NodeStyle;
     type: string;
     width?: number;
@@ -86,7 +90,7 @@ export interface StateNode {
 }
 
 /** Edge types for state transitions */
-export type EdgeType = 'normal' | 'error' | 'choice';
+export type EdgeType = 'normal' | 'error' | 'choice' | 'default';
 
 export interface GraphEdge {
     condition?: string;
@@ -112,6 +116,7 @@ export interface CustomTheme {
     background: string;
     edgeColors: {
         choice: string;
+        default: string;
         error: string;
         normal: string;
     };
@@ -142,16 +147,25 @@ export type StylePreset = 'aws-standard' | 'enhanced';
 
 // Configuration Types
 export interface DiagramOptions {
-    /** Background color for PNG export (default: 'transparent') */
+    /**
+     * Background color for PNG export
+     * @default 'transparent'
+     */
     backgroundColor?: string | 'transparent';
 
-    /** Style for Catch block edge labels: 'error-type' shows error names, 'catch-number' shows "Catch #N" (default: 'error-type') */
+    /**
+     * Style for Catch block edge labels: 'error-type' shows error names, 'catch-number' shows "Catch #N"
+     * @default 'error-type'
+     */
     catchLabelStyle?: CatchLabelStyle;
 
     /** Custom styling overrides for specific state types */
     customColors?: Partial<Record<StateType, NodeStyle>>;
 
-    /** Style of edge paths: straight, curved, or orthogonal (default: curved) */
+    /**
+     * Style of edge paths: straight, curved, or orthogonal
+     * @default 'curved'
+     */
     edgeStyle?: EdgePathStyle;
 
     /** Output format for the diagram */
@@ -160,34 +174,82 @@ export interface DiagramOptions {
     /** Overall diagram height in pixels (auto-calculated if not specified) */
     height?: number;
 
-    /** Whether to use state comments as node labels (default: true) */
+    /**
+     * Position of AWS service icons relative to node label
+     * @default 'left'
+     */
+    iconPosition?: 'left' | 'top' | 'right';
+
+    /** Custom function to resolve icon URLs for services */
+    iconResolver?: (service: string) => string | null;
+
+    /**
+     * Size of AWS service icons in pixels
+     * @default 24
+     */
+    iconSize?: number;
+
+    /**
+     * Whether to use state comments as node labels
+     * @default true
+     */
     includeComments?: boolean;
 
     /** Graph layout direction: TB (top-bottom), LR (left-right), RL (right-left), BT (bottom-top) */
     layout?: LayoutDirection;
 
-    /** Height of each state node in pixels (default: 60) */
+    /**
+     * Height of each state node in pixels
+     * @default 60
+     */
     nodeHeight?: number;
 
-    /** Horizontal separation between nodes in pixels (default: 50) */
+    /**
+     * Horizontal separation between nodes in pixels
+     * @default 50
+     */
     nodeSeparation?: number;
 
-    /** Width of each state node in pixels (default: 120) */
+    /**
+     * Width of each state node in pixels
+     * @default 120
+     */
     nodeWidth?: number;
 
-    /** Padding around the diagram in pixels (default: 20) */
+    /**
+     * Padding around the diagram in pixels
+     * @default 20
+     */
     padding?: number;
 
-    /** PNG export quality from 1-100 (default: 90) */
+    /**
+     * PNG export quality from 1-100
+     * @default 90
+     */
     pngQuality?: number;
 
-    /** Vertical separation between ranks in pixels (default: 50) */
+    /**
+     * Vertical separation between ranks in pixels
+     * @default 50
+     */
     rankSeparation?: number;
 
-    /** Whether to display state type labels on nodes (default: false) */
+    /**
+     * Whether to display AWS service icons on Task state nodes
+     * @default false
+     */
+    showIcons?: boolean;
+
+    /**
+     * Whether to display state type labels on nodes
+     * @default false
+     */
     showStateTypes?: boolean;
 
-    /** Visual style preset: 'aws-standard' uses rectangles (AWS parity), 'enhanced' uses shapes for visual distinction (default: 'aws-standard') */
+    /**
+     * Visual style preset: 'aws-standard' uses rectangles (AWS parity), 'enhanced' uses shapes for visual distinction
+     * @default 'aws-standard'
+     */
     stylePreset?: StylePreset;
 
     /** Color theme: 'light', 'dark', or custom theme object */

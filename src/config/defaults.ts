@@ -4,11 +4,12 @@ import type { DiagramOptions } from '../types';
  * Default diagram options - used when options not provided
  */
 export const DEFAULT_DIAGRAM_OPTIONS: Required<
-    Omit<DiagramOptions, 'width' | 'height' | 'customColors'>
+    Omit<DiagramOptions, 'width' | 'height' | 'customColors' | 'iconResolver'>
 > & {
     width: number | undefined;
     height: number | undefined;
     customColors: DiagramOptions['customColors'];
+    iconResolver: DiagramOptions['iconResolver'];
 } = {
     // Output format
     format: 'svg',
@@ -35,6 +36,12 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     edgeStyle: 'curved',
     catchLabelStyle: 'error-type',
     stylePreset: 'aws-standard',
+
+    // Icon options
+    iconPosition: 'left' as const,
+    iconResolver: undefined,
+    iconSize: 24,
+    showIcons: false,
 
     // PNG-specific
     pngQuality: 90,

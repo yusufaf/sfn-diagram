@@ -65,6 +65,17 @@ import type {
  * const aslJson = fs.readFileSync('state-machine.json', 'utf-8');
  * const result = generateSvg({ asl: aslJson, theme: 'light' });
  * ```
+ *
+ * @example
+ * ```typescript
+ * // With AWS service icons
+ * const { svg } = generateSvg({
+ *   aslDefinition: asl,
+ *   showIcons: true,
+ *   iconPosition: 'left',
+ *   nodeWidth: 150
+ * });
+ * ```
  */
 export function generateSvg(params: GenerateSvgParams): SvgOutput {
     const { aslDefinition, ...options } = params;
@@ -435,3 +446,5 @@ export type {
 } from './types';
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
+export { embedIcons } from './utils/iconEmbedder';
+export { PngExporter } from './exporters';

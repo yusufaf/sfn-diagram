@@ -27,6 +27,21 @@ interface RenderEdgeParams {
     group: any;
 }
 
+interface CalculateLabelPositionParams {
+    hasIcon: boolean;
+    iconPosition: 'left' | 'top' | 'right';
+    iconSize: number;
+    node: StateNode;
+}
+
+interface RenderIconParams {
+    group: any;
+    iconPosition: 'left' | 'top' | 'right';
+    iconSize: number;
+    iconUrl: string;
+    node: StateNode;
+}
+
 /**
  * SvgRenderer - Generates SVG diagrams from positioned nodes and edges
  */
@@ -112,6 +127,18 @@ export class SvgRenderer {
             .append('polygon')
             .attr('points', '0 0, 10 3, 0 6')
             .attr('fill', this.theme.edgeColors.choice);
+
+        // Default arrow
+        defs.append('marker')
+            .attr('id', 'arrowhead-default')
+            .attr('markerWidth', 10)
+            .attr('markerHeight', 10)
+            .attr('refX', 9)
+            .attr('refY', 3)
+            .attr('orient', 'auto')
+            .append('polygon')
+            .attr('points', '0 0, 10 3, 0 6')
+            .attr('fill', this.theme.edgeColors.default);
 
         // Create groups for edges, container nodes, and regular nodes
         const edgesGroup = svg.append('g').attr('class', 'edges');
@@ -316,9 +343,36 @@ export class SvgRenderer {
                 this.renderRect({ group: nodeGroup, node, style });
         }
 
+        // Render icon if present
+        if (node.iconUrl && this.options.showIcons) {
+            this.renderIcon({
+                group: nodeGroup,
+                iconPosition: this.options.iconPosition || 'left',
+                iconSize: this.options.iconSize || 24,
+                iconUrl: node.iconUrl,
+                node,
+            });
+        }
+
+        // Calculate label position based on icon
+        const labelX = this.calculateLabelX({
+            hasIcon: !!node.iconUrl && !!this.options.showIcons,
+            iconPosition: this.options.iconPosition || 'left',
+            iconSize: this.options.iconSize || 24,
+            node,
+        });
+        const labelY = this.calculateLabelY({
+            hasIcon: !!node.iconUrl && !!this.options.showIcons,
+            iconPosition: this.options.iconPosition || 'left',
+            iconSize: this.options.iconSize || 24,
+            node,
+        });
+
         // Add label
         nodeGroup
             .append('text')
+            .attr('x', labelX)
+            .attr('y', labelY)
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'middle')
             .attr('fill', this.theme.textColor)
@@ -330,9 +384,10 @@ export class SvgRenderer {
         if (this.options.showStateTypes) {
             nodeGroup
                 .append('text')
+                .attr('x', labelX)
+                .attr('y', labelY + 20)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
-                .attr('y', 20)
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .attr('opacity', 0.7)
@@ -393,6 +448,89 @@ export class SvgRenderer {
     }
 
     /**
+     * Render AWS service icon within node
+     */
+    private renderIcon(params: RenderIconParams): void {
+        const { group, iconPosition, iconSize, iconUrl, node } = params;
+
+        const width = node.width || 120;
+        const height = node.height || 60;
+        const padding = 8;
+
+        let iconX = 0;
+        let iconY = 0;
+
+        switch (iconPosition) {
+            case 'left':
+                // Position inside left edge with padding, vertically centered
+                iconX = -width / 2 + padding;
+                iconY = -iconSize / 2;
+                break;
+            case 'top':
+                // Position horizontally centered, inside top edge with padding
+                iconX = -iconSize / 2;
+                iconY = -height / 2 + padding;
+                break;
+            case 'right':
+                // Position inside right edge with padding, vertically centered
+                iconX = width / 2 - iconSize - padding;
+                iconY = -iconSize / 2;
+                break;
+        }
+
+        group
+            .append('image')
+            .attr('x', iconX)
+            .attr('y', iconY)
+            .attr('width', iconSize)
+            .attr('height', iconSize)
+            .attr('href', iconUrl)
+            .attr('preserveAspectRatio', 'xMidYMid meet');
+    }
+
+    /**
+     * Calculate label X position based on icon presence and position
+     */
+    private calculateLabelX(params: CalculateLabelPositionParams): number {
+        const { hasIcon, iconPosition, iconSize, node } = params;
+        if (!hasIcon) return 0;
+
+        const width = node.width || 120;
+        const padding = 8;
+        const gap = 4; // Gap between icon and label
+
+        switch (iconPosition) {
+            case 'left':
+                // Center label in remaining space to the right of icon
+                // Icon ends at: -width/2 + padding + iconSize
+                // Available space: from that point to width/2
+                return (padding + iconSize + gap) / 2;
+            case 'right':
+                // Center label in remaining space to the left of icon
+                // Icon starts at: width/2 - iconSize - padding
+                // Available space: from -width/2 to that point
+                return -(padding + iconSize + gap) / 2;
+            default:
+                return 0;
+        }
+    }
+
+    /**
+     * Calculate label Y position based on icon presence and position
+     */
+    private calculateLabelY(params: CalculateLabelPositionParams): number {
+        const { hasIcon, iconPosition, iconSize, node } = params;
+        if (!hasIcon || iconPosition !== 'top') return 0;
+
+        const padding = 8;
+        const gap = 4; // Gap between icon and label
+
+        // Center label in remaining space below icon
+        // Icon ends at: -height/2 + padding + iconSize
+        return (padding + iconSize + gap) / 2;
+    }
+
+    /**
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
@@ -422,9 +560,11 @@ export class SvgRenderer {
             .attr('stroke-width', edge.type === 'error' ? 2 : 1.5)
             .attr('marker-end', `url(#arrowhead-${markerType})`);
 
-        // Add dashed style for error edges
+        // Add dashed style for error and default edges
         if (edge.type === 'error') {
             pathElement.attr('stroke-dasharray', '5,5');
+        } else if (edge.type === 'default') {
+            pathElement.attr('stroke-dasharray', '8,4');
         }
 
         // Add edge label if present

@@ -1,6 +1,7 @@
 import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
 import { EDGE_LABELS, getCatchLabel } from './constants';
+import { detectService } from './services';
 
 export interface ParseResult {
     edges: GraphEdge[];
@@ -9,6 +10,7 @@ export interface ParseResult {
 
 interface CreateStateNodeParams {
     name: string;
+    options?: DiagramOptions;
     state: AslState;
     stylePreset?: DiagramOptions['stylePreset'];
 }
@@ -49,7 +51,7 @@ export function parseAsl(params: ParseAslParams): ParseResult {
 }
 
 function createStateNode(params: CreateStateNodeParams): StateNode {
-    const { name, state, stylePreset } = params;
+    const { name, options, state, stylePreset } = params;
     const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
 
     const baseNode: StateNode = {
@@ -63,6 +65,18 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // For container nodes, we'll populate children later
     if (isContainer) {
         baseNode.children = [];
+    }
+
+    // Detect AWS service for Task states if icons enabled
+    if (options?.showIcons && state.Type === 'Task') {
+        const serviceInfo = detectService({
+            iconResolver: options.iconResolver,
+            state,
+        });
+        if (serviceInfo) {
+            baseNode.serviceType = serviceInfo.serviceName;
+            baseNode.iconUrl = serviceInfo.iconUrl || undefined;
+        }
     }
 
     return baseNode;
@@ -88,14 +102,19 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
                 });
             }
 
-            // Handle default branch
+            // Handle default branch (skip if it goes to same target as any choice)
             if (state.Default) {
-                edges.push({
-                    from: stateName,
-                    label: EDGE_LABELS.DEFAULT,
-                    to: state.Default,
-                    type: 'choice',
-                });
+                const choiceTargets = state.Choices?.map((choice) => choice.Next) || [];
+                const isRedundant = choiceTargets.includes(state.Default);
+
+                if (!isRedundant) {
+                    edges.push({
+                        from: stateName,
+                        label: EDGE_LABELS.DEFAULT,
+                        to: state.Default,
+                        type: 'default',
+                    });
+                }
             }
             break;
 
@@ -176,6 +195,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
     for (const [stateName, state] of Object.entries(definition.States)) {
         const stateNode = createStateNode({
             name: stateName,
+            options,
             state,
             stylePreset: options?.stylePreset,
         });

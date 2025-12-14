@@ -229,6 +229,70 @@ generateSvg({ aslDefinition: asl, theme: customTheme });
 - `'straight'` - Direct straight lines
 - `'orthogonal'` - Right-angled paths
 
+### AWS Service Icons
+
+Display AWS service icons on Task state nodes to improve diagram readability and quickly identify which AWS services are being used.
+
+**Basic Usage:**
+
+```typescript
+import { generateSvg } from 'sfn-diagram';
+
+const { svg } = generateSvg({
+  aslDefinition: asl,
+  showIcons: true,        // Enable icons
+  iconPosition: 'left',   // Icon placement (default)
+  iconSize: 24            // Icon dimensions in pixels (default)
+});
+```
+
+**Supported Services (30+):**
+
+Lambda, ECS, Fargate, EC2, Batch, DynamoDB, RDS, Aurora, Neptune, S3, EFS, FSx, SQS, SNS, EventBridge, Kinesis, Glue, Athena, EMR, Redshift, SageMaker, Bedrock, Comprehend, Rekognition, Step Functions, API Gateway, AppSync, CloudWatch, CloudFormation, Systems Manager, Secrets Manager, KMS, and more.
+
+**Icon Positioning:**
+
+- `'left'` - Icon to the left of label (default, matches AWS Console style)
+- `'top'` - Icon above label
+- `'right'` - Icon to the right of label
+
+**Custom Icon Resolver:**
+
+Provide your own icon URLs for services:
+
+```typescript
+const { svg } = generateSvg({
+  aslDefinition: asl,
+  showIcons: true,
+  iconResolver: (service) => {
+    if (service === 'lambda') {
+      return 'https://my-cdn.com/lambda-icon.svg';
+    }
+    return null; // Fall back to default
+  }
+});
+```
+
+**Recommended Node Dimensions:**
+
+For optimal icon visibility, use wider nodes:
+
+```typescript
+const { svg } = generateSvg({
+  aslDefinition: asl,
+  showIcons: true,
+  nodeWidth: 150,  // Default: 120
+  nodeHeight: 70   // Default: 60
+});
+```
+
+**Important Notes:**
+- Icons are only displayed on Task states (states with AWS service integrations)
+- Icons are sourced from [aws-icons](https://www.npmjs.com/package/aws-icons) via jsDelivr CDN
+- **PNG export limitation**: External CDN images may not render in PNG output due to headless browser limitations. **Use SVG output for diagrams with icons.**
+- Unsupported services gracefully fall back to text-only labels
+- Icons are opt-in via `showIcons: true` (disabled by default)
+
 ## Supported State Types
 
 All AWS Step Functions state types are fully supported:
