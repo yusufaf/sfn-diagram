@@ -1,0 +1,93 @@
+import { describe, expect, it } from 'vitest';
+import type { AslDefinition } from '../src/types';
+
+describe('Module Format Compatibility', () => {
+    describe('ESM imports', () => {
+        it('should import named exports from ESM', async () => {
+            const { generateSvg, generateMermaid, generateDiagram, exportPng, SfnDiagramGenerator } =
+                await import('../src/index');
+
+            expect(generateSvg).toBeDefined();
+            expect(generateMermaid).toBeDefined();
+            expect(generateDiagram).toBeDefined();
+            expect(exportPng).toBeDefined();
+            expect(SfnDiagramGenerator).toBeDefined();
+        });
+
+        it('should work with ESM import for generating SVG', async () => {
+            const { generateSvg } = await import('../src/index');
+
+            const asl: AslDefinition = {
+                StartAt: 'Test',
+                States: {
+                    Test: { End: true, Type: 'Pass' },
+                },
+            };
+
+            const result = generateSvg({ aslDefinition: asl });
+
+            expect(result.svg).toBeDefined();
+            expect(result.svg).toContain('<svg');
+            expect(result.metadata.nodeCount).toBeGreaterThan(0);
+        });
+
+        it('should work with ESM default import fallback', async () => {
+            const mod = await import('../src/index');
+
+            // Verify all exports are accessible
+            expect(mod.generateSvg).toBeDefined();
+            expect(mod.SfnDiagramGenerator).toBeDefined();
+        });
+    });
+
+    describe('Type definitions', () => {
+        it('should have correct TypeScript types for ESM', async () => {
+            const { generateSvg } = await import('../src/index');
+
+            const asl: AslDefinition = {
+                StartAt: 'Test',
+                States: {
+                    Test: { End: true, Type: 'Pass' },
+                },
+            };
+
+            // This should type-check correctly
+            const result = generateSvg({
+                aslDefinition: asl,
+                edgeStyle: 'curved',
+                layout: 'TB',
+                nodeHeight: 60,
+                nodeWidth: 120,
+                theme: 'light',
+            });
+
+            expect(result).toHaveProperty('svg');
+            expect(result).toHaveProperty('height');
+            expect(result).toHaveProperty('metadata');
+            expect(result).toHaveProperty('width');
+            expect(result.metadata).toHaveProperty('nodeCount');
+            expect(result.metadata).toHaveProperty('edgeCount');
+        });
+    });
+
+    describe('Class-based API', () => {
+        it('should instantiate SfnDiagramGenerator from ESM', async () => {
+            const { SfnDiagramGenerator } = await import('../src/index');
+
+            const asl: AslDefinition = {
+                StartAt: 'Test',
+                States: {
+                    Test: { End: true, Type: 'Pass' },
+                },
+            };
+
+            const generator = new SfnDiagramGenerator({ theme: 'dark' });
+            expect(generator).toBeDefined();
+            expect(generator.generateSvg).toBeDefined();
+
+            const result = generator.generateSvg({ aslDefinition: asl });
+            expect(result.svg).toBeDefined();
+            expect(result.svg).toContain('<svg');
+        });
+    });
+});

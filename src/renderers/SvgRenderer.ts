@@ -12,19 +12,23 @@ import { getTheme } from '../config/themes';
 import { JSDOM } from 'jsdom';
 
 interface RenderShapeParams {
-    group: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    group: any; // D3 selection type
     node: StateNode;
-    style: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    style: any; // D3 computed style
 }
 
 interface RenderNodeParams {
-    group: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    group: any; // D3 selection type
     node: StateNode;
 }
 
 interface RenderEdgeParams {
     edge: GraphEdge & { points?: Array<{ x: number; y: number }> };
-    group: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    group: any; // D3 selection type
 }
 
 interface CalculateLabelPositionParams {
@@ -35,7 +39,8 @@ interface CalculateLabelPositionParams {
 }
 
 interface RenderIconParams {
-    group: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    group: any; // D3 selection type
     iconPosition: 'left' | 'top' | 'right';
     iconSize: number;
     iconUrl: string;
@@ -492,10 +497,9 @@ export class SvgRenderer {
      * Calculate label X position based on icon presence and position
      */
     private calculateLabelX(params: CalculateLabelPositionParams): number {
-        const { hasIcon, iconPosition, iconSize, node } = params;
+        const { hasIcon, iconPosition, iconSize } = params;
         if (!hasIcon) return 0;
 
-        const width = node.width || 120;
         const padding = 8;
         const gap = 4; // Gap between icon and label
 
@@ -519,7 +523,7 @@ export class SvgRenderer {
      * Calculate label Y position based on icon presence and position
      */
     private calculateLabelY(params: CalculateLabelPositionParams): number {
-        const { hasIcon, iconPosition, iconSize, node } = params;
+        const { hasIcon, iconPosition, iconSize } = params;
         if (!hasIcon || iconPosition !== 'top') return 0;
 
         const padding = 8;

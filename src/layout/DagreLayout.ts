@@ -229,7 +229,7 @@ export class DagreLayout {
 
         // Adjust dimensions based on shape
         switch (node.style?.shape) {
-            case 'circle':
+            case 'circle': {
                 // Circles need to be square to render properly
                 // Branch end markers should be small
                 if (node.type === 'BranchEnd' || node.type === 'IteratorEnd') {
@@ -240,6 +240,7 @@ export class DagreLayout {
                 // Use a fixed diameter that accommodates most reasonable labels
                 const terminalDiameter = baseHeight * 1.4; // ~84px with default 60px height
                 return { height: terminalDiameter, width: terminalDiameter };
+            }
             case 'diamond':
                 // Diamonds need extra space for rotation
                 return { height: baseHeight * 1.2, width: baseWidth * 1.2 };

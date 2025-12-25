@@ -30,11 +30,13 @@ export interface ChoiceRule {
     NumericEquals?: number;
     StringEquals?: string;
     Variable?: string;
-    [key: string]: any; // Other condition types
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [key: string]: any; // AWS ASL spec allows arbitrary condition types
 }
 
 export interface AslState {
-    Assign?: Record<string, any>; // Pass-specific
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Branches?: AslDefinition[]; // Parallel/Map-specific
     Catch?: CatchBlock[]; // Task-specific
     Cause?: string; // Fail-specific
@@ -45,10 +47,13 @@ export interface AslState {
     Error?: string; // Fail-specific
     Iterator?: AslDefinition; // Parallel/Map-specific
     Next?: string;
-    Output?: any; // Pass-specific
-    Parameters?: Record<string, any>; // Task-specific
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Output?: any; // AWS ASL spec - arbitrary JSON values
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Resource?: string; // Task-specific
-    Result?: any; // Pass-specific
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Result?: any; // AWS ASL spec - arbitrary JSON values
     ResultPath?: string; // Task-specific
     Retry?: RetryBlock[]; // Task-specific
     Seconds?: number | string; // Wait-specific; Can be JSONata expression

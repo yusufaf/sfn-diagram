@@ -1,19 +1,19 @@
 {
   "name": "sfn-diagram",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generate SVG diagrams from AWS Step Functions ASL definitions",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
-  "types": "./dist/index-BQQPw8Ms.d.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
     "import": {
-      "types": "./dist/index-BQQPw8Ms.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "require": {
-      "types": "./dist/index-C-h6y7Iz.d.cts",
-      "require": "./dist/index.cjs"
+      "types": "./dist/index.d.cts",
+      "default": "./dist/index.cjs"
     }
   },
   "files": [
@@ -23,9 +23,14 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "examples": "vitest run tests/visual-outputs.test.ts",
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm run build && pnpm run validate",
     "release": "npm publish",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "validate": "pnpm run validate:publint && pnpm run validate:types",
+    "validate:publint": "publint",
+    "validate:types": "attw --pack ."
   },
   "keywords": [
     "aws",
@@ -39,16 +44,18 @@
   "author": "Yusuf Afzal",
   "license": "MIT",
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
     "@aws-sdk/client-sfn": "^3.879.0",
     "@eslint/js": "^9.34.0",
     "@types/d3": "^7.4.3",
     "@types/node": "^24.3.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.3.0",
     "prettier": "3.6.2",
+    "publint": "^0.3.16",
     "tsdown": "^0.14.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
@@ -65,7 +72,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yusufaf/sfn-diagram.git"
+    "url": "git+https://github.com/yusufaf/sfn-diagram.git"
   },
   "bugs": {
     "url": "https://github.com/yusufaf/sfn-diagram/issues"

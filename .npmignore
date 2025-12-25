@@ -1,0 +1,30 @@
+# Source files
+src/
+tests/
+examples/outputs/
+
+# Config files
+*.config.ts
+*.config.js
+tsconfig.json
+vitest.config.ts
+tsdown.config.ts
+eslint.config.ts
+
+# CI/CD
+.github/
+.vscode/
+.claude/
+
+# Misc
+*.log
+.env
+.DS_Store
+*.md
+!README.md
+!CHANGELOG.md
+!LICENSE
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json

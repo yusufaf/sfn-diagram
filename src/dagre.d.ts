@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 declare module '@dagrejs/dagre' {
     export namespace graphlib {
         class Graph {

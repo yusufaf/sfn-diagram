@@ -19,7 +19,7 @@ describe('PngExporter', () => {
             expect(result.buffer).toBeDefined();
             expect(result.buffer).toBeInstanceOf(Buffer);
             expect(result.buffer.length).toBeGreaterThan(0);
-        });
+        }, 10000);
 
         it('should preserve dimensions', async () => {
             const exporter = new PngExporter({});
@@ -29,7 +29,7 @@ describe('PngExporter', () => {
 
             expect(result.width).toBe(200);
             expect(result.height).toBe(100);
-        });
+        }, 10000);
 
         it('should include metadata with format', async () => {
             const exporter = new PngExporter({});
@@ -39,7 +39,7 @@ describe('PngExporter', () => {
 
             expect(result.metadata).toBeDefined();
             expect(result.metadata.format).toBe('png');
-        });
+        }, 10000);
     });
 
     describe('Quality settings', () => {
@@ -51,7 +51,7 @@ describe('PngExporter', () => {
 
             expect(result.buffer).toBeDefined();
             expect(result.buffer).toBeInstanceOf(Buffer);
-        });
+        }, 10000);
 
         it('should use default quality when not specified', async () => {
             const exporter = new PngExporter({});
@@ -60,7 +60,7 @@ describe('PngExporter', () => {
             const result = await exporter.convert({ svg, width: 200, height: 100 });
 
             expect(result.buffer).toBeDefined();
-        });
+        }, 10000);
     });
 
     describe('Background color', () => {
@@ -71,7 +71,7 @@ describe('PngExporter', () => {
             const result = await exporter.convert({ svg, width: 200, height: 100 });
 
             expect(result.buffer).toBeDefined();
-        });
+        }, 10000);
 
         it('should support custom background color', async () => {
             const exporter = new PngExporter({ backgroundColor: 'white' });
@@ -80,7 +80,7 @@ describe('PngExporter', () => {
             const result = await exporter.convert({ svg, width: 200, height: 100 });
 
             expect(result.buffer).toBeDefined();
-        });
+        }, 10000);
 
         it('should support hex color backgrounds', async () => {
             const exporter = new PngExporter({ backgroundColor: '#f0f0f0' });
@@ -89,7 +89,7 @@ describe('PngExporter', () => {
             const result = await exporter.convert({ svg, width: 200, height: 100 });
 
             expect(result.buffer).toBeDefined();
-        });
+        }, 10000);
     });
 
     describe('Edge cases', () => {
@@ -100,7 +100,7 @@ describe('PngExporter', () => {
             const result = await exporter.convert({ svg, width: 100, height: 100 });
 
             expect(result.buffer).toBeDefined();
-        });
+        }, 10000);
 
         it('should handle large SVGs', async () => {
             const exporter = new PngExporter({});

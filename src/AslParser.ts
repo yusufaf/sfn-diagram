@@ -90,7 +90,7 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
         case 'Choice':
             // Handle choice branches
             if (state.Choices) {
-                state.Choices.forEach((choice: ChoiceRule, index: number) => {
+                state.Choices.forEach((choice: ChoiceRule) => {
                     const condition = extractConditionLabel(choice);
                     edges.push({
                         condition,
