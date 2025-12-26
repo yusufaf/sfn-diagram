@@ -34,7 +34,7 @@ jobs:
           key: ${{ runner.os }}-puppeteer-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Chrome for Puppeteer
-        run: npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer
+        run: pnpm exec browsers install chrome@stable --path ~/.cache/puppeteer
 
       - name: Build
         run: pnpm run build
