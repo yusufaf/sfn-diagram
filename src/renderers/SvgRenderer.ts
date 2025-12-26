@@ -1,5 +1,4 @@
-import { select } from 'd3-selection';
-import { line, curveBasis } from 'd3-shape';
+import { select, line, curveBasis } from 'd3';
 import type {
     StateNode,
     GraphEdge,
@@ -548,8 +547,8 @@ export class SvgRenderer {
 
         // Create path from points
         const pathGenerator = line<{ x: number; y: number }>()
-            .x((d) => d.x)
-            .y((d) => d.y);
+            .x((d: { x: number; y: number }) => d.x)
+            .y((d: { x: number; y: number }) => d.y);
 
         if (this.options.edgeStyle === 'curved') {
             pathGenerator.curve(curveBasis);
