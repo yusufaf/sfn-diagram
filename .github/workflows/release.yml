@@ -33,14 +33,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Cache Puppeteer browsers
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/puppeteer
-          key: ${{ runner.os }}-puppeteer-${{ hashFiles('pnpm-lock.yaml') }}
-
-      - name: Install Chrome for Puppeteer
-        run: pnpm exec browsers install chrome@stable --path ~/.cache/puppeteer
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
 
       - name: Build
         run: pnpm run build
@@ -53,6 +49,8 @@ jobs:
 
       - name: Test
         run: pnpm run test
+        env:
+          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
 
       - name: Validate package exports
         run: pnpm run validate
