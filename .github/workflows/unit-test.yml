@@ -27,8 +27,14 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: Setup Chrome
-        uses: browser-actions/setup-chrome@v1
+      - name: Cache Puppeteer browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/puppeteer
+          key: ${{ runner.os }}-puppeteer-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Chrome for Puppeteer
+        run: npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer
 
       - name: Build
         run: pnpm run build
@@ -41,5 +47,3 @@ jobs:
 
       - name: Test
         run: pnpm run test
-        env:
-          PUPPETEER_EXECUTABLE_PATH: ${{ env.CHROME_PATH }}
