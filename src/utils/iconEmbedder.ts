@@ -1,18 +1,35 @@
+/** Default timeout for icon fetch operations in milliseconds */
+const DEFAULT_FETCH_TIMEOUT_MS = 5000;
+
 interface EmbedIconsParams {
     svg: string;
+    /** Timeout in milliseconds for each icon fetch (default: 5000) */
+    timeoutMs?: number;
+}
+
+interface FetchAsDataUriParams {
+    /** Timeout in milliseconds (default: 5000) */
+    timeoutMs?: number;
+    /** URL to fetch */
+    url: string;
 }
 
 /**
  * Fetch a remote resource and convert it to a base64 data URI
  *
- * @param params - Parameters containing the URL to fetch
- * @returns Base64 data URI string
+ * @param params - Parameters containing the URL and optional timeout
+ * @returns Base64 data URI string, or original URL on failure
  */
-async function fetchAsDataUri(params: { url: string }): Promise<string> {
-    const { url } = params;
+async function fetchAsDataUri(params: FetchAsDataUriParams): Promise<string> {
+    const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, url } = params;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
             throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
         }
@@ -25,7 +42,11 @@ async function fetchAsDataUri(params: { url: string }): Promise<string> {
 
         return `data:${mimeType};base64,${base64}`;
     } catch (error) {
-        console.warn(`Failed to embed icon from ${url}:`, error);
+        clearTimeout(timeoutId);
+        const errorMessage = error instanceof Error && error.name === 'AbortError'
+            ? `Timeout after ${timeoutMs}ms`
+            : error;
+        console.warn(`Failed to embed icon from ${url}:`, errorMessage);
         return url; // Fall back to original URL
     }
 }
@@ -54,7 +75,7 @@ async function fetchAsDataUri(params: { url: string }): Promise<string> {
  * const png = await exportPng({ svg: embeddedSvg });
  */
 export async function embedIcons(params: EmbedIconsParams): Promise<string> {
-    const { svg } = params;
+    const { svg, timeoutMs } = params;
 
     // Find all image href attributes with URLs (not data URIs)
     const hrefPattern = /href="(https?:\/\/[^"]+)"/g;
@@ -70,7 +91,7 @@ export async function embedIcons(params: EmbedIconsParams): Promise<string> {
 
     await Promise.all(
         uniqueUrls.map(async (url) => {
-            const dataUri = await fetchAsDataUri({ url });
+            const dataUri = await fetchAsDataUri({ timeoutMs, url });
             urlToDataUri.set(url, dataUri);
         })
     );

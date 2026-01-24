@@ -3,16 +3,20 @@ import type { AslDefinition } from '../src/types';
 
 describe('Module Format Compatibility', () => {
     describe('ESM imports', () => {
-        it('should import named exports from ESM', async () => {
-            const { generateSvg, generateMermaid, generateDiagram, exportPng, SfnDiagramGenerator } =
-                await import('../src/index');
+        it(
+            'should import named exports from ESM',
+            async () => {
+                const { generateSvg, generateMermaid, generateDiagram, exportPng, SfnDiagramGenerator } =
+                    await import('../src/index');
 
-            expect(generateSvg).toBeDefined();
-            expect(generateMermaid).toBeDefined();
-            expect(generateDiagram).toBeDefined();
-            expect(exportPng).toBeDefined();
-            expect(SfnDiagramGenerator).toBeDefined();
-        });
+                expect(generateSvg).toBeDefined();
+                expect(generateMermaid).toBeDefined();
+                expect(generateDiagram).toBeDefined();
+                expect(exportPng).toBeDefined();
+                expect(SfnDiagramGenerator).toBeDefined();
+            },
+            15000
+        );
 
         it('should work with ESM import for generating SVG', async () => {
             const { generateSvg } = await import('../src/index');

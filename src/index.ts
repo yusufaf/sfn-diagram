@@ -448,3 +448,4 @@ export type {
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { embedIcons } from './utils/iconEmbedder';
 export { PngExporter } from './exporters';
+export { AslValidationError, validateAsl } from './AslParser';

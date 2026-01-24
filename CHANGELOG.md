@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-01-24
+
 ### Added
 - Initial implementation of sfn-diagram library
 - SVG diagram generation using D3.js and Dagre layout engine
@@ -42,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Service integration ARNs (e.g., `arn:aws:states:::lambda:invoke`)
     - SDK integration ARNs (e.g., `arn:aws:states:::aws-sdk:dynamodb:getItem`)
   - Graceful fallback for unsupported services
+- ASL validation with helpful error messages for missing/invalid fields
 
 ### Documentation
 - Comprehensive README with installation, usage examples, and API reference

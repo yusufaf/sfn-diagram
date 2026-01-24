@@ -3,26 +3,219 @@ import { getNodeStyle } from './styles/NodeStyles';
 import { EDGE_LABELS, getCatchLabel } from './constants';
 import { detectService } from './services';
 
+/**
+ * Error thrown when ASL validation fails
+ */
+export class AslValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'AslValidationError';
+    }
+}
+
+/**
+ * Result of parsing an ASL definition into a graph structure
+ */
 export interface ParseResult {
+    /** All edges (transitions) between states */
     edges: GraphEdge[];
+    /** All state nodes including start/end markers */
     nodes: StateNode[];
 }
 
+/** Valid ASL state types */
+const VALID_STATE_TYPES = ['Pass', 'Task', 'Choice', 'Wait', 'Succeed', 'Fail', 'Parallel', 'Map'] as const;
+
+interface ValidateAslParams {
+    /** The ASL definition to validate */
+    definition: unknown;
+}
+
+/**
+ * Validates an ASL definition and returns helpful error messages
+ *
+ * @param params - Validation parameters
+ * @throws {AslValidationError} When the ASL definition is invalid
+ */
+export function validateAsl(params: ValidateAslParams): void {
+    const { definition } = params;
+
+    // Check basic structure
+    if (!definition || typeof definition !== 'object') {
+        throw new AslValidationError('ASL definition must be a non-null object');
+    }
+
+    const asl = definition as Record<string, unknown>;
+
+    // Check for StartAt
+    if (!('StartAt' in asl)) {
+        throw new AslValidationError('ASL definition missing required field: StartAt');
+    }
+
+    if (typeof asl.StartAt !== 'string' || asl.StartAt.trim() === '') {
+        throw new AslValidationError('StartAt must be a non-empty string');
+    }
+
+    // Check for States
+    if (!('States' in asl)) {
+        throw new AslValidationError('ASL definition missing required field: States');
+    }
+
+    if (!asl.States || typeof asl.States !== 'object') {
+        throw new AslValidationError('States must be a non-null object');
+    }
+
+    const states = asl.States as Record<string, unknown>;
+    const stateNames = Object.keys(states);
+
+    if (stateNames.length === 0) {
+        throw new AslValidationError('States object cannot be empty');
+    }
+
+    // Check that StartAt references an existing state
+    if (!stateNames.includes(asl.StartAt as string)) {
+        throw new AslValidationError(
+            `StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(', ')}`
+        );
+    }
+
+    // Validate each state
+    for (const [stateName, stateValue] of Object.entries(states)) {
+        validateState({ stateName, stateNames, stateValue });
+    }
+}
+
+interface ValidateStateParams {
+    /** Name of the state being validated */
+    stateName: string;
+    /** List of all valid state names for reference checking */
+    stateNames: string[];
+    /** The state object to validate */
+    stateValue: unknown;
+}
+
+/**
+ * Validates an individual state within an ASL definition
+ */
+function validateState(params: ValidateStateParams): void {
+    const { stateName, stateNames, stateValue } = params;
+
+    if (!stateValue || typeof stateValue !== 'object') {
+        throw new AslValidationError(`State "${stateName}" must be a non-null object`);
+    }
+
+    const state = stateValue as Record<string, unknown>;
+
+    // Check for Type
+    if (!('Type' in state)) {
+        throw new AslValidationError(`State "${stateName}" missing required field: Type`);
+    }
+
+    const stateType = state.Type;
+    if (typeof stateType !== 'string' || !VALID_STATE_TYPES.includes(stateType as typeof VALID_STATE_TYPES[number])) {
+        throw new AslValidationError(
+            `State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(', ')}`
+        );
+    }
+
+    // Check Next references valid states (if present)
+    if ('Next' in state && state.Next !== undefined) {
+        if (typeof state.Next !== 'string') {
+            throw new AslValidationError(`State "${stateName}": Next must be a string`);
+        }
+        if (!stateNames.includes(state.Next)) {
+            throw new AslValidationError(
+                `State "${stateName}": Next references non-existent state "${state.Next}"`
+            );
+        }
+    }
+
+    // Check Default references valid state (for Choice)
+    if ('Default' in state && state.Default !== undefined) {
+        if (typeof state.Default !== 'string') {
+            throw new AslValidationError(`State "${stateName}": Default must be a string`);
+        }
+        if (!stateNames.includes(state.Default)) {
+            throw new AslValidationError(
+                `State "${stateName}": Default references non-existent state "${state.Default}"`
+            );
+        }
+    }
+
+    // Check Choices reference valid states
+    if ('Choices' in state && Array.isArray(state.Choices)) {
+        for (const [index, choice] of (state.Choices as unknown[]).entries()) {
+            if (choice && typeof choice === 'object' && 'Next' in choice) {
+                const choiceNext = (choice as Record<string, unknown>).Next;
+                if (typeof choiceNext === 'string' && !stateNames.includes(choiceNext)) {
+                    throw new AslValidationError(
+                        `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`
+                    );
+                }
+            }
+        }
+    }
+
+    // Check Catch references valid states
+    if ('Catch' in state && Array.isArray(state.Catch)) {
+        for (const [index, catchBlock] of (state.Catch as unknown[]).entries()) {
+            if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
+                const catchNext = (catchBlock as Record<string, unknown>).Next;
+                if (typeof catchNext === 'string' && !stateNames.includes(catchNext)) {
+                    throw new AslValidationError(
+                        `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`
+                    );
+                }
+            }
+        }
+    }
+
+    // Validate that non-terminal states have either Next or End
+    const terminalTypes = ['Succeed', 'Fail'];
+    if (!terminalTypes.includes(stateType as string) && stateType !== 'Choice') {
+        const hasNext = 'Next' in state;
+        const hasEnd = 'End' in state && state.End === true;
+        if (!hasNext && !hasEnd) {
+            throw new AslValidationError(
+                `State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`
+            );
+        }
+    }
+}
+
+/**
+ * Parameters for creating a state node from an ASL state
+ */
 interface CreateStateNodeParams {
+    /** Unique identifier/name for the state */
     name: string;
+    /** Diagram generation options */
     options?: DiagramOptions;
+    /** The ASL state definition */
     state: AslState;
+    /** Style preset for node rendering */
     stylePreset?: DiagramOptions['stylePreset'];
 }
 
+/**
+ * Parameters for extracting graph edges from a state
+ */
 interface ExtractEdgesFromStateParams {
+    /** How to label catch/error edges */
     catchLabelStyle: DiagramOptions['catchLabelStyle'];
+    /** The ASL state to extract edges from */
     state: AslState;
+    /** Name of the state (used as edge source) */
     stateName: string;
 }
 
+/**
+ * Parameters for parsing an ASL definition into a graph
+ */
 interface ParseAslParams {
+    /** The ASL definition to parse */
     definition: AslDefinition;
+    /** Optional diagram generation options */
     options?: DiagramOptions;
 }
 
@@ -30,6 +223,9 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     const { definition, options } = params;
     const nodes: StateNode[] = [];
     const edges: GraphEdge[] = [];
+
+    // Validate ASL definition before parsing
+    validateAsl({ definition });
 
     // Extract all states as nodes (including nested states)
     extractStatesRecursively({ definition, nodes, options });
@@ -179,9 +375,15 @@ function extractConditionLabel(choice: ChoiceRule): string {
     return conditions.join(' AND ') || EDGE_LABELS.CONDITION_FALLBACK;
 }
 
+/**
+ * Parameters for recursive state extraction
+ */
 interface ExtractStatesRecursivelyParams {
+    /** ASL definition containing states to extract */
     definition: AslDefinition;
+    /** Array to accumulate extracted nodes into */
     nodes: StateNode[];
+    /** Diagram generation options */
     options?: DiagramOptions;
 }
 
@@ -269,9 +471,15 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
     }
 }
 
+/**
+ * Parameters for marking branch states as children of a container
+ */
 interface MarkBranchStatesAsChildrenParams {
+    /** Branch or iterator definition containing child states */
     branch: AslDefinition;
+    /** Parent container node (Parallel or Map) */
     containerNode: StateNode;
+    /** All nodes for lookup */
     nodes: StateNode[];
 }
 
@@ -289,9 +497,15 @@ function markBranchStatesAsChildren(params: MarkBranchStatesAsChildrenParams): v
     }
 }
 
+/**
+ * Parameters for extracting edges from nested state machines
+ */
 interface ExtractNestedEdgesParams {
+    /** ASL definition to extract nested edges from */
     definition: AslDefinition;
+    /** Array to accumulate extracted edges into */
     edges: GraphEdge[];
+    /** Diagram generation options */
     options?: DiagramOptions;
 }
 

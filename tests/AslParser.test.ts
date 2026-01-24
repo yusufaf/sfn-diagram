@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAsl } from '../src/AslParser';
+import { parseAsl, validateAsl, AslValidationError } from '../src/AslParser';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
@@ -143,6 +143,213 @@ describe('AslParser', () => {
 
             const startNode = result.nodes.find((n) => n.id === 'Start');
             expect(startNode?.label).toBe('Starting state');
+        });
+    });
+
+    describe('ASL Validation', () => {
+        describe('Basic structure validation', () => {
+            it('should throw on null definition', () => {
+                expect(() => validateAsl({ definition: null })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition: null })).toThrow('must be a non-null object');
+            });
+
+            it('should throw on non-object definition', () => {
+                expect(() => validateAsl({ definition: 'not an object' })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition: 123 })).toThrow(AslValidationError);
+            });
+
+            it('should throw when StartAt is missing', () => {
+                const invalid = { States: { Foo: { Type: 'Pass', End: true } } };
+                expect(() => validateAsl({ definition: invalid })).toThrow('missing required field: StartAt');
+            });
+
+            it('should throw when StartAt is empty string', () => {
+                const invalid = { StartAt: '', States: { Foo: { Type: 'Pass', End: true } } };
+                expect(() => validateAsl({ definition: invalid })).toThrow('non-empty string');
+            });
+
+            it('should throw when States is missing', () => {
+                const invalid = { StartAt: 'Foo' };
+                expect(() => validateAsl({ definition: invalid })).toThrow('missing required field: States');
+            });
+
+            it('should throw when States is empty', () => {
+                const invalid = { StartAt: 'Foo', States: {} };
+                expect(() => validateAsl({ definition: invalid })).toThrow('cannot be empty');
+            });
+        });
+
+        describe('StartAt reference validation', () => {
+            it('should throw when StartAt references non-existent state', () => {
+                const invalid = {
+                    StartAt: 'NonExistent',
+                    States: {
+                        RealState: { Type: 'Succeed' },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('non-existent state: "NonExistent"');
+                expect(() => validateAsl({ definition: invalid })).toThrow('Available states: RealState');
+            });
+        });
+
+        describe('State type validation', () => {
+            it('should throw when state Type is missing', () => {
+                const invalid = {
+                    StartAt: 'BadState',
+                    States: {
+                        BadState: { End: true },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('missing required field: Type');
+            });
+
+            it('should throw on invalid state Type', () => {
+                const invalid = {
+                    StartAt: 'BadState',
+                    States: {
+                        BadState: { Type: 'InvalidType', End: true },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('invalid Type: "InvalidType"');
+                expect(() => validateAsl({ definition: invalid })).toThrow('Valid types:');
+            });
+
+            it('should accept all valid state types', () => {
+                const validTypes = ['Pass', 'Task', 'Choice', 'Wait', 'Succeed', 'Fail', 'Parallel', 'Map'];
+                for (const type of validTypes) {
+                    const definition = {
+                        StartAt: 'TestState',
+                        States: {
+                            TestState: type === 'Choice'
+                                ? { Type: type, Choices: [{ Variable: '$.x', NumericEquals: 1, Next: 'TestState' }], Default: 'TestState' }
+                                : type === 'Parallel'
+                                    ? { Type: type, Branches: [{ StartAt: 'Inner', States: { Inner: { Type: 'Pass', End: true } } }], End: true }
+                                    : type === 'Map'
+                                        ? { Type: type, Iterator: { StartAt: 'Inner', States: { Inner: { Type: 'Pass', End: true } } }, End: true }
+                                        : { Type: type, End: true },
+                        },
+                    };
+                    expect(() => validateAsl({ definition })).not.toThrow();
+                }
+            });
+        });
+
+        describe('State transition validation', () => {
+            it('should throw when Next references non-existent state', () => {
+                const invalid = {
+                    StartAt: 'First',
+                    States: {
+                        First: { Type: 'Pass', Next: 'NonExistent' },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('Next references non-existent state "NonExistent"');
+            });
+
+            it('should throw when Default references non-existent state', () => {
+                const invalid = {
+                    StartAt: 'ChoiceState',
+                    States: {
+                        ChoiceState: {
+                            Type: 'Choice',
+                            Choices: [{ Variable: '$.x', NumericEquals: 1, Next: 'ChoiceState' }],
+                            Default: 'NonExistent',
+                        },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('Default references non-existent state "NonExistent"');
+            });
+
+            it('should throw when Choice.Next references non-existent state', () => {
+                const invalid = {
+                    StartAt: 'ChoiceState',
+                    States: {
+                        ChoiceState: {
+                            Type: 'Choice',
+                            Choices: [{ Variable: '$.x', NumericEquals: 1, Next: 'BadTarget' }],
+                            Default: 'ChoiceState',
+                        },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('Choices[0].Next references non-existent state "BadTarget"');
+            });
+
+            it('should throw when Catch.Next references non-existent state', () => {
+                const invalid = {
+                    StartAt: 'TaskState',
+                    States: {
+                        TaskState: {
+                            Type: 'Task',
+                            Resource: 'arn:aws:lambda:us-east-1:123456789:function:test',
+                            Catch: [{ ErrorEquals: ['States.ALL'], Next: 'NonExistentHandler' }],
+                            End: true,
+                        },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('Catch[0].Next references non-existent state "NonExistentHandler"');
+            });
+        });
+
+        describe('Next/End requirement validation', () => {
+            it('should throw when non-terminal state lacks Next and End', () => {
+                const invalid = {
+                    StartAt: 'PassState',
+                    States: {
+                        PassState: { Type: 'Pass' },
+                    },
+                };
+                expect(() => validateAsl({ definition: invalid })).toThrow('must have either "Next" or "End: true"');
+            });
+
+            it('should not throw for terminal states without Next', () => {
+                const succeedDef = {
+                    StartAt: 'SucceedState',
+                    States: { SucceedState: { Type: 'Succeed' } },
+                };
+                expect(() => validateAsl({ definition: succeedDef })).not.toThrow();
+
+                const failDef = {
+                    StartAt: 'FailState',
+                    States: { FailState: { Type: 'Fail', Error: 'TestError', Cause: 'Testing' } },
+                };
+                expect(() => validateAsl({ definition: failDef })).not.toThrow();
+            });
+
+            it('should not throw for Choice states without Next (uses Choices/Default)', () => {
+                const choiceDef = {
+                    StartAt: 'ChoiceState',
+                    States: {
+                        ChoiceState: {
+                            Type: 'Choice',
+                            Choices: [{ Variable: '$.x', NumericEquals: 1, Next: 'ChoiceState' }],
+                            Default: 'ChoiceState',
+                        },
+                    },
+                };
+                expect(() => validateAsl({ definition: choiceDef })).not.toThrow();
+            });
+        });
+
+        describe('Integration with parseAsl', () => {
+            it('should reject invalid ASL during parsing', () => {
+                const invalid = {
+                    StartAt: 'NonExistent',
+                    States: {
+                        RealState: { Type: 'Succeed' },
+                    },
+                };
+                expect(() => parseAsl({ definition: invalid as AslDefinition })).toThrow(AslValidationError);
+            });
+
+            it('should parse valid ASL after validation', () => {
+                const valid: AslDefinition = {
+                    StartAt: 'MyState',
+                    States: {
+                        MyState: { Type: 'Succeed' },
+                    },
+                };
+                const result = parseAsl({ definition: valid });
+                expect(result.nodes).toHaveLength(1);
+            });
         });
     });
 });

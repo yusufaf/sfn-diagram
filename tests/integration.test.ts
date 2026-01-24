@@ -6,6 +6,7 @@ import {
     exportPng,
     generateFromAwsResponse,
     SfnDiagramGenerator,
+    AslValidationError,
 } from '../src';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -247,15 +248,15 @@ describe('Integration Tests', () => {
             expect(() => generateSvg({ aslDefinition: 'invalid json' })).toThrow();
         });
 
-        it('should handle missing states', () => {
+        it('should throw validation error for empty states', () => {
             const aslDefinition: AslDefinition = {
                 StartAt: 'NonExistent',
                 States: {},
             };
 
-            // Should still work but with empty or minimal output
-            const result = generateSvg({ aslDefinition });
-            expect(result.svg).toBeDefined();
+            // Should throw validation error for empty states
+            expect(() => generateSvg({ aslDefinition })).toThrow(AslValidationError);
+            expect(() => generateSvg({ aslDefinition })).toThrow('States object cannot be empty');
         });
     });
 
