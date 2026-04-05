@@ -56,7 +56,7 @@
     "globals": "^16.3.0",
     "prettier": "3.6.2",
     "publint": "^0.3.16",
-    "tsdown": "^0.14.2",
+    "tsdown": "^0.21.7",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.41.0",
@@ -69,6 +69,21 @@
     "jsdom": "^27.2.0",
     "mermaid": "^11.12.1",
     "node-html-to-image": "^5.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "basic-ftp": ">=5.2.0",
+      "brace-expansion": ">=2.0.3",
+      "defu": ">=6.1.5",
+      "dompurify": ">=3.3.2",
+      "fast-xml-parser": ">=5.5.7",
+      "flatted": ">=3.4.2",
+      "handlebars": ">=4.7.9",
+      "lodash-es": ">=4.18.0",
+      "minimatch": ">=9.0.7",
+      "picomatch": ">=4.0.4",
+      "rollup": ">=4.59.0"
+    }
   },
   "repository": {
     "type": "git",
