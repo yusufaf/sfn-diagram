@@ -6,10 +6,10 @@ export { PngExporter } from './exporters';
 export type { ExportPngParams, PngOutput } from './types';
 
 export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
-    const { aslDefinition, ...options } = params;
-    const svgOutput = generateSvg({ aslDefinition, ...options });
+    const { aslDefinition, backgroundColor, pngQuality, ...svgOptions } = params;
+    const svgOutput = generateSvg({ aslDefinition, ...svgOptions });
 
-    const exporter = new PngExporter(options);
+    const exporter = new PngExporter({ backgroundColor, pngQuality });
     return exporter.convert({
         height: svgOutput.height,
         svg: svgOutput.svg,
