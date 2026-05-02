@@ -1,4 +1,5 @@
-import { select, line, curveBasis } from 'd3';
+import { select } from 'd3-selection';
+import { line, curveBasis } from 'd3-shape';
 import type {
     StateNode,
     GraphEdge,
