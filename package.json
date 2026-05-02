@@ -28,6 +28,13 @@
       }
     }
   },
+  "typesVersions": {
+    "*": {
+      "png": [
+        "./dist/png.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist"
   ],
