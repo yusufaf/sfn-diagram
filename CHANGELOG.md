@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-02
+
+### Added
+- New `sfn-diagram/png` sub-path entry point for PNG export — import `exportPng` and `PngExporter` from `sfn-diagram/png`
+
+### Changed
+- `exportPng` and `PngExporter` moved from the main `sfn-diagram` entry to `sfn-diagram/png` — users who only need SVG or Mermaid output no longer pay the Puppeteer install cost
+- Replaced `d3` umbrella package with direct `d3-selection` and `d3-shape` sub-package imports for reliable tree-shaking
+- Removed unused `mermaid` package from dependencies
+
 ## [0.2.0] - 2026-01-31
 
 ### Added
@@ -77,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release
 
-[Unreleased]: https://github.com/yusufaf/sfn-diagram/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yusufaf/sfn-diagram/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yusufaf/sfn-diagram/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yusufaf/sfn-diagram/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/yusufaf/sfn-diagram/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yusufaf/sfn-diagram/releases/tag/v0.1.0
