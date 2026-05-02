@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PngExporter } from '../src/exporters';
+import { PngExporter } from '../src/png';
 
 describe('PngExporter', () => {
     const createTestSvg = (): string => `

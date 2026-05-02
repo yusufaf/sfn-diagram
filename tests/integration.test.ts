@@ -3,11 +3,11 @@ import {
     generateSvg,
     generateMermaid,
     generateDiagram,
-    exportPng,
     generateFromAwsResponse,
     SfnDiagramGenerator,
     AslValidationError,
 } from '../src';
+import { exportPng } from '../src/png';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
@@ -216,10 +216,9 @@ describe('Integration Tests', () => {
             expect(result.code).toBeDefined();
         });
 
-        it('should support exportPng method', async () => {
-            const generator = new SfnDiagramGenerator();
+        it('should support exportPng via png sub-path', async () => {
             const aslDefinition = loadFixture('simple');
-            const result = await generator.exportPng({ aslDefinition });
+            const result = await exportPng({ aslDefinition });
 
             expect(result.buffer).toBeDefined();
         });

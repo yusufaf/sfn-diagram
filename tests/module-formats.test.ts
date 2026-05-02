@@ -4,19 +4,26 @@ import type { AslDefinition } from '../src/types';
 describe('Module Format Compatibility', () => {
     describe('ESM imports', () => {
         it(
-            'should import named exports from ESM',
+            'should import named exports from main entry (no PNG)',
             async () => {
-                const { generateSvg, generateMermaid, generateDiagram, exportPng, SfnDiagramGenerator } =
+                const { generateSvg, generateMermaid, generateDiagram, SfnDiagramGenerator } =
                     await import('../src/index');
 
                 expect(generateSvg).toBeDefined();
                 expect(generateMermaid).toBeDefined();
                 expect(generateDiagram).toBeDefined();
-                expect(exportPng).toBeDefined();
                 expect(SfnDiagramGenerator).toBeDefined();
             },
             15000
         );
+
+        it('should import exportPng from png sub-path', async () => {
+            const { exportPng, PngExporter } = await import('../src/png');
+
+            expect(exportPng).toBeDefined();
+            expect(typeof exportPng).toBe('function');
+            expect(PngExporter).toBeDefined();
+        }, 15000);
 
         it('should work with ESM import for generating SVG', async () => {
             const { generateSvg } = await import('../src/index');
@@ -38,7 +45,6 @@ describe('Module Format Compatibility', () => {
         it('should work with ESM default import fallback', async () => {
             const mod = await import('../src/index');
 
-            // Verify all exports are accessible
             expect(mod.generateSvg).toBeDefined();
             expect(mod.SfnDiagramGenerator).toBeDefined();
         });
@@ -55,7 +61,6 @@ describe('Module Format Compatibility', () => {
                 },
             };
 
-            // This should type-check correctly
             const result = generateSvg({
                 aslDefinition: asl,
                 edgeStyle: 'curved',

@@ -14,4 +14,16 @@ export default defineConfig([
         outDir: './dist',
         platform: 'neutral',
     },
+    {
+        dts: {
+            resolve: true,
+        },
+        entry: {
+            png: './src/png.ts',
+        },
+        format: ['cjs', 'esm'],
+        hash: false,
+        outDir: './dist',
+        platform: 'neutral',
+    },
 ]);

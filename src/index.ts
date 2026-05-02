@@ -1,18 +1,15 @@
 import { parseAsl } from './AslParser';
 import { DagreLayout } from './layout';
 import { SvgRenderer, MermaidRenderer } from './renderers';
-import { PngExporter } from './exporters';
 import { mergeOptions } from './config';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateDiagramParams,
-    ExportPngParams,
     GenerateFromAwsParams,
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
-    PngOutput,
     AslDefinition,
 } from './types';
 
@@ -193,56 +190,6 @@ export function generateDiagram(params: GenerateDiagramParams): SvgOutput | Merm
 }
 
 /**
- * Export a diagram as PNG (asynchronous)
- *
- * This function generates an SVG diagram and converts it to PNG format using
- * headless browser rendering. The output is a Buffer that can be written to a file.
- *
- * **Note:** This function is asynchronous and uses Puppeteer for rendering,
- * which may take a moment on first run to download the browser binary.
- *
- * @param params - Configuration object
- * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.pngQuality - PNG quality from 1-100 (default: 90)
- * @param params.backgroundColor - Background color as CSS color or 'transparent' (default: 'transparent')
- * @param ...params - Other SVG options (see generateSvg)
- *
- * @returns Promise resolving to PNG output with buffer and dimensions
- *
- * @throws {SyntaxError} If params.asl is a string with invalid JSON
- * @throws {Error} If the ASL definition structure is invalid or PNG conversion fails
- *
- * @example
- * ```typescript
- * import { exportPng } from 'sfn-diagram';
- * import { writeFileSync } from 'fs';
- *
- * const asl = { StartAt: 'Hello', States: { Hello: { Type: 'Pass', End: true } } };
- *
- * const { buffer, width, height } = await exportPng({
- *   asl,
- *   theme: 'dark',
- *   pngQuality: 95,
- *   backgroundColor: 'white'
- * });
- *
- * writeFileSync('diagram.png', buffer);
- * console.log(`Saved ${width}x${height} PNG`);
- * ```
- */
-export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
-    const { aslDefinition, ...options } = params;
-    const svgOutput = generateSvg({ aslDefinition, ...options });
-
-    const exporter = new PngExporter(options);
-    return exporter.convert({
-        svg: svgOutput.svg,
-        width: svgOutput.width,
-        height: svgOutput.height,
-    });
-}
-
-/**
  * Generate a diagram from an AWS SDK DescribeStateMachine response
  *
  * This is a convenience function for integrating with the AWS SDK. It extracts
@@ -382,22 +329,6 @@ export class SfnDiagramGenerator {
     }
 
     /**
-     * Export diagram as PNG
-     *
-     * @param params - Generation parameters
-     * @param params.asl - ASL definition as an object or JSON string
-     * @returns Promise resolving to PNG output
-     *
-     * @example
-     * ```typescript
-     * const { buffer } = await generator.exportPng({ asl: myStateMachine });
-     * ```
-     */
-    async exportPng(params: { aslDefinition: AslDefinition | string }): Promise<PngOutput> {
-        return exportPng({ ...params, ...this.options });
-    }
-
-    /**
      * Update the generator's default options (fluent interface)
      *
      * @param options - Partial options to merge with existing options
@@ -426,7 +357,6 @@ export type {
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
-    PngOutput,
     StateNode,
     GraphEdge,
     NodeStyle,
@@ -434,7 +364,6 @@ export type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateDiagramParams,
-    ExportPngParams,
     GenerateFromAwsParams,
     // Union types for configuration options
     DiagramFormat,
@@ -447,5 +376,4 @@ export type {
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { embedIcons } from './utils/iconEmbedder';
-export { PngExporter } from './exporters';
 export { AslValidationError, validateAsl } from './AslParser';

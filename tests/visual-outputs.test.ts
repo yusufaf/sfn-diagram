@@ -1,5 +1,6 @@
 import { describe, it } from 'vitest';
-import { generateSvg, generateMermaid, exportPng, embedIcons } from '../src';
+import { generateSvg, generateMermaid, embedIcons } from '../src';
+import { exportPng } from '../src/png';
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
