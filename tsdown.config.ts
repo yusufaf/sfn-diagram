@@ -3,9 +3,7 @@ import { defineConfig } from 'tsdown';
 export default defineConfig([
     {
         clean: true,
-        dts: {
-            resolve: true,
-        },
+        dts: true,
         entry: {
             index: './src/index.ts',
         },
@@ -16,13 +14,22 @@ export default defineConfig([
     },
     {
         clean: false,
-        dts: {
-            resolve: true,
-        },
+        dts: true,
         entry: {
             png: './src/png.ts',
         },
         format: ['cjs', 'esm'],
+        hash: false,
+        outDir: './dist',
+        platform: 'neutral',
+    },
+    {
+        clean: false,
+        dts: false,
+        entry: {
+            cli: './src/cli.ts',
+        },
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',

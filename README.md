@@ -22,6 +22,32 @@ Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon Sta
 npm install sfn-diagram
 ```
 
+## Command-line Usage
+
+The package ships a CLI for use without writing any JavaScript:
+
+```bash
+npx sfn-diagram state.asl.json --format svg -o diagram.svg
+npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
+cat state.asl.json | npx sfn-diagram - --format svg
+```
+
+Flags: `--format <svg|mermaid|png>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `-h/--help`, `-v/--version`.
+
+## Docker
+
+A prebuilt image is published to GitHub Container Registry with Chromium baked in, so PNG export works out of the box:
+
+```bash
+docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
+  /work/state.asl.json --format svg -o /work/diagram.svg
+
+docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
+  /work/state.asl.json --format png -o /work/diagram.png
+```
+
+Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
+
 ## Quick Start
 
 ### Function-based API
