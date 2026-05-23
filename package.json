@@ -36,7 +36,7 @@
     }
   },
   "bin": {
-    "sfn-diagram": "./dist/cli.js"
+    "sfn-diagram": "dist/cli.js"
   },
   "files": [
     "dist"
