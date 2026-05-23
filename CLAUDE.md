@@ -121,6 +121,52 @@ Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map - each with distinct visu
 - Snapshot tests for SVG/Mermaid output
 - After making changes, please always run the tests afterwards.
 
+## Git Conventions
+
+### Commit Messages — Conventional Commits
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) spec:
+
+```
+<type>(<optional scope>): <subject>
+
+<optional body>
+```
+
+**Types:**
+- `feat` — new feature (semver MINOR)
+- `fix` — bug fix (semver PATCH)
+- `docs` — documentation only
+- `refactor` — code change that is neither a fix nor a feature
+- `perf` — performance improvement
+- `test` — adding or updating tests
+- `build` — build system / dependency changes
+- `ci` — CI/CD config changes
+- `chore` — maintenance tasks (version bumps, config tweaks)
+
+**Rules:**
+- Subject is lowercase, imperative mood, no trailing period
+- Keep subject under 72 chars
+- Never add a `Co-Authored-By` trailer
+
+**Examples:**
+```
+feat(parser): add support for Map state retry blocks
+fix(svg-renderer): correct edge path for self-referencing states
+docs: add JSDoc to generateDiagram public API
+chore: bump version to 0.3.0
+```
+
+### Branch Naming
+```
+<type>/<short-description>
+```
+Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
+
+### Changelog
+- Sections map to commit types: **Features** (`feat`), **Bug Fixes** (`fix`), **Performance** (`perf`)
+- Minor types (`docs`, `refactor`, `test`, `build`, `ci`, `chore`) omitted from public changelog unless notable
+- Format each entry as: `- <subject> ([#PR](url))`
+
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
 - HelloWorldStateMachine.asl.json in root can be used for testing
