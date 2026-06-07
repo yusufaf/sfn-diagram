@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.4.1...sfn-diagram-v0.5.0) (2026-06-07)
+
+
+### Features
+
+* add ASL validation and prepare v0.2.0 release ([077fb11](https://github.com/yusufaf/sfn-diagram/commit/077fb11c5e18a62eed2240d80b4b8f106ceedd87))
+* Add AWS service icons, JSDoc defaults, and edge handling improvements ([58fb237](https://github.com/yusufaf/sfn-diagram/commit/58fb2379416c4e9c2ccdc46ed5a58b40f3f8029a))
+* add CLI entrypoint and docker image ([5768018](https://github.com/yusufaf/sfn-diagram/commit/57680181fb041f8044ad0a2c5caf09bf774710b0))
+* split PNG export into sfn-diagram/png sub-path entry ([4b23d0c](https://github.com/yusufaf/sfn-diagram/commit/4b23d0c7e2343d2bb30fa21e76fa24002be0cbbf))
+
+
+### Bug Fixes
+
+* add typesVersions for sfn-diagram/png node10 resolution ([342335f](https://github.com/yusufaf/sfn-diagram/commit/342335f611e6620bc198d2b2a47b71189a6ca578))
+* clean up png entry options spread and tsdown config ([cafc661](https://github.com/yusufaf/sfn-diagram/commit/cafc661ac97bc8a95c15673e2c7837dbf8b2a290))
+* correct d3 imports and add explicit type annotations ([54070be](https://github.com/yusufaf/sfn-diagram/commit/54070be8cde9f3703a2bcf994e6afd8a41a54adf))
+* drop leading ./ from bin path ([88b2b42](https://github.com/yusufaf/sfn-diagram/commit/88b2b4205cd2b8542932cd939ee865122e5e815a))
+* improve npm package compatibility and validation ([ef5c871](https://github.com/yusufaf/sfn-diagram/commit/ef5c871b055fb4dbbe72a3e35bb4216baeda43d6))
+* install Chrome for Puppeteer in CI workflows ([3d6d3e9](https://github.com/yusufaf/sfn-diagram/commit/3d6d3e9adad8fc2259cab8263fd77fe30da055ed))
+* specify pnpm version in GitHub Actions workflows ([47a041f](https://github.com/yusufaf/sfn-diagram/commit/47a041f5e2b234138649bf51a88557910def91b7))
+* use browser-actions/setup-chrome for Puppeteer ([b1c19ae](https://github.com/yusufaf/sfn-diagram/commit/b1c19ae1e5df97afbe74875db6200d4c044e5f98))
+* use official @puppeteer/browsers for Chrome installation in CI ([6ad3a70](https://github.com/yusufaf/sfn-diagram/commit/6ad3a7080384f6b038ece2c8ce95c85ffa6eb041))
+* use pnpm exec instead of npx for @puppeteer/browsers ([c1d2c95](https://github.com/yusufaf/sfn-diagram/commit/c1d2c958110bd8e58f829d4c0aec768cab254c4d))
+* use system Chromium via apt for Puppeteer in CI ([2d8f28c](https://github.com/yusufaf/sfn-diagram/commit/2d8f28c5e81c57cf71d011ffb4da32ee4a142819))
+
 ## [0.4.1](https://github.com/yusufaf/sfn-diagram/compare/v0.4.0...v0.4.1) (2026-05-23)
 
 
