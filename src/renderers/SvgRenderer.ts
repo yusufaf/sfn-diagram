@@ -53,10 +53,21 @@ interface RenderIconParams {
 export class SvgRenderer {
     private options: DiagramOptions;
     private theme: CustomTheme;
+    private pathGenerator: (points: Array<{ x: number; y: number }>) => string | null;
 
     constructor(options: DiagramOptions) {
         this.options = options;
         this.theme = getTheme(options.theme, options.customColors);
+
+        // Build the edge path generator once - it's stateless and reused for every
+        // edge, so there's no need to recreate it inside the per-edge render loop.
+        const generator = line<{ x: number; y: number }>()
+            .x((point) => point.x)
+            .y((point) => point.y);
+        if (options.edgeStyle === 'curved') {
+            generator.curve(curveBasis);
+        }
+        this.pathGenerator = generator;
     }
 
     /**
@@ -154,10 +165,13 @@ export class SvgRenderer {
         const containerNodes = layout.nodes.filter((node) => node.isContainer);
         const regularNodes = layout.nodes.filter((node) => !node.isContainer);
 
+        // Index nodes by id once so the edge loop below is O(E) instead of O(E*V)
+        const nodesById = new Map(layout.nodes.map((node) => [node.id, node]));
+
         // Render edges first (so they appear behind everything)
         layout.edges.forEach((edge) => {
             // Skip edges from branch/iterator end markers - we show container edges instead
-            const fromNode = layout.nodes.find((node) => node.id === edge.from);
+            const fromNode = nodesById.get(edge.from);
             if (
                 fromNode &&
                 (fromNode.type === 'BranchEnd' || fromNode.type === 'IteratorEnd')
@@ -546,19 +560,10 @@ export class SvgRenderer {
         const edgeColor = this.theme.edgeColors[edge.type || 'normal'];
         const markerType = edge.type || 'normal';
 
-        // Create path from points
-        const pathGenerator = line<{ x: number; y: number }>()
-            .x((d: { x: number; y: number }) => d.x)
-            .y((d: { x: number; y: number }) => d.y);
-
-        if (this.options.edgeStyle === 'curved') {
-            pathGenerator.curve(curveBasis);
-        }
-
-        // Render path
+        // Render path using the generator built once in the constructor
         const pathElement = group
             .append('path')
-            .attr('d', pathGenerator(edge.points))
+            .attr('d', this.pathGenerator(edge.points))
             .attr('fill', 'none')
             .attr('stroke', edgeColor)
             .attr('stroke-width', edge.type === 'error' ? 2 : 1.5)

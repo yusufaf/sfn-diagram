@@ -227,8 +227,12 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     // Validate ASL definition before parsing
     validateAsl({ definition });
 
+    // Index of node id -> node for O(1) lookups during recursive extraction.
+    // Avoids O(n^2) `nodes.find()` scans on large/deeply-nested state machines.
+    const nodeIndex = new Map<string, StateNode>();
+
     // Extract all states as nodes (including nested states)
-    extractStatesRecursively({ definition, nodes, options });
+    extractStatesRecursively({ definition, nodeIndex, nodes, options });
 
     // Extract transitions as edges
     for (const [stateName, state] of Object.entries(definition.States)) {
@@ -381,6 +385,8 @@ function extractConditionLabel(choice: ChoiceRule): string {
 interface ExtractStatesRecursivelyParams {
     /** ASL definition containing states to extract */
     definition: AslDefinition;
+    /** Index of node id -> node for O(1) lookups */
+    nodeIndex: Map<string, StateNode>;
     /** Array to accumulate extracted nodes into */
     nodes: StateNode[];
     /** Diagram generation options */
@@ -391,7 +397,7 @@ interface ExtractStatesRecursivelyParams {
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
 function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void {
-    const { definition, nodes, options } = params;
+    const { definition, nodeIndex, nodes, options } = params;
 
     // Extract states from current level
     for (const [stateName, state] of Object.entries(definition.States)) {
@@ -402,15 +408,16 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             stylePreset: options?.stylePreset,
         });
         nodes.push(stateNode);
+        nodeIndex.set(stateNode.id, stateNode);
 
         // Recursively extract states from Parallel branches
         if (state.Type === 'Parallel' && state.Branches) {
             state.Branches.forEach((branch: AslDefinition, index: number) => {
                 // Extract branch states
-                extractStatesRecursively({ definition: branch, nodes, options });
+                extractStatesRecursively({ definition: branch, nodeIndex, nodes, options });
 
                 // Track children for bounding box calculation
-                const branchStartState = nodes.find((node) => node.id === branch.StartAt);
+                const branchStartState = nodeIndex.get(branch.StartAt);
                 if (branchStartState) {
                     stateNode.children?.push(branch.StartAt);
                 }
@@ -430,20 +437,21 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                     type: 'BranchEnd',
                 };
                 nodes.push(endNode);
+                nodeIndex.set(endNodeId, endNode);
                 stateNode.children?.push(endNodeId);
 
                 // Track all branch states as children for bounding box
-                markBranchStatesAsChildren({ branch, containerNode: stateNode, nodes });
+                markBranchStatesAsChildren({ branch, containerNode: stateNode, nodeIndex });
             });
         }
 
         // Recursively extract states from Map iterator
         if (state.Type === 'Map' && state.Iterator) {
             const iterator = state.Iterator;
-            extractStatesRecursively({ definition: iterator, nodes, options });
+            extractStatesRecursively({ definition: iterator, nodeIndex, nodes, options });
 
             // Track children for bounding box calculation
-            const iteratorStartState = nodes.find((node) => node.id === iterator.StartAt);
+            const iteratorStartState = nodeIndex.get(iterator.StartAt);
             if (iteratorStartState) {
                 stateNode.children?.push(iterator.StartAt);
             }
@@ -463,10 +471,11 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                 type: 'IteratorEnd',
             };
             nodes.push(endNode);
+            nodeIndex.set(endNodeId, endNode);
             stateNode.children?.push(endNodeId);
 
             // Track all iterator states as children for bounding box
-            markBranchStatesAsChildren({ branch: iterator, containerNode: stateNode, nodes });
+            markBranchStatesAsChildren({ branch: iterator, containerNode: stateNode, nodeIndex });
         }
     }
 }
@@ -479,20 +488,27 @@ interface MarkBranchStatesAsChildrenParams {
     branch: AslDefinition;
     /** Parent container node (Parallel or Map) */
     containerNode: StateNode;
-    /** All nodes for lookup */
-    nodes: StateNode[];
+    /** Index of node id -> node for O(1) lookups */
+    nodeIndex: Map<string, StateNode>;
 }
 
 /**
  * Mark all states in a branch as children of the container for bounding box calculation
  */
 function markBranchStatesAsChildren(params: MarkBranchStatesAsChildrenParams): void {
-    const { branch, containerNode, nodes } = params;
+    const { branch, containerNode, nodeIndex } = params;
+    const children = containerNode.children;
+    if (!children) {
+        return;
+    }
+
+    // Set of existing children for O(1) membership checks instead of repeated Array.includes
+    const existingChildren = new Set(children);
 
     for (const stateName of Object.keys(branch.States)) {
-        const node = nodes.find((n) => n.id === stateName);
-        if (node && !containerNode.children?.includes(stateName)) {
-            containerNode.children?.push(stateName);
+        if (nodeIndex.has(stateName) && !existingChildren.has(stateName)) {
+            children.push(stateName);
+            existingChildren.add(stateName);
         }
     }
 }

@@ -78,13 +78,21 @@ export class DagreLayout {
         });
 
         // Calculate bounding boxes for container nodes based on their children
+        const positionedNodeIndex = new Map(
+            positionedNodes.map((node) => [node.id, node]),
+        );
         const containerNodes = this.calculateContainerBounds({
             containers: nodes.filter((node) => node.isContainer),
-            positionedNodes,
+            positionedNodeIndex,
         });
 
         // Combine all nodes
         const allPositionedNodes = [...positionedNodes, ...containerNodes];
+
+        // Index positioned nodes by id so visual-edge routing is O(1) per lookup
+        const positionedNodesById = new Map(
+            allPositionedNodes.map((node) => [node.id, node]),
+        );
 
         // Extract edge routing points
         const routedEdges = edges.map((edge) => {
@@ -94,7 +102,7 @@ export class DagreLayout {
                     ...edge,
                     points: this.calculateVisualEdgePoints({
                         edge,
-                        positionedNodes: allPositionedNodes,
+                        positionedNodesById,
                     }),
                 };
             }
@@ -124,18 +132,20 @@ export class DagreLayout {
      */
     private calculateContainerBounds(params: {
         containers: StateNode[];
-        positionedNodes: StateNode[];
+        positionedNodeIndex: Map<string, StateNode>;
     }): StateNode[] {
-        const { containers, positionedNodes } = params;
+        const { containers, positionedNodeIndex } = params;
 
         return containers.map((container) => {
-            // Find all child nodes, excluding end markers (they're just visual indicators)
-            const children = positionedNodes.filter(
-                (node) =>
-                    container.children?.includes(node.id) &&
-                    node.type !== 'BranchEnd' &&
-                    node.type !== 'IteratorEnd',
-            );
+            // Resolve child nodes directly from the index (O(children)) and exclude
+            // end markers, which are just visual indicators.
+            const children: StateNode[] = [];
+            for (const childId of container.children || []) {
+                const child = positionedNodeIndex.get(childId);
+                if (child && child.type !== 'BranchEnd' && child.type !== 'IteratorEnd') {
+                    children.push(child);
+                }
+            }
 
             if (children.length === 0) {
                 // No children, use default dimensions
@@ -148,14 +158,26 @@ export class DagreLayout {
                 };
             }
 
-            // Calculate bounding box from children positions
+            // Calculate bounding box from children positions.
+            // Use a single reduce pass (instead of Math.min(...spread)) to avoid both
+            // four array allocations and call-stack overflow on very large containers.
             const padding = 40;
             const headerHeight = 50;
 
-            const minX = Math.min(...children.map((child) => (child.x || 0) - (child.width || 0) / 2));
-            const maxX = Math.max(...children.map((child) => (child.x || 0) + (child.width || 0) / 2));
-            const minY = Math.min(...children.map((child) => (child.y || 0) - (child.height || 0) / 2));
-            const maxY = Math.max(...children.map((child) => (child.y || 0) + (child.height || 0) / 2));
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (const child of children) {
+                const halfWidth = (child.width || 0) / 2;
+                const halfHeight = (child.height || 0) / 2;
+                const childX = child.x || 0;
+                const childY = child.y || 0;
+                minX = Math.min(minX, childX - halfWidth);
+                maxX = Math.max(maxX, childX + halfWidth);
+                minY = Math.min(minY, childY - halfHeight);
+                maxY = Math.max(maxY, childY + halfHeight);
+            }
 
             const width = maxX - minX + padding * 2;
             const height = maxY - minY + padding * 2 + headerHeight;
@@ -177,12 +199,12 @@ export class DagreLayout {
      */
     private calculateVisualEdgePoints(params: {
         edge: GraphEdge;
-        positionedNodes: StateNode[];
+        positionedNodesById: Map<string, StateNode>;
     }): Array<{ x: number; y: number }> {
-        const { edge, positionedNodes } = params;
+        const { edge, positionedNodesById } = params;
 
-        const fromNode = positionedNodes.find((node) => node.id === edge.from);
-        const toNode = positionedNodes.find((node) => node.id === edge.to);
+        const fromNode = positionedNodesById.get(edge.from);
+        const toNode = positionedNodesById.get(edge.to);
 
         if (!fromNode || !toNode) {
             return [];
