@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "oxc/no-map-spread": "off"
+  },
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/",
+    "examples/outputs/",
+    "scripts/",
+    "*.config.js"
+  ],
+  "overrides": [
+    {
+      "files": ["tests/**"],
+      "rules": {
+        "unicorn/consistent-function-scoping": "off"
+      }
+    }
+  ]
+}
