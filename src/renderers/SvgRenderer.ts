@@ -1,4 +1,3 @@
-import { select } from 'd3-selection';
 import { line, curveBasis } from 'd3-shape';
 import type {
     StateNode,
@@ -6,29 +5,26 @@ import type {
     DiagramOptions,
     SvgOutput,
     CustomTheme,
+    NodeStyle,
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
 import { getTheme } from '../config/themes';
-import { JSDOM } from 'jsdom';
+import { SvgElement } from './svgBuilder';
 
 interface RenderShapeParams {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    group: any; // D3 selection type
+    group: SvgElement;
     node: StateNode;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    style: any; // D3 computed style
+    style: NodeStyle;
 }
 
 interface RenderNodeParams {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    group: any; // D3 selection type
+    group: SvgElement;
     node: StateNode;
 }
 
 interface RenderEdgeParams {
     edge: GraphEdge & { points?: Array<{ x: number; y: number }> };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    group: any; // D3 selection type
+    group: SvgElement;
 }
 
 interface CalculateLabelPositionParams {
@@ -39,8 +35,7 @@ interface CalculateLabelPositionParams {
 }
 
 interface RenderIconParams {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    group: any; // D3 selection type
+    group: SvgElement;
     iconPosition: 'left' | 'top' | 'right';
     iconSize: number;
     iconUrl: string;
@@ -74,19 +69,12 @@ export class SvgRenderer {
      * Render the diagram to SVG string
      */
     render(layout: LayoutResult): SvgOutput {
-        // Create a virtual DOM for Node.js environment
-        const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>');
-        const document = dom.window.document;
-
         // Calculate actual bounds including edge curves
         const bounds = this.calculateBounds(layout);
 
-        // Create SVG element
-        const svgNode = document.createElementNS(
-            'http://www.w3.org/2000/svg',
-            'svg',
-        );
-        const svg = select(svgNode)
+        // Build the SVG tree with a DOM-free string builder so this runs in Node,
+        // browsers, and edge runtimes without a DOM implementation.
+        const svg = new SvgElement('svg')
             .attr('width', bounds.width)
             .attr('height', bounds.height)
             .attr('xmlns', 'http://www.w3.org/2000/svg')
@@ -198,7 +186,7 @@ export class SvgRenderer {
                 edgeCount: layout.edges.length,
                 nodeCount: layout.nodes.length,
             },
-            svg: svgNode.outerHTML,
+            svg: svg.serialize(),
             width: bounds.width,
         };
     }
@@ -563,7 +551,7 @@ export class SvgRenderer {
         // Render path using the generator built once in the constructor
         const pathElement = group
             .append('path')
-            .attr('d', this.pathGenerator(edge.points))
+            .attr('d', this.pathGenerator(edge.points) ?? '')
             .attr('fill', 'none')
             .attr('stroke', edgeColor)
             .attr('stroke-width', edge.type === 'error' ? 2 : 1.5)

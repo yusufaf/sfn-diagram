@@ -40,7 +40,7 @@ Library for generating diagrams from AWS Step Functions ASL (Amazon States Langu
 - Calculates node positions and edge routing
 
 **src/renderers/SvgRenderer.ts** - SVG generation
-- D3.js + JSDOM for Node.js SVG rendering
+- DOM-free SVG string builder (`svgBuilder.ts`) + d3-shape for edge paths; runs in Node, browser, and edge runtimes
 - Theme-based styling (AWS light/dark themes)
 - Supports different node shapes (rect, diamond, circle)
 - Curved or straight edge paths
@@ -170,5 +170,5 @@ Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
 - HelloWorldStateMachine.asl.json in root can be used for testing
-- Package is Node.js-only (uses JSDOM, node-html-to-image)
+- Core (`sfn-diagram`: SVG/Mermaid) is platform-agnostic — runs in Node, browser, and edge. Only `sfn-diagram/png` (node-html-to-image) and the CLI are Node-only
 

@@ -3,6 +3,7 @@
   "version": "0.4.1",
   "description": "Generate SVG diagrams from AWS Step Functions ASL definitions",
   "type": "module",
+  "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -74,7 +75,6 @@
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^9.34.0",
-    "@types/d3-selection": "^3.0.0",
     "@types/d3-shape": "^3.1.8",
     "@types/node": "^24.3.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
@@ -94,10 +94,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.0",
-    "@types/jsdom": "^27.0.0",
-    "d3-selection": "^3.0.0",
     "d3-shape": "^3.2.0",
-    "jsdom": "^27.2.0",
     "node-html-to-image": "^5.0.0"
   },
   "pnpm": {

@@ -15,11 +15,30 @@ Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon Sta
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **AWS SDK Integration**: Direct integration with AWS Step Functions API
 - **Dual APIs**: Function-based and class-based interfaces
+- **Runs Anywhere**: SVG and Mermaid generation has zero platform dependencies — works in Node, the browser, and edge runtimes
 
 ## Installation
 
 ```bash
 npm install sfn-diagram
+```
+
+## Runtime Support
+
+The core entry (`sfn-diagram`) builds SVG with a DOM-free string renderer, so
+`generateSvg`, `generateMermaid`, `generateDiagram`, and `generateFromAwsResponse`
+run in **Node, browsers, and edge runtimes** (Cloudflare Workers, Vercel Edge, Deno, Bun)
+with no DOM polyfill.
+
+PNG export (`sfn-diagram/png`) and the CLI are **Node-only** — they rely on a headless
+browser (`node-html-to-image`) and Node's filesystem respectively.
+
+```ts
+// Works in Node, browser, and edge:
+import { generateSvg } from 'sfn-diagram';
+
+// Node-only:
+import { exportPng } from 'sfn-diagram/png';
 ```
 
 ## Command-line Usage

@@ -15,6 +15,22 @@ interface FetchAsDataUriParams {
 }
 
 /**
+ * Convert an ArrayBuffer to a base64 string without relying on Node's `Buffer`,
+ * so icon embedding works in Node, browsers, and edge runtimes alike.
+ *
+ * @param buffer - Binary data to encode
+ * @returns Base64-encoded string
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let index = 0; index < bytes.length; index++) {
+        binary += String.fromCharCode(bytes[index]);
+    }
+    return btoa(binary);
+}
+
+/**
  * Fetch a remote resource and convert it to a base64 data URI
  *
  * @param params - Parameters containing the URL and optional timeout
@@ -35,7 +51,7 @@ async function fetchAsDataUri(params: FetchAsDataUriParams): Promise<string> {
         }
 
         const buffer = await response.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString('base64');
+        const base64 = arrayBufferToBase64(buffer);
 
         // Determine MIME type from URL extension
         const mimeType = url.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
