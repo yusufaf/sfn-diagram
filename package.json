@@ -103,6 +103,7 @@
       "brace-expansion": ">=2.0.3",
       "defu": ">=6.1.5",
       "dompurify": ">=3.4.0",
+      "esbuild": ">=0.28.1",
       "fast-xml-builder": ">=1.1.7",
       "fast-xml-parser": ">=5.7.0",
       "flatted": ">=3.4.2",
