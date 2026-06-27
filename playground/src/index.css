@@ -1,0 +1,122 @@
+:root {
+    --bg: #ffffff;
+    --border: #e2e8f0;
+    --error-bg: #fff5f5;
+    --error-text: #c53030;
+    --text: #1a202c;
+    --toolbar-bg: #f7fafc;
+}
+
+[data-theme='dark'] {
+    --bg: #1a202c;
+    --border: #2d3748;
+    --error-bg: #742a2a;
+    --error-text: #feb2b2;
+    --text: #e2e8f0;
+    --toolbar-bg: #2d3748;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+    overflow: hidden;
+}
+
+.app {
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    font-family: system-ui, sans-serif;
+    height: 100%;
+}
+
+.toolbar {
+    align-items: center;
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-shrink: 0;
+    gap: 16px;
+    padding: 8px 16px;
+}
+
+.toolbar-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.toolbar-group {
+    align-items: center;
+    display: flex;
+    font-size: 13px;
+    gap: 6px;
+}
+
+.toolbar-group select {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    padding: 3px 6px;
+}
+
+.panes {
+    display: grid;
+    flex: 1;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+}
+
+.editor-pane {
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.editor-loading {
+    align-items: center;
+    color: var(--text);
+    display: flex;
+    font-size: 13px;
+    height: 100%;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.preview-pane {
+    align-items: flex-start;
+    display: flex;
+    justify-content: center;
+    overflow: auto;
+    padding: 16px;
+}
+
+.svg-preview svg {
+    height: auto;
+    max-width: 100%;
+}
+
+.mermaid-code {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+    white-space: pre;
+}
+
+.error-banner {
+    background: var(--error-bg);
+    border-radius: 4px;
+    color: var(--error-text);
+    font-family: monospace;
+    font-size: 13px;
+    padding: 12px 16px;
+    width: 100%;
+}

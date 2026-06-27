@@ -38,7 +38,7 @@ export function Toolbar({
 
             <label className="toolbar-group">
                 Theme:
-                <select onChange={(e) => onThemeChange(e.target.value as ThemeOption)} value={theme}>
+                <select onChange={(e) => onThemeChange(e.target.value as ThemeOption)} value={theme as string}>
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
                 </select>
