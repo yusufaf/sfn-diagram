@@ -11,3 +11,6 @@ src/**/*.d.ts
 
 # Examples output directory (generated files)
 examples/outputs/
+
+# AI planning docs (local only)
+docs/superpowers/
