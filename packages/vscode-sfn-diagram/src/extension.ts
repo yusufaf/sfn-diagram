@@ -3,13 +3,24 @@ import { DiagramPanel } from './DiagramPanel'
 
 export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
-        vscode.commands.registerCommand('sfn-diagram.preview', () => {
+        vscode.commands.registerCommand('sfn-diagram.preview', async () => {
             const editor = vscode.window.activeTextEditor
-            if (!editor) {
-                vscode.window.showErrorMessage('Step Functions Diagram: no active editor')
+            if (editor) {
+                DiagramPanel.createOrShow(context.extensionUri, editor.document.getText())
                 return
             }
-            DiagramPanel.createOrShow(context.extensionUri, editor.document.getText())
+            const uris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                filters: { 'ASL / JSON': ['json', 'asl'] },
+                openLabel: 'Open',
+                title: 'Select Step Functions definition',
+            })
+            if (!uris || uris.length === 0) {
+                return
+            }
+            const doc = await vscode.workspace.openTextDocument(uris[0])
+            await vscode.window.showTextDocument(doc)
+            DiagramPanel.createOrShow(context.extensionUri, doc.getText())
         })
     )
 

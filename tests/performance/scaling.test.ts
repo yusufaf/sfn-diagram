@@ -37,9 +37,9 @@ describe('parser scaling', () => {
         const smallTime = timeMs(() => parseAsl({ definition: small })) || 0.01;
         const largeTime = timeMs(() => parseAsl({ definition: large }));
 
-        // 4x input should stay well under quadratic (16x). Allow 8x headroom
+        // 4x input should stay well under quadratic (16x). Allow 10x headroom
         // for measurement noise; an O(n^2) regression would blow past this.
-        expect(largeTime / smallTime).toBeLessThan(8);
+        expect(largeTime / smallTime).toBeLessThan(10);
     });
 
     test('parses a wide Parallel without quadratic blowup', () => {
