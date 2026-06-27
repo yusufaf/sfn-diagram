@@ -5,6 +5,7 @@ packages/*/out
 .DS_Store
 .env
 .vscode
+!packages/*/.vscode
 
 # Generated type declarations (keep only custom module declarations)
 src/**/*.d.ts
