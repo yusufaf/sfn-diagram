@@ -1,0 +1,50 @@
+{
+    "name": "vscode-sfn-diagram",
+    "displayName": "Step Functions Diagram",
+    "description": "Preview AWS Step Functions ASL definitions as diagrams",
+    "version": "0.1.0",
+    "publisher": "yusufaf",
+    "engines": { "vscode": "^1.85.0" },
+    "categories": ["Visualization", "Other"],
+    "keywords": ["aws", "step-functions", "asl", "diagram", "state-machine"],
+    "activationEvents": [],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "sfn-diagram.preview",
+                "title": "Preview Step Functions Diagram",
+                "category": "Step Functions"
+            }
+        ],
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "sfn-diagram.preview",
+                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "group": "navigation"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap",
+        "dev": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap --watch",
+        "typecheck": "tsc --noEmit",
+        "package": "vsce package --no-dependencies"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "@types/vscode": "^1.85.0",
+        "@vscode/vsce": "^3.0.0",
+        "esbuild": "^0.25.0",
+        "sfn-diagram": "workspace:*",
+        "typescript": "^5.9.2"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yusufaf/sfn-diagram.git",
+        "directory": "packages/vscode-sfn-diagram"
+    }
+}
