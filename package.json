@@ -88,6 +88,7 @@
     "publint": "^0.3.16",
     "tsdown": "^0.21.7",
     "tsx": "^4.20.5",
+    "turbo": "^2.10.0",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.41.0",
     "vitest": "^3.2.6"
@@ -95,7 +96,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^2.0.0",
     "d3-shape": "^3.2.0",
-  "node-html-to-image": "^5.0.0"
+    "node-html-to-image": "^5.0.0"
   },
   "pnpm": {
     "overrides": {
