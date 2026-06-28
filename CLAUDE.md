@@ -167,6 +167,21 @@ Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
 - Minor types (`docs`, `refactor`, `test`, `build`, `ci`, `chore`) omitted from public changelog unless notable
 - Format each entry as: `- <subject> ([#PR](url))`
 
+### Release Flow — release-please (IMPORTANT)
+
+**Never manually bump `package.json` version, edit `CHANGELOG.md`, create release tags, or run `npm publish`.** The release process is fully automated:
+
+1. Conventional commits on `main` are parsed by [release-please](https://github.com/googleapis/release-please)
+2. release-please opens/updates a release PR (e.g. `chore(main): release sfn-diagram 0.5.0`) that bumps the version and writes the changelog
+3. Merging that PR triggers the publish workflow — it creates the git tag and publishes to npm automatically
+
+**To ship a release:** merge the open release PR. Nothing else needed.
+
+Commit types that increment the version:
+- `feat` → MINOR bump
+- `fix` / `perf` → PATCH bump
+- `feat!` or `BREAKING CHANGE:` footer → MAJOR bump
+
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
 - HelloWorldStateMachine.asl.json in root can be used for testing
