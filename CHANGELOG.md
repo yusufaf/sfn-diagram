@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.4.1...sfn-diagram-v0.5.0) (2026-06-28)
+
+
+### Features
+
+* add generateDiff API and GitHub Action for PR diagram previews ([c1a193b](https://github.com/yusufaf/sfn-diagram/commit/c1a193b7a3091ce17d529cbea57e5621a9a5e257))
+* **playground:** add Preview component with tests ([208b693](https://github.com/yusufaf/sfn-diagram/commit/208b6936baace69f59584acffba88c6d2262389d))
+* **playground:** add sample ASL definitions ([bf3e16b](https://github.com/yusufaf/sfn-diagram/commit/bf3e16bd1efe6821afba6a175ce7a3de38ed47fb))
+* **playground:** add Toolbar and Editor components ([2ea2fa6](https://github.com/yusufaf/sfn-diagram/commit/2ea2fa63f31b37a18dfb5a3707c902146bffaef9))
+* **playground:** scaffold vite + react project ([42b1b4c](https://github.com/yusufaf/sfn-diagram/commit/42b1b4c2438c9a31fd4e20b3eefe1b7a17310895))
+* **playground:** wire up App root, styles, and dev tooling ([d81462e](https://github.com/yusufaf/sfn-diagram/commit/d81462e26c82ed05dceebacd85d4f3199ce2dc35))
+* **react:** add sfn-diagram-react package and monorepo setup ([62ffad0](https://github.com/yusufaf/sfn-diagram/commit/62ffad09e66af218c9fa68d4b4575852dd025468))
+* **svg-renderer:** make core DOM-free for browser and edge runtimes ([5ed1333](https://github.com/yusufaf/sfn-diagram/commit/5ed1333c29cf4c9dc7c999662638811a6d7b4b5d))
+* **vscode:** add Step Functions Diagram VS Code extension ([a8c7008](https://github.com/yusufaf/sfn-diagram/commit/a8c700893ec1eb1f0ca5f9f4ced65f44a04f362c))
+
+
+### Bug Fixes
+
+* **ci:** add playground to pnpm workspace and use workspace:* protocol ([067658e](https://github.com/yusufaf/sfn-diagram/commit/067658e3efc5aa141de444f4784d67b78ada9923))
+* **types:** add nodeOverrides to DEFAULT_DIAGRAM_OPTIONS to satisfy Required&lt;&gt; ([da06a70](https://github.com/yusufaf/sfn-diagram/commit/da06a7000ed86b2f9311bfe741b3f4f32ccac874))
+* **vscode:** open file picker when no active editor instead of showing error ([5b31a7e](https://github.com/yusufaf/sfn-diagram/commit/5b31a7ec0a387a0f58efcb7db84ee7efb201afb8))
+
+
+### Performance Improvements
+
+* eliminate O(n^2) scans in parser, layout, and SVG renderer ([85c89de](https://github.com/yusufaf/sfn-diagram/commit/85c89de9daa0a72bf99efc492396d5a608da4906))
+
 ## [0.4.1](https://github.com/yusufaf/sfn-diagram/compare/v0.4.0...v0.4.1) (2026-05-23)
 
 
