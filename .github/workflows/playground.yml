@@ -33,15 +33,11 @@ jobs:
           node-version: lts/*
           cache: pnpm
 
-      - name: Install root deps
+      - name: Install deps
         run: pnpm install
 
       - name: Build library
         run: pnpm run build
-
-      - name: Install playground deps
-        run: pnpm install
-        working-directory: playground
 
       - name: Build playground
         run: pnpm run build
