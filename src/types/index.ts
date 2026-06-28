@@ -262,6 +262,12 @@ export interface DiagramOptions {
 
     /** Overall diagram width in pixels (auto-calculated if not specified) */
     width?: number;
+
+    /**
+     * Per-node style overrides keyed by state name.
+     * Merged on top of the node's computed style — only specified fields are overridden.
+     */
+    nodeOverrides?: Record<string, Partial<NodeStyle>>;
 }
 
 // Output Types
@@ -346,4 +352,45 @@ export interface ExportPngParams extends DiagramOptions {
 export interface GenerateFromAwsParams extends DiagramOptions {
     /** AWS SDK DescribeStateMachine command output */
     response: DescribeStateMachineCommandOutput;
+}
+
+/** Diff diagram output */
+export interface DiffOutput {
+    /** Height of the diagram in pixels */
+    height: number;
+
+    /** Change summary metadata */
+    metadata: {
+        /** State names present in `after` but not `before` */
+        added: string[];
+
+        /** Number of edges in the rendered diagram */
+        edgeCount: number;
+
+        /** State names modified between `before` and `after` */
+        modified: string[];
+
+        /** Number of nodes in the rendered diagram */
+        nodeCount: number;
+
+        /** State names present in `before` but not `after` */
+        removed: string[];
+
+        /** State names that did not change */
+        unchanged: string[];
+    };
+
+    /** Complete SVG markup as a string */
+    svg: string;
+
+    /** Width of the diagram in pixels */
+    width: number;
+}
+
+export interface GenerateDiffParams extends DiagramOptions {
+    /** The new (head) ASL definition */
+    after: AslDefinition | string;
+
+    /** The old (base) ASL definition */
+    before: AslDefinition | string;
 }

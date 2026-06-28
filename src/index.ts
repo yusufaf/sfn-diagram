@@ -357,6 +357,7 @@ export type {
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
+    DiffOutput,
     StateNode,
     GraphEdge,
     NodeStyle,
@@ -364,6 +365,7 @@ export type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateDiagramParams,
+    GenerateDiffParams,
     GenerateFromAwsParams,
     // Union types for configuration options
     DiagramFormat,
@@ -377,3 +379,4 @@ export type {
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslValidationError, validateAsl } from './AslParser';
+export { generateDiff } from './diff';

@@ -333,10 +333,12 @@ export class SvgRenderer {
             .attr('class', `node node-${node.type}`)
             .attr('transform', `translate(${node.x}, ${node.y})`);
 
-        const style = node.style;
-        if (!style) {
+        const baseStyle = node.style;
+        if (!baseStyle) {
             return;
         }
+        const override = this.options.nodeOverrides?.[node.id];
+        const style: NodeStyle = override ? { ...baseStyle, ...override } : baseStyle;
 
         // Render shape based on type
         switch (style.shape) {

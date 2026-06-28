@@ -1,6 +1,8 @@
 node_modules
 dist
 packages/*/out
+# Action bundle must be committed so `uses: ./packages/github-action-sfn-diagram` works
+!packages/github-action-sfn-diagram/dist
 *.log
 .DS_Store
 .env

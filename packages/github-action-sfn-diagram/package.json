@@ -1,0 +1,28 @@
+{
+    "name": "github-action-sfn-diagram",
+    "version": "1.0.0",
+    "private": true,
+    "description": "GitHub Action — preview and diff Step Functions diagrams on pull requests",
+    "main": "dist/index.js",
+    "scripts": {
+        "build": "node esbuild.mjs",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@actions/core": "^1.10.1",
+        "@actions/github": "^6.0.0",
+        "minimatch": "^10.0.1",
+        "sfn-diagram": "workspace:*"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "esbuild": "^0.25.0",
+        "typescript": "^5.9.2"
+    },
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yusufaf/sfn-diagram.git",
+        "directory": "packages/github-action-sfn-diagram"
+    }
+}

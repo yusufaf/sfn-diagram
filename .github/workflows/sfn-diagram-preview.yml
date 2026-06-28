@@ -1,0 +1,26 @@
+name: Step Functions Diagram Preview
+
+on:
+  pull_request:
+    paths:
+      - '**/*.asl.json'
+      - '**/*.asl'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preview Step Functions diagrams
+        uses: ./packages/github-action-sfn-diagram
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          asl-glob: '**/*.asl.json,**/*.asl'
+          theme: light

@@ -1,0 +1,29 @@
+name: 'Step Functions Diagram Preview'
+description: 'Preview and diff AWS Step Functions ASL diagrams on pull requests'
+author: 'sfn-diagram'
+
+inputs:
+  github-token:
+    description: 'GitHub token for posting PR comments'
+    required: false
+    default: ${{ github.token }}
+  asl-glob:
+    description: 'Comma-separated glob patterns to match ASL definition files'
+    required: false
+    default: '**/*.asl.json,**/*.asl'
+  comment-tag:
+    description: 'Unique tag used to find and update an existing PR comment'
+    required: false
+    default: 'sfn-diagram-preview'
+  theme:
+    description: 'Diagram theme used for Mermaid color hints: light or dark'
+    required: false
+    default: 'light'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'git-merge'
+  color: 'orange'
