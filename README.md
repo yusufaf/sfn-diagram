@@ -486,6 +486,56 @@ import type {
 } from 'sfn-diagram';
 ```
 
+## Ecosystem
+
+### Playground
+
+An interactive browser-based editor for exploring ASL definitions and previewing diagrams in real time. Located in the [`playground/`](playground/) directory.
+
+```bash
+cd playground
+pnpm install
+pnpm dev
+```
+
+Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — no install required beyond the dev server.
+
+### VS Code Extension
+
+Preview Step Functions diagrams directly inside VS Code. Located in [`packages/vscode-sfn-diagram/`](packages/vscode-sfn-diagram/).
+
+**Install from source:**
+```bash
+cd packages/vscode-sfn-diagram
+pnpm install
+pnpm package          # produces vscode-sfn-diagram-*.vsix
+code --install-extension vscode-sfn-diagram-*.vsix
+```
+
+**Usage:** Open any `.json` or `.asl` file and run **Step Functions: Preview Step Functions Diagram** from the command palette, or click the diagram icon in the editor title bar.
+
+### GitHub Action
+
+Post SVG diff previews and Mermaid diagrams as PR comments whenever ASL files change. Located in [`packages/github-action-sfn-diagram/`](packages/github-action-sfn-diagram/).
+
+```yaml
+# .github/workflows/sfn-preview.yml
+name: Step Functions Preview
+on:
+  pull_request:
+    paths: ['**/*.asl.json']
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: ./packages/github-action-sfn-diagram
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
