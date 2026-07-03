@@ -16,8 +16,6 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4.2.0
-        with:
-          version: 10
 
       - name: Set node LTS
         uses: actions/setup-node@v5
@@ -33,16 +31,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y chromium-browser
 
+      # Build every workspace (core + react, vscode, github-action, playground)
+      # so package build breakage is caught, not just the core library.
       - name: Build
-        run: pnpm run build
+        run: pnpm turbo run build
 
+      # The GitHub Action ships a committed dist bundle (see .gitignore negation).
+      # The Build above rebuilds it; fail if the committed copy is stale so the
+      # bundled core can never drift from source. Deterministic because pnpm is
+      # pinned via the packageManager field.
+      - name: Verify GitHub Action bundle is up to date
+        run: |
+          if ! git diff --exit-code -- packages/github-action-sfn-diagram/dist; then
+            echo "::error::Committed GitHub Action bundle is stale. Run 'pnpm --filter github-action-sfn-diagram build' and commit packages/github-action-sfn-diagram/dist."
+            exit 1
+          fi
+
+      # Root eslint config lints core and all packages (playground is ignored).
       - name: Lint
         run: pnpm run lint
 
       - name: Typecheck
-        run: pnpm run typecheck
+        run: pnpm turbo run typecheck
 
       - name: Test
-        run: pnpm run test
+        run: pnpm turbo run test
         env:
           PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
