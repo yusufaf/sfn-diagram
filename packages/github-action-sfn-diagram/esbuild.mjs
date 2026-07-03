@@ -7,7 +7,7 @@ await build({
     minify: false,
     outfile: 'dist/index.js',
     platform: 'node',
-    target: 'node20',
+    target: 'node24',
     // @actions packages and sfn-diagram must be bundled (no node_modules in action)
     external: [],
 })
