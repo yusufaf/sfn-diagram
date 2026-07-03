@@ -2,8 +2,11 @@
 
 [![npm version](https://img.shields.io/npm/v/sfn-diagram.svg)](https://www.npmjs.com/package/sfn-diagram)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Live Playground](https://img.shields.io/badge/playground-live-brightgreen)](https://yusufaf.github.io/sfn-diagram/)
 
 Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon States Language) definitions. Supports dual output formats: D3.js-based SVG and Mermaid.js diagram code, plus PNG export.
+
+**▶ [Try it in the live playground](https://yusufaf.github.io/sfn-diagram/)** — paste any ASL definition and preview the diagram instantly, no install required.
 
 ## Features
 
@@ -503,7 +506,7 @@ import type { PngOutput, ExportPngParams } from 'sfn-diagram/png';
 
 ### Playground
 
-An interactive browser-based editor for exploring ASL definitions and previewing diagrams in real time. Located in the [`playground/`](playground/) directory.
+An interactive browser-based editor for exploring ASL definitions and previewing diagrams in real time. **[Open the live playground →](https://yusufaf.github.io/sfn-diagram/)** or run it locally from the [`playground/`](playground/) directory.
 
 ```bash
 cd playground
