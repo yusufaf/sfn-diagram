@@ -4,6 +4,8 @@ packages/*/out
 # Turborepo local cache / logs
 .turbo
 **/.turbo
+# Coverage output
+coverage
 # Action bundle must be committed so `uses: ./packages/github-action-sfn-diagram` works
 !packages/github-action-sfn-diagram/dist
 *.log
