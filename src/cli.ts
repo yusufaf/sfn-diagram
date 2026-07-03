@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
 import type { DiagramFormat, LayoutDirection, ThemeOption } from './types';
 
-interface CliArgs {
+export interface CliArgs {
     format: DiagramFormat;
     input: string | null;
     layout: LayoutDirection;
@@ -35,7 +36,7 @@ Examples:
   cat state.asl.json | sfn-diagram - --format png -o diagram.png
 `;
 
-function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[]): CliArgs {
     const args: CliArgs = {
         format: 'svg',
         input: null,
@@ -117,7 +118,7 @@ function parseArgs(argv: string[]): CliArgs {
     return args;
 }
 
-class CliError extends Error {
+export class CliError extends Error {
     constructor(
         message: string,
         public exitCode: number
@@ -151,7 +152,7 @@ async function loadAsl(input: string | null): Promise<string> {
     return readFileSync(resolve(input), 'utf-8');
 }
 
-async function run(argv: string[]): Promise<number> {
+export async function run(argv: string[]): Promise<number> {
     let args: CliArgs;
     try {
         args = parseArgs(argv);
@@ -228,6 +229,15 @@ function writeOutput(content: string, outputPath: string | null): void {
     }
 }
 
-void run(process.argv.slice(2)).then((code) => {
-    process.exit(code);
-});
+// Only execute when invoked directly as the `sfn-diagram` bin, not when
+// imported (e.g. by tests). The CLI is built ESM-only (see tsdown.config.ts),
+// so comparing this module's URL to the invoked script is safe.
+const invokedDirectly =
+    process.argv[1] !== undefined &&
+    import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+    void run(process.argv.slice(2)).then((code) => {
+        process.exit(code);
+    });
+}
