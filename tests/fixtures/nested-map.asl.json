@@ -1,0 +1,45 @@
+{
+    "Comment": "Parallel state whose branch contains a nested Map (exercises recursive nested-edge extraction)",
+    "StartAt": "FanOut",
+    "States": {
+        "FanOut": {
+            "Type": "Parallel",
+            "Branches": [
+                {
+                    "StartAt": "ProcessBatch",
+                    "States": {
+                        "ProcessBatch": {
+                            "Type": "Map",
+                            "ItemsPath": "$.batch",
+                            "Iterator": {
+                                "StartAt": "HandleRecord",
+                                "States": {
+                                    "HandleRecord": {
+                                        "Type": "Task",
+                                        "Resource": "arn:aws:lambda:us-east-1:123456789012:function:HandleRecord",
+                                        "End": true
+                                    }
+                                }
+                            },
+                            "End": true
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Notify",
+                    "States": {
+                        "Notify": {
+                            "Type": "Task",
+                            "Resource": "arn:aws:sns:us-east-1:123456789012:notify",
+                            "End": true
+                        }
+                    }
+                }
+            ],
+            "Next": "Complete"
+        },
+        "Complete": {
+            "Type": "Succeed"
+        }
+    }
+}

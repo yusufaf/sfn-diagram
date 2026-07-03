@@ -86,6 +86,89 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Map states', () => {
+        it('should parse a Map state as a container with iterator children', () => {
+            const asl = loadFixture('map');
+            const result = parseAsl({ definition: asl });
+
+            const mapNode = result.nodes.find((node) => node.id === 'ProcessItems');
+            expect(mapNode?.type).toBe('Map');
+            expect(mapNode?.isContainer).toBe(true);
+
+            // Iterator states and the virtual end marker are tracked as children
+            expect(mapNode?.children).toContain('ProcessItem');
+            expect(mapNode?.children).toContain('ValidateItem');
+            expect(mapNode?.children).toContain('ProcessItems__iterator__end');
+        });
+
+        it('should extract iterator states as their own nodes', () => {
+            const asl = loadFixture('map');
+            const result = parseAsl({ definition: asl });
+
+            expect(result.nodes.find((node) => node.id === 'ProcessItem')?.type).toBe('Task');
+            expect(result.nodes.find((node) => node.id === 'ValidateItem')?.type).toBe('Pass');
+
+            const endMarker = result.nodes.find(
+                (node) => node.id === 'ProcessItems__iterator__end'
+            );
+            expect(endMarker?.type).toBe('IteratorEnd');
+            expect(endMarker?.isContainer).toBe(false);
+        });
+
+        it('should extract edges within the iterator and to the end marker', () => {
+            const asl = loadFixture('map');
+            const result = parseAsl({ definition: asl });
+
+            // Internal iterator transition
+            expect(
+                result.edges.some(
+                    (edge) => edge.from === 'ProcessItem' && edge.to === 'ValidateItem'
+                )
+            ).toBe(true);
+
+            // Terminal iterator state connects to the virtual end marker
+            expect(
+                result.edges.some(
+                    (edge) =>
+                        edge.from === 'ValidateItem' &&
+                        edge.to === 'ProcessItems__iterator__end'
+                )
+            ).toBe(true);
+
+            // The end marker connects to the Map's Next state (not the container directly)
+            expect(
+                result.edges.some(
+                    (edge) =>
+                        edge.from === 'ProcessItems__iterator__end' && edge.to === 'Done'
+                )
+            ).toBe(true);
+        });
+
+        it('should recurse into nested Parallel/Map containers', () => {
+            const asl = loadFixture('nested-map');
+            const result = parseAsl({ definition: asl });
+
+            const parallelNode = result.nodes.find((node) => node.id === 'FanOut');
+            expect(parallelNode?.isContainer).toBe(true);
+
+            const mapNode = result.nodes.find((node) => node.id === 'ProcessBatch');
+            expect(mapNode?.type).toBe('Map');
+            expect(mapNode?.isContainer).toBe(true);
+
+            // The deeply-nested iterator task is still extracted as a node
+            expect(result.nodes.find((node) => node.id === 'HandleRecord')?.type).toBe('Task');
+
+            // And its edge to the nested Map's end marker exists
+            expect(
+                result.edges.some(
+                    (edge) =>
+                        edge.from === 'HandleRecord' &&
+                        edge.to === 'ProcessBatch__iterator__end'
+                )
+            ).toBe(true);
+        });
+    });
+
     describe('Error handling', () => {
         it('should parse Catch blocks as error edges', () => {
             const asl = loadFixture('error-handling');
