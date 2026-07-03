@@ -9,6 +9,7 @@ export class DiagramPanel {
     private _disposables: vscode.Disposable[] = []
     private _layout: LayoutDirection = 'TB'
     private _theme: ThemeOption = 'dark'
+    private _lastContent = ''
 
     static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
         const column = vscode.window.activeTextEditor
@@ -43,7 +44,10 @@ export class DiagramPanel {
                     this._layout = message.value as LayoutDirection
                 } else if (message.command === 'setTheme') {
                     this._theme = message.value as ThemeOption
+                } else {
+                    return
                 }
+                this.update(this._lastContent)
             },
             null,
             this._disposables
@@ -51,6 +55,7 @@ export class DiagramPanel {
     }
 
     update(aslContent: string) {
+        this._lastContent = aslContent
         try {
             const { svg } = generateSvg({
                 aslDefinition: aslContent,
@@ -62,6 +67,10 @@ export class DiagramPanel {
             const message = err instanceof Error ? err.message : String(err)
             this._panel.webview.html = this._getErrorHtml(message)
         }
+    }
+
+    private _selected(optionValue: string, currentValue: unknown): string {
+        return optionValue === currentValue ? ' selected' : ''
     }
 
     private _getHtml(svg: string): string {
@@ -87,16 +96,16 @@ export class DiagramPanel {
 <div class="toolbar">
   <label>Layout:
     <select id="layout" onchange="send('setLayout', this.value)">
-      <option value="TB" selected>Top → Bottom</option>
-      <option value="LR">Left → Right</option>
-      <option value="RL">Right → Left</option>
-      <option value="BT">Bottom → Top</option>
+      <option value="TB"${this._selected('TB', this._layout)}>Top → Bottom</option>
+      <option value="LR"${this._selected('LR', this._layout)}>Left → Right</option>
+      <option value="RL"${this._selected('RL', this._layout)}>Right → Left</option>
+      <option value="BT"${this._selected('BT', this._layout)}>Bottom → Top</option>
     </select>
   </label>
   <label>Theme:
     <select id="theme" onchange="send('setTheme', this.value)">
-      <option value="dark" selected>Dark</option>
-      <option value="light">Light</option>
+      <option value="dark"${this._selected('dark', this._theme)}>Dark</option>
+      <option value="light"${this._selected('light', this._theme)}>Light</option>
     </select>
   </label>
 </div>
