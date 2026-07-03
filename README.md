@@ -101,15 +101,15 @@ console.log(`Generated ${width}x${height} diagram`);
 ```typescript
 import { SfnDiagramGenerator } from 'sfn-diagram';
 
-const generator = new SfnDiagramGenerator()
-  .setAsl(asl)
-  .setTheme('dark')
-  .setLayout('TB')
-  .setNodeDimensions({ width: 150, height: 80 });
+const generator = new SfnDiagramGenerator({
+  theme: 'dark',
+  layout: 'TB',
+  nodeWidth: 150,
+  nodeHeight: 80,
+});
 
-const { svg } = generator.generateSvg();
-const { mermaid } = generator.generateMermaid();
-const { png } = await generator.exportPng();
+const { svg } = generator.generateSvg({ aslDefinition: asl });
+const { code } = generator.generateMermaid({ aslDefinition: asl });
 ```
 
 ## API Reference
@@ -136,7 +136,7 @@ const result = generateSvg({
   customColors: {}                 // Override colors for specific states
 });
 
-// Returns: { svg: string, width: number, height: number, nodeCount: number }
+// Returns SvgOutput: { svg: string, width: number, height: number, metadata: { edgeCount: number, nodeCount: number } }
 ```
 
 ### generateMermaid(params)
@@ -151,40 +151,43 @@ const result = generateMermaid({
   includeComments: true
 });
 
-// Returns: { mermaid: string, nodeCount: number, edgeCount: number }
+// Returns MermaidOutput: { code: string, metadata: { edgeCount: number, stateCount: number } }
 ```
 
 ### generateDiagram(params)
 
-Generate both SVG and Mermaid output simultaneously.
+Generate a diagram, choosing the output format via the `format` option (defaults to `'svg'`).
 
 ```typescript
 import { generateDiagram } from 'sfn-diagram';
 
-const result = generateDiagram({
+const svgResult = generateDiagram({
   aslDefinition: asl,
   theme: 'dark'
-});
+});                                // Returns SvgOutput
 
-// Returns: { svg: SvgOutput, mermaid: MermaidOutput }
+const mermaidResult = generateDiagram({
+  aslDefinition: asl,
+  format: 'mermaid'
+});                                // Returns MermaidOutput
 ```
 
 ### exportPng(params)
 
-Export diagram as PNG image.
+Export diagram as PNG image. Node-only — imported from the `sfn-diagram/png` subpath.
 
 ```typescript
-import { exportPng } from 'sfn-diagram';
+import { exportPng } from 'sfn-diagram/png';
 
 const result = await exportPng({
   aslDefinition: asl,
   theme: 'light',
-  quality: 1.0,
-  transparent: false
+  pngQuality: 90,               // 1–100 (default 90)
+  backgroundColor: 'transparent'
 });
 
-// Returns: { png: Buffer, width: number, height: number }
-writeFileSync('diagram.png', result.png);
+// Returns PngOutput: { buffer: Buffer, width: number, height: number, metadata: { format: 'png' } }
+writeFileSync('diagram.png', result.buffer);
 ```
 
 ### generateFromAwsResponse(params)
@@ -203,32 +206,38 @@ const response = await client.send(
 );
 
 const { svg } = generateFromAwsResponse({
-  awsResponse: response,
+  response,
   theme: 'dark'
 });
 ```
 
 ### SfnDiagramGenerator Class
 
-Fluent interface for generating diagrams.
+Reusable generator that holds diagram options once and applies them to every call. Configure options via the constructor or the fluent `setOptions()` method; pass the `aslDefinition` per generation.
 
 ```typescript
 import { SfnDiagramGenerator } from 'sfn-diagram';
 
-const generator = new SfnDiagramGenerator()
-  .setAsl(asl)
-  .setTheme('dark')
-  .setLayout('LR')
-  .setNodeDimensions({ width: 150, height: 80 })
-  .setSpacing({ rankSeparation: 60, nodeSeparation: 60 })
-  .setEdgeStyle('curved')
-  .setPadding(30);
+const generator = new SfnDiagramGenerator({
+  theme: 'dark',
+  layout: 'LR',
+  nodeWidth: 150,
+  nodeHeight: 80,
+  rankSeparation: 60,
+  nodeSeparation: 60,
+  edgeStyle: 'curved',
+  padding: 30,
+});
 
-// Generate outputs
-const svgResult = generator.generateSvg();
-const mermaidResult = generator.generateMermaid();
-const pngResult = await generator.exportPng({ quality: 1.0 });
+// Update options later (chainable)
+generator.setOptions({ theme: 'light' });
+
+// Generate outputs (aslDefinition passed per call)
+const svgResult = generator.generateSvg({ aslDefinition: asl });
+const mermaidResult = generator.generateMermaid({ aslDefinition: asl });
 ```
+
+> PNG export is a standalone function from `sfn-diagram/png` (`exportPng`), not a method on this class.
 
 ## Configuration Options
 
@@ -453,21 +462,23 @@ const { svg } = generateSvg({ aslDefinition: parallelAsl });
 ### Export Multiple Formats
 
 ```typescript
-import { generateDiagram, exportPng } from 'sfn-diagram';
+import { generateSvg, generateMermaid } from 'sfn-diagram';
+import { exportPng } from 'sfn-diagram/png';
 import { writeFileSync } from 'fs';
 
 // Generate SVG and Mermaid
-const { svg, mermaid } = generateDiagram({ aslDefinition: asl });
-writeFileSync('diagram.svg', svg.svg);
-writeFileSync('diagram.mmd', mermaid.mermaid);
+const { svg } = generateSvg({ aslDefinition: asl });
+const { code } = generateMermaid({ aslDefinition: asl });
+writeFileSync('diagram.svg', svg);
+writeFileSync('diagram.mmd', code);
 
-// Generate PNG
-const { png } = await exportPng({
+// Generate PNG (Node-only)
+const { buffer } = await exportPng({
   aslDefinition: asl,
-  quality: 1.0,
-  transparent: false
+  pngQuality: 90,
+  backgroundColor: 'transparent'
 });
-writeFileSync('diagram.png', png);
+writeFileSync('diagram.png', buffer);
 ```
 
 ## TypeScript Support
@@ -480,10 +491,12 @@ import type {
   DiagramOptions,
   SvgOutput,
   MermaidOutput,
-  PngOutput,
   CustomTheme,
   StateType
 } from 'sfn-diagram';
+
+// PNG types live on the Node-only subpath
+import type { PngOutput, ExportPngParams } from 'sfn-diagram/png';
 ```
 
 ## Ecosystem
