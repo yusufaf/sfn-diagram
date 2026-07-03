@@ -65,7 +65,7 @@ describe('SfnDiagram', () => {
         it('returns null and calls onError for invalid definition object', () => {
             const onError = vi.fn()
             const { container } = render(
-                // @ts-expect-error intentionally invalid
+                // Structurally invalid at runtime (missing States), but a valid `object` prop
                 <SfnDiagram definition={{ StartAt: 'Missing' }} onError={onError} />
             )
             expect(container.firstChild).toBeNull()
