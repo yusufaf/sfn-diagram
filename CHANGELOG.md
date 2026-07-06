@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.5.0...sfn-diagram-v0.5.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **react:** declare core devDependency and drop stale ts-expect-error ([37c1c3e](https://github.com/yusufaf/sfn-diagram/commit/37c1c3e382bda48d58aa1f4ff4ca6f6b474f9571))
+* **vscode:** re-render preview on layout/theme change ([bf68996](https://github.com/yusufaf/sfn-diagram/commit/bf689966c5b950a79d281575df6f20b1b4c1ebb3))
+
 ## [0.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.4.1...sfn-diagram-v0.5.0) (2026-06-28)
 
 
