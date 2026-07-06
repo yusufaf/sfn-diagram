@@ -90,6 +90,9 @@ importers:
       publint:
         specifier: ^0.3.16
         version: 0.3.18
+      puppeteer:
+        specifier: 23.2.2
+        version: 23.2.2(typescript@5.9.3)
       tsdown:
         specifier: ^0.21.7
         version: 0.21.7(@arethetypeswrong/core@0.18.2)(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(publint@0.3.18)(typescript@5.9.3)

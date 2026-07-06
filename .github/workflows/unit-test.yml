@@ -26,10 +26,12 @@ jobs:
       - name: Install
         run: pnpm install
 
-      - name: Install Chromium
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser
+      # PNG export (node-html-to-image) drives puppeteer 23.2.2, which resolves
+      # Chrome from its own cache (~/.cache/puppeteer). Install the exact build it
+      # expects so no PUPPETEER_EXECUTABLE_PATH is needed — that env would be
+      # stripped by Turbo's strict env mode anyway before it reached vitest.
+      - name: Install Chrome for Puppeteer
+        run: pnpm exec puppeteer browsers install chrome
 
       # Build every workspace (core + react, vscode, github-action, playground)
       # so package build breakage is caught, not just the core library.
@@ -56,5 +58,3 @@ jobs:
 
       - name: Test
         run: pnpm turbo run test
-        env:
-          PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium-browser
