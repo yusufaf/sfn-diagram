@@ -167,6 +167,34 @@ describe('AslParser', () => {
                 )
             ).toBe(true);
         });
+
+        it('should parse a Distributed Map using ItemProcessor like a legacy Iterator', () => {
+            const asl = loadFixture('distributed-map');
+            const result = parseAsl({ definition: asl });
+
+            const mapNode = result.nodes.find((node) => node.id === 'ProcessItems');
+            expect(mapNode?.type).toBe('Map');
+            expect(mapNode?.isContainer).toBe(true);
+
+            // ItemProcessor states are extracted as nodes and tracked as children
+            expect(result.nodes.find((node) => node.id === 'ProcessItem')?.type).toBe('Task');
+            expect(mapNode?.children).toContain('ProcessItem');
+            expect(mapNode?.children).toContain('ValidateItem');
+            expect(mapNode?.children).toContain('ProcessItems__iterator__end');
+
+            // Internal transition and end-marker wiring match the Iterator behaviour
+            expect(
+                result.edges.some(
+                    (edge) => edge.from === 'ProcessItem' && edge.to === 'ValidateItem'
+                )
+            ).toBe(true);
+            expect(
+                result.edges.some(
+                    (edge) =>
+                        edge.from === 'ProcessItems__iterator__end' && edge.to === 'Done'
+                )
+            ).toBe(true);
+        });
     });
 
     describe('Error handling', () => {

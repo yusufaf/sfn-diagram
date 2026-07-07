@@ -45,7 +45,8 @@ export interface AslState {
     Default?: string; // Choice-specific
     End?: boolean;
     Error?: string; // Fail-specific
-    Iterator?: AslDefinition; // Parallel/Map-specific
+    ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
+    Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Next?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Output?: any; // AWS ASL spec - arbitrary JSON values

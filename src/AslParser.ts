@@ -394,6 +394,15 @@ interface ExtractStatesRecursivelyParams {
 }
 
 /**
+ * Resolve a Map state's inline processor definition.
+ * Prefers the modern `ItemProcessor` field (used by inline and Distributed Map)
+ * and falls back to the legacy `Iterator` field for pre-2022 definitions.
+ */
+function getMapProcessor(state: AslState): AslDefinition | undefined {
+    return state.ItemProcessor ?? state.Iterator;
+}
+
+/**
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
 function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void {
@@ -445,9 +454,10 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             });
         }
 
-        // Recursively extract states from Map iterator
-        if (state.Type === 'Map' && state.Iterator) {
-            const iterator = state.Iterator;
+        // Recursively extract states from Map processor (ItemProcessor or legacy Iterator)
+        const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
+        if (state.Type === 'Map' && mapProcessor) {
+            const iterator = mapProcessor;
             extractStatesRecursively({ definition: iterator, nodeIndex, nodes, options });
 
             // Track children for bounding box calculation
@@ -589,19 +599,20 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             });
         }
 
-        // Extract edges from Map iterator
-        if (state.Type === 'Map' && state.Iterator) {
+        // Extract edges from Map processor (ItemProcessor or legacy Iterator)
+        const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
+        if (state.Type === 'Map' && mapProcessor) {
             const endNodeId = `${stateName}__iterator__end`;
 
             // Add visual edge from container to iterator start
             edges.push({
                 from: stateName,
-                to: state.Iterator.StartAt,
+                to: mapProcessor.StartAt,
                 type: 'normal',
                 visualOnly: true,
             });
 
-            for (const [iteratorStateName, iteratorState] of Object.entries(state.Iterator.States)) {
+            for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
                 const iteratorEdges = extractEdgesFromState({
                     catchLabelStyle: options?.catchLabelStyle,
                     state: iteratorState,
@@ -637,7 +648,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             }
 
             // Recursively handle nested Parallel/Map states
-            extractNestedEdges({ definition: state.Iterator, edges, options });
+            extractNestedEdges({ definition: mapProcessor, edges, options });
         }
     }
 }
