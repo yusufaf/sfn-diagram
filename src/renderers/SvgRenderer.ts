@@ -215,10 +215,14 @@ export class SvgRenderer {
             maxY = Math.max(maxY, (node.y || 0) + halfHeight);
         });
 
-        // Include edge points
+        // Include edge points (guard against non-finite coordinates so a single bad
+        // routing point can never poison the overall bounds with NaN/Infinity)
         layout.edges.forEach((edge) => {
             if (edge.points) {
                 edge.points.forEach((point) => {
+                    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+                        return;
+                    }
                     minX = Math.min(minX, point.x);
                     minY = Math.min(minY, point.y);
                     maxX = Math.max(maxX, point.x);

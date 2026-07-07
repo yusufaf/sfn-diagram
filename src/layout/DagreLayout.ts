@@ -38,6 +38,31 @@ export class DagreLayout {
         // Set default edge labels
         graph.setDefaultEdgeLabel(() => ({}));
 
+        // Container nodes are laid out as post-hoc bounding boxes rather than dagre
+        // nodes, so any edge referencing a container is routed manually below. For
+        // ranking, an edge *into* a container is redirected onto the container's entry
+        // child states (the targets of the container's visual-only child edges) so that
+        // predecessors are ranked above the container's contents.
+        const containerIds = new Set(
+            nodes.filter((node) => node.isContainer).map((node) => node.id),
+        );
+        const containerChildren = new Map<string, Set<string>>(
+            nodes
+                .filter((node) => node.isContainer)
+                .map((node) => [node.id, new Set(node.children || [])]),
+        );
+        const entryChildrenByContainer = new Map<string, string[]>();
+        for (const edge of edges) {
+            if (
+                edge.visualOnly &&
+                containerChildren.get(edge.from)?.has(edge.to)
+            ) {
+                const entries = entryChildrenByContainer.get(edge.from) ?? [];
+                entries.push(edge.to);
+                entryChildrenByContainer.set(edge.from, entries);
+            }
+        }
+
         // Add only non-container nodes with dimensions
         // Container nodes will get bounding boxes calculated post-layout
         const layoutNodes = nodes.filter((node) => !node.isContainer);
@@ -52,10 +77,27 @@ export class DagreLayout {
             });
         });
 
-        // Add edges (skip visual-only edges from layout algorithm)
+        // Add edges (visual-only edges are routed manually, never fed to dagre)
         edges
             .filter((edge) => !edge.visualOnly)
             .forEach((edge) => {
+                const toIsContainer = containerIds.has(edge.to);
+                const fromIsContainer = containerIds.has(edge.from);
+
+                if (toIsContainer && !fromIsContainer) {
+                    // Rank the source above the container's entry states. Adding the literal
+                    // source->container edge would make dagre create a dimensionless phantom
+                    // node and emit NaN routing points, so redirect onto the entry children.
+                    for (const child of entryChildrenByContainer.get(edge.to) ?? []) {
+                        graph.setEdge(edge.from, child, { label: edge.label, type: edge.type });
+                    }
+                    return;
+                }
+                if (fromIsContainer || toIsContainer) {
+                    // Any other container-touching edge is routed manually below.
+                    return;
+                }
+
                 graph.setEdge(edge.from, edge.to, {
                     label: edge.label,
                     type: edge.type,
@@ -96,8 +138,13 @@ export class DagreLayout {
 
         // Extract edge routing points
         const routedEdges = edges.map((edge) => {
-            if (edge.visualOnly) {
-                // Visual-only edges need manual routing since they're not in the dagre graph
+            const fromNode = positionedNodesById.get(edge.from);
+            const toNode = positionedNodesById.get(edge.to);
+            const touchesContainer = Boolean(fromNode?.isContainer || toNode?.isContainer);
+
+            // Visual-only edges and any edge touching a container are not in the dagre
+            // graph, so they are routed manually.
+            if (edge.visualOnly || touchesContainer) {
                 return {
                     ...edge,
                     points: this.calculateVisualEdgePoints({
@@ -110,7 +157,7 @@ export class DagreLayout {
             const dagEdge = graph.edge(edge.from, edge.to);
             return {
                 ...edge,
-                points: dagEdge.points, // Array of {x, y} for routing
+                points: dagEdge?.points ?? [], // Array of {x, y} for routing
             };
         });
 
