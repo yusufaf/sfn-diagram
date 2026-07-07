@@ -26,12 +26,15 @@ jobs:
       - name: Install
         run: pnpm install
 
-      # PNG export (node-html-to-image) drives puppeteer 23.2.2, which resolves
-      # Chrome from its own cache (~/.cache/puppeteer). Install the exact build it
-      # expects so no PUPPETEER_EXECUTABLE_PATH is needed — that env would be
-      # stripped by Turbo's strict env mode anyway before it reached vitest.
-      - name: Install Chrome for Puppeteer
-        run: pnpm exec puppeteer browsers install chrome
+      # PNG export (node-html-to-image) launches puppeteer 23.2.2 with
+      # headless: "shell", so it needs the chrome-headless-shell binary in
+      # puppeteer's cache (~/.cache/puppeteer) — not just chrome. Install both
+      # explicitly rather than relying on puppeteer's postinstall, which pnpm may
+      # skip. No PUPPETEER_EXECUTABLE_PATH needed (Turbo strict env would strip it).
+      - name: Install browsers for Puppeteer
+        run: |
+          pnpm exec puppeteer browsers install chrome
+          pnpm exec puppeteer browsers install chrome-headless-shell
 
       # Build every workspace (core + react, vscode, github-action, playground)
       # so package build breakage is caught, not just the core library.

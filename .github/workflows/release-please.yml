@@ -5,12 +5,21 @@ on:
     branches:
       - main
       - master
+  # Manual/recovery publish: build an existing tag and publish it to npm.
+  # Useful when a release tag was created but the publish step failed.
+  workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Git tag to build and publish to npm (e.g. sfn-diagram-v0.5.1)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -28,11 +37,15 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Publish to npm only when merging the release PR actually cut a release.
-  # Uses npm Trusted Publisher (OIDC) — id-token: write, no NPM_TOKEN needed.
+  # Publish to npm when merging the release PR cut a release, or when manually
+  # dispatched for a specific tag. Uses npm Trusted Publisher (OIDC) —
+  # id-token: write, no NPM_TOKEN needed.
   npm-publish:
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: |
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -41,7 +54,7 @@ jobs:
       - name: Checkout released tag
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
           fetch-depth: 0
 
       - name: Install pnpm
@@ -57,10 +70,14 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # PNG export drives puppeteer, which resolves Chrome from its own cache.
-      # Install the build it expects so the test step can launch a browser.
-      - name: Install Chrome for Puppeteer
-        run: pnpm exec puppeteer browsers install chrome
+      # PNG export (node-html-to-image) launches puppeteer with headless: "shell",
+      # so it needs the chrome-headless-shell binary — not just chrome. Install
+      # both explicitly; --frozen-lockfile skips puppeteer's postinstall, so we
+      # cannot rely on that to populate the browser cache.
+      - name: Install browsers for Puppeteer
+        run: |
+          pnpm exec puppeteer browsers install chrome
+          pnpm exec puppeteer browsers install chrome-headless-shell
 
       - name: Build
         run: pnpm run build
