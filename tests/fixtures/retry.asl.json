@@ -1,0 +1,31 @@
+{
+    "Comment": "Task with retry and catch policies",
+    "StartAt": "Submit",
+    "States": {
+        "Submit": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Submit",
+            "Retry": [
+                {
+                    "ErrorEquals": ["States.Timeout"],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 4,
+                    "BackoffRate": 2
+                },
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "MaxAttempts": 2
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "Failed"
+                }
+            ],
+            "Next": "Done"
+        },
+        "Done": { "Type": "Succeed" },
+        "Failed": { "Type": "Fail" }
+    }
+}

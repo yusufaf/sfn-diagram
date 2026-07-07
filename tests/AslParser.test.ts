@@ -233,6 +233,39 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Retry policies', () => {
+        it('should emit a self-loop retry edge summarizing all retriers', () => {
+            const asl = loadFixture('retry');
+            const result = parseAsl({ definition: asl });
+
+            const retryEdges = result.edges.filter((edge) => edge.type === 'retry');
+            expect(retryEdges).toHaveLength(1);
+
+            const retry = retryEdges[0];
+            expect(retry.from).toBe('Submit');
+            expect(retry.to).toBe('Submit'); // self-loop
+            expect(retry.visualOnly).toBe(true); // excluded from dagre ranking
+            expect(retry.label).toBe('↻ States.Timeout (4x); States.ALL (2x)');
+        });
+
+        it('should default MaxAttempts to 3 when omitted', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Work',
+                States: {
+                    Work: {
+                        Type: 'Task',
+                        Resource: 'arn:aws:lambda:::function:fn',
+                        Retry: [{ ErrorEquals: ['States.ALL'] }],
+                        End: true,
+                    },
+                },
+            };
+            const result = parseAsl({ definition: asl });
+            const retry = result.edges.find((edge) => edge.type === 'retry');
+            expect(retry?.label).toBe('↻ States.ALL (3x)');
+        });
+    });
+
     describe('Error handling', () => {
         it('should parse Catch blocks as error edges', () => {
             const asl = loadFixture('error-handling');

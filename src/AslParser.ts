@@ -1,6 +1,6 @@
 import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
-import { EDGE_LABELS, getCatchLabel } from './constants';
+import { EDGE_LABELS, getCatchLabel, getRetryLabel } from './constants';
 import { detectService } from './services';
 
 /**
@@ -344,6 +344,18 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
                 });
             }
             break;
+    }
+
+    // Handle retry policies as a self-loop edge (Retry). Marked visual-only so it does
+    // not participate in dagre ranking; it is routed manually as a loop on the node.
+    if (state.Retry && state.Retry.length > 0) {
+        edges.push({
+            from: stateName,
+            label: getRetryLabel(state.Retry),
+            to: stateName,
+            type: 'retry',
+            visualOnly: true,
+        });
     }
 
     // Handle error transitions (Catch)

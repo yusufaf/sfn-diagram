@@ -96,7 +96,7 @@ export interface StateNode {
 }
 
 /** Edge types for state transitions */
-export type EdgeType = 'normal' | 'error' | 'choice' | 'default';
+export type EdgeType = 'normal' | 'error' | 'choice' | 'default' | 'retry';
 
 export interface GraphEdge {
     condition?: string;
@@ -125,6 +125,8 @@ export interface CustomTheme {
         default: string;
         error: string;
         normal: string;
+        /** Colour for Retry self-loops; falls back to the error colour when omitted */
+        retry?: string;
     };
     fontFamily: string;
     fontSize: number;

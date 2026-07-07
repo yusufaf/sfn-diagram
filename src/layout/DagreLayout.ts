@@ -257,6 +257,20 @@ export class DagreLayout {
             return [];
         }
 
+        // Self-loop (e.g. a Retry edge): route as a small loop off the node's right edge.
+        // Points are [entry, apex, exit]; the renderer draws a curve bulging to the apex.
+        if (edge.from === edge.to) {
+            const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
+            const centerY = fromNode.y || 0;
+            const loopReach = 40;
+            const loopSpread = 12;
+            return [
+                { x: rightX, y: centerY - loopSpread },
+                { x: rightX + loopReach, y: centerY },
+                { x: rightX, y: centerY + loopSpread },
+            ];
+        }
+
         // For container nodes, check if toNode is a child (branch start)
         if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
             // Edge from container to branch start: start below header

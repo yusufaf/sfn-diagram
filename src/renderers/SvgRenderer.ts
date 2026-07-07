@@ -144,6 +144,18 @@ export class SvgRenderer {
             .attr('points', '0 0, 10 3, 0 6')
             .attr('fill', this.theme.edgeColors.default);
 
+        // Retry arrow (self-loops)
+        defs.append('marker')
+            .attr('id', 'arrowhead-retry')
+            .attr('markerWidth', 10)
+            .attr('markerHeight', 10)
+            .attr('refX', 9)
+            .attr('refY', 3)
+            .attr('orient', 'auto')
+            .append('polygon')
+            .attr('points', '0 0, 10 3, 0 6')
+            .attr('fill', this.resolveEdgeColor('retry'));
+
         // Create groups for edges, container nodes, and regular nodes
         const edgesGroup = svg.append('g').attr('class', 'edges');
         const containersGroup = svg.append('g').attr('class', 'containers');
@@ -232,7 +244,7 @@ export class SvgRenderer {
 
             // Include edge label bounds
             if (edge.label && edge.points && edge.points.length > 0) {
-                const midpoint = this.getPathMidpoint(edge.points);
+                const midpoint = this.edgeLabelCenter(edge);
                 const labelDimensions = this.calculateLabelDimensions(edge.label);
                 const labelMinX = midpoint.x - labelDimensions.width / 2;
                 const labelMaxX = midpoint.x + labelDimensions.width / 2;
@@ -551,28 +563,37 @@ export class SvgRenderer {
             return;
         }
 
-        const edgeColor = this.theme.edgeColors[edge.type || 'normal'];
+        const edgeColor = this.resolveEdgeColor(edge.type);
         const markerType = edge.type || 'normal';
+        const isSelfLoop = edge.from === edge.to;
 
-        // Render path using the generator built once in the constructor
+        // Self-loops (Retry) use an explicit loop path; all other edges use the
+        // shared d3 path generator built once in the constructor.
+        const pathData = isSelfLoop
+            ? this.buildSelfLoopPath(edge.points)
+            : this.pathGenerator(edge.points) ?? '';
+
+        // Render path
         const pathElement = group
             .append('path')
-            .attr('d', this.pathGenerator(edge.points) ?? '')
+            .attr('d', pathData)
             .attr('fill', 'none')
             .attr('stroke', edgeColor)
             .attr('stroke-width', edge.type === 'error' ? 2 : 1.5)
             .attr('marker-end', `url(#arrowhead-${markerType})`);
 
-        // Add dashed style for error and default edges
+        // Add dashed style for error, default, and retry edges
         if (edge.type === 'error') {
             pathElement.attr('stroke-dasharray', '5,5');
         } else if (edge.type === 'default') {
             pathElement.attr('stroke-dasharray', '8,4');
+        } else if (edge.type === 'retry') {
+            pathElement.attr('stroke-dasharray', '4,3');
         }
 
         // Add edge label if present
         if (edge.label) {
-            const midpoint = this.getPathMidpoint(edge.points);
+            const midpoint = this.edgeLabelCenter(edge);
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
             group
@@ -596,6 +617,42 @@ export class SvgRenderer {
                 .attr('font-size', this.theme.fontSize - 2)
                 .text(edge.label);
         }
+    }
+
+    /**
+     * Resolve the stroke colour for an edge type, falling back to the error colour
+     * (then normal) so themes that predate a given edge type still render.
+     */
+    private resolveEdgeColor(type?: GraphEdge['type']): string {
+        const colors = this.theme.edgeColors;
+        return colors[type || 'normal'] ?? colors.error ?? colors.normal;
+    }
+
+    /**
+     * Build an SVG path for a self-loop edge from its [entry, apex, exit] points,
+     * curving out to the apex and back so the arrow re-enters the node.
+     */
+    private buildSelfLoopPath(points: Array<{ x: number; y: number }>): string {
+        const [entry, apex, exit] = points;
+        return `M ${entry.x},${entry.y} C ${apex.x},${apex.y} ${apex.x},${apex.y} ${exit.x},${exit.y}`;
+    }
+
+    /**
+     * Compute where an edge's label should be centered. Normal edges center on the
+     * path midpoint; self-loops (Retry) shift the label to the right of the loop apex
+     * so a long policy label never overlaps the node it belongs to.
+     */
+    private edgeLabelCenter(
+        edge: GraphEdge & { points?: Array<{ x: number; y: number }> },
+    ): { x: number; y: number } {
+        const points = edge.points ?? [];
+        const midpoint = this.getPathMidpoint(points);
+        if (edge.from === edge.to && edge.label) {
+            const gap = 8;
+            const labelWidth = this.calculateLabelDimensions(edge.label).width;
+            return { x: midpoint.x + gap + labelWidth / 2, y: midpoint.y };
+        }
+        return midpoint;
     }
 
     /**

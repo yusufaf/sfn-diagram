@@ -371,7 +371,12 @@ All AWS Step Functions state types are fully supported:
 | **Succeed** | Circle | Terminates successfully |
 | **Fail** | Circle | Terminates with failure |
 | **Parallel** | Rectangle | Executes branches in parallel |
-| **Map** | Rectangle | Iterates over array items |
+| **Map** | Rectangle | Iterates over array items (legacy `Iterator` and modern `ItemProcessor`/Distributed Map) |
+
+### Error handling & retries
+
+- **`Catch`** blocks render as dashed error edges to their handler states.
+- **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output.
 
 ## Examples
 

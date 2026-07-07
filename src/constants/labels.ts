@@ -1,4 +1,4 @@
-import type { CatchLabelStyle } from '../types';
+import type { CatchLabelStyle, RetryBlock } from '../types';
 
 /**
  * Label constants used in diagram generation
@@ -12,7 +12,25 @@ export const EDGE_LABELS = {
     DEFAULT: 'Default',
     ERROR_PREFIX: 'Error:',
     ITERATOR: 'Iterator',
+    RETRY_SYMBOL: '↻',
 } as const;
+
+/** Default MaxAttempts when a Retry block omits it (per the ASL spec). */
+const DEFAULT_MAX_ATTEMPTS = 3;
+
+/**
+ * Summarize a state's Retry blocks into a compact self-loop label,
+ * e.g. "↻ States.TaskFailed (3x)" or "↻ States.ALL (2x); Timeout (5x)".
+ */
+export function getRetryLabel(retryBlocks: RetryBlock[]): string {
+    const parts = retryBlocks.map((retry) => {
+        const errors = retry.ErrorEquals?.join(', ') || 'All';
+        const maxAttempts = retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+        return `${errors} (${maxAttempts}x)`;
+    });
+
+    return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join('; ')}`;
+}
 
 /**
  * Generates a choice label with index
