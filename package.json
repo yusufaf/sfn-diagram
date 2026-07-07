@@ -47,7 +47,6 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "examples": "vitest run tests/visual-outputs.test.ts",
-    "bench": "vitest bench --run tests/performance",
     "lint": "eslint .",
     "lint:ox": "oxlint",
     "prepublishOnly": "pnpm run build && pnpm run validate",
