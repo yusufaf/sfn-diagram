@@ -12,6 +12,27 @@ function parseAslArg(value: AslDefinition | string): AslDefinition {
     return typeof value === 'string' ? (JSON.parse(value) as AslDefinition) : value;
 }
 
+/**
+ * Serialize a value with object keys sorted recursively so that two semantically
+ * equivalent state definitions compare equal regardless of property ordering.
+ * Array order is preserved (it is significant in ASL, e.g. Choices priority).
+ */
+function stableStringify(value: unknown): string {
+    if (value === null || typeof value !== 'object') {
+        return JSON.stringify(value) ?? 'null';
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map(stableStringify).join(',')}]`;
+    }
+    const entries = Object.keys(value as Record<string, unknown>)
+        .sort()
+        .map(
+            (key) =>
+                `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`
+        );
+    return `{${entries.join(',')}}`;
+}
+
 /** Strip transition fields so a removed state renders as an orphan End node. */
 function toOrphanState(state: AslState): AslState {
     const base: AslState = { End: true, Type: state.Type };
@@ -51,7 +72,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     for (const name of afterNames) {
         if (!beforeNames.has(name)) {
             added.push(name);
-        } else if (JSON.stringify(beforeAsl.States[name]) !== JSON.stringify(afterAsl.States[name])) {
+        } else if (stableStringify(beforeAsl.States[name]) !== stableStringify(afterAsl.States[name])) {
             modified.push(name);
         } else {
             unchanged.push(name);
