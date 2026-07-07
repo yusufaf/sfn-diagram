@@ -58,8 +58,25 @@ describe('AslParser', () => {
             expect(choiceEdges).toHaveLength(3); // 2 choices + 1 default
 
             // Check edge labels
-            expect(choiceEdges.some((e) => e.label?.includes('>')));
-            expect(choiceEdges.some((e) => e.label?.includes('Default')));
+            expect(choiceEdges.some((e) => e.label?.includes('>'))).toBe(true);
+            expect(choiceEdges.some((e) => e.label?.includes('Default'))).toBe(true);
+        });
+
+        it('should build readable labels for a range of comparison operators', () => {
+            const asl = loadFixture('choice-operators');
+            const result = parseAsl({ definition: asl });
+
+            const labels = result.edges
+                .filter((edge) => edge.from === 'Route' && edge.type === 'choice')
+                .map((edge) => edge.label);
+
+            expect(labels).toContain('$.status == "APPROVED"');
+            expect(labels).toContain('$.score >= 90');
+            expect(labels).toContain('$.age >= 18 AND $.country == "US"');
+            expect(labels).toContain('NOT ($.email is present)');
+
+            // None should fall back to the generic placeholder
+            expect(labels).not.toContain('Condition');
         });
     });
 

@@ -361,22 +361,101 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
     return edges;
 }
 
+/** ASL data-type prefixes for typed comparison operators */
+const COMPARISON_TYPE_PREFIXES = ['String', 'Numeric', 'Boolean', 'Timestamp'] as const;
+
+/** Operator suffixes mapped to display symbols (longest suffixes first for matching) */
+const COMPARISON_OPERATORS: ReadonlyArray<readonly [string, string]> = [
+    ['LessThanEquals', '<='],
+    ['GreaterThanEquals', '>='],
+    ['LessThan', '<'],
+    ['GreaterThan', '>'],
+    ['Equals', '=='],
+    ['Matches', 'matches'],
+];
+
+/** Unary presence/type checks mapped to display phrases */
+const IS_CHECKS: Record<string, string> = {
+    IsBoolean: 'is boolean',
+    IsNull: 'is null',
+    IsNumeric: 'is numeric',
+    IsPresent: 'is present',
+    IsString: 'is string',
+    IsTimestamp: 'is timestamp',
+};
+
+/** Strip JSONata delimiters (`{% ... %}`) from a condition expression. */
+function cleanJsonataExpression(expression: string): string {
+    return expression.replace(/^\{%\s*/, '').replace(/\s*%\}$/, '').trim();
+}
+
+/**
+ * Format a single comparison operator on a Choice rule into a readable label,
+ * or return null if the key is not a recognized comparison operator.
+ */
+function formatComparison(variable: string, operatorKey: string, value: unknown): string | null {
+    const isCheckPhrase = IS_CHECKS[operatorKey];
+    if (isCheckPhrase) {
+        return value === false
+            ? `${variable} ${isCheckPhrase.replace('is ', 'is not ')}`
+            : `${variable} ${isCheckPhrase}`;
+    }
+
+    const isPath = operatorKey.endsWith('Path');
+    const baseKey = isPath ? operatorKey.slice(0, -'Path'.length) : operatorKey;
+
+    const prefix = COMPARISON_TYPE_PREFIXES.find((typePrefix) => baseKey.startsWith(typePrefix));
+    if (!prefix) {
+        return null;
+    }
+
+    const suffix = baseKey.slice(prefix.length);
+    const operator = COMPARISON_OPERATORS.find(([name]) => name === suffix);
+    if (!operator) {
+        return null;
+    }
+
+    const shouldQuote = !isPath && (prefix === 'String' || prefix === 'Timestamp');
+    const formattedValue = shouldQuote ? JSON.stringify(value) : String(value);
+    return `${variable} ${operator[1]} ${formattedValue}`;
+}
+
+/**
+ * Recursively describe a Choice rule, handling And/Or/Not combinators,
+ * the full set of typed comparison operators, presence checks, and JSONata conditions.
+ */
+function describeChoiceRule(rule: ChoiceRule): string {
+    // JSONata conditions carry the full expression in a `Condition` string
+    if (typeof rule.Condition === 'string') {
+        return cleanJsonataExpression(rule.Condition);
+    }
+
+    if (Array.isArray(rule.And)) {
+        const parts = rule.And.map(describeChoiceRule).filter(Boolean);
+        return parts.length > 0 ? parts.join(' AND ') : '';
+    }
+    if (Array.isArray(rule.Or)) {
+        const parts = rule.Or.map(describeChoiceRule).filter(Boolean);
+        return parts.length > 0 ? parts.join(' OR ') : '';
+    }
+    if (rule.Not && typeof rule.Not === 'object') {
+        const inner = describeChoiceRule(rule.Not as ChoiceRule);
+        return inner ? `NOT (${inner})` : '';
+    }
+
+    const variable = rule.Variable || '';
+    for (const [operatorKey, value] of Object.entries(rule)) {
+        const formatted = formatComparison(variable, operatorKey, value);
+        if (formatted) {
+            return formatted;
+        }
+    }
+
+    return '';
+}
+
 function extractConditionLabel(choice: ChoiceRule): string {
-    // Simplified condition extraction - you could make this more sophisticated
-    const conditions = [];
-    const variable = choice.Variable || '';
-
-    if (choice.StringEquals !== undefined) {
-        conditions.push(`${variable} == "${choice.StringEquals}"`);
-    }
-    if (choice.NumericEquals !== undefined) {
-        conditions.push(`${variable} == ${choice.NumericEquals}`);
-    }
-    if (choice.BooleanEquals !== undefined) {
-        conditions.push(`${variable} == ${choice.BooleanEquals}`);
-    }
-
-    return conditions.join(' AND ') || EDGE_LABELS.CONDITION_FALLBACK;
+    return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
 }
 
 /**
