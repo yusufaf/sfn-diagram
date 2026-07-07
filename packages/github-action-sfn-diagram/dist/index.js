@@ -36597,7 +36597,8 @@ var AWS_LIGHT_THEME = {
     choice: "#7b1fa2",
     default: "#9c27b0",
     error: "#f44336",
-    normal: "#546e7a"
+    normal: "#546e7a",
+    retry: "#f9a825"
   },
   textColor: "#212121",
   fontSize: 14,
@@ -36643,7 +36644,8 @@ var AWS_DARK_THEME = {
     choice: "#ce93d8",
     default: "#ba68c8",
     error: "#ef5350",
-    normal: "#90a4ae"
+    normal: "#90a4ae",
+    retry: "#ffca28"
   },
   textColor: "#e0e0e0",
   fontSize: 14,
@@ -36712,8 +36714,16 @@ var EDGE_LABELS = {
   CONDITION_FALLBACK: "Condition",
   DEFAULT: "Default",
   ERROR_PREFIX: "Error:",
-  ITERATOR: "Iterator"
+  ITERATOR: "Iterator",
+  RETRY_SYMBOL: "\u21BB"
 };
+var DEFAULT_MAX_ATTEMPTS = 3;
+function getRetryLabel(retryBlocks) {
+  const parts = retryBlocks.map((retry) => {
+    return `${retry.ErrorEquals?.join(", ") || "All"} (${retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS}x)`;
+  });
+  return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join("; ")}`;
+}
 function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
   return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
@@ -36983,6 +36993,13 @@ function extractEdgesFromState(params) {
       });
       break;
   }
+  if (state.Retry && state.Retry.length > 0) edges.push({
+    from: stateName,
+    label: getRetryLabel(state.Retry),
+    to: stateName,
+    type: "retry",
+    visualOnly: true
+  });
   if (state.Catch) state.Catch.forEach((catchBlock, index) => {
     if (catchBlock.Next) edges.push({
       from: stateName,
@@ -37383,6 +37400,26 @@ var DagreLayout = class {
     const fromNode = positionedNodesById.get(edge.from);
     const toNode = positionedNodesById.get(edge.to);
     if (!fromNode || !toNode) return [];
+    if (edge.from === edge.to) {
+      const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
+      const centerY = fromNode.y || 0;
+      const loopReach = 40;
+      const loopSpread = 12;
+      return [
+        {
+          x: rightX,
+          y: centerY - loopSpread
+        },
+        {
+          x: rightX + loopReach,
+          y: centerY
+        },
+        {
+          x: rightX,
+          y: centerY + loopSpread
+        }
+      ];
+    }
     if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
       const headerHeight = 50;
       const fromX2 = fromNode.x || 0;
@@ -37503,6 +37540,7 @@ var SvgRenderer = class {
     defs.append("marker").attr("id", "arrowhead-error").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.error);
     defs.append("marker").attr("id", "arrowhead-choice").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.choice);
     defs.append("marker").attr("id", "arrowhead-default").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.default);
+    defs.append("marker").attr("id", "arrowhead-retry").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.resolveEdgeColor("retry"));
     const edgesGroup = svg.append("g").attr("class", "edges");
     const containersGroup = svg.append("g").attr("class", "containers");
     const nodesGroup = svg.append("g").attr("class", "nodes");
@@ -37564,7 +37602,7 @@ var SvgRenderer = class {
         maxY = Math.max(maxY, point2.y);
       });
       if (edge.label && edge.points && edge.points.length > 0) {
-        const midpoint = this.getPathMidpoint(edge.points);
+        const midpoint = this.edgeLabelCenter(edge);
         const labelDimensions = this.calculateLabelDimensions(edge.label);
         const labelMinX = midpoint.x - labelDimensions.width / 2;
         const labelMaxX = midpoint.x + labelDimensions.width / 2;
@@ -37743,17 +37781,53 @@ var SvgRenderer = class {
   renderEdge(params) {
     const { edge, group } = params;
     if (!edge.points || edge.points.length < 2) return;
-    const edgeColor = this.theme.edgeColors[edge.type || "normal"];
+    const edgeColor = this.resolveEdgeColor(edge.type);
     const markerType = edge.type || "normal";
-    const pathElement = group.append("path").attr("d", this.pathGenerator(edge.points) ?? "").attr("fill", "none").attr("stroke", edgeColor).attr("stroke-width", edge.type === "error" ? 2 : 1.5).attr("marker-end", `url(#arrowhead-${markerType})`);
+    const pathData = edge.from === edge.to ? this.buildSelfLoopPath(edge.points) : this.pathGenerator(edge.points) ?? "";
+    const pathElement = group.append("path").attr("d", pathData).attr("fill", "none").attr("stroke", edgeColor).attr("stroke-width", edge.type === "error" ? 2 : 1.5).attr("marker-end", `url(#arrowhead-${markerType})`);
     if (edge.type === "error") pathElement.attr("stroke-dasharray", "5,5");
     else if (edge.type === "default") pathElement.attr("stroke-dasharray", "8,4");
+    else if (edge.type === "retry") pathElement.attr("stroke-dasharray", "4,3");
     if (edge.label) {
-      const midpoint = this.getPathMidpoint(edge.points);
+      const midpoint = this.edgeLabelCenter(edge);
       const labelDimensions = this.calculateLabelDimensions(edge.label);
       group.append("rect").attr("x", midpoint.x - labelDimensions.width / 2).attr("y", midpoint.y - labelDimensions.height / 2).attr("width", labelDimensions.width).attr("height", labelDimensions.height).attr("fill", this.theme.background || "#ffffff").attr("stroke", edgeColor).attr("stroke-width", 0.5).attr("rx", 3);
       group.append("text").attr("x", midpoint.x).attr("y", midpoint.y).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", edgeColor).attr("font-size", this.theme.fontSize - 2).text(edge.label);
     }
+  }
+  /**
+  * Resolve the stroke colour for an edge type, falling back to the error colour
+  * (then normal) so themes that predate a given edge type still render.
+  */
+  resolveEdgeColor(type) {
+    const colors = this.theme.edgeColors;
+    return colors[type || "normal"] ?? colors.error ?? colors.normal;
+  }
+  /**
+  * Build an SVG path for a self-loop edge from its [entry, apex, exit] points,
+  * curving out to the apex and back so the arrow re-enters the node.
+  */
+  buildSelfLoopPath(points) {
+    const [entry, apex, exit] = points;
+    return `M ${entry.x},${entry.y} C ${apex.x},${apex.y} ${apex.x},${apex.y} ${exit.x},${exit.y}`;
+  }
+  /**
+  * Compute where an edge's label should be centered. Normal edges center on the
+  * path midpoint; self-loops (Retry) shift the label to the right of the loop apex
+  * so a long policy label never overlaps the node it belongs to.
+  */
+  edgeLabelCenter(edge) {
+    const points = edge.points ?? [];
+    const midpoint = this.getPathMidpoint(points);
+    if (edge.from === edge.to && edge.label) {
+      const gap = 8;
+      const labelWidth = this.calculateLabelDimensions(edge.label).width;
+      return {
+        x: midpoint.x + gap + labelWidth / 2,
+        y: midpoint.y
+      };
+    }
+    return midpoint;
   }
   /**
   * Get the midpoint of a path for label placement
