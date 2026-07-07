@@ -35,9 +35,6 @@ importers:
       d3-shape:
         specifier: ^3.2.0
         version: 3.2.0
-      node-html-to-image:
-        specifier: ^5.0.0
-        version: 5.0.0(typescript@5.9.3)
     devDependencies:
       '@arethetypeswrong/cli':
         specifier: ^0.18.2
@@ -81,6 +78,9 @@ importers:
       husky:
         specifier: ^9.1.7
         version: 9.1.7
+      node-html-to-image:
+        specifier: ^5.0.0
+        version: 5.0.0(typescript@5.9.3)
       oxlint:
         specifier: ^1.69.0
         version: 1.69.0
