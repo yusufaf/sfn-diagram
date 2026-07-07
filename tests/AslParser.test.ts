@@ -40,6 +40,25 @@ describe('AslParser', () => {
             expect(processNode?.type).toBe('Task');
             expect(endNode?.type).toBe('Succeed');
         });
+
+        it('should honor the includeComments option for node labels', () => {
+            const asl: AslDefinition = {
+                StartAt: 'DoWork',
+                States: {
+                    DoWork: { Type: 'Pass', Comment: 'Human readable step', End: true },
+                },
+            };
+
+            // Default (includeComments defaults to true): Comment is used as the label
+            const withComments = parseAsl({ definition: asl });
+            expect(withComments.nodes.find((node) => node.id === 'DoWork')?.label).toBe(
+                'Human readable step'
+            );
+
+            // Disabled: the canonical state name is used instead
+            const withoutComments = parseAsl({ definition: asl, options: { includeComments: false } });
+            expect(withoutComments.nodes.find((node) => node.id === 'DoWork')?.label).toBe('DoWork');
+        });
     });
 
     describe('Choice states', () => {

@@ -254,10 +254,16 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     const { name, options, state, stylePreset } = params;
     const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
 
+    // When includeComments is enabled (the default), a state's Comment is used as its
+    // display label; otherwise the state name is always used. Setting it to false lets
+    // callers keep the canonical state names in the diagram.
+    const includeComments = options?.includeComments !== false;
+    const label = includeComments ? state.Comment || name : name;
+
     const baseNode: StateNode = {
         id: name,
         isContainer,
-        label: state.Comment || name,
+        label,
         style: getNodeStyle({ stateType: state.Type, stylePreset }),
         type: state.Type,
     };
