@@ -23,4 +23,3 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           asl-glob: '**/*.asl.json,**/*.asl'
-          theme: light

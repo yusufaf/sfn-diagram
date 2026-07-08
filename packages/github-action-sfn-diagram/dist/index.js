@@ -270,8 +270,8 @@ var require_proxy = __commonJS({
       if (typeof reqPort === "number") {
         upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
       }
-      for (const upperNoProxyItem of noProxy.split(",").map((x2) => x2.trim().toUpperCase()).filter((x2) => x2)) {
-        if (upperNoProxyItem === "*" || upperReqHosts.some((x2) => x2 === upperNoProxyItem || x2.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x2.endsWith(`${upperNoProxyItem}`))) {
+      for (const upperNoProxyItem of noProxy.split(",").map((x) => x.trim().toUpperCase()).filter((x) => x)) {
+        if (upperNoProxyItem === "*" || upperReqHosts.some((x) => x === upperNoProxyItem || x.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x.endsWith(`${upperNoProxyItem}`))) {
           return true;
         }
       }
@@ -1643,14 +1643,14 @@ var require_util = __commonJS({
         }
         const port = url.port != null ? url.port : url.protocol === "https:" ? 443 : 80;
         let origin = url.origin != null ? url.origin : `${url.protocol || ""}//${url.hostname || ""}:${port}`;
-        let path3 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
+        let path2 = url.path != null ? url.path : `${url.pathname || ""}${url.search || ""}`;
         if (origin[origin.length - 1] === "/") {
           origin = origin.slice(0, origin.length - 1);
         }
-        if (path3 && path3[0] !== "/") {
-          path3 = `/${path3}`;
+        if (path2 && path2[0] !== "/") {
+          path2 = `/${path2}`;
         }
-        return new URL(`${origin}${path3}`);
+        return new URL(`${origin}${path2}`);
       }
       if (!isHttpOrHttpsPrefixed(url.origin || url.protocol)) {
         throw new InvalidArgumentError("Invalid URL protocol: the URL must start with `http:` or `https:`.");
@@ -1751,7 +1751,7 @@ var require_util = __commonJS({
         let val = obj[key];
         if (val !== void 0) {
           if (!Object.hasOwn(obj, key)) {
-            const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x2) => x2.toString("latin1")) : headers[i + 1].toString("latin1");
+            const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x) => x.toString("latin1")) : headers[i + 1].toString("latin1");
             if (key === "__proto__") {
               Object.defineProperty(obj, key, {
                 value: headersValue,
@@ -1770,7 +1770,7 @@ var require_util = __commonJS({
             val.push(headers[i + 1].toString("latin1"));
           }
         } else {
-          const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x2) => x2.toString("latin1")) : headers[i + 1].toString("latin1");
+          const headersValue = typeof headers[i + 1] === "string" ? headers[i + 1] : Array.isArray(headers[i + 1]) ? headers[i + 1].map((x) => x.toString("latin1")) : headers[i + 1].toString("latin1");
           obj[key] = headersValue;
         }
       }
@@ -1795,7 +1795,7 @@ var require_util = __commonJS({
       if (!Array.isArray(headers)) {
         throw new TypeError("expected headers to be an array");
       }
-      return headers.map((x2) => Buffer.from(x2));
+      return headers.map((x) => Buffer.from(x));
     }
     function isBuffer(buffer) {
       return buffer instanceof Uint8Array || Buffer.isBuffer(buffer);
@@ -2471,9 +2471,9 @@ var require_diagnostics = __commonJS({
         "undici:client:sendHeaders",
         (evt) => {
           const {
-            request: { method, path: path3, origin }
+            request: { method, path: path2, origin }
           } = evt;
-          debugLog("sending request to %s %s%s", method, origin, path3);
+          debugLog("sending request to %s %s%s", method, origin, path2);
         }
       );
     }
@@ -2491,14 +2491,14 @@ var require_diagnostics = __commonJS({
         "undici:request:headers",
         (evt) => {
           const {
-            request: { method, path: path3, origin },
+            request: { method, path: path2, origin },
             response: { statusCode }
           } = evt;
           debugLog(
             "received response to %s %s%s - HTTP %d",
             method,
             origin,
-            path3,
+            path2,
             statusCode
           );
         }
@@ -2507,23 +2507,23 @@ var require_diagnostics = __commonJS({
         "undici:request:trailers",
         (evt) => {
           const {
-            request: { method, path: path3, origin }
+            request: { method, path: path2, origin }
           } = evt;
-          debugLog("trailers received from %s %s%s", method, origin, path3);
+          debugLog("trailers received from %s %s%s", method, origin, path2);
         }
       );
       diagnosticsChannel.subscribe(
         "undici:request:error",
         (evt) => {
           const {
-            request: { method, path: path3, origin },
+            request: { method, path: path2, origin },
             error
           } = evt;
           debugLog(
             "request to %s %s%s errored - %s",
             method,
             origin,
-            path3,
+            path2,
             error.message
           );
         }
@@ -2638,7 +2638,7 @@ var require_request = __commonJS({
     var kHandler = /* @__PURE__ */ Symbol("handler");
     var Request = class {
       constructor(origin, {
-        path: path3,
+        path: path2,
         method,
         body,
         headers,
@@ -2655,11 +2655,11 @@ var require_request = __commonJS({
         maxRedirections,
         typeOfService
       }, handler2) {
-        if (typeof path3 !== "string") {
+        if (typeof path2 !== "string") {
           throw new InvalidArgumentError("path must be a string");
-        } else if (path3[0] !== "/" && !(path3.startsWith("http://") || path3.startsWith("https://")) && method !== "CONNECT") {
+        } else if (path2[0] !== "/" && !(path2.startsWith("http://") || path2.startsWith("https://")) && method !== "CONNECT") {
           throw new InvalidArgumentError("path must be an absolute URL or start with a slash");
-        } else if (invalidPathRegex.test(path3)) {
+        } else if (invalidPathRegex.test(path2)) {
           throw new InvalidArgumentError("invalid request path");
         }
         if (typeof method !== "string") {
@@ -2734,7 +2734,7 @@ var require_request = __commonJS({
         this.completed = false;
         this.aborted = false;
         this.upgrade = upgrade || null;
-        this.path = query ? serializePathWithQuery(path3, query) : path3;
+        this.path = query ? serializePathWithQuery(path2, query) : path2;
         this.origin = origin;
         this.protocol = getProtocolFromUrlString(origin);
         this.idempotent = idempotent == null ? method === "HEAD" || method === "GET" : idempotent;
@@ -5047,44 +5047,44 @@ var require_webidl = __commonJS({
         lowerBound = -Math.pow(2, bitLength - 1);
         upperBound = Math.pow(2, bitLength - 1) - 1;
       }
-      let x2 = Number(V);
-      if (x2 === 0) {
-        x2 = 0;
+      let x = Number(V);
+      if (x === 0) {
+        x = 0;
       }
       if (webidl.util.HasFlag(flags, webidl.attributes.EnforceRange)) {
-        if (Number.isNaN(x2) || x2 === Number.POSITIVE_INFINITY || x2 === Number.NEGATIVE_INFINITY) {
+        if (Number.isNaN(x) || x === Number.POSITIVE_INFINITY || x === Number.NEGATIVE_INFINITY) {
           throw webidl.errors.exception({
             header: "Integer conversion",
             message: `Could not convert ${webidl.util.Stringify(V)} to an integer.`
           });
         }
-        x2 = webidl.util.IntegerPart(x2);
-        if (x2 < lowerBound || x2 > upperBound) {
+        x = webidl.util.IntegerPart(x);
+        if (x < lowerBound || x > upperBound) {
           throw webidl.errors.exception({
             header: "Integer conversion",
-            message: `Value must be between ${lowerBound}-${upperBound}, got ${x2}.`
+            message: `Value must be between ${lowerBound}-${upperBound}, got ${x}.`
           });
         }
-        return x2;
+        return x;
       }
-      if (!Number.isNaN(x2) && webidl.util.HasFlag(flags, webidl.attributes.Clamp)) {
-        x2 = Math.min(Math.max(x2, lowerBound), upperBound);
-        if (Math.floor(x2) % 2 === 0) {
-          x2 = Math.floor(x2);
+      if (!Number.isNaN(x) && webidl.util.HasFlag(flags, webidl.attributes.Clamp)) {
+        x = Math.min(Math.max(x, lowerBound), upperBound);
+        if (Math.floor(x) % 2 === 0) {
+          x = Math.floor(x);
         } else {
-          x2 = Math.ceil(x2);
+          x = Math.ceil(x);
         }
-        return x2;
+        return x;
       }
-      if (Number.isNaN(x2) || x2 === 0 && Object.is(0, x2) || x2 === Number.POSITIVE_INFINITY || x2 === Number.NEGATIVE_INFINITY) {
+      if (Number.isNaN(x) || x === 0 && Object.is(0, x) || x === Number.POSITIVE_INFINITY || x === Number.NEGATIVE_INFINITY) {
         return 0;
       }
-      x2 = webidl.util.IntegerPart(x2);
-      x2 = x2 % Math.pow(2, bitLength);
-      if (signedness === "signed" && x2 >= Math.pow(2, bitLength - 1)) {
-        return x2 - Math.pow(2, bitLength);
+      x = webidl.util.IntegerPart(x);
+      x = x % Math.pow(2, bitLength);
+      if (signedness === "signed" && x >= Math.pow(2, bitLength - 1)) {
+        return x - Math.pow(2, bitLength);
       }
-      return x2;
+      return x;
     };
     webidl.util.IntegerPart = function(n) {
       const r = Math.floor(Math.abs(n));
@@ -5292,15 +5292,15 @@ var require_webidl = __commonJS({
           message: `${argument} is a symbol, which cannot be converted to a ByteString.`
         });
       }
-      const x2 = String(V);
-      for (let index = 0; index < x2.length; index++) {
-        if (x2.charCodeAt(index) > 255) {
+      const x = String(V);
+      for (let index = 0; index < x.length; index++) {
+        if (x.charCodeAt(index) > 255) {
           throw new TypeError(
-            `Cannot convert argument to a ByteString because the character at index ${index} has a value of ${x2.charCodeAt(index)} which is greater than 255.`
+            `Cannot convert argument to a ByteString because the character at index ${index} has a value of ${x.charCodeAt(index)} which is greater than 255.`
           );
         }
       }
-      return x2;
+      return x;
     };
     webidl.converters.USVString = function(value) {
       if (typeof value === "string") {
@@ -5309,27 +5309,27 @@ var require_webidl = __commonJS({
       return `${value}`.toWellFormed();
     };
     webidl.converters.boolean = function(V) {
-      const x2 = Boolean(V);
-      return x2;
+      const x = Boolean(V);
+      return x;
     };
     webidl.converters.any = function(V) {
       return V;
     };
     webidl.converters["long long"] = function(V, prefix, argument) {
-      const x2 = webidl.util.ConvertToInt(V, 64, "signed", 0, prefix, argument);
-      return x2;
+      const x = webidl.util.ConvertToInt(V, 64, "signed", 0, prefix, argument);
+      return x;
     };
     webidl.converters["unsigned long long"] = function(V, prefix, argument) {
-      const x2 = webidl.util.ConvertToInt(V, 64, "unsigned", 0, prefix, argument);
-      return x2;
+      const x = webidl.util.ConvertToInt(V, 64, "unsigned", 0, prefix, argument);
+      return x;
     };
     webidl.converters["unsigned long"] = function(V, prefix, argument) {
-      const x2 = webidl.util.ConvertToInt(V, 32, "unsigned", 0, prefix, argument);
-      return x2;
+      const x = webidl.util.ConvertToInt(V, 32, "unsigned", 0, prefix, argument);
+      return x;
     };
     webidl.converters["unsigned short"] = function(V, prefix, argument, flags) {
-      const x2 = webidl.util.ConvertToInt(V, 16, "unsigned", flags, prefix, argument);
-      return x2;
+      const x = webidl.util.ConvertToInt(V, 16, "unsigned", flags, prefix, argument);
+      return x;
     };
     webidl.converters.ArrayBuffer = function(V, prefix, argument, flags) {
       if (webidl.util.Type(V) !== OBJECT || !types2.isArrayBuffer(V)) {
@@ -7909,7 +7909,7 @@ var require_client_h1 = __commonJS({
       return method !== "GET" && method !== "HEAD" && method !== "OPTIONS" && method !== "TRACE" && method !== "CONNECT";
     }
     function writeH1(client, request2) {
-      const { method, path: path3, host, upgrade, blocking, reset } = request2;
+      const { method, path: path2, host, upgrade, blocking, reset } = request2;
       let { body, headers, contentLength } = request2;
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH" || method === "QUERY" || method === "PROPFIND" || method === "PROPPATCH";
       if (util.isFormDataLike(body)) {
@@ -7979,7 +7979,7 @@ var require_client_h1 = __commonJS({
       if (socket.setTypeOfService) {
         socket.setTypeOfService(request2.typeOfService);
       }
-      let header = `${method} ${path3} HTTP/1.1\r
+      let header = `${method} ${path2} HTTP/1.1\r
 `;
       if (typeof host === "string") {
         header += `host: ${host}\r
@@ -8632,7 +8632,7 @@ var require_client_h2 = __commonJS({
     function writeH2(client, request2) {
       const requestTimeout = request2.bodyTimeout ?? client[kBodyTimeout];
       const session = client[kHTTP2Session];
-      const { method, path: path3, host, upgrade, expectContinue, signal, protocol, headers: reqHeaders } = request2;
+      const { method, path: path2, host, upgrade, expectContinue, signal, protocol, headers: reqHeaders } = request2;
       let { body } = request2;
       if (upgrade != null && upgrade !== "websocket") {
         util.errorRequest(client, request2, new InvalidArgumentError(`Custom upgrade "${upgrade}" not supported over HTTP/2`));
@@ -8700,7 +8700,7 @@ var require_client_h2 = __commonJS({
           }
           headers[HTTP2_HEADER_METHOD] = "CONNECT";
           headers[HTTP2_HEADER_PROTOCOL] = "websocket";
-          headers[HTTP2_HEADER_PATH] = path3;
+          headers[HTTP2_HEADER_PATH] = path2;
           if (protocol === "ws:" || protocol === "wss:") {
             headers[HTTP2_HEADER_SCHEME] = protocol === "ws:" ? "http" : "https";
           } else {
@@ -8741,7 +8741,7 @@ var require_client_h2 = __commonJS({
         stream.setTimeout(requestTimeout);
         return true;
       }
-      headers[HTTP2_HEADER_PATH] = path3;
+      headers[HTTP2_HEADER_PATH] = path2;
       headers[HTTP2_HEADER_SCHEME] = protocol === "http:" ? "http" : "https";
       const expectsPayload = method === "PUT" || method === "POST" || method === "PATCH";
       if (body && typeof body.read === "function") {
@@ -11084,10 +11084,10 @@ var require_proxy_agent = __commonJS({
         };
         const {
           origin,
-          path: path3 = "/",
+          path: path2 = "/",
           headers = {}
         } = opts;
-        opts.path = origin + path3;
+        opts.path = origin + path2;
         if (!("host" in headers) && !("Host" in headers)) {
           const { host } = new URL(origin);
           headers.host = host;
@@ -13151,20 +13151,20 @@ var require_mock_utils = __commonJS({
       }
       return normalizedQp;
     }
-    function safeUrl(path3) {
-      if (typeof path3 !== "string") {
-        return path3;
+    function safeUrl(path2) {
+      if (typeof path2 !== "string") {
+        return path2;
       }
-      const pathSegments = path3.split("?", 3);
+      const pathSegments = path2.split("?", 3);
       if (pathSegments.length !== 2) {
-        return path3;
+        return path2;
       }
       const qp = new URLSearchParams(pathSegments.pop());
       qp.sort();
       return [...pathSegments, qp.toString()].join("?");
     }
-    function matchKey(mockDispatch2, { path: path3, method, body, headers }) {
-      const pathMatch = matchValue(mockDispatch2.path, path3);
+    function matchKey(mockDispatch2, { path: path2, method, body, headers }) {
+      const pathMatch = matchValue(mockDispatch2.path, path2);
       const methodMatch = matchValue(mockDispatch2.method, method);
       const bodyMatch = typeof mockDispatch2.body !== "undefined" ? matchValue(mockDispatch2.body, body) : true;
       const headersMatch = matchHeaders(mockDispatch2, headers);
@@ -13189,8 +13189,8 @@ var require_mock_utils = __commonJS({
       const basePath = key.query ? serializePathWithQuery(key.path, key.query) : key.path;
       const resolvedPath = typeof basePath === "string" ? safeUrl(basePath) : basePath;
       const resolvedPathWithoutTrailingSlash = removeTrailingSlash(resolvedPath);
-      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path3, ignoreTrailingSlash }) => {
-        return ignoreTrailingSlash ? matchValue(removeTrailingSlash(safeUrl(path3)), resolvedPathWithoutTrailingSlash) : matchValue(safeUrl(path3), resolvedPath);
+      let matchedMockDispatches = mockDispatches.filter(({ consumed }) => !consumed).filter(({ path: path2, ignoreTrailingSlash }) => {
+        return ignoreTrailingSlash ? matchValue(removeTrailingSlash(safeUrl(path2)), resolvedPathWithoutTrailingSlash) : matchValue(safeUrl(path2), resolvedPath);
       });
       if (matchedMockDispatches.length === 0) {
         throw new MockNotMatchedError(`Mock dispatch not matched for path '${resolvedPath}'`);
@@ -13229,19 +13229,19 @@ var require_mock_utils = __commonJS({
         mockDispatches.splice(index, 1);
       }
     }
-    function removeTrailingSlash(path3) {
-      while (path3.endsWith("/")) {
-        path3 = path3.slice(0, -1);
+    function removeTrailingSlash(path2) {
+      while (path2.endsWith("/")) {
+        path2 = path2.slice(0, -1);
       }
-      if (path3.length === 0) {
-        path3 = "/";
+      if (path2.length === 0) {
+        path2 = "/";
       }
-      return path3;
+      return path2;
     }
     function buildKey(opts) {
-      const { path: path3, method, body, headers, query } = opts;
+      const { path: path2, method, body, headers, query } = opts;
       return {
-        path: path3,
+        path: path2,
         method,
         body,
         headers,
@@ -13931,10 +13931,10 @@ var require_pending_interceptors_formatter = __commonJS({
       }
       format(pendingInterceptors) {
         const withPrettyHeaders = pendingInterceptors.map(
-          ({ method, path: path3, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
+          ({ method, path: path2, data: { statusCode }, persist, times, timesInvoked, origin }) => ({
             Method: method,
             Origin: origin,
-            Path: path3,
+            Path: path2,
             "Status code": statusCode,
             Persistent: persist ? PERSISTENT : NOT_PERSISTENT,
             Invocations: timesInvoked,
@@ -14016,9 +14016,9 @@ var require_mock_agent = __commonJS({
         const acceptNonStandardSearchParameters = this[kMockAgentAcceptsNonStandardSearchParameters];
         const dispatchOpts = { ...opts };
         if (acceptNonStandardSearchParameters && dispatchOpts.path) {
-          const [path3, searchParams] = dispatchOpts.path.split("?");
+          const [path2, searchParams] = dispatchOpts.path.split("?");
           const normalizedSearchParams = normalizeSearchParams(searchParams, acceptNonStandardSearchParameters);
-          dispatchOpts.path = `${path3}?${normalizedSearchParams}`;
+          dispatchOpts.path = `${path2}?${normalizedSearchParams}`;
         }
         return this[kAgent].dispatch(dispatchOpts, handler2);
       }
@@ -14419,12 +14419,12 @@ var require_snapshot_recorder = __commonJS({
        * @return {Promise<void>} - Resolves when snapshots are loaded
        */
       async loadSnapshots(filePath) {
-        const path3 = filePath || this.#snapshotPath;
-        if (!path3) {
+        const path2 = filePath || this.#snapshotPath;
+        if (!path2) {
           throw new InvalidArgumentError("Snapshot path is required");
         }
         try {
-          const data = await readFile(resolve(path3), "utf8");
+          const data = await readFile(resolve(path2), "utf8");
           const parsed = JSON.parse(data);
           if (Array.isArray(parsed)) {
             this.#snapshots.clear();
@@ -14438,7 +14438,7 @@ var require_snapshot_recorder = __commonJS({
           if (error.code === "ENOENT") {
             this.#snapshots.clear();
           } else {
-            throw new UndiciError(`Failed to load snapshots from ${path3}`, { cause: error });
+            throw new UndiciError(`Failed to load snapshots from ${path2}`, { cause: error });
           }
         }
       }
@@ -14449,11 +14449,11 @@ var require_snapshot_recorder = __commonJS({
        * @returns {Promise<void>} - Resolves when snapshots are saved
        */
       async saveSnapshots(filePath) {
-        const path3 = filePath || this.#snapshotPath;
-        if (!path3) {
+        const path2 = filePath || this.#snapshotPath;
+        if (!path2) {
           throw new InvalidArgumentError("Snapshot path is required");
         }
-        const resolvedPath = resolve(path3);
+        const resolvedPath = resolve(path2);
         await mkdir(dirname(resolvedPath), { recursive: true });
         const data = Array.from(this.#snapshots.entries()).map(([hash, snapshot]) => ({
           hash,
@@ -15085,15 +15085,15 @@ var require_redirect_handler = __commonJS({
           return;
         }
         const { origin, pathname, search } = util.parseURL(new URL(this.location, this.opts.origin && new URL(this.opts.path, this.opts.origin)));
-        const path3 = search ? `${pathname}${search}` : pathname;
-        const redirectUrlString = `${origin}${path3}`;
+        const path2 = search ? `${pathname}${search}` : pathname;
+        const redirectUrlString = `${origin}${path2}`;
         for (const historyUrl of this.history) {
           if (historyUrl.toString() === redirectUrlString) {
             throw new InvalidArgumentError(`Redirect loop detected. Cannot redirect to ${origin}. This typically happens when using a Client or Pool with cross-origin redirects. Use an Agent for cross-origin redirects.`);
           }
         }
         this.opts.headers = cleanRequestHeaders(this.opts.headers, statusCode === 303, this.opts.origin !== origin);
-        this.opts.path = path3;
+        this.opts.path = path2;
         this.opts.origin = origin;
         this.opts.query = null;
       }
@@ -15836,11 +15836,11 @@ var require_cache = __commonJS({
       } else if (typeof opts.headers === "object") {
         headers = {};
         if (hasSafeIterator(opts.headers)) {
-          for (const x2 of opts.headers) {
-            if (!Array.isArray(x2)) {
+          for (const x of opts.headers) {
+            if (!Array.isArray(x)) {
               throw new Error("opts.headers is not a valid header map");
             }
-            const [key, val] = x2;
+            const [key, val] = x;
             if (typeof key !== "string" || typeof val !== "string") {
               throw new Error("opts.headers is not a valid header map");
             }
@@ -18562,7 +18562,7 @@ var require_sqlite_cache_store = __commonJS({
         if (lhs.length !== rhs.length) {
           return false;
         }
-        return lhs.every((x2, i) => x2 === rhs[i]);
+        return lhs.every((x, i) => x === rhs[i]);
       }
       return lhs === rhs;
     }
@@ -18798,15 +18798,15 @@ var require_headers = __commonJS({
           const firstValue = iterator2.next().value;
           array[0] = [firstValue[0], firstValue[1].value];
           assert(firstValue[1].value !== null);
-          for (let i = 1, j2 = 0, right = 0, left = 0, pivot = 0, x2, value; i < size; ++i) {
+          for (let i = 1, j2 = 0, right = 0, left = 0, pivot = 0, x, value; i < size; ++i) {
             value = iterator2.next().value;
-            x2 = array[i] = [value[0], value[1].value];
-            assert(x2[1] !== null);
+            x = array[i] = [value[0], value[1].value];
+            assert(x[1] !== null);
             left = 0;
             right = i;
             while (left < right) {
               pivot = left + (right - left >> 1);
-              if (array[pivot][0] <= x2[0]) {
+              if (array[pivot][0] <= x[0]) {
                 left = pivot + 1;
               } else {
                 right = pivot;
@@ -18817,7 +18817,7 @@ var require_headers = __commonJS({
               while (j2 > left) {
                 array[j2] = array[--j2];
               }
-              array[left] = x2;
+              array[left] = x;
             }
           }
           if (!iterator2.next().done) {
@@ -21303,11 +21303,11 @@ var require_fetch = __commonJS({
       function dispatch({ body }) {
         const url = requestCurrentURL(request2);
         const agent = fetchParams.controller.dispatcher;
-        const path3 = url.pathname + url.search;
+        const path2 = url.pathname + url.search;
         const hasTrailingQuestionMark = url.search.length === 0 && url.href[url.href.length - url.hash.length - 1] === "?";
         return new Promise((resolve, reject) => agent.dispatch(
           {
-            path: hasTrailingQuestionMark ? `${path3}?` : path3,
+            path: hasTrailingQuestionMark ? `${path2}?` : path2,
             origin: url.origin,
             method: request2.method,
             body: agent.isMockActive ? request2.body && (request2.body.source || request2.body.stream) : body,
@@ -22254,9 +22254,9 @@ var require_util4 = __commonJS({
         }
       }
     }
-    function validateCookiePath(path3) {
-      for (let i = 0; i < path3.length; ++i) {
-        const code = path3.charCodeAt(i);
+    function validateCookiePath(path2) {
+      for (let i = 0; i < path2.length; ++i) {
+        const code = path2.charCodeAt(i);
         if (code < 32 || // exclude CTLs (0-31)
         code === 127 || // DEL
         code === 59) {
@@ -25455,11 +25455,11 @@ var require_undici = __commonJS({
           if (typeof opts.path !== "string") {
             throw new InvalidArgumentError("invalid opts.path");
           }
-          let path3 = opts.path;
+          let path2 = opts.path;
           if (!opts.path.startsWith("/")) {
-            path3 = `/${path3}`;
+            path2 = `/${path2}`;
           }
-          url = new URL(util.parseOrigin(url).origin + path3);
+          url = new URL(util.parseOrigin(url).origin + path2);
         } else {
           if (!opts) {
             opts = typeof url === "object" ? url : {};
@@ -26716,7 +26716,7 @@ var require_path_utils = __commonJS({
     };
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.toPlatformPath = exports2.toWin32Path = exports2.toPosixPath = void 0;
-    var path3 = __importStar(require("path"));
+    var path2 = __importStar(require("path"));
     function toPosixPath(pth) {
       return pth.replace(/[\\]/g, "/");
     }
@@ -26726,7 +26726,7 @@ var require_path_utils = __commonJS({
     }
     exports2.toWin32Path = toWin32Path;
     function toPlatformPath(pth) {
-      return pth.replace(/[/\\]/g, path3.sep);
+      return pth.replace(/[/\\]/g, path2.sep);
     }
     exports2.toPlatformPath = toPlatformPath;
   }
@@ -26790,7 +26790,7 @@ var require_io_util = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.getCmdPath = exports2.tryGetExecutablePath = exports2.isRooted = exports2.isDirectory = exports2.exists = exports2.READONLY = exports2.UV_FS_O_EXLOCK = exports2.IS_WINDOWS = exports2.unlink = exports2.symlink = exports2.stat = exports2.rmdir = exports2.rm = exports2.rename = exports2.readlink = exports2.readdir = exports2.open = exports2.mkdir = exports2.lstat = exports2.copyFile = exports2.chmod = void 0;
     var fs = __importStar(require("fs"));
-    var path3 = __importStar(require("path"));
+    var path2 = __importStar(require("path"));
     _a2 = fs.promises, exports2.chmod = _a2.chmod, exports2.copyFile = _a2.copyFile, exports2.lstat = _a2.lstat, exports2.mkdir = _a2.mkdir, exports2.open = _a2.open, exports2.readdir = _a2.readdir, exports2.readlink = _a2.readlink, exports2.rename = _a2.rename, exports2.rm = _a2.rm, exports2.rmdir = _a2.rmdir, exports2.stat = _a2.stat, exports2.symlink = _a2.symlink, exports2.unlink = _a2.unlink;
     exports2.IS_WINDOWS = process.platform === "win32";
     exports2.UV_FS_O_EXLOCK = 268435456;
@@ -26839,7 +26839,7 @@ var require_io_util = __commonJS({
         }
         if (stats && stats.isFile()) {
           if (exports2.IS_WINDOWS) {
-            const upperExt = path3.extname(filePath).toUpperCase();
+            const upperExt = path2.extname(filePath).toUpperCase();
             if (extensions.some((validExt) => validExt.toUpperCase() === upperExt)) {
               return filePath;
             }
@@ -26863,11 +26863,11 @@ var require_io_util = __commonJS({
           if (stats && stats.isFile()) {
             if (exports2.IS_WINDOWS) {
               try {
-                const directory = path3.dirname(filePath);
-                const upperName = path3.basename(filePath).toUpperCase();
+                const directory = path2.dirname(filePath);
+                const upperName = path2.basename(filePath).toUpperCase();
                 for (const actualName of yield exports2.readdir(directory)) {
                   if (upperName === actualName.toUpperCase()) {
-                    filePath = path3.join(directory, actualName);
+                    filePath = path2.join(directory, actualName);
                     break;
                   }
                 }
@@ -26962,7 +26962,7 @@ var require_io = __commonJS({
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.findInPath = exports2.which = exports2.mkdirP = exports2.rmRF = exports2.mv = exports2.cp = void 0;
     var assert_1 = require("assert");
-    var path3 = __importStar(require("path"));
+    var path2 = __importStar(require("path"));
     var ioUtil = __importStar(require_io_util());
     function cp(source, dest, options = {}) {
       return __awaiter2(this, void 0, void 0, function* () {
@@ -26971,7 +26971,7 @@ var require_io = __commonJS({
         if (destStat && destStat.isFile() && !force) {
           return;
         }
-        const newDest = destStat && destStat.isDirectory() && copySourceDirectory ? path3.join(dest, path3.basename(source)) : dest;
+        const newDest = destStat && destStat.isDirectory() && copySourceDirectory ? path2.join(dest, path2.basename(source)) : dest;
         if (!(yield ioUtil.exists(source))) {
           throw new Error(`no such file or directory: ${source}`);
         }
@@ -26983,7 +26983,7 @@ var require_io = __commonJS({
             yield cpDirRecursive(source, newDest, 0, force);
           }
         } else {
-          if (path3.relative(source, newDest) === "") {
+          if (path2.relative(source, newDest) === "") {
             throw new Error(`'${newDest}' and '${source}' are the same file`);
           }
           yield copyFile(source, newDest, force);
@@ -26996,7 +26996,7 @@ var require_io = __commonJS({
         if (yield ioUtil.exists(dest)) {
           let destExists = true;
           if (yield ioUtil.isDirectory(dest)) {
-            dest = path3.join(dest, path3.basename(source));
+            dest = path2.join(dest, path2.basename(source));
             destExists = yield ioUtil.exists(dest);
           }
           if (destExists) {
@@ -27007,7 +27007,7 @@ var require_io = __commonJS({
             }
           }
         }
-        yield mkdirP(path3.dirname(dest));
+        yield mkdirP(path2.dirname(dest));
         yield ioUtil.rename(source, dest);
       });
     }
@@ -27070,7 +27070,7 @@ var require_io = __commonJS({
         }
         const extensions = [];
         if (ioUtil.IS_WINDOWS && process.env["PATHEXT"]) {
-          for (const extension of process.env["PATHEXT"].split(path3.delimiter)) {
+          for (const extension of process.env["PATHEXT"].split(path2.delimiter)) {
             if (extension) {
               extensions.push(extension);
             }
@@ -27083,12 +27083,12 @@ var require_io = __commonJS({
           }
           return [];
         }
-        if (tool.includes(path3.sep)) {
+        if (tool.includes(path2.sep)) {
           return [];
         }
         const directories = [];
         if (process.env.PATH) {
-          for (const p of process.env.PATH.split(path3.delimiter)) {
+          for (const p of process.env.PATH.split(path2.delimiter)) {
             if (p) {
               directories.push(p);
             }
@@ -27096,7 +27096,7 @@ var require_io = __commonJS({
         }
         const matches = [];
         for (const directory of directories) {
-          const filePath = yield ioUtil.tryGetExecutablePath(path3.join(directory, tool), extensions);
+          const filePath = yield ioUtil.tryGetExecutablePath(path2.join(directory, tool), extensions);
           if (filePath) {
             matches.push(filePath);
           }
@@ -27212,7 +27212,7 @@ var require_toolrunner = __commonJS({
     var os = __importStar(require("os"));
     var events = __importStar(require("events"));
     var child = __importStar(require("child_process"));
-    var path3 = __importStar(require("path"));
+    var path2 = __importStar(require("path"));
     var io = __importStar(require_io());
     var ioUtil = __importStar(require_io_util());
     var timers_1 = require("timers");
@@ -27339,7 +27339,7 @@ var require_toolrunner = __commonJS({
         ];
         let needsQuotes = false;
         for (const char of arg) {
-          if (cmdSpecialChars.some((x2) => x2 === char)) {
+          if (cmdSpecialChars.some((x) => x === char)) {
             needsQuotes = true;
             break;
           }
@@ -27427,7 +27427,7 @@ var require_toolrunner = __commonJS({
       exec() {
         return __awaiter2(this, void 0, void 0, function* () {
           if (!ioUtil.isRooted(this.toolPath) && (this.toolPath.includes("/") || IS_WINDOWS && this.toolPath.includes("\\"))) {
-            this.toolPath = path3.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
+            this.toolPath = path2.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
           }
           this.toolPath = yield io.which(this.toolPath, true);
           return new Promise((resolve, reject) => __awaiter2(this, void 0, void 0, function* () {
@@ -27532,7 +27532,7 @@ var require_toolrunner = __commonJS({
       let inQuotes = false;
       let escaped = false;
       let arg = "";
-      function append2(c) {
+      function append(c) {
         if (escaped && c !== '"') {
           arg += "\\";
         }
@@ -27545,12 +27545,12 @@ var require_toolrunner = __commonJS({
           if (!escaped) {
             inQuotes = !inQuotes;
           } else {
-            append2(c);
+            append(c);
           }
           continue;
         }
         if (c === "\\" && escaped) {
-          append2(c);
+          append(c);
           continue;
         }
         if (c === "\\" && inQuotes) {
@@ -27564,7 +27564,7 @@ var require_toolrunner = __commonJS({
           }
           continue;
         }
-        append2(c);
+        append(c);
       }
       if (arg.length > 0) {
         args.push(arg.trim());
@@ -27927,7 +27927,7 @@ var require_core = __commonJS({
     var file_command_1 = require_file_command();
     var utils_1 = require_utils();
     var os = __importStar(require("os"));
-    var path3 = __importStar(require("path"));
+    var path2 = __importStar(require("path"));
     var oidc_utils_1 = require_oidc_utils();
     var ExitCode;
     (function(ExitCode2) {
@@ -27955,7 +27955,7 @@ var require_core = __commonJS({
       } else {
         (0, command_1.issueCommand)("add-path", {}, inputPath);
       }
-      process.env["PATH"] = `${inputPath}${path3.delimiter}${process.env["PATH"]}`;
+      process.env["PATH"] = `${inputPath}${path2.delimiter}${process.env["PATH"]}`;
     }
     exports2.addPath = addPath;
     function getInput2(name, options) {
@@ -27970,7 +27970,7 @@ var require_core = __commonJS({
     }
     exports2.getInput = getInput2;
     function getMultilineInput(name, options) {
-      const inputs = getInput2(name, options).split("\n").filter((x2) => x2 !== "");
+      const inputs = getInput2(name, options).split("\n").filter((x) => x !== "");
       if (options && options.trimWhitespace === false) {
         return inputs;
       }
@@ -28146,8 +28146,8 @@ var require_proxy2 = __commonJS({
       if (typeof reqPort === "number") {
         upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
       }
-      for (const upperNoProxyItem of noProxy.split(",").map((x2) => x2.trim().toUpperCase()).filter((x2) => x2)) {
-        if (upperNoProxyItem === "*" || upperReqHosts.some((x2) => x2 === upperNoProxyItem || x2.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x2.endsWith(`${upperNoProxyItem}`))) {
+      for (const upperNoProxyItem of noProxy.split(",").map((x) => x.trim().toUpperCase()).filter((x) => x)) {
+        if (upperNoProxyItem === "*" || upperReqHosts.some((x) => x === upperNoProxyItem || x.endsWith(`.${upperNoProxyItem}`) || upperNoProxyItem.startsWith(".") && x.endsWith(`${upperNoProxyItem}`))) {
           return true;
         }
       }
@@ -29022,8 +29022,8 @@ var Context = class {
       if ((0, import_fs.existsSync)(process.env.GITHUB_EVENT_PATH)) {
         this.payload = JSON.parse((0, import_fs.readFileSync)(process.env.GITHUB_EVENT_PATH, { encoding: "utf8" }));
       } else {
-        const path3 = process.env.GITHUB_EVENT_PATH;
-        process.stdout.write(`GITHUB_EVENT_PATH ${path3} does not exist${import_os.EOL}`);
+        const path2 = process.env.GITHUB_EVENT_PATH;
+        process.stdout.write(`GITHUB_EVENT_PATH ${path2} does not exist${import_os.EOL}`);
       }
     }
     this.eventName = process.env.GITHUB_EVENT_NAME;
@@ -32869,11 +32869,11 @@ function embrace(str) {
 function isPadded(el) {
   return /^-?0\d/.test(el);
 }
-function lte(i, y3) {
-  return i <= y3;
+function lte(i, y2) {
+  return i <= y2;
 }
-function gte(i, y3) {
-  return i >= y3;
+function gte(i, y2) {
+  return i >= y2;
 }
 function expand_(str, max, isTop) {
   const expansions = [];
@@ -32913,19 +32913,19 @@ function expand_(str, max, isTop) {
     }
     let N;
     if (isSequence && n[0] !== void 0 && n[1] !== void 0) {
-      const x2 = numeric(n[0]);
-      const y3 = numeric(n[1]);
+      const x = numeric(n[0]);
+      const y2 = numeric(n[1]);
       const width = Math.max(n[0].length, n[1].length);
       let incr = n.length === 3 && n[2] !== void 0 ? Math.max(Math.abs(numeric(n[2])), 1) : 1;
       let test = lte;
-      const reverse = y3 < x2;
+      const reverse = y2 < x;
       if (reverse) {
         incr *= -1;
         test = gte;
       }
       const pad = n.some(isPadded);
       N = [];
-      for (let i = x2; test(i, y3); i += incr) {
+      for (let i = x; test(i, y2); i += incr) {
         let c;
         if (isAlphaSequence) {
           c = String.fromCharCode(i);
@@ -34371,12 +34371,12 @@ var Minimatch = class {
   }
   #matchOne(file, pattern, partial, fileIndex, patternIndex) {
     let fi;
-    let pi2;
+    let pi;
     let pl;
     let fl;
-    for (fi = fileIndex, pi2 = patternIndex, fl = file.length, pl = pattern.length; fi < fl && pi2 < pl; fi++, pi2++) {
+    for (fi = fileIndex, pi = patternIndex, fl = file.length, pl = pattern.length; fi < fl && pi < pl; fi++, pi++) {
       this.debug("matchOne loop");
-      let p = pattern[pi2];
+      let p = pattern[pi];
       let f = file[fi];
       this.debug(pattern, p, f);
       if (p === false || p === GLOBSTAR) {
@@ -34393,11 +34393,11 @@ var Minimatch = class {
       if (!hit)
         return false;
     }
-    if (fi === fl && pi2 === pl) {
+    if (fi === fl && pi === pl) {
       return true;
     } else if (fi === fl) {
       return partial;
-    } else if (pi2 === pl) {
+    } else if (pi === pl) {
       return fi === fl - 1 && file[fi] === "";
     } else {
       throw new Error("wtf?");
@@ -36111,17 +36111,17 @@ var Nt = v((ho, Ot) => {
 });
 var Rt = v((co, Mt) => {
   "use strict";
-  var It = pe(), jt = we(), ti = qe(), ri = _().normalizeRanks, ni = Re(), ii = _().removeEmptyRanks, Ct = Pe(), oi = Ge(), Lt = Be(), si = ft(), ai = Nt(), x2 = _(), di = y().Graph;
+  var It = pe(), jt = we(), ti = qe(), ri = _().normalizeRanks, ni = Re(), ii = _().removeEmptyRanks, Ct = Pe(), oi = Ge(), Lt = Be(), si = ft(), ai = Nt(), x = _(), di = y().Graph;
   Mt.exports = li;
   function li(e, t = {}) {
-    let r = t.debugTiming ? x2.time : x2.notime;
+    let r = t.debugTiming ? x.time : x.notime;
     return r("layout", () => {
       let n = r("  buildLayoutGraph", () => gi(e));
       return r("  runLayout", () => ui(n, r, t)), r("  updateInputGraph", () => hi(e, n)), n;
     });
   }
   function ui(e, t, r) {
-    t("    makeSpaceForEdgeLabels", () => Ei(e)), t("    removeSelfEdges", () => Ci(e)), t("    acyclic", () => It.run(e)), t("    nestingGraph.run", () => Ct.run(e)), t("    rank", () => ti(x2.asNonCompoundGraph(e))), t("    injectEdgeLabelProxies", () => _i(e)), t("    removeEmptyRanks", () => ii(e)), t("    nestingGraph.cleanup", () => Ct.cleanup(e)), t("    normalizeRanks", () => ri(e)), t("    assignRankMinMax", () => ki(e)), t("    removeEdgeLabelProxies", () => yi(e)), t("    normalize.run", () => jt.run(e)), t("    parentDummyChains", () => ni(e)), t("    addBorderSegments", () => oi(e)), t("    order", () => si(e, r)), t("    insertSelfEdges", () => Li(e)), t("    adjustCoordinateSystem", () => Lt.adjust(e)), t("    position", () => ai(e)), t("    positionSelfEdges", () => qi(e)), t("    removeBorderNodes", () => ji(e)), t("    normalize.undo", () => jt.undo(e)), t("    fixupEdgeLabelCoords", () => Ni(e)), t("    undoCoordinateSystem", () => Lt.undo(e)), t("    translateGraph", () => xi(e)), t("    assignNodeIntersects", () => Oi(e)), t("    reversePoints", () => Ii(e)), t("    acyclic.undo", () => It.undo(e));
+    t("    makeSpaceForEdgeLabels", () => Ei(e)), t("    removeSelfEdges", () => Ci(e)), t("    acyclic", () => It.run(e)), t("    nestingGraph.run", () => Ct.run(e)), t("    rank", () => ti(x.asNonCompoundGraph(e))), t("    injectEdgeLabelProxies", () => _i(e)), t("    removeEmptyRanks", () => ii(e)), t("    nestingGraph.cleanup", () => Ct.cleanup(e)), t("    normalizeRanks", () => ri(e)), t("    assignRankMinMax", () => ki(e)), t("    removeEdgeLabelProxies", () => yi(e)), t("    normalize.run", () => jt.run(e)), t("    parentDummyChains", () => ni(e)), t("    addBorderSegments", () => oi(e)), t("    order", () => si(e, r)), t("    insertSelfEdges", () => Li(e)), t("    adjustCoordinateSystem", () => Lt.adjust(e)), t("    position", () => ai(e)), t("    positionSelfEdges", () => qi(e)), t("    removeBorderNodes", () => ji(e)), t("    normalize.undo", () => jt.undo(e)), t("    fixupEdgeLabelCoords", () => Ni(e)), t("    undoCoordinateSystem", () => Lt.undo(e)), t("    translateGraph", () => xi(e)), t("    assignNodeIntersects", () => Oi(e)), t("    reversePoints", () => Ii(e)), t("    acyclic.undo", () => It.undo(e));
   }
   function hi(e, t) {
     e.nodes().forEach((r) => {
@@ -36132,17 +36132,17 @@ var Rt = v((co, Mt) => {
       n.points = i.points, Object.hasOwn(i, "x") && (n.x = i.x, n.y = i.y);
     }), e.graph().width = t.graph().width, e.graph().height = t.graph().height;
   }
-  var ci = ["nodesep", "edgesep", "ranksep", "marginx", "marginy"], fi = { ranksep: 50, edgesep: 20, nodesep: 50, rankdir: "tb", rankalign: "center" }, pi2 = ["acyclicer", "ranker", "rankdir", "align", "rankalign"], mi = ["width", "height", "rank"], qt = { width: 0, height: 0 }, wi = ["minlen", "weight", "width", "height", "labeloffset"], bi = { minlen: 1, weight: 1, width: 0, height: 0, labeloffset: 10, labelpos: "r" }, vi = ["labelpos"];
+  var ci = ["nodesep", "edgesep", "ranksep", "marginx", "marginy"], fi = { ranksep: 50, edgesep: 20, nodesep: 50, rankdir: "tb", rankalign: "center" }, pi = ["acyclicer", "ranker", "rankdir", "align", "rankalign"], mi = ["width", "height", "rank"], qt = { width: 0, height: 0 }, wi = ["minlen", "weight", "width", "height", "labeloffset"], bi = { minlen: 1, weight: 1, width: 0, height: 0, labeloffset: 10, labelpos: "r" }, vi = ["labelpos"];
   function gi(e) {
     let t = new di({ multigraph: true, compound: true }), r = X(e.graph());
-    return t.setGraph(Object.assign({}, fi, z(r, ci), x2.pick(r, pi2))), e.nodes().forEach((n) => {
+    return t.setGraph(Object.assign({}, fi, z(r, ci), x.pick(r, pi))), e.nodes().forEach((n) => {
       let i = X(e.node(n)), o = z(i, mi);
       Object.keys(qt).forEach((s) => {
         o[s] === void 0 && (o[s] = qt[s]);
       }), t.setNode(n, o), t.setParent(n, e.parent(n));
     }), e.edges().forEach((n) => {
       let i = X(e.edge(n));
-      t.setEdge(n, Object.assign({}, bi, z(i, wi), x2.pick(i, vi)));
+      t.setEdge(n, Object.assign({}, bi, z(i, wi), x.pick(i, vi)));
     }), t;
   }
   function Ei(e) {
@@ -36157,7 +36157,7 @@ var Rt = v((co, Mt) => {
       let r = e.edge(t);
       if (r.width && r.height) {
         let n = e.node(t.v), o = { rank: (e.node(t.w).rank - n.rank) / 2 + n.rank, e: t };
-        x2.addDummyNode(e, "edge-proxy", o, "_ep");
+        x.addDummyNode(e, "edge-proxy", o, "_ep");
       }
     });
   }
@@ -36196,7 +36196,7 @@ var Rt = v((co, Mt) => {
   function Oi(e) {
     e.edges().forEach((t) => {
       let r = e.edge(t), n = e.node(t.v), i = e.node(t.w), o, s;
-      r.points ? (o = r.points[0], s = r.points[r.points.length - 1]) : (r.points = [], o = i, s = n), r.points.unshift(x2.intersectRect(n, o)), r.points.push(x2.intersectRect(i, s));
+      r.points ? (o = r.points[0], s = r.points[r.points.length - 1]) : (r.points = [], o = i, s = n), r.points.unshift(x.intersectRect(n, o)), r.points.push(x.intersectRect(i, s));
     });
   }
   function Ni(e) {
@@ -36237,13 +36237,13 @@ var Rt = v((co, Mt) => {
     });
   }
   function Li(e) {
-    var t = x2.buildLayerMatrix(e);
+    var t = x.buildLayerMatrix(e);
     t.forEach((r) => {
       var n = 0;
       r.forEach((i, o) => {
         var s = e.node(i);
         s.order = o + n, (s.selfEdges || []).forEach((a) => {
-          x2.addDummyNode(e, "selfedge", { width: a.label.width, height: a.label.height, rank: s.rank, order: o + ++n, e: a.e, label: a.label }, "_se");
+          x.addDummyNode(e, "selfedge", { width: a.label.width, height: a.label.height, rank: s.rank, order: o + ++n, e: a.e, label: a.label }, "_se");
         }), delete s.selfEdges;
       });
     });
@@ -36258,7 +36258,7 @@ var Rt = v((co, Mt) => {
     });
   }
   function z(e, t) {
-    return x2.mapValues(x2.pick(e, t), Number);
+    return x.mapValues(x.pick(e, t), Number);
   }
   function X(e) {
     var t = {};
@@ -36287,274 +36287,6 @@ var Si = v((mo, Dt) => {
   Dt.exports = { graphlib: y(), layout: Rt(), debug: St(), util: { time: _().time, notime: _().notime }, version: Ft() };
 });
 var dagre_esm_default = Si();
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/constant.js
-function constant_default(x2) {
-  return function constant() {
-    return x2;
-  };
-}
-
-// ../../node_modules/.pnpm/d3-path@3.1.0/node_modules/d3-path/src/path.js
-var pi = Math.PI;
-var tau = 2 * pi;
-var epsilon = 1e-6;
-var tauEpsilon = tau - epsilon;
-function append(strings) {
-  this._ += strings[0];
-  for (let i = 1, n = strings.length; i < n; ++i) {
-    this._ += arguments[i] + strings[i];
-  }
-}
-function appendRound(digits) {
-  let d = Math.floor(digits);
-  if (!(d >= 0)) throw new Error(`invalid digits: ${digits}`);
-  if (d > 15) return append;
-  const k = 10 ** d;
-  return function(strings) {
-    this._ += strings[0];
-    for (let i = 1, n = strings.length; i < n; ++i) {
-      this._ += Math.round(arguments[i] * k) / k + strings[i];
-    }
-  };
-}
-var Path = class {
-  constructor(digits) {
-    this._x0 = this._y0 = // start of current subpath
-    this._x1 = this._y1 = null;
-    this._ = "";
-    this._append = digits == null ? append : appendRound(digits);
-  }
-  moveTo(x2, y3) {
-    this._append`M${this._x0 = this._x1 = +x2},${this._y0 = this._y1 = +y3}`;
-  }
-  closePath() {
-    if (this._x1 !== null) {
-      this._x1 = this._x0, this._y1 = this._y0;
-      this._append`Z`;
-    }
-  }
-  lineTo(x2, y3) {
-    this._append`L${this._x1 = +x2},${this._y1 = +y3}`;
-  }
-  quadraticCurveTo(x1, y1, x2, y3) {
-    this._append`Q${+x1},${+y1},${this._x1 = +x2},${this._y1 = +y3}`;
-  }
-  bezierCurveTo(x1, y1, x2, y22, x3, y3) {
-    this._append`C${+x1},${+y1},${+x2},${+y22},${this._x1 = +x3},${this._y1 = +y3}`;
-  }
-  arcTo(x1, y1, x2, y22, r) {
-    x1 = +x1, y1 = +y1, x2 = +x2, y22 = +y22, r = +r;
-    if (r < 0) throw new Error(`negative radius: ${r}`);
-    let x0 = this._x1, y0 = this._y1, x21 = x2 - x1, y21 = y22 - y1, x01 = x0 - x1, y01 = y0 - y1, l01_2 = x01 * x01 + y01 * y01;
-    if (this._x1 === null) {
-      this._append`M${this._x1 = x1},${this._y1 = y1}`;
-    } else if (!(l01_2 > epsilon)) ;
-    else if (!(Math.abs(y01 * x21 - y21 * x01) > epsilon) || !r) {
-      this._append`L${this._x1 = x1},${this._y1 = y1}`;
-    } else {
-      let x20 = x2 - x0, y20 = y22 - y0, l21_2 = x21 * x21 + y21 * y21, l20_2 = x20 * x20 + y20 * y20, l21 = Math.sqrt(l21_2), l01 = Math.sqrt(l01_2), l = r * Math.tan((pi - Math.acos((l21_2 + l01_2 - l20_2) / (2 * l21 * l01))) / 2), t01 = l / l01, t21 = l / l21;
-      if (Math.abs(t01 - 1) > epsilon) {
-        this._append`L${x1 + t01 * x01},${y1 + t01 * y01}`;
-      }
-      this._append`A${r},${r},0,0,${+(y01 * x20 > x01 * y20)},${this._x1 = x1 + t21 * x21},${this._y1 = y1 + t21 * y21}`;
-    }
-  }
-  arc(x2, y3, r, a0, a1, ccw) {
-    x2 = +x2, y3 = +y3, r = +r, ccw = !!ccw;
-    if (r < 0) throw new Error(`negative radius: ${r}`);
-    let dx = r * Math.cos(a0), dy = r * Math.sin(a0), x0 = x2 + dx, y0 = y3 + dy, cw = 1 ^ ccw, da = ccw ? a0 - a1 : a1 - a0;
-    if (this._x1 === null) {
-      this._append`M${x0},${y0}`;
-    } else if (Math.abs(this._x1 - x0) > epsilon || Math.abs(this._y1 - y0) > epsilon) {
-      this._append`L${x0},${y0}`;
-    }
-    if (!r) return;
-    if (da < 0) da = da % tau + tau;
-    if (da > tauEpsilon) {
-      this._append`A${r},${r},0,1,${cw},${x2 - dx},${y3 - dy}A${r},${r},0,1,${cw},${this._x1 = x0},${this._y1 = y0}`;
-    } else if (da > epsilon) {
-      this._append`A${r},${r},0,${+(da >= pi)},${cw},${this._x1 = x2 + r * Math.cos(a1)},${this._y1 = y3 + r * Math.sin(a1)}`;
-    }
-  }
-  rect(x2, y3, w, h) {
-    this._append`M${this._x0 = this._x1 = +x2},${this._y0 = this._y1 = +y3}h${w = +w}v${+h}h${-w}Z`;
-  }
-  toString() {
-    return this._;
-  }
-};
-function path2() {
-  return new Path();
-}
-path2.prototype = Path.prototype;
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/path.js
-function withPath(shape) {
-  let digits = 3;
-  shape.digits = function(_2) {
-    if (!arguments.length) return digits;
-    if (_2 == null) {
-      digits = null;
-    } else {
-      const d = Math.floor(_2);
-      if (!(d >= 0)) throw new RangeError(`invalid digits: ${_2}`);
-      digits = d;
-    }
-    return shape;
-  };
-  return () => new Path(digits);
-}
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/array.js
-var slice = Array.prototype.slice;
-function array_default(x2) {
-  return typeof x2 === "object" && "length" in x2 ? x2 : Array.from(x2);
-}
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/curve/linear.js
-function Linear(context3) {
-  this._context = context3;
-}
-Linear.prototype = {
-  areaStart: function() {
-    this._line = 0;
-  },
-  areaEnd: function() {
-    this._line = NaN;
-  },
-  lineStart: function() {
-    this._point = 0;
-  },
-  lineEnd: function() {
-    if (this._line || this._line !== 0 && this._point === 1) this._context.closePath();
-    this._line = 1 - this._line;
-  },
-  point: function(x2, y3) {
-    x2 = +x2, y3 = +y3;
-    switch (this._point) {
-      case 0:
-        this._point = 1;
-        this._line ? this._context.lineTo(x2, y3) : this._context.moveTo(x2, y3);
-        break;
-      case 1:
-        this._point = 2;
-      // falls through
-      default:
-        this._context.lineTo(x2, y3);
-        break;
-    }
-  }
-};
-function linear_default(context3) {
-  return new Linear(context3);
-}
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/point.js
-function x(p) {
-  return p[0];
-}
-function y2(p) {
-  return p[1];
-}
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/line.js
-function line_default(x2, y3) {
-  var defined = constant_default(true), context3 = null, curve = linear_default, output = null, path3 = withPath(line);
-  x2 = typeof x2 === "function" ? x2 : x2 === void 0 ? x : constant_default(x2);
-  y3 = typeof y3 === "function" ? y3 : y3 === void 0 ? y2 : constant_default(y3);
-  function line(data) {
-    var i, n = (data = array_default(data)).length, d, defined0 = false, buffer;
-    if (context3 == null) output = curve(buffer = path3());
-    for (i = 0; i <= n; ++i) {
-      if (!(i < n && defined(d = data[i], i, data)) === defined0) {
-        if (defined0 = !defined0) output.lineStart();
-        else output.lineEnd();
-      }
-      if (defined0) output.point(+x2(d, i, data), +y3(d, i, data));
-    }
-    if (buffer) return output = null, buffer + "" || null;
-  }
-  line.x = function(_2) {
-    return arguments.length ? (x2 = typeof _2 === "function" ? _2 : constant_default(+_2), line) : x2;
-  };
-  line.y = function(_2) {
-    return arguments.length ? (y3 = typeof _2 === "function" ? _2 : constant_default(+_2), line) : y3;
-  };
-  line.defined = function(_2) {
-    return arguments.length ? (defined = typeof _2 === "function" ? _2 : constant_default(!!_2), line) : defined;
-  };
-  line.curve = function(_2) {
-    return arguments.length ? (curve = _2, context3 != null && (output = curve(context3)), line) : curve;
-  };
-  line.context = function(_2) {
-    return arguments.length ? (_2 == null ? context3 = output = null : output = curve(context3 = _2), line) : context3;
-  };
-  return line;
-}
-
-// ../../node_modules/.pnpm/d3-shape@3.2.0/node_modules/d3-shape/src/curve/basis.js
-function point(that, x2, y3) {
-  that._context.bezierCurveTo(
-    (2 * that._x0 + that._x1) / 3,
-    (2 * that._y0 + that._y1) / 3,
-    (that._x0 + 2 * that._x1) / 3,
-    (that._y0 + 2 * that._y1) / 3,
-    (that._x0 + 4 * that._x1 + x2) / 6,
-    (that._y0 + 4 * that._y1 + y3) / 6
-  );
-}
-function Basis(context3) {
-  this._context = context3;
-}
-Basis.prototype = {
-  areaStart: function() {
-    this._line = 0;
-  },
-  areaEnd: function() {
-    this._line = NaN;
-  },
-  lineStart: function() {
-    this._x0 = this._x1 = this._y0 = this._y1 = NaN;
-    this._point = 0;
-  },
-  lineEnd: function() {
-    switch (this._point) {
-      case 3:
-        point(this, this._x1, this._y1);
-      // falls through
-      case 2:
-        this._context.lineTo(this._x1, this._y1);
-        break;
-    }
-    if (this._line || this._line !== 0 && this._point === 1) this._context.closePath();
-    this._line = 1 - this._line;
-  },
-  point: function(x2, y3) {
-    x2 = +x2, y3 = +y3;
-    switch (this._point) {
-      case 0:
-        this._point = 1;
-        this._line ? this._context.lineTo(x2, y3) : this._context.moveTo(x2, y3);
-        break;
-      case 1:
-        this._point = 2;
-        break;
-      case 2:
-        this._point = 3;
-        this._context.lineTo((5 * this._x0 + this._x1) / 6, (5 * this._y0 + this._y1) / 6);
-      // falls through
-      default:
-        point(this, x2, y3);
-        break;
-    }
-    this._x0 = this._x1, this._x1 = x2;
-    this._y0 = this._y1, this._y1 = y3;
-  }
-};
-function basis_default(context3) {
-  return new Basis(context3);
-}
 
 // ../../dist/index.js
 var AWS_LIGHT_THEME = {
@@ -36604,67 +36336,6 @@ var AWS_LIGHT_THEME = {
   fontSize: 14,
   fontFamily: "Arial, sans-serif"
 };
-var AWS_DARK_THEME = {
-  background: "#1e1e1e",
-  nodeColors: {
-    Pass: {
-      fill: "#01579b",
-      stroke: "#4fc3f7"
-    },
-    Task: {
-      fill: "#e65100",
-      stroke: "#ffb74d"
-    },
-    Choice: {
-      fill: "#4a148c",
-      stroke: "#ce93d8"
-    },
-    Wait: {
-      fill: "#1b5e20",
-      stroke: "#81c784"
-    },
-    Succeed: {
-      fill: "#2e7d32",
-      stroke: "#a5d6a7"
-    },
-    Fail: {
-      fill: "#b71c1c",
-      stroke: "#ef5350"
-    },
-    Parallel: {
-      fill: "#880e4f",
-      stroke: "#f48fb1"
-    },
-    Map: {
-      fill: "#33691e",
-      stroke: "#aed581"
-    }
-  },
-  edgeColors: {
-    choice: "#ce93d8",
-    default: "#ba68c8",
-    error: "#ef5350",
-    normal: "#90a4ae",
-    retry: "#ffca28"
-  },
-  textColor: "#e0e0e0",
-  fontSize: 14,
-  fontFamily: "Arial, sans-serif"
-};
-function getTheme(theme, customColors) {
-  let baseTheme;
-  if (!theme || theme === "light") baseTheme = AWS_LIGHT_THEME;
-  else if (theme === "dark") baseTheme = AWS_DARK_THEME;
-  else baseTheme = theme;
-  if (customColors) return {
-    ...baseTheme,
-    nodeColors: {
-      ...baseTheme.nodeColors,
-      ...customColors
-    }
-  };
-  return baseTheme;
-}
 function getNodeStyle(params) {
   const { stateType, theme = AWS_LIGHT_THEME, customColors, stylePreset = "aws-standard" } = params;
   if (customColors?.[stateType]) return customColors[stateType];
@@ -37248,614 +36919,22 @@ function extractNestedEdges(params) {
     }
   }
 }
-var DagreLayout = class {
-  options;
-  constructor(options) {
-    this.options = options;
-  }
-  /**
-  * Calculate layout positions for nodes and edges
-  */
-  calculate(nodes, edges) {
-    const graph = new dagre_esm_default.graphlib.Graph();
-    graph.setGraph({
-      marginx: this.options.padding || 20,
-      marginy: this.options.padding || 20,
-      nodesep: this.options.nodeSeparation || 50,
-      rankdir: this.options.layout || "TB",
-      ranksep: this.options.rankSeparation || 50
-    });
-    graph.setDefaultEdgeLabel(() => ({}));
-    const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
-    const containerChildren = new Map(nodes.filter((node) => node.isContainer).map((node) => [node.id, new Set(node.children || [])]));
-    const entryChildrenByContainer = /* @__PURE__ */ new Map();
-    for (const edge of edges) if (edge.visualOnly && containerChildren.get(edge.from)?.has(edge.to)) {
-      const entries = entryChildrenByContainer.get(edge.from) ?? [];
-      entries.push(edge.to);
-      entryChildrenByContainer.set(edge.from, entries);
-    }
-    const layoutNodes = nodes.filter((node) => !node.isContainer);
-    layoutNodes.forEach((node) => {
-      const dimensions = this.getNodeDimensions(node);
-      graph.setNode(node.id, {
-        height: dimensions.height,
-        label: node.label,
-        shape: node.style?.shape || "rect",
-        width: dimensions.width
-      });
-    });
-    edges.filter((edge) => !edge.visualOnly).forEach((edge) => {
-      const toIsContainer = containerIds.has(edge.to);
-      const fromIsContainer = containerIds.has(edge.from);
-      if (toIsContainer && !fromIsContainer) {
-        for (const child of entryChildrenByContainer.get(edge.to) ?? []) graph.setEdge(edge.from, child, {
-          label: edge.label,
-          type: edge.type
-        });
-        return;
-      }
-      if (fromIsContainer || toIsContainer) return;
-      graph.setEdge(edge.from, edge.to, {
-        label: edge.label,
-        type: edge.type
-      });
-    });
-    dagre_esm_default.layout(graph);
-    const positionedNodes = layoutNodes.map((node) => {
-      const dagNode = graph.node(node.id);
-      return {
-        ...node,
-        height: dagNode.height,
-        width: dagNode.width,
-        x: dagNode.x,
-        y: dagNode.y
-      };
-    });
-    const positionedNodeIndex = new Map(positionedNodes.map((node) => [node.id, node]));
-    const containerNodes = this.calculateContainerBounds({
-      containers: nodes.filter((node) => node.isContainer),
-      positionedNodeIndex
-    });
-    const allPositionedNodes = [...positionedNodes, ...containerNodes];
-    const positionedNodesById = new Map(allPositionedNodes.map((node) => [node.id, node]));
-    const routedEdges = edges.map((edge) => {
-      const fromNode = positionedNodesById.get(edge.from);
-      const toNode = positionedNodesById.get(edge.to);
-      const touchesContainer = Boolean(fromNode?.isContainer || toNode?.isContainer);
-      if (edge.visualOnly || touchesContainer) return {
-        ...edge,
-        points: this.calculateVisualEdgePoints({
-          edge,
-          positionedNodesById
-        })
-      };
-      const dagEdge = graph.edge(edge.from, edge.to);
-      return {
-        ...edge,
-        points: dagEdge?.points ?? []
-      };
-    });
-    const graphDims = graph.graph();
-    return {
-      edges: routedEdges,
-      graph: {
-        height: this.options.height || (graphDims.height ?? 600),
-        width: this.options.width || (graphDims.width ?? 800)
-      },
-      nodes: allPositionedNodes
-    };
-  }
-  /**
-  * Calculate bounding boxes for container nodes based on their children positions
-  */
-  calculateContainerBounds(params) {
-    const { containers, positionedNodeIndex } = params;
-    return containers.map((container) => {
-      const children = [];
-      for (const childId of container.children || []) {
-        const child = positionedNodeIndex.get(childId);
-        if (child && child.type !== "BranchEnd" && child.type !== "IteratorEnd") children.push(child);
-      }
-      if (children.length === 0) return {
-        ...container,
-        height: 200,
-        width: 400,
-        x: 0,
-        y: 0
-      };
-      const padding = 40;
-      const headerHeight = 50;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let minY = Infinity;
-      let maxY = -Infinity;
-      for (const child of children) {
-        const halfWidth = (child.width || 0) / 2;
-        const halfHeight = (child.height || 0) / 2;
-        const childX = child.x || 0;
-        const childY = child.y || 0;
-        minX = Math.min(minX, childX - halfWidth);
-        maxX = Math.max(maxX, childX + halfWidth);
-        minY = Math.min(minY, childY - halfHeight);
-        maxY = Math.max(maxY, childY + halfHeight);
-      }
-      const width = maxX - minX + padding * 2;
-      const height = maxY - minY + padding * 2 + headerHeight;
-      const x2 = (minX + maxX) / 2;
-      const y3 = (minY + maxY) / 2 + headerHeight / 2;
-      return {
-        ...container,
-        height,
-        width,
-        x: x2,
-        y: y3
-      };
-    });
-  }
-  /**
-  * Calculate routing points for visual-only edges
-  */
-  calculateVisualEdgePoints(params) {
-    const { edge, positionedNodesById } = params;
-    const fromNode = positionedNodesById.get(edge.from);
-    const toNode = positionedNodesById.get(edge.to);
-    if (!fromNode || !toNode) return [];
-    if (edge.from === edge.to) {
-      const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
-      const centerY = fromNode.y || 0;
-      const loopReach = 40;
-      const loopSpread = 12;
-      return [
-        {
-          x: rightX,
-          y: centerY - loopSpread
-        },
-        {
-          x: rightX + loopReach,
-          y: centerY
-        },
-        {
-          x: rightX,
-          y: centerY + loopSpread
-        }
-      ];
-    }
-    if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
-      const headerHeight = 50;
-      const fromX2 = fromNode.x || 0;
-      const toX2 = toNode.x || 0;
-      const fromY2 = (fromNode.y || 0) - (fromNode.height || 0) / 2 + headerHeight;
-      const toY2 = (toNode.y || 0) - (toNode.height || 0) / 2;
-      return [{
-        x: fromX2,
-        y: fromY2
-      }, {
-        x: toX2,
-        y: toY2
-      }];
-    }
-    const fromX = fromNode.x || 0;
-    const fromY = (fromNode.y || 0) + (fromNode.height || 0) / 2;
-    const toX = toNode.x || 0;
-    const toY = (toNode.y || 0) - (toNode.height || 0) / 2;
-    return [{
-      x: fromX,
-      y: fromY
-    }, {
-      x: toX,
-      y: toY
-    }];
-  }
-  /**
-  * Get node dimensions based on shape and options
-  */
-  getNodeDimensions(node) {
-    const baseWidth = this.options.nodeWidth || 120;
-    const baseHeight = this.options.nodeHeight || 60;
-    switch (node.style?.shape) {
-      case "circle": {
-        if (node.type === "BranchEnd" || node.type === "IteratorEnd") return {
-          height: 16,
-          width: 16
-        };
-        const terminalDiameter = baseHeight * 1.4;
-        return {
-          height: terminalDiameter,
-          width: terminalDiameter
-        };
-      }
-      case "diamond":
-        return {
-          height: baseHeight * 1.2,
-          width: baseWidth * 1.2
-        };
-      default:
-        return {
-          height: baseHeight,
-          width: baseWidth
-        };
-    }
-  }
+var DIFF_CLASS_DEFS = {
+  added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
+  modified: "classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px",
+  removed: "classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px"
 };
-function escapeAttribute(value) {
-  return value.replace(/&/g, "&amp;").replace(/\u00A0/g, "&nbsp;").replace(/"/g, "&quot;");
-}
-function escapeText(value) {
-  return value.replace(/&/g, "&amp;").replace(/\u00A0/g, "&nbsp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-var SvgElement = class SvgElement2 {
-  tag;
-  attributes = [];
-  children = [];
-  textContent = null;
-  constructor(tag) {
-    this.tag = tag;
-  }
-  /**
-  * Set an attribute. Repeated calls preserve insertion order, matching the DOM,
-  * so a later call appends the attribute rather than reordering an existing one.
-  */
-  attr(name, value) {
-    this.attributes.push([name, String(value)]);
-    return this;
-  }
-  /** Append a child element of the given tag and return it for chaining. */
-  append(tag) {
-    const child = new SvgElement2(tag);
-    this.children.push(child);
-    return child;
-  }
-  /** Set the element's text content. */
-  text(value) {
-    this.textContent = String(value);
-    return this;
-  }
-  /** Serialize this element and its subtree to an SVG string. */
-  serialize() {
-    const attrs = this.attributes.map(([name, value]) => ` ${name}="${escapeAttribute(value)}"`).join("");
-    const inner = (this.textContent !== null ? escapeText(this.textContent) : "") + this.children.map((child) => child.serialize()).join("");
-    return `<${this.tag}${attrs}>${inner}</${this.tag}>`;
-  }
-};
-var SvgRenderer = class {
-  options;
-  theme;
-  pathGenerator;
-  constructor(options) {
-    this.options = options;
-    this.theme = getTheme(options.theme, options.customColors);
-    const generator = line_default().x((point2) => point2.x).y((point2) => point2.y);
-    if (options.edgeStyle === "curved") generator.curve(basis_default);
-    this.pathGenerator = generator;
-  }
-  /**
-  * Render the diagram to SVG string
-  */
-  render(layout) {
-    const bounds = this.calculateBounds(layout);
-    const svg = new SvgElement("svg").attr("width", bounds.width).attr("height", bounds.height).attr("xmlns", "http://www.w3.org/2000/svg").attr("viewBox", `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`);
-    if (this.theme.background && this.theme.background !== "transparent") svg.append("rect").attr("x", bounds.minX).attr("y", bounds.minY).attr("width", bounds.width).attr("height", bounds.height).attr("fill", this.theme.background);
-    const defs = svg.append("defs");
-    defs.append("marker").attr("id", "arrowhead-normal").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.normal);
-    defs.append("marker").attr("id", "arrowhead-error").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.error);
-    defs.append("marker").attr("id", "arrowhead-choice").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.choice);
-    defs.append("marker").attr("id", "arrowhead-default").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.default);
-    defs.append("marker").attr("id", "arrowhead-retry").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.resolveEdgeColor("retry"));
-    const edgesGroup = svg.append("g").attr("class", "edges");
-    const containersGroup = svg.append("g").attr("class", "containers");
-    const nodesGroup = svg.append("g").attr("class", "nodes");
-    const containerNodes = layout.nodes.filter((node) => node.isContainer);
-    const regularNodes = layout.nodes.filter((node) => !node.isContainer);
-    const nodesById = new Map(layout.nodes.map((node) => [node.id, node]));
-    layout.edges.forEach((edge) => {
-      const fromNode = nodesById.get(edge.from);
-      if (fromNode && (fromNode.type === "BranchEnd" || fromNode.type === "IteratorEnd")) return;
-      this.renderEdge({
-        edge,
-        group: edgesGroup
-      });
-    });
-    containerNodes.forEach((node) => {
-      this.renderContainer({
-        group: containersGroup,
-        node
-      });
-    });
-    regularNodes.forEach((node) => {
-      this.renderNode({
-        group: nodesGroup,
-        node
-      });
-    });
-    return {
-      height: bounds.height,
-      metadata: {
-        edgeCount: layout.edges.length,
-        nodeCount: layout.nodes.length
-      },
-      svg: svg.serialize(),
-      width: bounds.width
-    };
-  }
-  /**
-  * Calculate bounding box including all nodes and edge points
-  */
-  calculateBounds(layout) {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    layout.nodes.forEach((node) => {
-      const halfWidth = (node.width || 0) / 2;
-      const halfHeight = (node.height || 0) / 2;
-      minX = Math.min(minX, (node.x || 0) - halfWidth);
-      minY = Math.min(minY, (node.y || 0) - halfHeight);
-      maxX = Math.max(maxX, (node.x || 0) + halfWidth);
-      maxY = Math.max(maxY, (node.y || 0) + halfHeight);
-    });
-    layout.edges.forEach((edge) => {
-      if (edge.points) edge.points.forEach((point2) => {
-        if (!Number.isFinite(point2.x) || !Number.isFinite(point2.y)) return;
-        minX = Math.min(minX, point2.x);
-        minY = Math.min(minY, point2.y);
-        maxX = Math.max(maxX, point2.x);
-        maxY = Math.max(maxY, point2.y);
-      });
-      if (edge.label && edge.points && edge.points.length > 0) {
-        const midpoint = this.edgeLabelCenter(edge);
-        const labelDimensions = this.calculateLabelDimensions(edge.label);
-        const labelMinX = midpoint.x - labelDimensions.width / 2;
-        const labelMaxX = midpoint.x + labelDimensions.width / 2;
-        const labelMinY = midpoint.y - labelDimensions.height / 2;
-        const labelMaxY = midpoint.y + labelDimensions.height / 2;
-        minX = Math.min(minX, labelMinX);
-        minY = Math.min(minY, labelMinY);
-        maxX = Math.max(maxX, labelMaxX);
-        maxY = Math.max(maxY, labelMaxY);
-      }
-    });
-    const padding = this.options.padding || 20;
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-    return {
-      height: maxY - minY,
-      minX,
-      minY,
-      width: maxX - minX
-    };
-  }
-  /**
-  * Render a container node (Parallel/Map) with bounding box
-  */
-  renderContainer(params) {
-    const { group, node } = params;
-    const containerGroup = group.append("g").attr("class", `container container-${node.type}`).attr("transform", `translate(${node.x}, ${node.y})`);
-    const width = node.width || 480;
-    const height = node.height || 180;
-    const headerHeight = 50;
-    containerGroup.append("rect").attr("x", -width / 2).attr("y", -height / 2).attr("width", width).attr("height", height).attr("rx", 7).attr("fill", node.style?.fill || "#fce4ec").attr("stroke", node.style?.stroke || "#c2185b").attr("stroke-width", 2).attr("opacity", 0.5);
-    containerGroup.append("rect").attr("x", -width / 2).attr("y", -height / 2).attr("width", width).attr("height", headerHeight).attr("rx", 7).attr("fill", node.style?.fill || "#fce4ec").attr("stroke", node.style?.stroke || "#c2185b").attr("stroke-width", 2);
-    containerGroup.append("text").attr("x", 0).attr("y", -height / 2 + headerHeight / 2).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", this.theme.textColor).attr("font-size", this.theme.fontSize).attr("font-family", this.theme.fontFamily).text(node.label);
-    if (this.options.showStateTypes) containerGroup.append("text").attr("x", 0).attr("y", -height / 2 + headerHeight / 2 + 18).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", this.theme.textColor).attr("font-size", this.theme.fontSize - 2).attr("opacity", 0.7).text(`${node.type} state`);
-  }
-  /**
-  * Render a single node
-  */
-  renderNode(params) {
-    const { group, node } = params;
-    const nodeGroup = group.append("g").attr("class", `node node-${node.type}`).attr("transform", `translate(${node.x}, ${node.y})`);
-    const baseStyle = node.style;
-    if (!baseStyle) return;
-    const override = this.options.nodeOverrides?.[node.id];
-    const style = override ? {
-      ...baseStyle,
-      ...override
-    } : baseStyle;
-    switch (style.shape) {
-      case "circle":
-        this.renderCircle({
-          group: nodeGroup,
-          node,
-          style
-        });
-        break;
-      case "diamond":
-        this.renderDiamond({
-          group: nodeGroup,
-          node,
-          style
-        });
-        break;
-      default:
-        this.renderRect({
-          group: nodeGroup,
-          node,
-          style
-        });
-    }
-    if (node.iconUrl && this.options.showIcons) this.renderIcon({
-      group: nodeGroup,
-      iconPosition: this.options.iconPosition || "left",
-      iconSize: this.options.iconSize || 24,
-      iconUrl: node.iconUrl,
-      node
-    });
-    const labelX = this.calculateLabelX({
-      hasIcon: !!node.iconUrl && !!this.options.showIcons,
-      iconPosition: this.options.iconPosition || "left",
-      iconSize: this.options.iconSize || 24,
-      node
-    });
-    const labelY = this.calculateLabelY({
-      hasIcon: !!node.iconUrl && !!this.options.showIcons,
-      iconPosition: this.options.iconPosition || "left",
-      iconSize: this.options.iconSize || 24,
-      node
-    });
-    nodeGroup.append("text").attr("x", labelX).attr("y", labelY).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", this.theme.textColor).attr("font-size", this.theme.fontSize).attr("font-family", this.theme.fontFamily).text(node.label);
-    if (this.options.showStateTypes) nodeGroup.append("text").attr("x", labelX).attr("y", labelY + 20).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", this.theme.textColor).attr("font-size", this.theme.fontSize - 2).attr("opacity", 0.7).text(node.type);
-  }
-  /**
-  * Render rectangle node
-  */
-  renderRect(params) {
-    const { group, node, style } = params;
-    const width = node.width || 120;
-    const height = node.height || 60;
-    group.append("rect").attr("x", -width / 2).attr("y", -height / 2).attr("width", width).attr("height", height).attr("rx", 5).attr("fill", style.fill).attr("stroke", style.stroke).attr("stroke-width", style.strokeWidth);
-  }
-  /**
-  * Render circle node
-  */
-  renderCircle(params) {
-    const { group, node, style } = params;
-    const radius = (node.width || 60) / 2;
-    group.append("circle").attr("r", radius).attr("fill", style.fill).attr("stroke", style.stroke).attr("stroke-width", style.strokeWidth);
-  }
-  /**
-  * Render diamond node
-  */
-  renderDiamond(params) {
-    const { group, node, style } = params;
-    const halfWidth = (node.width || 120) / 2;
-    const halfHeight = (node.height || 60) / 2;
-    const path3 = `M 0,-${halfHeight} L ${halfWidth},0 L 0,${halfHeight} L -${halfWidth},0 Z`;
-    group.append("path").attr("d", path3).attr("fill", style.fill).attr("stroke", style.stroke).attr("stroke-width", style.strokeWidth);
-  }
-  /**
-  * Render AWS service icon within node
-  */
-  renderIcon(params) {
-    const { group, iconPosition, iconSize, iconUrl, node } = params;
-    const width = node.width || 120;
-    const height = node.height || 60;
-    const padding = 8;
-    let iconX = 0;
-    let iconY = 0;
-    switch (iconPosition) {
-      case "left":
-        iconX = -width / 2 + padding;
-        iconY = -iconSize / 2;
-        break;
-      case "top":
-        iconX = -iconSize / 2;
-        iconY = -height / 2 + padding;
-        break;
-      case "right":
-        iconX = width / 2 - iconSize - padding;
-        iconY = -iconSize / 2;
-        break;
-    }
-    group.append("image").attr("x", iconX).attr("y", iconY).attr("width", iconSize).attr("height", iconSize).attr("href", iconUrl).attr("preserveAspectRatio", "xMidYMid meet");
-  }
-  /**
-  * Calculate label X position based on icon presence and position
-  */
-  calculateLabelX(params) {
-    const { hasIcon, iconPosition, iconSize } = params;
-    if (!hasIcon) return 0;
-    const padding = 8;
-    const gap = 4;
-    switch (iconPosition) {
-      case "left":
-        return (padding + iconSize + gap) / 2;
-      case "right":
-        return -(padding + iconSize + gap) / 2;
-      default:
-        return 0;
-    }
-  }
-  /**
-  * Calculate label Y position based on icon presence and position
-  */
-  calculateLabelY(params) {
-    const { hasIcon, iconPosition, iconSize } = params;
-    if (!hasIcon || iconPosition !== "top") return 0;
-    return (8 + iconSize + 4) / 2;
-  }
-  /**
-  * Render an edge
-  */
-  renderEdge(params) {
-    const { edge, group } = params;
-    if (!edge.points || edge.points.length < 2) return;
-    const edgeColor = this.resolveEdgeColor(edge.type);
-    const markerType = edge.type || "normal";
-    const pathData = edge.from === edge.to ? this.buildSelfLoopPath(edge.points) : this.pathGenerator(edge.points) ?? "";
-    const pathElement = group.append("path").attr("d", pathData).attr("fill", "none").attr("stroke", edgeColor).attr("stroke-width", edge.type === "error" ? 2 : 1.5).attr("marker-end", `url(#arrowhead-${markerType})`);
-    if (edge.type === "error") pathElement.attr("stroke-dasharray", "5,5");
-    else if (edge.type === "default") pathElement.attr("stroke-dasharray", "8,4");
-    else if (edge.type === "retry") pathElement.attr("stroke-dasharray", "4,3");
-    if (edge.label) {
-      const midpoint = this.edgeLabelCenter(edge);
-      const labelDimensions = this.calculateLabelDimensions(edge.label);
-      group.append("rect").attr("x", midpoint.x - labelDimensions.width / 2).attr("y", midpoint.y - labelDimensions.height / 2).attr("width", labelDimensions.width).attr("height", labelDimensions.height).attr("fill", this.theme.background || "#ffffff").attr("stroke", edgeColor).attr("stroke-width", 0.5).attr("rx", 3);
-      group.append("text").attr("x", midpoint.x).attr("y", midpoint.y).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", edgeColor).attr("font-size", this.theme.fontSize - 2).text(edge.label);
-    }
-  }
-  /**
-  * Resolve the stroke colour for an edge type, falling back to the error colour
-  * (then normal) so themes that predate a given edge type still render.
-  */
-  resolveEdgeColor(type) {
-    const colors = this.theme.edgeColors;
-    return colors[type || "normal"] ?? colors.error ?? colors.normal;
-  }
-  /**
-  * Build an SVG path for a self-loop edge from its [entry, apex, exit] points,
-  * curving out to the apex and back so the arrow re-enters the node.
-  */
-  buildSelfLoopPath(points) {
-    const [entry, apex, exit] = points;
-    return `M ${entry.x},${entry.y} C ${apex.x},${apex.y} ${apex.x},${apex.y} ${exit.x},${exit.y}`;
-  }
-  /**
-  * Compute where an edge's label should be centered. Normal edges center on the
-  * path midpoint; self-loops (Retry) shift the label to the right of the loop apex
-  * so a long policy label never overlaps the node it belongs to.
-  */
-  edgeLabelCenter(edge) {
-    const points = edge.points ?? [];
-    const midpoint = this.getPathMidpoint(points);
-    if (edge.from === edge.to && edge.label) {
-      const gap = 8;
-      const labelWidth = this.calculateLabelDimensions(edge.label).width;
-      return {
-        x: midpoint.x + gap + labelWidth / 2,
-        y: midpoint.y
-      };
-    }
-    return midpoint;
-  }
-  /**
-  * Get the midpoint of a path for label placement
-  */
-  getPathMidpoint(points) {
-    return points[Math.floor(points.length / 2)];
-  }
-  /**
-  * Calculate dimensions for edge label
-  */
-  calculateLabelDimensions(label) {
-    const fontSize = this.theme.fontSize - 2;
-    const avgCharWidth = fontSize * 0.6;
-    const padding = 8;
-    const verticalPadding = 4;
-    const width = label.length * avgCharWidth + padding * 2;
-    return {
-      height: fontSize + verticalPadding * 2,
-      width
-    };
-  }
+var DIFF_CLASS_NAMES = {
+  added: "diffAdded",
+  modified: "diffModified",
+  removed: "diffRemoved"
 };
 var MermaidRenderer = class {
   /**
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
-    const { asl, edges, nodes } = params;
+    const { asl, edges, nodes, stateClasses } = params;
     const lines = [];
     lines.push("stateDiagram-v2");
     lines.push("");
@@ -37895,9 +36974,15 @@ var MermaidRenderer = class {
     lines.push("    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px");
     lines.push("    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px");
     lines.push("    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px");
+    if (stateClasses && Object.keys(stateClasses).length > 0) for (const status of Object.keys(DIFF_CLASS_DEFS)) lines.push(`    ${DIFF_CLASS_DEFS[status]}`);
     lines.push("");
     nodes.forEach((node) => {
       const id = this.sanitizeId(node.id);
+      const diffStatus = stateClasses?.[node.id];
+      if (diffStatus) {
+        lines.push(`    class ${id} ${DIFF_CLASS_NAMES[diffStatus]}`);
+        return;
+      }
       switch (node.type) {
         case "Succeed":
           lines.push(`    class ${id} successState`);
@@ -37974,23 +37059,6 @@ function mergeOptions(options = {}) {
     ...options
   };
 }
-var DIFF_COLORS = {
-  added: {
-    fill: "#c8e6c9",
-    stroke: "#2e7d32",
-    strokeWidth: 2
-  },
-  modified: {
-    fill: "#fff9c4",
-    stroke: "#f57f17",
-    strokeWidth: 2
-  },
-  removed: {
-    fill: "#ffcdd2",
-    stroke: "#c62828",
-    strokeWidth: 2
-  }
-};
 function parseAslArg(value) {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
@@ -38010,10 +37078,7 @@ function toOrphanState(state) {
   }
   return base;
 }
-function generateDiff(params) {
-  const { after: afterArg, before: beforeArg, ...options } = params;
-  const beforeAsl = parseAslArg(beforeArg);
-  const afterAsl = parseAslArg(afterArg);
+function computeStateDiff(beforeAsl, afterAsl) {
   const beforeNames = new Set(Object.keys(beforeAsl.States));
   const afterNames = new Set(Object.keys(afterAsl.States));
   const added = [];
@@ -38026,43 +37091,46 @@ function generateDiff(params) {
   for (const name of beforeNames) if (!afterNames.has(name)) removed.push(name);
   const mergedStates = { ...afterAsl.States };
   for (const name of removed) mergedStates[name] = toOrphanState(beforeAsl.States[name]);
-  const mergedAsl = {
-    ...afterAsl,
-    States: mergedStates
-  };
-  const nodeOverrides = {};
-  for (const name of added) nodeOverrides[name] = DIFF_COLORS.added;
-  for (const name of modified) nodeOverrides[name] = DIFF_COLORS.modified;
-  for (const name of removed) nodeOverrides[name] = DIFF_COLORS.removed;
-  const svgOutput = generateSvg({
-    aslDefinition: mergedAsl,
-    nodeOverrides,
-    ...options
-  });
   return {
-    height: svgOutput.height,
-    metadata: {
-      added,
-      edgeCount: svgOutput.metadata.edgeCount,
-      modified,
-      nodeCount: svgOutput.metadata.nodeCount,
-      removed,
-      unchanged
+    added,
+    mergedAsl: {
+      ...afterAsl,
+      States: mergedStates
     },
-    svg: svgOutput.svg,
-    width: svgOutput.width
+    modified,
+    removed,
+    unchanged
   };
 }
-function generateSvg(params) {
-  const { aslDefinition, ...options } = params;
-  const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
-  const mergedOptions = mergeOptions(options);
-  const { nodes, edges } = parseAsl({
-    definition: aslObj,
-    options: mergedOptions
+function buildStatusMap(diff) {
+  const statusByState = {};
+  for (const name of diff.added) statusByState[name] = "added";
+  for (const name of diff.modified) statusByState[name] = "modified";
+  for (const name of diff.removed) statusByState[name] = "removed";
+  return statusByState;
+}
+function generateMermaidDiff(params) {
+  const { after: afterArg, before: beforeArg } = params;
+  const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+  const { added, mergedAsl, modified, removed, unchanged } = diff;
+  const { edges, nodes } = parseAsl({ definition: mergedAsl });
+  const { code, metadata } = new MermaidRenderer().render({
+    asl: mergedAsl,
+    edges,
+    nodes,
+    stateClasses: buildStatusMap(diff)
   });
-  const positioned = new DagreLayout(mergedOptions).calculate(nodes, edges);
-  return new SvgRenderer(mergedOptions).render(positioned);
+  return {
+    code,
+    metadata: {
+      added,
+      edgeCount: metadata.edgeCount,
+      modified,
+      removed,
+      stateCount: metadata.stateCount,
+      unchanged
+    }
+  };
 }
 function generateMermaid(params) {
   const { aslDefinition, ...options } = params;
@@ -38092,9 +37160,9 @@ function parseAsl2(content) {
   }
 }
 async function getFileAtRef(params) {
-  const { octokit, owner, path: path3, ref, repo } = params;
+  const { octokit, owner, path: path2, ref, repo } = params;
   try {
-    const response = await octokit.rest.repos.getContent({ owner, path: path3, ref, repo });
+    const response = await octokit.rest.repos.getContent({ owner, path: path2, ref, repo });
     const data = response.data;
     if (Array.isArray(data) || data.type !== "file") return null;
     return Buffer.from(data.content, "base64").toString("utf-8");
@@ -38112,8 +37180,6 @@ async function run() {
   const token = core.getInput("github-token", { required: true });
   const aslGlobRaw = core.getInput("asl-glob") || "**/*.asl.json,**/*.asl";
   const commentTag = core.getInput("comment-tag") || "sfn-diagram-preview";
-  const themeInput = core.getInput("theme") || "light";
-  const theme = themeInput === "dark" ? "dark" : "light";
   const patterns = aslGlobRaw.split(",").map((pattern) => pattern.trim());
   const { context: context3 } = github_exports;
   if (!context3.payload.pull_request) {
@@ -38178,7 +37244,7 @@ ${code}
 </details>
 `;
     } else if (afterAsl && beforeAsl) {
-      const diff = generateDiff({ after: afterAsl, before: beforeAsl, theme });
+      const diff = generateMermaidDiff({ after: afterAsl, before: beforeAsl });
       const { added, modified, removed, unchanged } = diff.metadata;
       const rows = [];
       if (added.length > 0) rows.push(`| \u2795 Added | ${formatStateList(added)} |`);
@@ -38192,12 +37258,11 @@ ${code}
 ${rows.join("\n")}
 
 `;
-      const { code } = generateMermaid({ aslDefinition: afterAsl });
-      section += `<details>
-<summary>\u{1F4CA} Current diagram</summary>
+      section += `<details open>
+<summary>\u{1F4CA} Diagram (changes highlighted)</summary>
 
 \`\`\`mermaid
-${code}
+${diff.code}
 \`\`\`
 
 </details>

@@ -3,13 +3,30 @@ import type {
     GraphEdge,
     MermaidOutput,
     AslDefinition,
+    DiffStatus,
 } from '../types';
+
+/** Mermaid classDef declarations for diff highlighting, keyed by diff status. */
+const DIFF_CLASS_DEFS: Record<DiffStatus, string> = {
+    added: 'classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px',
+    modified: 'classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px',
+    removed: 'classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px',
+};
+
+/** Mermaid class name applied to a state for a given diff status. */
+const DIFF_CLASS_NAMES: Record<DiffStatus, string> = {
+    added: 'diffAdded',
+    modified: 'diffModified',
+    removed: 'diffRemoved',
+};
 
 // Internal parameter types for methods
 interface RenderMermaidParams {
     asl?: AslDefinition;
     edges: GraphEdge[];
     nodes: StateNode[];
+    /** Optional per-state diff status used to colour added/modified/removed states */
+    stateClasses?: Record<string, DiffStatus>;
 }
 
 interface FindStartStateParams {
@@ -26,7 +43,7 @@ export class MermaidRenderer {
      * Render nodes and edges to Mermaid syntax
      */
     render(params: RenderMermaidParams): MermaidOutput {
-        const { asl, edges, nodes } = params;
+        const { asl, edges, nodes, stateClasses } = params;
         const lines: string[] = [];
 
         // Header
@@ -97,10 +114,26 @@ export class MermaidRenderer {
             '    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px',
         );
 
-        // Apply classes to states
+        // Diff highlighting classes (only emitted when a diff map is supplied)
+        const hasDiff = stateClasses && Object.keys(stateClasses).length > 0;
+        if (hasDiff) {
+            for (const status of Object.keys(DIFF_CLASS_DEFS) as DiffStatus[]) {
+                lines.push(`    ${DIFF_CLASS_DEFS[status]}`);
+            }
+        }
+
+        // Apply classes to states. A diff status, when present, wins over the
+        // state-type colour so the change stands out.
         lines.push('');
         nodes.forEach((node) => {
             const id = this.sanitizeId(node.id);
+
+            const diffStatus = stateClasses?.[node.id];
+            if (diffStatus) {
+                lines.push(`    class ${id} ${DIFF_CLASS_NAMES[diffStatus]}`);
+                return;
+            }
+
             switch (node.type) {
                 case 'Succeed':
                     lines.push(`    class ${id} successState`);

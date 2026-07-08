@@ -1,8 +1,8 @@
 # Step Functions Diagram Preview — GitHub Action
 
-Post AWS Step Functions ASL diagram previews and diffs as a pull-request comment whenever ASL files change. On each PR the action finds changed ASL files, compares the base and head revisions, and posts (or updates) a single comment with per-file **added / modified / removed** state tables and collapsible Mermaid diagrams.
+Post AWS Step Functions ASL diagram previews and diffs as a pull-request comment whenever ASL files change. On each PR the action finds changed ASL files, compares the base and head revisions, and posts (or updates) a single comment with per-file **added / modified / removed** state tables and a Mermaid diagram in which changed states are colour-highlighted (added = green, modified = yellow, removed = red) — rendered natively by GitHub, no images to host.
 
-Built on [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram) (`generateDiff` + `generateMermaid`).
+Built on [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram) (`generateMermaidDiff` + `generateMermaid`).
 
 ## Usage
 
@@ -25,8 +25,6 @@ jobs:
         with:
           fetch-depth: 0   # needed to diff base vs head
       - uses: yusufaf/sfn-diagram/packages/github-action-sfn-diagram@main
-        with:
-          theme: light
 ```
 
 > The action needs `pull-requests: write` to post the comment, and the full history (`fetch-depth: 0`) to diff the base and head revisions. It only runs on `pull_request` events.
@@ -38,7 +36,6 @@ jobs:
 | `github-token` | `${{ github.token }}` | Token used to post/update the PR comment |
 | `asl-glob` | `**/*.asl.json,**/*.asl` | Comma-separated glob patterns matching ASL files |
 | `comment-tag` | `sfn-diagram-preview` | Marker used to find and update an existing comment |
-| `theme` | `light` | Theme hint (`light` or `dark`) for Mermaid color classes |
 
 ## Development
 

@@ -99,6 +99,9 @@ export interface StateNode {
 /** Edge types for state transitions */
 export type EdgeType = 'normal' | 'error' | 'choice' | 'default' | 'retry';
 
+/** Diff status of a state between two ASL definitions */
+export type DiffStatus = 'added' | 'modified' | 'removed';
+
 export interface GraphEdge {
     condition?: string;
     from: string;
@@ -392,6 +395,41 @@ export interface DiffOutput {
 }
 
 export interface GenerateDiffParams extends DiagramOptions {
+    /** The new (head) ASL definition */
+    after: AslDefinition | string;
+
+    /** The old (base) ASL definition */
+    before: AslDefinition | string;
+}
+
+/** Mermaid diff output with added/modified/removed states highlighted */
+export interface MermaidDiffOutput {
+    /** Mermaid state diagram syntax with diff highlighting classes */
+    code: string;
+
+    /** Change summary metadata */
+    metadata: {
+        /** State names present in `after` but not `before` */
+        added: string[];
+
+        /** Number of transitions in the diagram */
+        edgeCount: number;
+
+        /** State names modified between `before` and `after` */
+        modified: string[];
+
+        /** State names present in `before` but not `after` */
+        removed: string[];
+
+        /** Number of states in the diagram */
+        stateCount: number;
+
+        /** State names that did not change */
+        unchanged: string[];
+    };
+}
+
+export interface GenerateMermaidDiffParams {
     /** The new (head) ASL definition */
     after: AslDefinition | string;
 

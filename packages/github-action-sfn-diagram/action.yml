@@ -15,10 +15,6 @@ inputs:
     description: 'Unique tag used to find and update an existing PR comment'
     required: false
     default: 'sfn-diagram-preview'
-  theme:
-    description: 'Diagram theme used for Mermaid color hints: light or dark'
-    required: false
-    default: 'light'
 
 runs:
   using: 'node24'

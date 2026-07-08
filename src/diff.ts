@@ -1,5 +1,16 @@
-import type { AslDefinition, AslState, DiffOutput, GenerateDiffParams, NodeStyle } from './types';
+import type {
+    AslDefinition,
+    AslState,
+    DiffOutput,
+    DiffStatus,
+    GenerateDiffParams,
+    GenerateMermaidDiffParams,
+    MermaidDiffOutput,
+    NodeStyle,
+} from './types';
 import { generateSvg } from './index';
+import { parseAsl } from './AslParser';
+import { MermaidRenderer } from './renderers';
 
 /** Colors applied to diff nodes as nodeOverrides */
 const DIFF_COLORS: Record<'added' | 'modified' | 'removed', Partial<NodeStyle>> = {
@@ -43,24 +54,23 @@ function toOrphanState(state: AslState): AslState {
     return base;
 }
 
+/** Result of comparing the state sets of two ASL definitions. */
+interface StateDiff {
+    added: string[];
+    /** `after` states plus removed states re-added as orphan end-nodes */
+    mergedAsl: AslDefinition;
+    modified: string[];
+    removed: string[];
+    unchanged: string[];
+}
+
 /**
- * Generate an SVG diff diagram comparing two AWS Step Functions ASL definitions.
- *
- * Added states are highlighted green, modified states yellow, and removed states red.
- * Removed states are included as orphan end-nodes so they remain visible in the diagram.
- *
- * @param params.before - The original (base) ASL definition
- * @param params.after  - The new (head) ASL definition
- * @param params        - Any additional {@link DiagramOptions} passed through to generateSvg
- *
- * @returns {@link DiffOutput} with SVG markup and a per-category state summary
+ * Compare two ASL definitions at the state level, classifying every state as
+ * added / modified / removed / unchanged and producing a merged definition that
+ * keeps removed states visible as orphan end-nodes. Shared by the SVG and Mermaid
+ * diff renderers.
  */
-export function generateDiff(params: GenerateDiffParams): DiffOutput {
-    const { after: afterArg, before: beforeArg, ...options } = params;
-
-    const beforeAsl = parseAslArg(beforeArg);
-    const afterAsl = parseAslArg(afterArg);
-
+function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): StateDiff {
     const beforeNames = new Set(Object.keys(beforeAsl.States));
     const afterNames = new Set(Object.keys(afterAsl.States));
 
@@ -91,7 +101,35 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
         mergedStates[name] = toOrphanState(beforeAsl.States[name]);
     }
 
-    const mergedAsl: AslDefinition = { ...afterAsl, States: mergedStates };
+    return { added, mergedAsl: { ...afterAsl, States: mergedStates }, modified, removed, unchanged };
+}
+
+/** Map each changed state to its diff status for per-node highlighting. */
+function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
+    const statusByState: Record<string, DiffStatus> = {};
+    for (const name of diff.added) statusByState[name] = 'added';
+    for (const name of diff.modified) statusByState[name] = 'modified';
+    for (const name of diff.removed) statusByState[name] = 'removed';
+    return statusByState;
+}
+
+/**
+ * Generate an SVG diff diagram comparing two AWS Step Functions ASL definitions.
+ *
+ * Added states are highlighted green, modified states yellow, and removed states red.
+ * Removed states are included as orphan end-nodes so they remain visible in the diagram.
+ *
+ * @param params.before - The original (base) ASL definition
+ * @param params.after  - The new (head) ASL definition
+ * @param params        - Any additional {@link DiagramOptions} passed through to generateSvg
+ *
+ * @returns {@link DiffOutput} with SVG markup and a per-category state summary
+ */
+export function generateDiff(params: GenerateDiffParams): DiffOutput {
+    const { after: afterArg, before: beforeArg, ...options } = params;
+
+    const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+    const { added, mergedAsl, modified, removed, unchanged } = diff;
 
     // Build nodeOverrides for diff coloring
     const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
@@ -113,5 +151,46 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
         },
         svg: svgOutput.svg,
         width: svgOutput.width,
+    };
+}
+
+/**
+ * Generate Mermaid diff code comparing two AWS Step Functions ASL definitions.
+ *
+ * Produces `stateDiagram-v2` syntax where added states are green, modified states
+ * yellow, and removed states red (via Mermaid `classDef`s) — rendered natively by
+ * GitHub, GitLab, and docs tooling with no image hosting required. Removed states
+ * are kept as orphan nodes so they stay visible.
+ *
+ * @param params.before - The original (base) ASL definition
+ * @param params.after  - The new (head) ASL definition
+ *
+ * @returns {@link MermaidDiffOutput} with Mermaid code and a per-category state summary
+ */
+export function generateMermaidDiff(params: GenerateMermaidDiffParams): MermaidDiffOutput {
+    const { after: afterArg, before: beforeArg } = params;
+
+    const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+    const { added, mergedAsl, modified, removed, unchanged } = diff;
+
+    const { edges, nodes } = parseAsl({ definition: mergedAsl });
+    const renderer = new MermaidRenderer();
+    const { code, metadata } = renderer.render({
+        asl: mergedAsl,
+        edges,
+        nodes,
+        stateClasses: buildStatusMap(diff),
+    });
+
+    return {
+        code,
+        metadata: {
+            added,
+            edgeCount: metadata.edgeCount,
+            modified,
+            removed,
+            stateCount: metadata.stateCount,
+            unchanged,
+        },
     };
 }
