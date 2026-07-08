@@ -1,8 +1,8 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { minimatch } from 'minimatch'
-import { generateDiff, generateMermaid } from 'sfn-diagram'
-import type { AslDefinition, ThemeOption } from 'sfn-diagram'
+import { generateMermaid, generateMermaidDiff } from 'sfn-diagram'
+import type { AslDefinition } from 'sfn-diagram'
 
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 
@@ -57,8 +57,6 @@ export async function run(): Promise<void> {
     const token = core.getInput('github-token', { required: true })
     const aslGlobRaw = core.getInput('asl-glob') || '**/*.asl.json,**/*.asl'
     const commentTag = core.getInput('comment-tag') || 'sfn-diagram-preview'
-    const themeInput = core.getInput('theme') || 'light'
-    const theme = (themeInput === 'dark' ? 'dark' : 'light') as ThemeOption
 
     const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
     const { context } = github
@@ -131,7 +129,7 @@ export async function run(): Promise<void> {
             const { code } = generateMermaid({ aslDefinition: afterAsl })
             section += `<details>\n<summary>📊 Diagram</summary>\n\n\`\`\`mermaid\n${code}\n\`\`\`\n\n</details>\n`
         } else if (afterAsl && beforeAsl) {
-            const diff = generateDiff({ after: afterAsl, before: beforeAsl, theme })
+            const diff = generateMermaidDiff({ after: afterAsl, before: beforeAsl })
             const { added, modified, removed, unchanged } = diff.metadata
 
             const rows: string[] = []
@@ -144,8 +142,9 @@ export async function run(): Promise<void> {
 
             section += `| | States |\n|---|---|\n${rows.join('\n')}\n\n`
 
-            const { code } = generateMermaid({ aslDefinition: afterAsl })
-            section += `<details>\n<summary>📊 Current diagram</summary>\n\n\`\`\`mermaid\n${code}\n\`\`\`\n\n</details>\n`
+            // Diff diagram: added states are green, modified yellow, removed red.
+            // Expanded by default since the highlighted change is the point.
+            section += `<details open>\n<summary>📊 Diagram (changes highlighted)</summary>\n\n\`\`\`mermaid\n${diff.code}\n\`\`\`\n\n</details>\n`
         }
 
         sections.push(section)
