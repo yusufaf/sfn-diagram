@@ -51,6 +51,7 @@
     "lint:ox": "oxlint",
     "prepublishOnly": "pnpm run build && pnpm run validate",
     "release": "npm publish",
+    "sync:action": "bash scripts/sync-action-mirror.sh",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
