@@ -137,6 +137,23 @@ describe('SvgRenderer', () => {
 
             expect(result.svg).toContain('stroke-dasharray');
         });
+
+        it('should render a retry self-loop with marker and label', () => {
+            const asl = loadFixture('retry');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const result = renderer.render(positioned);
+
+            expect(result.svg).toContain('arrowhead-retry');
+            expect(result.svg).toContain('↻ States.Timeout (4x); States.ALL (2x)');
+            // Dimensions must stay finite even though the loop extends past the node
+            expect(Number.isFinite(result.width)).toBe(true);
+            expect(Number.isFinite(result.height)).toBe(true);
+            expect(result.svg).not.toContain('NaN');
+        });
     });
 
     describe('Theming', () => {

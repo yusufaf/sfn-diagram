@@ -26,6 +26,12 @@ Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon Sta
 npm install sfn-diagram
 ```
 
+The core package pulls in **no browser engine** — SVG and Mermaid generation stay lightweight. PNG export relies on a headless browser, provided by the optional peer dependency `node-html-to-image`. Install it only if you use `sfn-diagram/png`:
+
+```bash
+npm install sfn-diagram node-html-to-image
+```
+
 ## Runtime Support
 
 The core entry (`sfn-diagram`) builds SVG with a DOM-free string renderer, so
@@ -34,7 +40,9 @@ run in **Node, browsers, and edge runtimes** (Cloudflare Workers, Vercel Edge, D
 with no DOM polyfill.
 
 PNG export (`sfn-diagram/png`) and the CLI are **Node-only** — they rely on a headless
-browser (`node-html-to-image`) and Node's filesystem respectively.
+browser (`node-html-to-image`) and Node's filesystem respectively. Because `node-html-to-image`
+is an **optional peer dependency**, install it alongside `sfn-diagram` when you need PNG output;
+`exportPng` throws an actionable error if it is missing.
 
 ```ts
 // Works in Node, browser, and edge:
@@ -363,7 +371,12 @@ All AWS Step Functions state types are fully supported:
 | **Succeed** | Circle | Terminates successfully |
 | **Fail** | Circle | Terminates with failure |
 | **Parallel** | Rectangle | Executes branches in parallel |
-| **Map** | Rectangle | Iterates over array items |
+| **Map** | Rectangle | Iterates over array items (legacy `Iterator` and modern `ItemProcessor`/Distributed Map) |
+
+### Error handling & retries
+
+- **`Catch`** blocks render as dashed error edges to their handler states.
+- **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output.
 
 ## Examples
 

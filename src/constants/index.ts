@@ -1,1 +1,1 @@
-export { EDGE_LABELS, getChoiceLabel, getBranchLabel, getErrorLabel, getCatchLabel } from './labels';
+export { EDGE_LABELS, getChoiceLabel, getBranchLabel, getErrorLabel, getCatchLabel, getRetryLabel } from './labels';

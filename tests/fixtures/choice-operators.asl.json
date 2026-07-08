@@ -1,0 +1,35 @@
+{
+    "Comment": "Choice state exercising a range of comparison operators",
+    "StartAt": "Route",
+    "States": {
+        "Route": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.status",
+                    "StringEquals": "APPROVED",
+                    "Next": "Approved"
+                },
+                {
+                    "Variable": "$.score",
+                    "NumericGreaterThanEquals": 90,
+                    "Next": "Approved"
+                },
+                {
+                    "And": [
+                        { "Variable": "$.age", "NumericGreaterThanEquals": 18 },
+                        { "Variable": "$.country", "StringEquals": "US" }
+                    ],
+                    "Next": "Approved"
+                },
+                {
+                    "Not": { "Variable": "$.email", "IsPresent": true },
+                    "Next": "Rejected"
+                }
+            ],
+            "Default": "Rejected"
+        },
+        "Approved": { "Type": "Succeed" },
+        "Rejected": { "Type": "Fail" }
+    }
+}

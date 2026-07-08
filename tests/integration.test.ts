@@ -37,6 +37,21 @@ describe('Integration Tests', () => {
             expect(result.svg).toContain('<svg');
         });
 
+        it.each(['map', 'nested-map', 'distributed-map', 'parallel'])(
+            'produces finite dimensions for container state machine %s',
+            (fixture) => {
+                const result = generateSvg({ aslDefinition: loadFixture(fixture) });
+
+                // Regression: edges into Map/Parallel containers previously produced NaN
+                // routing points, poisoning the computed height.
+                expect(Number.isFinite(result.width)).toBe(true);
+                expect(Number.isFinite(result.height)).toBe(true);
+                expect(result.width).toBeGreaterThan(0);
+                expect(result.height).toBeGreaterThan(0);
+                expect(result.svg).not.toContain('NaN');
+            }
+        );
+
         it('should apply theme option', () => {
             const aslDefinition = loadFixture('simple');
             const lightResult = generateSvg({ aslDefinition, theme: 'light' });

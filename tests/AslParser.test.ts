@@ -40,6 +40,25 @@ describe('AslParser', () => {
             expect(processNode?.type).toBe('Task');
             expect(endNode?.type).toBe('Succeed');
         });
+
+        it('should honor the includeComments option for node labels', () => {
+            const asl: AslDefinition = {
+                StartAt: 'DoWork',
+                States: {
+                    DoWork: { Type: 'Pass', Comment: 'Human readable step', End: true },
+                },
+            };
+
+            // Default (includeComments defaults to true): Comment is used as the label
+            const withComments = parseAsl({ definition: asl });
+            expect(withComments.nodes.find((node) => node.id === 'DoWork')?.label).toBe(
+                'Human readable step'
+            );
+
+            // Disabled: the canonical state name is used instead
+            const withoutComments = parseAsl({ definition: asl, options: { includeComments: false } });
+            expect(withoutComments.nodes.find((node) => node.id === 'DoWork')?.label).toBe('DoWork');
+        });
     });
 
     describe('Choice states', () => {
@@ -58,8 +77,25 @@ describe('AslParser', () => {
             expect(choiceEdges).toHaveLength(3); // 2 choices + 1 default
 
             // Check edge labels
-            expect(choiceEdges.some((e) => e.label?.includes('>')));
-            expect(choiceEdges.some((e) => e.label?.includes('Default')));
+            expect(choiceEdges.some((e) => e.label?.includes('>'))).toBe(true);
+            expect(choiceEdges.some((e) => e.label?.includes('Default'))).toBe(true);
+        });
+
+        it('should build readable labels for a range of comparison operators', () => {
+            const asl = loadFixture('choice-operators');
+            const result = parseAsl({ definition: asl });
+
+            const labels = result.edges
+                .filter((edge) => edge.from === 'Route' && edge.type === 'choice')
+                .map((edge) => edge.label);
+
+            expect(labels).toContain('$.status == "APPROVED"');
+            expect(labels).toContain('$.score >= 90');
+            expect(labels).toContain('$.age >= 18 AND $.country == "US"');
+            expect(labels).toContain('NOT ($.email is present)');
+
+            // None should fall back to the generic placeholder
+            expect(labels).not.toContain('Condition');
         });
     });
 
@@ -166,6 +202,67 @@ describe('AslParser', () => {
                         edge.to === 'ProcessBatch__iterator__end'
                 )
             ).toBe(true);
+        });
+
+        it('should parse a Distributed Map using ItemProcessor like a legacy Iterator', () => {
+            const asl = loadFixture('distributed-map');
+            const result = parseAsl({ definition: asl });
+
+            const mapNode = result.nodes.find((node) => node.id === 'ProcessItems');
+            expect(mapNode?.type).toBe('Map');
+            expect(mapNode?.isContainer).toBe(true);
+
+            // ItemProcessor states are extracted as nodes and tracked as children
+            expect(result.nodes.find((node) => node.id === 'ProcessItem')?.type).toBe('Task');
+            expect(mapNode?.children).toContain('ProcessItem');
+            expect(mapNode?.children).toContain('ValidateItem');
+            expect(mapNode?.children).toContain('ProcessItems__iterator__end');
+
+            // Internal transition and end-marker wiring match the Iterator behaviour
+            expect(
+                result.edges.some(
+                    (edge) => edge.from === 'ProcessItem' && edge.to === 'ValidateItem'
+                )
+            ).toBe(true);
+            expect(
+                result.edges.some(
+                    (edge) =>
+                        edge.from === 'ProcessItems__iterator__end' && edge.to === 'Done'
+                )
+            ).toBe(true);
+        });
+    });
+
+    describe('Retry policies', () => {
+        it('should emit a self-loop retry edge summarizing all retriers', () => {
+            const asl = loadFixture('retry');
+            const result = parseAsl({ definition: asl });
+
+            const retryEdges = result.edges.filter((edge) => edge.type === 'retry');
+            expect(retryEdges).toHaveLength(1);
+
+            const retry = retryEdges[0];
+            expect(retry.from).toBe('Submit');
+            expect(retry.to).toBe('Submit'); // self-loop
+            expect(retry.visualOnly).toBe(true); // excluded from dagre ranking
+            expect(retry.label).toBe('↻ States.Timeout (4x); States.ALL (2x)');
+        });
+
+        it('should default MaxAttempts to 3 when omitted', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Work',
+                States: {
+                    Work: {
+                        Type: 'Task',
+                        Resource: 'arn:aws:lambda:::function:fn',
+                        Retry: [{ ErrorEquals: ['States.ALL'] }],
+                        End: true,
+                    },
+                },
+            };
+            const result = parseAsl({ definition: asl });
+            const retry = result.edges.find((edge) => edge.type === 'retry');
+            expect(retry?.label).toBe('↻ States.ALL (3x)');
         });
     });
 

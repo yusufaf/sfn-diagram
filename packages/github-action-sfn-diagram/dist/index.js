@@ -36597,7 +36597,8 @@ var AWS_LIGHT_THEME = {
     choice: "#7b1fa2",
     default: "#9c27b0",
     error: "#f44336",
-    normal: "#546e7a"
+    normal: "#546e7a",
+    retry: "#f9a825"
   },
   textColor: "#212121",
   fontSize: 14,
@@ -36643,7 +36644,8 @@ var AWS_DARK_THEME = {
     choice: "#ce93d8",
     default: "#ba68c8",
     error: "#ef5350",
-    normal: "#90a4ae"
+    normal: "#90a4ae",
+    retry: "#ffca28"
   },
   textColor: "#e0e0e0",
   fontSize: 14,
@@ -36712,8 +36714,16 @@ var EDGE_LABELS = {
   CONDITION_FALLBACK: "Condition",
   DEFAULT: "Default",
   ERROR_PREFIX: "Error:",
-  ITERATOR: "Iterator"
+  ITERATOR: "Iterator",
+  RETRY_SYMBOL: "\u21BB"
 };
+var DEFAULT_MAX_ATTEMPTS = 3;
+function getRetryLabel(retryBlocks) {
+  const parts = retryBlocks.map((retry) => {
+    return `${retry.ErrorEquals?.join(", ") || "All"} (${retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS}x)`;
+  });
+  return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join("; ")}`;
+}
 function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
   return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
@@ -36927,7 +36937,7 @@ function createStateNode(params) {
   const baseNode = {
     id: name,
     isContainer,
-    label: state.Comment || name,
+    label: options?.includeComments !== false ? state.Comment || name : name,
     style: getNodeStyle({
       stateType: state.Type,
       stylePreset
@@ -36983,6 +36993,13 @@ function extractEdgesFromState(params) {
       });
       break;
   }
+  if (state.Retry && state.Retry.length > 0) edges.push({
+    from: stateName,
+    label: getRetryLabel(state.Retry),
+    to: stateName,
+    type: "retry",
+    visualOnly: true
+  });
   if (state.Catch) state.Catch.forEach((catchBlock, index) => {
     if (catchBlock.Next) edges.push({
       from: stateName,
@@ -36997,13 +37014,70 @@ function extractEdgesFromState(params) {
   });
   return edges;
 }
+var COMPARISON_TYPE_PREFIXES = [
+  "String",
+  "Numeric",
+  "Boolean",
+  "Timestamp"
+];
+var COMPARISON_OPERATORS = [
+  ["LessThanEquals", "<="],
+  ["GreaterThanEquals", ">="],
+  ["LessThan", "<"],
+  ["GreaterThan", ">"],
+  ["Equals", "=="],
+  ["Matches", "matches"]
+];
+var IS_CHECKS = {
+  IsBoolean: "is boolean",
+  IsNull: "is null",
+  IsNumeric: "is numeric",
+  IsPresent: "is present",
+  IsString: "is string",
+  IsTimestamp: "is timestamp"
+};
+function cleanJsonataExpression(expression) {
+  return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
+}
+function formatComparison(variable, operatorKey, value) {
+  const isCheckPhrase = IS_CHECKS[operatorKey];
+  if (isCheckPhrase) return value === false ? `${variable} ${isCheckPhrase.replace("is ", "is not ")}` : `${variable} ${isCheckPhrase}`;
+  const isPath = operatorKey.endsWith("Path");
+  const baseKey = isPath ? operatorKey.slice(0, -4) : operatorKey;
+  const prefix = COMPARISON_TYPE_PREFIXES.find((typePrefix) => baseKey.startsWith(typePrefix));
+  if (!prefix) return null;
+  const suffix = baseKey.slice(prefix.length);
+  const operator = COMPARISON_OPERATORS.find(([name]) => name === suffix);
+  if (!operator) return null;
+  const formattedValue = !isPath && (prefix === "String" || prefix === "Timestamp") ? JSON.stringify(value) : String(value);
+  return `${variable} ${operator[1]} ${formattedValue}`;
+}
+function describeChoiceRule(rule) {
+  if (typeof rule.Condition === "string") return cleanJsonataExpression(rule.Condition);
+  if (Array.isArray(rule.And)) {
+    const parts = rule.And.map(describeChoiceRule).filter(Boolean);
+    return parts.length > 0 ? parts.join(" AND ") : "";
+  }
+  if (Array.isArray(rule.Or)) {
+    const parts = rule.Or.map(describeChoiceRule).filter(Boolean);
+    return parts.length > 0 ? parts.join(" OR ") : "";
+  }
+  if (rule.Not && typeof rule.Not === "object") {
+    const inner = describeChoiceRule(rule.Not);
+    return inner ? `NOT (${inner})` : "";
+  }
+  const variable = rule.Variable || "";
+  for (const [operatorKey, value] of Object.entries(rule)) {
+    const formatted = formatComparison(variable, operatorKey, value);
+    if (formatted) return formatted;
+  }
+  return "";
+}
 function extractConditionLabel(choice) {
-  const conditions = [];
-  const variable = choice.Variable || "";
-  if (choice.StringEquals !== void 0) conditions.push(`${variable} == "${choice.StringEquals}"`);
-  if (choice.NumericEquals !== void 0) conditions.push(`${variable} == ${choice.NumericEquals}`);
-  if (choice.BooleanEquals !== void 0) conditions.push(`${variable} == ${choice.BooleanEquals}`);
-  return conditions.join(" AND ") || EDGE_LABELS.CONDITION_FALLBACK;
+  return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
+}
+function getMapProcessor(state) {
+  return state.ItemProcessor ?? state.Iterator;
 }
 function extractStatesRecursively(params) {
   const { definition, nodeIndex, nodes, options } = params;
@@ -37046,8 +37120,9 @@ function extractStatesRecursively(params) {
         nodeIndex
       });
     });
-    if (state.Type === "Map" && state.Iterator) {
-      const iterator2 = state.Iterator;
+    const mapProcessor = state.Type === "Map" ? getMapProcessor(state) : void 0;
+    if (state.Type === "Map" && mapProcessor) {
+      const iterator2 = mapProcessor;
       extractStatesRecursively({
         definition: iterator2,
         nodeIndex,
@@ -37130,15 +37205,16 @@ function extractNestedEdges(params) {
         options
       });
     });
-    if (state.Type === "Map" && state.Iterator) {
+    const mapProcessor = state.Type === "Map" ? getMapProcessor(state) : void 0;
+    if (state.Type === "Map" && mapProcessor) {
       const endNodeId = `${stateName}__iterator__end`;
       edges.push({
         from: stateName,
-        to: state.Iterator.StartAt,
+        to: mapProcessor.StartAt,
         type: "normal",
         visualOnly: true
       });
-      for (const [iteratorStateName, iteratorState] of Object.entries(state.Iterator.States)) {
+      for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
         const iteratorEdges = extractEdgesFromState({
           catchLabelStyle: options?.catchLabelStyle,
           state: iteratorState,
@@ -37165,7 +37241,7 @@ function extractNestedEdges(params) {
         });
       }
       extractNestedEdges({
-        definition: state.Iterator,
+        definition: mapProcessor,
         edges,
         options
       });
@@ -37190,6 +37266,14 @@ var DagreLayout = class {
       ranksep: this.options.rankSeparation || 50
     });
     graph.setDefaultEdgeLabel(() => ({}));
+    const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
+    const containerChildren = new Map(nodes.filter((node) => node.isContainer).map((node) => [node.id, new Set(node.children || [])]));
+    const entryChildrenByContainer = /* @__PURE__ */ new Map();
+    for (const edge of edges) if (edge.visualOnly && containerChildren.get(edge.from)?.has(edge.to)) {
+      const entries = entryChildrenByContainer.get(edge.from) ?? [];
+      entries.push(edge.to);
+      entryChildrenByContainer.set(edge.from, entries);
+    }
     const layoutNodes = nodes.filter((node) => !node.isContainer);
     layoutNodes.forEach((node) => {
       const dimensions = this.getNodeDimensions(node);
@@ -37201,6 +37285,16 @@ var DagreLayout = class {
       });
     });
     edges.filter((edge) => !edge.visualOnly).forEach((edge) => {
+      const toIsContainer = containerIds.has(edge.to);
+      const fromIsContainer = containerIds.has(edge.from);
+      if (toIsContainer && !fromIsContainer) {
+        for (const child of entryChildrenByContainer.get(edge.to) ?? []) graph.setEdge(edge.from, child, {
+          label: edge.label,
+          type: edge.type
+        });
+        return;
+      }
+      if (fromIsContainer || toIsContainer) return;
       graph.setEdge(edge.from, edge.to, {
         label: edge.label,
         type: edge.type
@@ -37225,7 +37319,10 @@ var DagreLayout = class {
     const allPositionedNodes = [...positionedNodes, ...containerNodes];
     const positionedNodesById = new Map(allPositionedNodes.map((node) => [node.id, node]));
     const routedEdges = edges.map((edge) => {
-      if (edge.visualOnly) return {
+      const fromNode = positionedNodesById.get(edge.from);
+      const toNode = positionedNodesById.get(edge.to);
+      const touchesContainer = Boolean(fromNode?.isContainer || toNode?.isContainer);
+      if (edge.visualOnly || touchesContainer) return {
         ...edge,
         points: this.calculateVisualEdgePoints({
           edge,
@@ -37235,7 +37332,7 @@ var DagreLayout = class {
       const dagEdge = graph.edge(edge.from, edge.to);
       return {
         ...edge,
-        points: dagEdge.points
+        points: dagEdge?.points ?? []
       };
     });
     const graphDims = graph.graph();
@@ -37303,6 +37400,26 @@ var DagreLayout = class {
     const fromNode = positionedNodesById.get(edge.from);
     const toNode = positionedNodesById.get(edge.to);
     if (!fromNode || !toNode) return [];
+    if (edge.from === edge.to) {
+      const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
+      const centerY = fromNode.y || 0;
+      const loopReach = 40;
+      const loopSpread = 12;
+      return [
+        {
+          x: rightX,
+          y: centerY - loopSpread
+        },
+        {
+          x: rightX + loopReach,
+          y: centerY
+        },
+        {
+          x: rightX,
+          y: centerY + loopSpread
+        }
+      ];
+    }
     if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
       const headerHeight = 50;
       const fromX2 = fromNode.x || 0;
@@ -37423,6 +37540,7 @@ var SvgRenderer = class {
     defs.append("marker").attr("id", "arrowhead-error").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.error);
     defs.append("marker").attr("id", "arrowhead-choice").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.choice);
     defs.append("marker").attr("id", "arrowhead-default").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.theme.edgeColors.default);
+    defs.append("marker").attr("id", "arrowhead-retry").attr("markerWidth", 10).attr("markerHeight", 10).attr("refX", 9).attr("refY", 3).attr("orient", "auto").append("polygon").attr("points", "0 0, 10 3, 0 6").attr("fill", this.resolveEdgeColor("retry"));
     const edgesGroup = svg.append("g").attr("class", "edges");
     const containersGroup = svg.append("g").attr("class", "containers");
     const nodesGroup = svg.append("g").attr("class", "nodes");
@@ -37477,13 +37595,14 @@ var SvgRenderer = class {
     });
     layout.edges.forEach((edge) => {
       if (edge.points) edge.points.forEach((point2) => {
+        if (!Number.isFinite(point2.x) || !Number.isFinite(point2.y)) return;
         minX = Math.min(minX, point2.x);
         minY = Math.min(minY, point2.y);
         maxX = Math.max(maxX, point2.x);
         maxY = Math.max(maxY, point2.y);
       });
       if (edge.label && edge.points && edge.points.length > 0) {
-        const midpoint = this.getPathMidpoint(edge.points);
+        const midpoint = this.edgeLabelCenter(edge);
         const labelDimensions = this.calculateLabelDimensions(edge.label);
         const labelMinX = midpoint.x - labelDimensions.width / 2;
         const labelMaxX = midpoint.x + labelDimensions.width / 2;
@@ -37662,17 +37781,53 @@ var SvgRenderer = class {
   renderEdge(params) {
     const { edge, group } = params;
     if (!edge.points || edge.points.length < 2) return;
-    const edgeColor = this.theme.edgeColors[edge.type || "normal"];
+    const edgeColor = this.resolveEdgeColor(edge.type);
     const markerType = edge.type || "normal";
-    const pathElement = group.append("path").attr("d", this.pathGenerator(edge.points) ?? "").attr("fill", "none").attr("stroke", edgeColor).attr("stroke-width", edge.type === "error" ? 2 : 1.5).attr("marker-end", `url(#arrowhead-${markerType})`);
+    const pathData = edge.from === edge.to ? this.buildSelfLoopPath(edge.points) : this.pathGenerator(edge.points) ?? "";
+    const pathElement = group.append("path").attr("d", pathData).attr("fill", "none").attr("stroke", edgeColor).attr("stroke-width", edge.type === "error" ? 2 : 1.5).attr("marker-end", `url(#arrowhead-${markerType})`);
     if (edge.type === "error") pathElement.attr("stroke-dasharray", "5,5");
     else if (edge.type === "default") pathElement.attr("stroke-dasharray", "8,4");
+    else if (edge.type === "retry") pathElement.attr("stroke-dasharray", "4,3");
     if (edge.label) {
-      const midpoint = this.getPathMidpoint(edge.points);
+      const midpoint = this.edgeLabelCenter(edge);
       const labelDimensions = this.calculateLabelDimensions(edge.label);
       group.append("rect").attr("x", midpoint.x - labelDimensions.width / 2).attr("y", midpoint.y - labelDimensions.height / 2).attr("width", labelDimensions.width).attr("height", labelDimensions.height).attr("fill", this.theme.background || "#ffffff").attr("stroke", edgeColor).attr("stroke-width", 0.5).attr("rx", 3);
       group.append("text").attr("x", midpoint.x).attr("y", midpoint.y).attr("text-anchor", "middle").attr("dominant-baseline", "middle").attr("fill", edgeColor).attr("font-size", this.theme.fontSize - 2).text(edge.label);
     }
+  }
+  /**
+  * Resolve the stroke colour for an edge type, falling back to the error colour
+  * (then normal) so themes that predate a given edge type still render.
+  */
+  resolveEdgeColor(type) {
+    const colors = this.theme.edgeColors;
+    return colors[type || "normal"] ?? colors.error ?? colors.normal;
+  }
+  /**
+  * Build an SVG path for a self-loop edge from its [entry, apex, exit] points,
+  * curving out to the apex and back so the arrow re-enters the node.
+  */
+  buildSelfLoopPath(points) {
+    const [entry, apex, exit] = points;
+    return `M ${entry.x},${entry.y} C ${apex.x},${apex.y} ${apex.x},${apex.y} ${exit.x},${exit.y}`;
+  }
+  /**
+  * Compute where an edge's label should be centered. Normal edges center on the
+  * path midpoint; self-loops (Retry) shift the label to the right of the loop apex
+  * so a long policy label never overlaps the node it belongs to.
+  */
+  edgeLabelCenter(edge) {
+    const points = edge.points ?? [];
+    const midpoint = this.getPathMidpoint(points);
+    if (edge.from === edge.to && edge.label) {
+      const gap = 8;
+      const labelWidth = this.calculateLabelDimensions(edge.label).width;
+      return {
+        x: midpoint.x + gap + labelWidth / 2,
+        y: midpoint.y
+      };
+    }
+    return midpoint;
   }
   /**
   * Get the midpoint of a path for label placement
@@ -37839,6 +37994,11 @@ var DIFF_COLORS = {
 function parseAslArg(value) {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
 function toOrphanState(state) {
   const base = {
     End: true,
@@ -37861,7 +38021,7 @@ function generateDiff(params) {
   const removed = [];
   const unchanged = [];
   for (const name of afterNames) if (!beforeNames.has(name)) added.push(name);
-  else if (JSON.stringify(beforeAsl.States[name]) !== JSON.stringify(afterAsl.States[name])) modified.push(name);
+  else if (stableStringify(beforeAsl.States[name]) !== stableStringify(afterAsl.States[name])) modified.push(name);
   else unchanged.push(name);
   for (const name of beforeNames) if (!afterNames.has(name)) removed.push(name);
   const mergedStates = { ...afterAsl.States };

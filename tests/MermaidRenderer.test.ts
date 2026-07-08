@@ -77,6 +77,18 @@ describe('MermaidRenderer', () => {
 
             expect(result.code).toContain('Default');
         });
+
+        it('should render retry policies as a self-transition', () => {
+            const asl = loadFixture('retry');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).toContain(
+                'Submit --> Submit: ↻ States.Timeout (4x); States.ALL (2x)',
+            );
+        });
     });
 
     describe('CSS classes', () => {

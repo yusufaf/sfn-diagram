@@ -1,6 +1,6 @@
 import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
-import { EDGE_LABELS, getCatchLabel } from './constants';
+import { EDGE_LABELS, getCatchLabel, getRetryLabel } from './constants';
 import { detectService } from './services';
 
 /**
@@ -254,10 +254,16 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     const { name, options, state, stylePreset } = params;
     const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
 
+    // When includeComments is enabled (the default), a state's Comment is used as its
+    // display label; otherwise the state name is always used. Setting it to false lets
+    // callers keep the canonical state names in the diagram.
+    const includeComments = options?.includeComments !== false;
+    const label = includeComments ? state.Comment || name : name;
+
     const baseNode: StateNode = {
         id: name,
         isContainer,
-        label: state.Comment || name,
+        label,
         style: getNodeStyle({ stateType: state.Type, stylePreset }),
         type: state.Type,
     };
@@ -340,6 +346,18 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
             break;
     }
 
+    // Handle retry policies as a self-loop edge (Retry). Marked visual-only so it does
+    // not participate in dagre ranking; it is routed manually as a loop on the node.
+    if (state.Retry && state.Retry.length > 0) {
+        edges.push({
+            from: stateName,
+            label: getRetryLabel(state.Retry),
+            to: stateName,
+            type: 'retry',
+            visualOnly: true,
+        });
+    }
+
     // Handle error transitions (Catch)
     if (state.Catch) {
         state.Catch.forEach((catchBlock: CatchBlock, index: number) => {
@@ -361,22 +379,101 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[]
     return edges;
 }
 
+/** ASL data-type prefixes for typed comparison operators */
+const COMPARISON_TYPE_PREFIXES = ['String', 'Numeric', 'Boolean', 'Timestamp'] as const;
+
+/** Operator suffixes mapped to display symbols (longest suffixes first for matching) */
+const COMPARISON_OPERATORS: ReadonlyArray<readonly [string, string]> = [
+    ['LessThanEquals', '<='],
+    ['GreaterThanEquals', '>='],
+    ['LessThan', '<'],
+    ['GreaterThan', '>'],
+    ['Equals', '=='],
+    ['Matches', 'matches'],
+];
+
+/** Unary presence/type checks mapped to display phrases */
+const IS_CHECKS: Record<string, string> = {
+    IsBoolean: 'is boolean',
+    IsNull: 'is null',
+    IsNumeric: 'is numeric',
+    IsPresent: 'is present',
+    IsString: 'is string',
+    IsTimestamp: 'is timestamp',
+};
+
+/** Strip JSONata delimiters (`{% ... %}`) from a condition expression. */
+function cleanJsonataExpression(expression: string): string {
+    return expression.replace(/^\{%\s*/, '').replace(/\s*%\}$/, '').trim();
+}
+
+/**
+ * Format a single comparison operator on a Choice rule into a readable label,
+ * or return null if the key is not a recognized comparison operator.
+ */
+function formatComparison(variable: string, operatorKey: string, value: unknown): string | null {
+    const isCheckPhrase = IS_CHECKS[operatorKey];
+    if (isCheckPhrase) {
+        return value === false
+            ? `${variable} ${isCheckPhrase.replace('is ', 'is not ')}`
+            : `${variable} ${isCheckPhrase}`;
+    }
+
+    const isPath = operatorKey.endsWith('Path');
+    const baseKey = isPath ? operatorKey.slice(0, -'Path'.length) : operatorKey;
+
+    const prefix = COMPARISON_TYPE_PREFIXES.find((typePrefix) => baseKey.startsWith(typePrefix));
+    if (!prefix) {
+        return null;
+    }
+
+    const suffix = baseKey.slice(prefix.length);
+    const operator = COMPARISON_OPERATORS.find(([name]) => name === suffix);
+    if (!operator) {
+        return null;
+    }
+
+    const shouldQuote = !isPath && (prefix === 'String' || prefix === 'Timestamp');
+    const formattedValue = shouldQuote ? JSON.stringify(value) : String(value);
+    return `${variable} ${operator[1]} ${formattedValue}`;
+}
+
+/**
+ * Recursively describe a Choice rule, handling And/Or/Not combinators,
+ * the full set of typed comparison operators, presence checks, and JSONata conditions.
+ */
+function describeChoiceRule(rule: ChoiceRule): string {
+    // JSONata conditions carry the full expression in a `Condition` string
+    if (typeof rule.Condition === 'string') {
+        return cleanJsonataExpression(rule.Condition);
+    }
+
+    if (Array.isArray(rule.And)) {
+        const parts = rule.And.map(describeChoiceRule).filter(Boolean);
+        return parts.length > 0 ? parts.join(' AND ') : '';
+    }
+    if (Array.isArray(rule.Or)) {
+        const parts = rule.Or.map(describeChoiceRule).filter(Boolean);
+        return parts.length > 0 ? parts.join(' OR ') : '';
+    }
+    if (rule.Not && typeof rule.Not === 'object') {
+        const inner = describeChoiceRule(rule.Not as ChoiceRule);
+        return inner ? `NOT (${inner})` : '';
+    }
+
+    const variable = rule.Variable || '';
+    for (const [operatorKey, value] of Object.entries(rule)) {
+        const formatted = formatComparison(variable, operatorKey, value);
+        if (formatted) {
+            return formatted;
+        }
+    }
+
+    return '';
+}
+
 function extractConditionLabel(choice: ChoiceRule): string {
-    // Simplified condition extraction - you could make this more sophisticated
-    const conditions = [];
-    const variable = choice.Variable || '';
-
-    if (choice.StringEquals !== undefined) {
-        conditions.push(`${variable} == "${choice.StringEquals}"`);
-    }
-    if (choice.NumericEquals !== undefined) {
-        conditions.push(`${variable} == ${choice.NumericEquals}`);
-    }
-    if (choice.BooleanEquals !== undefined) {
-        conditions.push(`${variable} == ${choice.BooleanEquals}`);
-    }
-
-    return conditions.join(' AND ') || EDGE_LABELS.CONDITION_FALLBACK;
+    return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
 }
 
 /**
@@ -391,6 +488,15 @@ interface ExtractStatesRecursivelyParams {
     nodes: StateNode[];
     /** Diagram generation options */
     options?: DiagramOptions;
+}
+
+/**
+ * Resolve a Map state's inline processor definition.
+ * Prefers the modern `ItemProcessor` field (used by inline and Distributed Map)
+ * and falls back to the legacy `Iterator` field for pre-2022 definitions.
+ */
+function getMapProcessor(state: AslState): AslDefinition | undefined {
+    return state.ItemProcessor ?? state.Iterator;
 }
 
 /**
@@ -445,9 +551,10 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             });
         }
 
-        // Recursively extract states from Map iterator
-        if (state.Type === 'Map' && state.Iterator) {
-            const iterator = state.Iterator;
+        // Recursively extract states from Map processor (ItemProcessor or legacy Iterator)
+        const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
+        if (state.Type === 'Map' && mapProcessor) {
+            const iterator = mapProcessor;
             extractStatesRecursively({ definition: iterator, nodeIndex, nodes, options });
 
             // Track children for bounding box calculation
@@ -589,19 +696,20 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             });
         }
 
-        // Extract edges from Map iterator
-        if (state.Type === 'Map' && state.Iterator) {
+        // Extract edges from Map processor (ItemProcessor or legacy Iterator)
+        const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
+        if (state.Type === 'Map' && mapProcessor) {
             const endNodeId = `${stateName}__iterator__end`;
 
             // Add visual edge from container to iterator start
             edges.push({
                 from: stateName,
-                to: state.Iterator.StartAt,
+                to: mapProcessor.StartAt,
                 type: 'normal',
                 visualOnly: true,
             });
 
-            for (const [iteratorStateName, iteratorState] of Object.entries(state.Iterator.States)) {
+            for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
                 const iteratorEdges = extractEdgesFromState({
                     catchLabelStyle: options?.catchLabelStyle,
                     state: iteratorState,
@@ -637,7 +745,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             }
 
             // Recursively handle nested Parallel/Map states
-            extractNestedEdges({ definition: state.Iterator, edges, options });
+            extractNestedEdges({ definition: mapProcessor, edges, options });
         }
     }
 }

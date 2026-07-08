@@ -1,0 +1,37 @@
+{
+    "Comment": "Distributed Map using ItemProcessor (modern syntax)",
+    "StartAt": "SplitInput",
+    "States": {
+        "SplitInput": {
+            "Type": "Pass",
+            "Next": "ProcessItems"
+        },
+        "ProcessItems": {
+            "Type": "Map",
+            "ItemsPath": "$.items",
+            "MaxConcurrency": 100,
+            "ItemProcessor": {
+                "ProcessorConfig": {
+                    "Mode": "DISTRIBUTED",
+                    "ExecutionType": "STANDARD"
+                },
+                "StartAt": "ProcessItem",
+                "States": {
+                    "ProcessItem": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ProcessItem",
+                        "Next": "ValidateItem"
+                    },
+                    "ValidateItem": {
+                        "Type": "Pass",
+                        "End": true
+                    }
+                }
+            },
+            "Next": "Done"
+        },
+        "Done": {
+            "Type": "Succeed"
+        }
+    }
+}

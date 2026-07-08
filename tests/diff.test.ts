@@ -91,4 +91,19 @@ describe('generateDiff', () => {
         expect(result.width).toBeGreaterThan(0)
         expect(result.height).toBeGreaterThan(0)
     })
+
+    it('treats states with reordered properties as unchanged', () => {
+        // Same state, keys written in a different order — must not be flagged as modified
+        const reordered: AslDefinition = {
+            StartAt: 'StepA',
+            States: {
+                StepA: { Type: 'Pass', Next: 'StepB' },
+                StepB: { Resource: 'arn:aws:lambda:::function:fn', Type: 'Task', Next: 'StepC' },
+                StepC: { Type: 'Succeed', End: true },
+            },
+        }
+        const result = generateDiff({ after: reordered, before: baseAsl })
+        expect(result.metadata.modified).toHaveLength(0)
+        expect(result.metadata.unchanged).toHaveLength(3)
+    })
 })

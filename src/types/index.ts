@@ -45,7 +45,8 @@ export interface AslState {
     Default?: string; // Choice-specific
     End?: boolean;
     Error?: string; // Fail-specific
-    Iterator?: AslDefinition; // Parallel/Map-specific
+    ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
+    Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Next?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Output?: any; // AWS ASL spec - arbitrary JSON values
@@ -95,7 +96,7 @@ export interface StateNode {
 }
 
 /** Edge types for state transitions */
-export type EdgeType = 'normal' | 'error' | 'choice' | 'default';
+export type EdgeType = 'normal' | 'error' | 'choice' | 'default' | 'retry';
 
 export interface GraphEdge {
     condition?: string;
@@ -124,6 +125,8 @@ export interface CustomTheme {
         default: string;
         error: string;
         normal: string;
+        /** Colour for Retry self-loops; falls back to the error colour when omitted */
+        retry?: string;
     };
     fontFamily: string;
     fontSize: number;

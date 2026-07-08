@@ -1,5 +1,33 @@
-import nodeHtmlToImage from 'node-html-to-image';
 import type { DiagramOptions, PngOutput } from '../types';
+
+/** Minimal signature of the node-html-to-image default export used here. */
+type NodeHtmlToImage = (options: {
+    html: string;
+    puppeteerArgs?: { args?: string[] };
+    quality?: number;
+    transparent?: boolean;
+    type?: 'png' | 'jpeg';
+}) => Promise<Buffer | Buffer[]>;
+
+/**
+ * Lazily load node-html-to-image, which is an optional peer dependency.
+ * Keeping it out of the static import graph means SVG/Mermaid-only consumers
+ * never pull Puppeteer/Chromium, and the runtime error is actionable when it is
+ * genuinely missing.
+ */
+async function loadRenderer(): Promise<NodeHtmlToImage> {
+    try {
+        const mod = (await import('node-html-to-image')) as
+            | { default: NodeHtmlToImage }
+            | NodeHtmlToImage;
+        return (typeof mod === 'function' ? mod : mod.default) as NodeHtmlToImage;
+    } catch {
+        throw new Error(
+            "PNG export requires the optional peer dependency 'node-html-to-image'. " +
+                'Install it with: npm install node-html-to-image'
+        );
+    }
+}
 
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
@@ -42,6 +70,7 @@ export class PngExporter {
         const { svg, width, height } = params;
         const html = this.wrapSvgInHtml({ svg, width, height });
 
+        const nodeHtmlToImage = await loadRenderer();
         const buffer = await nodeHtmlToImage({
             html,
             puppeteerArgs: {
