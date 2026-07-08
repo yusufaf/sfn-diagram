@@ -14,7 +14,7 @@ interface GetFileAtRefParams {
     repo: string
 }
 
-function isAslDefinition(obj: unknown): obj is AslDefinition {
+export function isAslDefinition(obj: unknown): obj is AslDefinition {
     return (
         typeof obj === 'object' &&
         obj !== null &&
@@ -24,7 +24,7 @@ function isAslDefinition(obj: unknown): obj is AslDefinition {
     )
 }
 
-function parseAsl(content: string): AslDefinition | null {
+export function parseAsl(content: string): AslDefinition | null {
     try {
         const parsed: unknown = JSON.parse(content)
         return isAslDefinition(parsed) ? parsed : null
@@ -45,11 +45,11 @@ async function getFileAtRef(params: GetFileAtRefParams): Promise<string | null> 
     }
 }
 
-function matchesPatterns(filepath: string, patterns: string[]): boolean {
+export function matchesPatterns(filepath: string, patterns: string[]): boolean {
     return patterns.some((pattern) => minimatch(filepath, pattern, { matchBase: true }))
 }
 
-function formatStateList(names: string[]): string {
+export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ')
 }
 
