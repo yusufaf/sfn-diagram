@@ -8,11 +8,61 @@ Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon Sta
 
 **▶ [Try it in the live playground](https://yusufaf.github.io/sfn-diagram/)** — paste any ASL definition and preview the diagram instantly, no install required.
 
+## What it looks like
+
+Give it an ASL definition like this order-processing workflow ([`examples/order-processing.asl.json`](examples/order-processing.asl.json)):
+
+```jsonc
+{
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": { "Type": "Pass", "Next": "CheckStock" },
+    "CheckStock": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.inStock", "BooleanEquals": true, "Next": "ChargePayment" }],
+      "Default": "CancelOrder"
+    },
+    "ChargePayment": { "Type": "Task", "Resource": "arn:aws:lambda:...:charge-payment", "Next": "ShipOrder" },
+    "ShipOrder":     { "Type": "Task", "Resource": "arn:aws:lambda:...:ship-order", "Next": "OrderComplete" },
+    "CancelOrder":   { "Type": "Fail", "Error": "OutOfStock" },
+    "OrderComplete": { "Type": "Succeed" }
+  }
+}
+```
+
+…and `generateMermaid` turns it into a diagram GitHub renders inline (the same code also drives SVG and PNG output):
+
+```mermaid
+stateDiagram-v2
+
+    [*] --> ValidateOrder
+    ValidateOrder --> CheckStock
+    CheckStock --> ChargePayment: $.inStock == true
+    CheckStock --> CancelOrder: Default
+    ChargePayment --> ShipOrder
+    ShipOrder --> OrderComplete
+
+    CancelOrder --> [*]
+    OrderComplete --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+
+    class CheckStock choiceState
+    class ChargePayment taskState
+    class ShipOrder taskState
+    class CancelOrder failState
+    class OrderComplete successState
+```
+
 ## Features
 
 - **Multiple Output Formats**: SVG (D3.js), Mermaid syntax, and PNG
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
-- **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages
+- **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages, plus `Catch`/`Retry` rendering
+- **Visual Diffing**: Compare two definitions and highlight added / modified / removed states — drives the PR-preview GitHub Action
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
@@ -222,6 +272,49 @@ const { svg } = generateFromAwsResponse({
 });
 ```
 
+### generateMermaidDiff(params) / generateDiff(params)
+
+Compare two ASL definitions and highlight what changed. `generateMermaidDiff` returns Mermaid code (renders inline on GitHub); `generateDiff` returns the same comparison as an SVG. Added states are green, modified yellow, removed red — and both return a `metadata` change summary (`added`, `modified`, `removed`, `unchanged`). The comparison is order-insensitive, so reordering a state's properties is **not** flagged as a change.
+
+```typescript
+import { generateMermaidDiff } from 'sfn-diagram';
+
+const { code, metadata } = generateMermaidDiff({
+  before: baseAsl, // old (base) ASL definition, object or JSON string
+  after: headAsl,  // new (head) ASL definition, object or JSON string
+});
+
+metadata; // { added: [...], modified: [...], removed: [...], unchanged: [...], stateCount, edgeCount }
+```
+
+For the order-processing workflow above, adding a `FraudCheck` step, bumping `ChargePayment`'s resource, and dropping `CancelOrder` renders like this:
+
+```mermaid
+stateDiagram-v2
+
+    [*] --> ValidateOrder
+    ValidateOrder --> CheckStock
+    CheckStock --> ChargePayment: $.inStock == true
+    CheckStock --> OrderComplete: Default
+    ChargePayment --> FraudCheck
+    FraudCheck --> ShipOrder
+    ShipOrder --> OrderComplete
+
+    OrderComplete --> [*]
+    CancelOrder --> [*]
+
+    classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px
+
+    class FraudCheck diffAdded
+    class CheckStock diffModified
+    class ChargePayment diffModified
+    class CancelOrder diffRemoved
+```
+
+> This is exactly what the [GitHub Action](#github-action) posts on pull requests that touch ASL files.
+
 ### SfnDiagramGenerator Class
 
 Reusable generator that holds diagram options once and applies them to every call. Configure options via the constructor or the fluent `setOptions()` method; pass the `aslDefinition` per generation.
@@ -259,23 +352,34 @@ const mermaidResult = generator.generateMermaid({ aslDefinition: asl });
 - `'dark'` - AWS dark theme
 
 **Custom theme:**
+
+A `CustomTheme` sets the background, per-state-type fill/stroke colours, edge colours, and typography. Pass it anywhere a theme is accepted.
+
 ```typescript
-const customTheme = {
-  backgroundColor: '#ffffff',
-  nodeStroke: '#232f3e',
-  nodeStrokeWidth: 2,
-  fontSize: 14,
+import type { CustomTheme } from 'sfn-diagram';
+
+const customTheme: CustomTheme = {
+  background: '#ffffff',
+  edgeColors: {
+    choice: '#7b1fa2',
+    default: '#607d8b',
+    error: '#f44336',
+    normal: '#232f3e',
+    retry: '#f9a825', // optional; falls back to `error` when omitted
+  },
   fontFamily: 'Arial, sans-serif',
-  stateColors: {
-    Pass: '#4CAF50',
-    Task: '#2196F3',
-    Choice: '#FF9800',
-    Wait: '#9C27B0',
-    Succeed: '#4CAF50',
-    Fail: '#F44336',
-    Parallel: '#00BCD4',
-    Map: '#3F51B5'
-  }
+  fontSize: 14,
+  nodeColors: {
+    Pass:     { fill: '#e8f5e9', stroke: '#4caf50' },
+    Task:     { fill: '#e3f2fd', stroke: '#2196f3' },
+    Choice:   { fill: '#fff3e0', stroke: '#ff9800' },
+    Wait:     { fill: '#f3e5f5', stroke: '#9c27b0' },
+    Succeed:  { fill: '#e8f5e9', stroke: '#4caf50' },
+    Fail:     { fill: '#ffebee', stroke: '#f44336' },
+    Parallel: { fill: '#e0f7fa', stroke: '#00bcd4' },
+    Map:      { fill: '#e8eaf6', stroke: '#3f51b5' },
+  },
+  textColor: '#232f3e',
 };
 
 generateSvg({ aslDefinition: asl, theme: customTheme });
@@ -547,16 +651,36 @@ code --install-extension vscode-sfn-diagram-*.vsix
 
 **Usage:** Open any `.json` or `.asl` file and run **Step Functions: Preview Step Functions Diagram** from the command palette, or click the diagram icon in the editor title bar.
 
+### React Component
+
+Render diagrams in a React app with the [`sfn-diagram-react`](packages/sfn-diagram-react/) package. It wraps `generateSvg`/`generateMermaid` in a component with the same platform-agnostic core, so it works in any React renderer.
+
+```tsx
+import { SfnDiagram } from 'sfn-diagram-react';
+
+<SfnDiagram
+  definition={asl}     // ASL object or JSON string
+  format="svg"         // 'svg' (default) | 'mermaid'
+  theme="dark"         // 'light' | 'dark' | CustomTheme
+  layout="LR"          // 'TB' | 'LR' | 'RL' | 'BT'
+  onError={(err) => console.error(err)}
+/>
+```
+
 ### GitHub Action
 
-Post SVG diff previews and Mermaid diagrams as PR comments whenever ASL files change. Located in [`packages/github-action-sfn-diagram/`](packages/github-action-sfn-diagram/).
+Comment a Step Functions diagram on every pull request that touches an ASL file. For **changed** files the comment highlights the diff — added states green, modified yellow, removed red — plus a summary table of what changed; **new** and **deleted** files get a plain diagram. Everything is Mermaid, so it renders inline in the PR with no image hosting. The comment is upserted (updated in place) on each push. Located in [`packages/github-action-sfn-diagram/`](packages/github-action-sfn-diagram/).
 
 ```yaml
 # .github/workflows/sfn-preview.yml
 name: Step Functions Preview
 on:
   pull_request:
-    paths: ['**/*.asl.json']
+    paths: ['**/*.asl.json', '**/*.asl']
+
+permissions:
+  contents: read
+  pull-requests: write   # required to post the comment
 
 jobs:
   preview:
@@ -567,7 +691,10 @@ jobs:
       - uses: ./packages/github-action-sfn-diagram
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          # asl-glob: '**/*.asl.json,**/*.asl'   # optional, this is the default
 ```
+
+Inputs: `github-token` (required), `asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `comment-tag` (marker used to find/update the comment, default `sfn-diagram-preview`).
 
 ## Contributing
 
