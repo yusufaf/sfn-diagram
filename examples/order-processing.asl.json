@@ -15,22 +15,22 @@
                     "Next": "ChargePayment"
                 }
             ],
-            "Default": "CancelOrder"
+            "Default": "OrderComplete"
         },
         "ChargePayment": {
             "Type": "Task",
-            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:charge-payment-v1",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:charge-payment-v2",
+            "Next": "FraudCheck"
+        },
+        "FraudCheck": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:fraud-check",
             "Next": "ShipOrder"
         },
         "ShipOrder": {
             "Type": "Task",
             "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ship-order",
             "Next": "OrderComplete"
-        },
-        "CancelOrder": {
-            "Type": "Fail",
-            "Error": "OutOfStock",
-            "Cause": "Requested item is not in stock"
         },
         "OrderComplete": {
             "Type": "Succeed"
