@@ -24,8 +24,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # needed to diff base vs head
-      - uses: yusufaf/sfn-diagram/packages/github-action-sfn-diagram@main
+      - uses: yusufaf/sfn-diagram-action@v1
 ```
+
+> Consume the action from its standalone, Marketplace-published repo
+> [`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action),
+> pinned to the moving major tag `@v1` (or an exact release like `@v1.0.0`). That
+> repo is generated from this package — see [Releasing](#releasing) below.
 
 > The action needs `pull-requests: write` to post the comment, and the full history (`fetch-depth: 0`) to diff the base and head revisions. It only runs on `pull_request` events.
 
@@ -46,3 +51,27 @@ pnpm --filter github-action-sfn-diagram build
 ```
 
 CI verifies the committed bundle is up to date, so a stale `dist/` will fail the build.
+
+## Releasing
+
+The action is published to the GitHub Marketplace from a **standalone mirror repo**,
+[`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action) — GitHub
+only lists an action when its `action.yml` is at the repository root, which this
+monorepo subdirectory cannot satisfy. This package is the single source of truth;
+the mirror is fully generated from it (`action.yml`, `dist/`, `LICENSE`, and
+`README.marketplace.md` → the mirror's `README.md`).
+
+To cut a release:
+
+1. Bump `version` in this package's `package.json` (e.g. `1.0.0` → `1.1.0`).
+2. From the repo root, run the sync script (needs `gh` with push access to the mirror):
+   ```bash
+   pnpm sync:action
+   ```
+   It rebuilds the bundle, pushes the generated payload to the mirror's `main`,
+   creates the immutable `vX.Y.Z` tag, and moves the major `vX` tag that users pin to.
+3. Create a GitHub Release for the new `vX.Y.Z` tag in the mirror repo. **First release only:**
+   tick *"Publish this Action to the GitHub Marketplace"* (requires accepting the
+   Marketplace Developer Agreement once).
+
+Users always pin `@v1`, so moving that major tag ships the update without them changing anything.
