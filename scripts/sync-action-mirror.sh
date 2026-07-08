@@ -42,6 +42,13 @@ git -C "$WORK" fetch --tags --force --quiet origin
 
 # 3. Copy the generated payload (action.yml, bundle, README, LICENSE).
 cp "$PKG/action.yml" "$WORK/action.yml"
+# The mirror is the Marketplace-published copy and must own the public action
+# name. The monorepo's action.yml uses a distinct name (and a source-only note)
+# to avoid a Marketplace name collision that would block the mirror from being
+# listed. Strip the source-only comments and rewrite the name to the canonical
+# public name for the generated mirror copy.
+sed -i '/^#/d' "$WORK/action.yml"
+sed -i "s/^name:.*/name: 'Step Functions Diagram Preview'/" "$WORK/action.yml"
 mkdir -p "$WORK/dist"
 cp "$PKG/dist/index.js" "$WORK/dist/index.js"
 cp "$PKG/README.marketplace.md" "$WORK/README.md"
