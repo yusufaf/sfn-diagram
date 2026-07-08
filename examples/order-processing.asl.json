@@ -1,0 +1,39 @@
+{
+    "Comment": "Order processing workflow used to demo the sfn-diagram PR preview action",
+    "StartAt": "ValidateOrder",
+    "States": {
+        "ValidateOrder": {
+            "Type": "Pass",
+            "Next": "CheckStock"
+        },
+        "CheckStock": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.inStock",
+                    "BooleanEquals": true,
+                    "Next": "ChargePayment"
+                }
+            ],
+            "Default": "CancelOrder"
+        },
+        "ChargePayment": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:charge-payment-v1",
+            "Next": "ShipOrder"
+        },
+        "ShipOrder": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ship-order",
+            "Next": "OrderComplete"
+        },
+        "CancelOrder": {
+            "Type": "Fail",
+            "Error": "OutOfStock",
+            "Cause": "Requested item is not in stock"
+        },
+        "OrderComplete": {
+            "Type": "Succeed"
+        }
+    }
+}
