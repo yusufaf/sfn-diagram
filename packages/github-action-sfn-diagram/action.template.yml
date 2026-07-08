@@ -1,11 +1,12 @@
-# NOTE: This name intentionally differs from the published Marketplace name.
+# Source template for the Marketplace action — deliberately NOT named action.yml.
 # The action is published from the standalone mirror repo
-# (yusufaf/sfn-diagram-action), whose root action.yml owns the public name
-# "Step Functions Diagram Preview". Two repos cannot share a Marketplace action
-# name, so this source copy uses a distinct name to avoid a collision that would
-# block the mirror from being listed; scripts/sync-action-mirror.sh rewrites it
-# to the canonical public name when generating the mirror.
-name: 'Step Functions Diagram Preview (source)'
+# (yusufaf/sfn-diagram-action); GitHub can only list an action whose action.yml
+# is at a repo root, so the monorepo cannot publish this subdirectory copy. Worse,
+# a real action.yml here makes GitHub treat the monorepo as the canonical action
+# and suppress the mirror. Keeping this as *.template.yml means GitHub never
+# detects the monorepo as an action; scripts/sync-action-mirror.sh renders this
+# file to the mirror's root action.yml on release.
+name: 'Step Functions Diagram Preview'
 description: 'Preview and diff AWS Step Functions ASL diagrams on pull requests'
 author: 'sfn-diagram'
 
