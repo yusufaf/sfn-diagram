@@ -1,4 +1,11 @@
-name: 'Step Functions Diagram Preview'
+# NOTE: This name intentionally differs from the published Marketplace name.
+# The action is published from the standalone mirror repo
+# (yusufaf/sfn-diagram-action), whose root action.yml owns the public name
+# "Step Functions Diagram Preview". Two repos cannot share a Marketplace action
+# name, so this source copy uses a distinct name to avoid a collision that would
+# block the mirror from being listed; scripts/sync-action-mirror.sh rewrites it
+# to the canonical public name when generating the mirror.
+name: 'Step Functions Diagram Preview (source)'
 description: 'Preview and diff AWS Step Functions ASL diagrams on pull requests'
 author: 'sfn-diagram'
 
