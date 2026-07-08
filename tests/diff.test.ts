@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateDiff } from '../src/index'
+import { generateDiff, generateMermaid, generateMermaidDiff } from '../src/index'
 import type { AslDefinition } from '../src/types'
 
 const baseAsl: AslDefinition = {
@@ -105,5 +105,36 @@ describe('generateDiff', () => {
         const result = generateDiff({ after: reordered, before: baseAsl })
         expect(result.metadata.modified).toHaveLength(0)
         expect(result.metadata.unchanged).toHaveLength(3)
+    })
+})
+
+describe('generateMermaidDiff', () => {
+    it('returns stateDiagram code with the same change summary as generateDiff', () => {
+        const result = generateMermaidDiff({ after: modifiedAsl, before: baseAsl })
+        expect(result.code).toContain('stateDiagram-v2')
+        expect(result.metadata.added).toEqual(['NewStep'])
+        expect(result.metadata.modified).toContain('StepB')
+        expect(result.metadata.removed).toEqual(['StepC'])
+        expect(result.metadata.unchanged).toContain('StepA')
+    })
+
+    it('colours added, modified, and removed states via diff classes', () => {
+        const result = generateMermaidDiff({ after: modifiedAsl, before: baseAsl })
+
+        expect(result.code).toContain('classDef diffAdded')
+        expect(result.code).toContain('classDef diffModified')
+        expect(result.code).toContain('classDef diffRemoved')
+
+        expect(result.code).toContain('class NewStep diffAdded')
+        expect(result.code).toContain('class StepB diffModified')
+        // Removed states are kept as orphan nodes so they stay visible
+        expect(result.code).toContain('class StepC diffRemoved')
+    })
+
+    it('does not affect plain generateMermaid output (no diff classes)', () => {
+        const plain = generateMermaid({ aslDefinition: baseAsl })
+        expect(plain.code).not.toContain('diffAdded')
+        expect(plain.code).not.toContain('diffModified')
+        expect(plain.code).not.toContain('diffRemoved')
     })
 })
