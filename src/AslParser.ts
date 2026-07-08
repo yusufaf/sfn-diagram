@@ -443,9 +443,12 @@ function formatComparison(variable: string, operatorKey: string, value: unknown)
  * the full set of typed comparison operators, presence checks, and JSONata conditions.
  */
 function describeChoiceRule(rule: ChoiceRule): string {
-    // JSONata conditions carry the full expression in a `Condition` string
-    if (typeof rule.Condition === 'string') {
-        return cleanJsonataExpression(rule.Condition);
+    // JSONata conditions carry the full expression in a `Condition` field. It is
+    // usually a `{% ... %}` string, but may also be a boolean/number catch-all.
+    if (rule.Condition !== undefined) {
+        return typeof rule.Condition === 'string'
+            ? cleanJsonataExpression(rule.Condition)
+            : String(rule.Condition);
     }
 
     if (Array.isArray(rule.And)) {

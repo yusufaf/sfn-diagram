@@ -97,6 +97,22 @@ describe('AslParser', () => {
             // None should fall back to the generic placeholder
             expect(labels).not.toContain('Condition');
         });
+
+        it('should label JSONata Choice conditions from the Condition field', () => {
+            const asl = loadFixture('jsonata');
+            const result = parseAsl({ definition: asl });
+
+            const labels = result.edges
+                .filter((edge) => edge.from === 'Classify' && edge.type === 'choice')
+                .map((edge) => edge.label);
+
+            // JSONata delimiters are stripped and the expression is used as-is
+            expect(labels).toContain('$states.input.score >= 0.8');
+            expect(labels).toContain('$states.input.score < 0.5');
+            // A boolean catch-all Condition renders instead of the generic placeholder
+            expect(labels).toContain('true');
+            expect(labels).not.toContain('Condition');
+        });
     });
 
     describe('Parallel states', () => {
