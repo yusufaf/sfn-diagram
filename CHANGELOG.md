@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.5.1...sfn-diagram-v0.6.0) (2026-07-08)
+
+
+### Features
+
+* **parser:** expand Choice condition operator labels ([913a0dc](https://github.com/yusufaf/sfn-diagram/commit/913a0dcfe60d74dbdbcfe17bdb038e9cf77a4e56))
+* **parser:** support JSONata query language ([33a7642](https://github.com/yusufaf/sfn-diagram/commit/33a764249d23c813f41988b0f456ee0ca08ff5ba))
+* **parser:** support JSONata query language ([73a10d2](https://github.com/yusufaf/sfn-diagram/commit/73a10d252aada9bf6fb0799efc4307730c9f44f1))
+* **renderer:** render Retry policies as labelled self-loops ([4fd29fd](https://github.com/yusufaf/sfn-diagram/commit/4fd29fdbc4e5b374a2962538838304e36a96abb3))
+
+
+### Bug Fixes
+
+* **diff:** compare states with an order-insensitive structural equality ([713f0e3](https://github.com/yusufaf/sfn-diagram/commit/713f0e39f6efedfc481cd7c52d9051ac5bedabb9))
+* **layout:** correct NaN dimensions for Map/Parallel container edges ([b3519a7](https://github.com/yusufaf/sfn-diagram/commit/b3519a7d29c4988f196162687fb67bb4b7b1cf17))
+* **parser:** honor includeComments option for node labels ([ab20933](https://github.com/yusufaf/sfn-diagram/commit/ab2093344094cb8867c30f2c81ca430c0654cbc4))
+* **parser:** render Distributed Map ItemProcessor states ([6e29e6c](https://github.com/yusufaf/sfn-diagram/commit/6e29e6cd215bbeab005a29de0c8e9bd65432c44c))
+
 ## [0.5.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.5.0...sfn-diagram-v0.5.1) (2026-07-06)
 
 
