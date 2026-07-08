@@ -12,7 +12,7 @@ Generate beautiful, interactive diagrams from AWS Step Functions ASL (Amazon Sta
 
 - **Multiple Output Formats**: SVG (D3.js), Mermaid syntax, and PNG
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
-- **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map)
+- **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
@@ -377,6 +377,10 @@ All AWS Step Functions state types are fully supported:
 
 - **`Catch`** blocks render as dashed error edges to their handler states.
 - **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output.
+
+### Query languages
+
+Both JSONPath and JSONata (`QueryLanguage: "JSONata"`) definitions are supported. Choice branch labels are derived from JSONPath comparison operators (`$.score >= 90`, `And`/`Or`/`Not`, `Is*` checks) or from JSONata `Condition` expressions, whichever the state uses.
 
 ## Examples
 

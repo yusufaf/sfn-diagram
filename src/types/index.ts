@@ -52,6 +52,7 @@ export interface AslState {
     Output?: any; // AWS ASL spec - arbitrary JSON values
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+    QueryLanguage?: 'JSONata' | 'JSONPath'; // Per-state override of the top-level query language
     Resource?: string; // Task-specific
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Result?: any; // AWS ASL spec - arbitrary JSON values

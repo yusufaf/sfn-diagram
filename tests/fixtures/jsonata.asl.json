@@ -1,0 +1,29 @@
+{
+    "QueryLanguage": "JSONata",
+    "Comment": "JSONata-mode order routing",
+    "StartAt": "Classify",
+    "States": {
+        "Classify": {
+            "Type": "Choice",
+            "Choices": [
+                { "Condition": "{% $states.input.score >= 0.8 %}", "Next": "Approve" },
+                { "Condition": "{% $states.input.score < 0.5 %}", "Next": "Reject" },
+                { "Condition": true, "Next": "Review" }
+            ],
+            "Default": "Review"
+        },
+        "Approve": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": { "FunctionName": "approve", "Payload": "{% $states.input %}" },
+            "Next": "Done"
+        },
+        "Review": {
+            "Type": "Wait",
+            "Seconds": "{% $states.input.delaySeconds %}",
+            "Next": "Done"
+        },
+        "Reject": { "Type": "Fail", "Error": "Rejected" },
+        "Done": { "Type": "Succeed" }
+    }
+}

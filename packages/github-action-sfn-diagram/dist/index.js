@@ -37053,7 +37053,7 @@ function formatComparison(variable, operatorKey, value) {
   return `${variable} ${operator[1]} ${formattedValue}`;
 }
 function describeChoiceRule(rule) {
-  if (typeof rule.Condition === "string") return cleanJsonataExpression(rule.Condition);
+  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? cleanJsonataExpression(rule.Condition) : String(rule.Condition);
   if (Array.isArray(rule.And)) {
     const parts = rule.And.map(describeChoiceRule).filter(Boolean);
     return parts.length > 0 ? parts.join(" AND ") : "";
