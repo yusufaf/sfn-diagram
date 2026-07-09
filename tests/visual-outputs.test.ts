@@ -1,5 +1,11 @@
 import { describe, it } from 'vitest';
-import { generateSvg, generateMermaid, embedIcons } from '../src';
+import {
+    generateSvg,
+    generateMermaid,
+    embedIcons,
+    generateExecution,
+    generateMermaidExecution,
+} from '../src';
 import { exportPng } from '../src/png';
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
@@ -119,6 +125,40 @@ describe('Visual outputs (generates sample files)', () => {
                     console.log(`  ✓ Generated ${baseName}.png (${result.width}x${result.height}px)`);
                 }
             }, 15000);
+        });
+    });
+
+    // Execution overlays pair an ASL definition with a run's history.
+    const executionCases = [
+        { asl: 'error-handling', history: 'execution-caught', name: 'execution-caught' },
+        { asl: 'simple', history: 'execution-failed', name: 'execution-failed' },
+        { asl: 'retry', history: 'execution-retry-success', name: 'execution-retry' },
+    ];
+
+    executionCases.forEach(({ asl, history, name }) => {
+        describe(`${name} overlay`, () => {
+            const aslDefinition: AslDefinition = JSON.parse(
+                readFileSync(join(FIXTURES_DIR, `${asl}.asl.json`), 'utf-8'),
+            );
+            const historyJson = readFileSync(join(FIXTURES_DIR, `${history}.json`), 'utf-8');
+
+            it('should generate SVG overlay', () => {
+                const result = generateExecution({
+                    aslDefinition,
+                    history: historyJson,
+                    layout: 'LR',
+                });
+                writeFileSync(join(OUTPUT_DIR, `${name}.svg`), result.svg);
+                console.log(
+                    `  ✓ Generated ${name}.svg (status: ${result.metadata.executionStatus})`,
+                );
+            });
+
+            it('should generate Mermaid overlay', () => {
+                const result = generateMermaidExecution({ aslDefinition, history: historyJson });
+                writeFileSync(join(OUTPUT_DIR, `${name}.mmd`), result.code);
+                console.log(`  ✓ Generated ${name}.mmd`);
+            });
         });
     });
 });

@@ -4,6 +4,7 @@ import type {
     MermaidOutput,
     AslDefinition,
     DiffStatus,
+    ExecutionStateStatus,
 } from '../types';
 
 /** Mermaid classDef declarations for diff highlighting, keyed by diff status. */
@@ -20,10 +21,32 @@ const DIFF_CLASS_NAMES: Record<DiffStatus, string> = {
     removed: 'diffRemoved',
 };
 
+/** Mermaid classDef declarations for execution highlighting, keyed by status. */
+const EXECUTION_CLASS_DEFS: Record<ExecutionStateStatus, string> = {
+    caught: 'classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px',
+    failed: 'classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px',
+    notReached: 'classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px',
+    running: 'classDef execRunning fill:#bbdefb,stroke:#1565c0,stroke-width:2px',
+    succeeded: 'classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px',
+};
+
+/** Mermaid class name applied to a state for a given execution status. */
+const EXECUTION_CLASS_NAMES: Record<ExecutionStateStatus, string> = {
+    caught: 'execCaught',
+    failed: 'execFailed',
+    notReached: 'execNotReached',
+    running: 'execRunning',
+    succeeded: 'execSucceeded',
+};
+
 // Internal parameter types for methods
 interface RenderMermaidParams {
     asl?: AslDefinition;
     edges: GraphEdge[];
+    /** Optional per-state execution status used to colour states by run outcome */
+    executionClasses?: Record<string, ExecutionStateStatus>;
+    /** Optional extra text appended to a state's label (e.g. execution duration) */
+    nodeAnnotations?: Record<string, string>;
     nodes: StateNode[];
     /** Optional per-state diff status used to colour added/modified/removed states */
     stateClasses?: Record<string, DiffStatus>;
@@ -43,7 +66,8 @@ export class MermaidRenderer {
      * Render nodes and edges to Mermaid syntax
      */
     render(params: RenderMermaidParams): MermaidOutput {
-        const { asl, edges, nodes, stateClasses } = params;
+        const { asl, edges, executionClasses, nodeAnnotations, nodes, stateClasses } =
+            params;
         const lines: string[] = [];
 
         // Header
@@ -60,10 +84,15 @@ export class MermaidRenderer {
         const stateDefinitions = new Set<string>();
         nodes.forEach((node) => {
             const id = this.sanitizeId(node.id);
+            if (stateDefinitions.has(id)) return;
 
-            // Add state with label if different from ID
-            if (node.label !== node.id && !stateDefinitions.has(id)) {
-                lines.push(`    ${id}: ${this.escapeLabel(node.label)}`);
+            // Append any execution annotation (duration / retries) to the label.
+            const annotation = nodeAnnotations?.[node.id];
+            const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
+
+            // Add a label line when it differs from the ID (or an annotation was added).
+            if (displayLabel !== node.id) {
+                lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
                 stateDefinitions.add(id);
             }
         });
@@ -122,11 +151,26 @@ export class MermaidRenderer {
             }
         }
 
-        // Apply classes to states. A diff status, when present, wins over the
-        // state-type colour so the change stands out.
+        // Execution highlighting classes (only emitted when an execution map is supplied)
+        const hasExecution =
+            executionClasses && Object.keys(executionClasses).length > 0;
+        if (hasExecution) {
+            for (const status of Object.keys(EXECUTION_CLASS_DEFS) as ExecutionStateStatus[]) {
+                lines.push(`    ${EXECUTION_CLASS_DEFS[status]}`);
+            }
+        }
+
+        // Apply classes to states. An execution or diff status, when present, wins
+        // over the state-type colour so the run outcome / change stands out.
         lines.push('');
         nodes.forEach((node) => {
             const id = this.sanitizeId(node.id);
+
+            const executionStatus = executionClasses?.[node.id];
+            if (executionStatus) {
+                lines.push(`    class ${id} ${EXECUTION_CLASS_NAMES[executionStatus]}`);
+                return;
+            }
 
             const diffStatus = stateClasses?.[node.id];
             if (diffStatus) {

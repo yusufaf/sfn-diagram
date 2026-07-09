@@ -1,0 +1,15 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z" },
+    { "id": 2, "previousEventId": 1, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.100Z", "stateEnteredEventDetails": { "name": "RiskyTask" } },
+    { "id": 3, "previousEventId": 2, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.110Z" },
+    { "id": 4, "previousEventId": 3, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.200Z" },
+    { "id": 5, "previousEventId": 4, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:00.400Z", "taskFailedEventDetails": { "error": "States.TaskFailed", "cause": "handled" } },
+    { "id": 6, "previousEventId": 5, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:00.420Z", "stateExitedEventDetails": { "name": "RiskyTask" } },
+    { "id": 7, "previousEventId": 6, "type": "PassStateEntered", "timestamp": "2024-01-01T00:00:00.450Z", "stateEnteredEventDetails": { "name": "HandleError" } },
+    { "id": 8, "previousEventId": 7, "type": "PassStateExited", "timestamp": "2024-01-01T00:00:00.470Z", "stateExitedEventDetails": { "name": "HandleError" } },
+    { "id": 9, "previousEventId": 8, "type": "SucceedStateEntered", "timestamp": "2024-01-01T00:00:00.500Z", "stateEnteredEventDetails": { "name": "Success" } },
+    { "id": 10, "previousEventId": 9, "type": "SucceedStateExited", "timestamp": "2024-01-01T00:00:00.510Z", "stateExitedEventDetails": { "name": "Success" } },
+    { "id": 11, "previousEventId": 10, "type": "ExecutionSucceeded", "timestamp": "2024-01-01T00:00:00.520Z" }
+  ]
+}

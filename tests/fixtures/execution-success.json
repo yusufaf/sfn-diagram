@@ -1,0 +1,15 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z", "executionStartedEventDetails": { "input": "{}" } },
+    { "id": 2, "previousEventId": 1, "type": "PassStateEntered", "timestamp": "2024-01-01T00:00:00.100Z", "stateEnteredEventDetails": { "name": "Start" } },
+    { "id": 3, "previousEventId": 2, "type": "PassStateExited", "timestamp": "2024-01-01T00:00:00.150Z", "stateExitedEventDetails": { "name": "Start" } },
+    { "id": 4, "previousEventId": 3, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.200Z", "stateEnteredEventDetails": { "name": "Process" } },
+    { "id": 5, "previousEventId": 4, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.210Z" },
+    { "id": 6, "previousEventId": 5, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.300Z" },
+    { "id": 7, "previousEventId": 6, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:01.400Z" },
+    { "id": 8, "previousEventId": 7, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:01.450Z", "stateExitedEventDetails": { "name": "Process" } },
+    { "id": 9, "previousEventId": 8, "type": "SucceedStateEntered", "timestamp": "2024-01-01T00:00:01.500Z", "stateEnteredEventDetails": { "name": "End" } },
+    { "id": 10, "previousEventId": 9, "type": "SucceedStateExited", "timestamp": "2024-01-01T00:00:01.510Z", "stateExitedEventDetails": { "name": "End" } },
+    { "id": 11, "previousEventId": 10, "type": "ExecutionSucceeded", "timestamp": "2024-01-01T00:00:01.520Z" }
+  ]
+}

@@ -369,6 +369,18 @@ export type {
     GenerateDiffParams,
     GenerateMermaidDiffParams,
     GenerateFromAwsParams,
+    // Execution overlay
+    EdgeStyleOverride,
+    ExecutionHistoryInput,
+    ExecutionOutput,
+    ExecutionOverlay,
+    ExecutionStateResult,
+    ExecutionStateStatus,
+    ExecutionStatus,
+    GenerateExecutionParams,
+    GenerateMermaidExecutionParams,
+    MermaidExecutionOutput,
+    TakenEdge,
     // Union types for configuration options
     DiagramFormat,
     ThemeOption,
@@ -383,3 +395,8 @@ export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
+export {
+    generateExecution,
+    generateMermaidExecution,
+    parseExecutionHistory,
+} from './execution';
