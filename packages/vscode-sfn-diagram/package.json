@@ -15,12 +15,27 @@
                 "command": "sfn-diagram.preview",
                 "title": "Preview Step Functions Diagram",
                 "category": "Step Functions"
+            },
+            {
+                "command": "sfn-diagram.previewExecution",
+                "title": "Preview Execution Overlay",
+                "category": "Step Functions"
+            },
+            {
+                "command": "sfn-diagram.clearExecution",
+                "title": "Clear Execution Overlay",
+                "category": "Step Functions"
             }
         ],
         "menus": {
             "editor/title": [
                 {
                     "command": "sfn-diagram.preview",
+                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "group": "navigation"
+                },
+                {
+                    "command": "sfn-diagram.previewExecution",
                     "when": "resourceExtname == .json || resourceExtname == .asl",
                     "group": "navigation"
                 }
