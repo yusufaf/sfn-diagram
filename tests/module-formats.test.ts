@@ -25,6 +25,13 @@ describe('Module Format Compatibility', () => {
             expect(PngExporter).toBeDefined();
         }, 15000);
 
+        it('should import fetchExecutionHistory from aws sub-path', async () => {
+            const { fetchExecutionHistory } = await import('../src/aws');
+
+            expect(fetchExecutionHistory).toBeDefined();
+            expect(typeof fetchExecutionHistory).toBe('function');
+        }, 15000);
+
         it('should work with ESM import for generating SVG', async () => {
             const { generateSvg } = await import('../src/index');
 

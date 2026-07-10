@@ -357,7 +357,22 @@ overlay.states['ProcessOrder']; // { status: 'succeeded', attempts: 1, durationM
 overlay.takenEdges;             // [{ from: 'ValidateOrder', to: 'ProcessOrder' }, ...]
 ```
 
-Fetching history from AWS yourself (Node):
+Fetching history from AWS (Node) — use the `sfn-diagram/aws` helper, which paginates `GetExecutionHistory` for you:
+
+```typescript
+import { SFNClient } from '@aws-sdk/client-sfn';
+import { fetchExecutionHistory } from 'sfn-diagram/aws';
+
+const client = new SFNClient({ region: 'us-east-1' });
+const events = await fetchExecutionHistory({ client, executionArn });
+
+const { svg } = generateExecution({ aslDefinition: asl, history: events });
+```
+
+`sfn-diagram/aws` is a Node-only subpath. `@aws-sdk/client-sfn` is an **optional peer dependency** — install it yourself (`npm i @aws-sdk/client-sfn`); the core `sfn-diagram` package stays dependency-free and browser-safe.
+
+<details>
+<summary>Prefer to paginate yourself? The manual loop:</summary>
 
 ```typescript
 import { SFNClient, GetExecutionHistoryCommand } from '@aws-sdk/client-sfn';
@@ -375,6 +390,7 @@ do {
 
 const { svg } = generateExecution({ aslDefinition: asl, history: events });
 ```
+</details>
 
 ### SfnDiagramGenerator Class
 
