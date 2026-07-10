@@ -1,10 +1,17 @@
 import { useMemo } from 'react'
-import { generateMermaid, generateSvg } from 'sfn-diagram'
+import {
+    generateExecution,
+    generateMermaid,
+    generateMermaidExecution,
+    generateSvg,
+} from 'sfn-diagram'
 import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
 
 interface PreviewProps {
     asl: string
     format: 'mermaid' | 'svg'
+    /** When set, the diagram is rendered as an execution overlay for this history. */
+    history?: string
     layout: LayoutDirection
     theme: ThemeOption
 }
@@ -19,18 +26,23 @@ interface RenderResult {
 interface RenderDiagramParams {
     asl: string
     format: 'mermaid' | 'svg'
+    history?: string
     layout: LayoutDirection
     theme: ThemeOption
 }
 
 function renderDiagram(params: RenderDiagramParams): RenderResult {
-    const { asl, format, layout, theme } = params
+    const { asl, format, history, layout, theme } = params
     try {
         if (format === 'mermaid') {
-            const { code } = generateMermaid({ aslDefinition: asl })
+            const { code } = history
+                ? generateMermaidExecution({ aslDefinition: asl, history })
+                : generateMermaid({ aslDefinition: asl })
             return { code, type: 'mermaid' }
         }
-        const { svg } = generateSvg({ aslDefinition: asl, layout, theme })
+        const { svg } = history
+            ? generateExecution({ aslDefinition: asl, history, layout, theme })
+            : generateSvg({ aslDefinition: asl, layout, theme })
         return { svg, type: 'svg' }
     } catch (err) {
         return {
@@ -40,10 +52,10 @@ function renderDiagram(params: RenderDiagramParams): RenderResult {
     }
 }
 
-export function Preview({ asl, format, layout, theme }: PreviewProps) {
+export function Preview({ asl, format, history, layout, theme }: PreviewProps) {
     const result = useMemo(
-        () => renderDiagram({ asl, format, layout, theme }),
-        [asl, format, layout, theme]
+        () => renderDiagram({ asl, format, history, layout, theme }),
+        [asl, format, history, layout, theme]
     )
 
     if (result.type === 'error') {

@@ -12,6 +12,27 @@ const HELLO_WORLD = {
 
 const HELLO_WORLD_STR = JSON.stringify(HELLO_WORLD)
 
+const HISTORY = {
+    events: [
+        { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+        {
+            id: 2,
+            previousEventId: 1,
+            type: 'PassStateEntered',
+            timestamp: '2024-01-01T00:00:00.100Z',
+            stateEnteredEventDetails: { name: 'HelloWorld' },
+        },
+        {
+            id: 3,
+            previousEventId: 2,
+            type: 'PassStateExited',
+            timestamp: '2024-01-01T00:00:00.200Z',
+            stateExitedEventDetails: { name: 'HelloWorld' },
+        },
+        { id: 4, previousEventId: 3, type: 'ExecutionSucceeded', timestamp: '2024-01-01T00:00:00.300Z' },
+    ],
+}
+
 describe('SfnDiagram', () => {
     describe('SVG format', () => {
         it('renders SVG container for valid definition object', () => {
@@ -49,6 +70,27 @@ describe('SfnDiagram', () => {
             const pre = container.querySelector('pre')
             expect(pre).toBeInTheDocument()
             expect(pre?.textContent).toContain('stateDiagram-v2')
+        })
+    })
+
+    describe('Execution overlay', () => {
+        it('renders an SVG overlay coloured by outcome when history is provided', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} history={JSON.stringify(HISTORY)} />
+            )
+            const svg = container.querySelector('svg')
+            expect(svg).toBeInTheDocument()
+            // Succeeded state fill from the execution overlay.
+            expect(svg?.innerHTML).toContain('#c8e6c9')
+        })
+
+        it('renders a Mermaid execution overlay with status classes', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} format="mermaid" history={JSON.stringify(HISTORY)} />
+            )
+            const pre = container.querySelector('pre')
+            expect(pre?.textContent).toContain('classDef execSucceeded')
+            expect(pre?.textContent).toContain('class HelloWorld execSucceeded')
         })
     })
 

@@ -1,11 +1,24 @@
 import { useMemo } from 'react'
-import { generateMermaid, generateSvg } from 'sfn-diagram'
-import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
+import {
+    generateExecution,
+    generateMermaid,
+    generateMermaidExecution,
+    generateSvg,
+} from 'sfn-diagram'
+import type { ExecutionHistoryInput, LayoutDirection, ThemeOption } from 'sfn-diagram'
 
 export interface SfnDiagramProps {
     className?: string
     definition: object | string
     format?: 'mermaid' | 'svg'
+    /**
+     * Optional execution history. When provided, the diagram is rendered as an
+     * execution overlay: states are coloured by outcome, the taken path is
+     * emphasized, and per-state duration / retry counts are annotated.
+     * Accepts a GetExecutionHistory events array, the raw command output, or a
+     * JSON string of either.
+     */
+    history?: ExecutionHistoryInput
     layout?: LayoutDirection
     onError?: (error: Error) => void
     style?: React.CSSProperties
@@ -21,6 +34,7 @@ export function SfnDiagram({
     className,
     definition,
     format = 'svg',
+    history,
     layout = 'TB',
     onError,
     style,
@@ -34,15 +48,19 @@ export function SfnDiagram({
     const result = useMemo((): DiagramResult => {
         try {
             if (format === 'mermaid') {
-                const output = generateMermaid({ aslDefinition: asl })
+                const output = history
+                    ? generateMermaidExecution({ aslDefinition: asl, history })
+                    : generateMermaid({ aslDefinition: asl })
                 return { type: 'mermaid', code: output.code }
             }
-            const output = generateSvg({ aslDefinition: asl, layout, theme })
+            const output = history
+                ? generateExecution({ aslDefinition: asl, history, layout, theme })
+                : generateSvg({ aslDefinition: asl, layout, theme })
             return { type: 'svg', svg: output.svg }
         } catch (err) {
             return { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
         }
-    }, [asl, format, layout, theme])
+    }, [asl, format, history, layout, theme])
 
     if (result.type === 'error') {
         onError?.(result.error)

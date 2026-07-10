@@ -696,7 +696,7 @@ pnpm install
 pnpm dev
 ```
 
-Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — no install required beyond the dev server.
+Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — no install required beyond the dev server. Switch **Mode** to _Execution overlay_ to paste an execution history alongside the definition and watch the run's path light up.
 
 ### VS Code Extension
 
@@ -724,6 +724,7 @@ import { SfnDiagram } from 'sfn-diagram-react';
   format="svg"         // 'svg' (default) | 'mermaid'
   theme="dark"         // 'light' | 'dark' | CustomTheme
   layout="LR"          // 'TB' | 'LR' | 'RL' | 'BT'
+  history={history}    // optional: renders an execution overlay
   onError={(err) => console.error(err)}
 />
 ```

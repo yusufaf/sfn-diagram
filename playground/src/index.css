@@ -82,6 +82,38 @@ body,
     overflow: hidden;
 }
 
+.editor-split {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.editor-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.editor-section + .editor-section {
+    border-top: 1px solid var(--border);
+}
+
+.editor-label {
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.75;
+    padding: 4px 12px;
+}
+
+.editor-body {
+    flex: 1;
+    min-height: 0;
+}
+
 .editor-loading {
     align-items: center;
     color: var(--text);
