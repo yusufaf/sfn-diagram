@@ -12,6 +12,7 @@
     "dependencies": {
         "@actions/core": "^1.11.1",
         "@actions/github": "^9.1.1",
+        "@aws-sdk/client-sfn": "^3.879.0",
         "minimatch": "^10.0.1",
         "sfn-diagram": "workspace:*"
     },

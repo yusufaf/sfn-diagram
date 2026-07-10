@@ -23,6 +23,25 @@ inputs:
     description: 'Unique tag used to find and update an existing PR comment'
     required: false
     default: 'sfn-diagram-preview'
+  execution-mode:
+    description: >-
+      Optionally overlay a real execution onto the changed diagram.
+      'off' (default) makes no AWS calls; 'latest' overlays the most recent
+      execution; 'latest-failed' overlays the most recent failed execution.
+      Requires state-machine-arn and AWS credentials (e.g. via
+      aws-actions/configure-aws-credentials), plus IAM permissions
+      states:ListExecutions and states:GetExecutionHistory. Only applied when
+      exactly one ASL file changed in the PR.
+    required: false
+    default: 'off'
+  state-machine-arn:
+    description: 'ARN of the state machine to fetch executions for (required when execution-mode is not off)'
+    required: false
+    default: ''
+  aws-region:
+    description: 'AWS region for the Step Functions client (defaults to the SDK/environment resolution, e.g. AWS_REGION)'
+    required: false
+    default: ''
 
 runs:
   using: 'node24'

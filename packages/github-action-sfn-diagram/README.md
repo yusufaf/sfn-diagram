@@ -41,6 +41,11 @@ jobs:
 | `github-token` | `${{ github.token }}` | Token used to post/update the PR comment |
 | `asl-glob` | `**/*.asl.json,**/*.asl` | Comma-separated glob patterns matching ASL files |
 | `comment-tag` | `sfn-diagram-preview` | Marker used to find and update an existing comment |
+| `execution-mode` | `off` | `off`, `latest`, or `latest-failed` — overlay a real execution (needs AWS creds; only when exactly one ASL file changed) |
+| `state-machine-arn` | `''` | State machine ARN to fetch executions for (required unless `execution-mode: off`) |
+| `aws-region` | `''` | Region for the SFN client (defaults to the environment, e.g. `AWS_REGION`) |
+
+When `execution-mode` is enabled, add an AWS auth step (e.g. `aws-actions/configure-aws-credentials`) before this action and grant `states:ListExecutions` + `states:GetExecutionHistory`. See the Marketplace README for a full workflow example.
 
 ## Development
 

@@ -65,6 +65,35 @@ jobs:
 
 Pin to the moving major tag `@v1` (recommended) or an exact release like `@v1.0.0`.
 
+### Overlay a real execution (optional)
+
+Set `execution-mode` and `state-machine-arn` to add the most recent (or most recent **failed**) execution as a Mermaid overlay beneath the diff. This calls AWS, so configure credentials first:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write          # for OIDC auth to AWS
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::111122223333:role/sfn-diagram-preview
+          aws-region: us-east-1
+      - uses: yusufaf/sfn-diagram-action@v1
+        with:
+          execution-mode: latest-failed
+          state-machine-arn: arn:aws:states:us-east-1:111122223333:stateMachine:order
+```
+
+The overlay is applied only when exactly one ASL file changed in the PR (so the single `state-machine-arn` maps unambiguously). Required IAM: `states:ListExecutions` and `states:GetExecutionHistory`.
+
 ## Inputs
 
 | Input | Default | Description |
@@ -72,12 +101,16 @@ Pin to the moving major tag `@v1` (recommended) or an exact release like `@v1.0.
 | `github-token` | `${{ github.token }}` | Token used to post/update the PR comment |
 | `asl-glob` | `**/*.asl.json,**/*.asl` | Comma-separated glob patterns matching ASL files |
 | `comment-tag` | `sfn-diagram-preview` | Marker used to find and update an existing comment |
+| `execution-mode` | `off` | `off`, `latest`, or `latest-failed` — overlay a real execution (needs AWS creds) |
+| `state-machine-arn` | `''` | State machine ARN to fetch executions for (required unless `execution-mode: off`) |
+| `aws-region` | `''` | Region for the SFN client (defaults to the environment, e.g. `AWS_REGION`) |
 
 ## Notes
 
 - Runs only on `pull_request` events; on other events it no-ops.
 - **New** files show a plain diagram, **deleted** files show the last diagram, **changed** files show the highlighted diff.
 - The comment is upserted — one comment per PR, updated on each push.
+- The execution overlay is **opt-in** (`execution-mode: off` by default) — the action needs no AWS access unless you enable it.
 
 ## Source
 
