@@ -36,4 +36,20 @@ describe('Preview', () => {
         expect(pre).toBeTruthy()
         expect(pre?.textContent).toContain('stateDiagram-v2')
     })
+
+    it('renders an execution overlay when history is provided', () => {
+        const history = JSON.stringify({
+            events: [
+                { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+                { id: 2, previousEventId: 1, type: 'PassStateEntered', timestamp: '2024-01-01T00:00:00.010Z', stateEnteredEventDetails: { name: 'Hello' } },
+                { id: 3, previousEventId: 2, type: 'PassStateExited', timestamp: '2024-01-01T00:00:00.120Z', stateExitedEventDetails: { name: 'Hello' } },
+                { id: 4, previousEventId: 3, type: 'ExecutionSucceeded', timestamp: '2024-01-01T00:00:00.130Z' },
+            ],
+        })
+        const { container } = render(
+            <Preview asl={SIMPLE_ASL} format="svg" history={history} layout="TB" theme="light" />
+        )
+        // Succeeded state fill from the execution overlay.
+        expect(container.querySelector('svg')?.innerHTML).toContain('#c8e6c9')
+    })
 })

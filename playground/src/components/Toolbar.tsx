@@ -1,13 +1,17 @@
 import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
-import { SAMPLE_KEYS, SAMPLE_LABELS, SAMPLES } from '../samples'
+import { SAMPLE_KEYS, SAMPLE_LABELS } from '../samples'
 import type { SampleKey } from '../samples'
+
+export type Mode = 'definition' | 'execution'
 
 interface ToolbarProps {
     format: 'mermaid' | 'svg'
     layout: LayoutDirection
+    mode: Mode
     onFormatChange: (format: 'mermaid' | 'svg') => void
     onLayoutChange: (layout: LayoutDirection) => void
-    onSampleSelect: (asl: string) => void
+    onModeChange: (mode: Mode) => void
+    onSampleSelect: (key: SampleKey) => void
     onThemeChange: (theme: ThemeOption) => void
     theme: ThemeOption
 }
@@ -15,8 +19,10 @@ interface ToolbarProps {
 export function Toolbar({
     format,
     layout,
+    mode,
     onFormatChange,
     onLayoutChange,
+    onModeChange,
     onSampleSelect,
     onThemeChange,
     theme,
@@ -27,12 +33,20 @@ export function Toolbar({
 
             <label className="toolbar-group">
                 Sample:
-                <select onChange={(e) => onSampleSelect(SAMPLES[e.target.value as SampleKey])}>
+                <select onChange={(e) => onSampleSelect(e.target.value as SampleKey)}>
                     {SAMPLE_KEYS.map((key) => (
                         <option key={key} value={key}>
                             {SAMPLE_LABELS[key]}
                         </option>
                     ))}
+                </select>
+            </label>
+
+            <label className="toolbar-group">
+                Mode:
+                <select onChange={(e) => onModeChange(e.target.value as Mode)} value={mode}>
+                    <option value="definition">Definition</option>
+                    <option value="execution">Execution overlay</option>
                 </select>
             </label>
 

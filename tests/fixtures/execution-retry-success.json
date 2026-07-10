@@ -1,0 +1,19 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z" },
+    { "id": 2, "previousEventId": 1, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.100Z", "stateEnteredEventDetails": { "name": "Submit" } },
+    { "id": 3, "previousEventId": 2, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.110Z" },
+    { "id": 4, "previousEventId": 3, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.200Z" },
+    { "id": 5, "previousEventId": 4, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:00.300Z", "taskFailedEventDetails": { "error": "States.Timeout" } },
+    { "id": 6, "previousEventId": 5, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:02.300Z" },
+    { "id": 7, "previousEventId": 6, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:02.400Z" },
+    { "id": 8, "previousEventId": 7, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:02.500Z", "taskFailedEventDetails": { "error": "States.Timeout" } },
+    { "id": 9, "previousEventId": 8, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:06.500Z" },
+    { "id": 10, "previousEventId": 9, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:06.600Z" },
+    { "id": 11, "previousEventId": 10, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:07.000Z" },
+    { "id": 12, "previousEventId": 11, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:07.050Z", "stateExitedEventDetails": { "name": "Submit" } },
+    { "id": 13, "previousEventId": 12, "type": "SucceedStateEntered", "timestamp": "2024-01-01T00:00:07.100Z", "stateEnteredEventDetails": { "name": "Done" } },
+    { "id": 14, "previousEventId": 13, "type": "SucceedStateExited", "timestamp": "2024-01-01T00:00:07.110Z", "stateExitedEventDetails": { "name": "Done" } },
+    { "id": 15, "previousEventId": 14, "type": "ExecutionSucceeded", "timestamp": "2024-01-01T00:00:07.120Z" }
+  ]
+}

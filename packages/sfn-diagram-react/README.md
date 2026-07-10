@@ -41,12 +41,27 @@ export function Diagram() {
 
 `definition` accepts either an ASL object or a JSON string.
 
+### Execution overlay
+
+Pass an execution's `history` to overlay a real run onto the diagram: states are
+coloured by outcome (succeeded / failed / caught / not-reached), the taken path is
+emphasized, and per-state duration and retry counts are annotated.
+
+```tsx
+// historyJson: output of `aws stepfunctions get-execution-history`, as a JSON string
+<SfnDiagram definition={definition} history={historyJson} />
+```
+
+`history` accepts a `GetExecutionHistory` events array, the raw command output, or a
+JSON string of either. In the browser, pass the JSON string.
+
 ## Props
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `definition` | `object \| string` | — (required) | ASL definition as an object or JSON string |
 | `format` | `'svg' \| 'mermaid'` | `'svg'` | Render an SVG diagram or emit Mermaid code |
+| `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | Execution history; when set, renders an execution overlay |
 | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | Graph layout direction |
 | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | Diagram theme |
 | `onError` | `(error: Error) => void` | — | Called when the definition fails to parse/render |

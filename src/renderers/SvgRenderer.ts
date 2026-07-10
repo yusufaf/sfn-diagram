@@ -418,6 +418,22 @@ export class SvgRenderer {
                 .attr('opacity', 0.7)
                 .text(node.type);
         }
+
+        // Optional annotation (execution overlay: duration / retry count), placed
+        // below the label and the state type when both are shown.
+        const annotation = this.options.nodeAnnotations?.[node.id];
+        if (annotation) {
+            nodeGroup
+                .append('text')
+                .attr('x', labelX)
+                .attr('y', labelY + (this.options.showStateTypes ? 36 : 18))
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', this.theme.fontSize - 3)
+                .attr('opacity', 0.75)
+                .text(annotation);
+        }
     }
 
     /**
@@ -573,14 +589,24 @@ export class SvgRenderer {
             ? this.buildSelfLoopPath(edge.points)
             : this.pathGenerator(edge.points) ?? '';
 
+        // Per-edge override (used by the execution overlay to emphasize the taken
+        // path and dim untaken transitions), keyed by `${from}->${to}`.
+        const override = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        const strokeColor = override?.stroke ?? edgeColor;
+        const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
+
         // Render path
         const pathElement = group
             .append('path')
             .attr('d', pathData)
             .attr('fill', 'none')
-            .attr('stroke', edgeColor)
-            .attr('stroke-width', edge.type === 'error' ? 2 : 1.5)
+            .attr('stroke', strokeColor)
+            .attr('stroke-width', strokeWidth)
             .attr('marker-end', `url(#arrowhead-${markerType})`);
+
+        if (override?.strokeOpacity !== undefined) {
+            pathElement.attr('stroke-opacity', override.strokeOpacity);
+        }
 
         // Add dashed style for error, default, and retry edges
         if (edge.type === 'error') {

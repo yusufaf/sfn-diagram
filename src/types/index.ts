@@ -1,4 +1,8 @@
-import type { DescribeStateMachineCommandOutput } from '@aws-sdk/client-sfn';
+import type {
+    DescribeStateMachineCommandOutput,
+    GetExecutionHistoryCommandOutput,
+    HistoryEvent,
+} from '@aws-sdk/client-sfn';
 
 // ASL Definition Types
 export type StateType =
@@ -119,6 +123,20 @@ export interface NodeStyle {
     stroke: string;
     strokeWidth: number;
     shape: NodeShape;
+}
+
+/**
+ * Per-edge visual override applied on top of an edge's computed style.
+ * Used by the execution overlay to emphasize taken transitions and dim untaken ones.
+ * All fields are optional — only specified fields are overridden.
+ */
+export interface EdgeStyleOverride {
+    /** Stroke colour for the edge path and arrowhead */
+    stroke?: string;
+    /** Stroke opacity (0-1); used to dim transitions the run did not take */
+    strokeOpacity?: number;
+    /** Stroke width in pixels */
+    strokeWidth?: number;
 }
 
 // Theme Types
@@ -275,6 +293,19 @@ export interface DiagramOptions {
      * Merged on top of the node's computed style — only specified fields are overridden.
      */
     nodeOverrides?: Record<string, Partial<NodeStyle>>;
+
+    /**
+     * Per-edge style overrides keyed by `${from}->${to}`.
+     * Merged on top of the edge's computed style — only specified fields are overridden.
+     * Used by the execution overlay to highlight taken transitions and dim untaken ones.
+     */
+    edgeOverrides?: Record<string, EdgeStyleOverride>;
+
+    /**
+     * Extra annotation text rendered below a node's label, keyed by state name.
+     * Used by the execution overlay to show per-state duration and retry counts.
+     */
+    nodeAnnotations?: Record<string, string>;
 }
 
 // Output Types
@@ -435,4 +466,136 @@ export interface GenerateMermaidDiffParams {
 
     /** The old (base) ASL definition */
     before: AslDefinition | string;
+}
+
+// Execution Overlay Types
+
+/**
+ * Outcome of a single state within an execution.
+ * - `succeeded`  — entered and completed normally (possibly after retries)
+ * - `failed`     — errored terminally, or a Fail state that was reached
+ * - `caught`     — errored but a Catch handled it and the run continued
+ * - `running`    — entered but not yet exited (in-progress execution)
+ * - `notReached` — never entered by this execution
+ */
+export type ExecutionStateStatus =
+    | 'caught'
+    | 'failed'
+    | 'notReached'
+    | 'running'
+    | 'succeeded';
+
+/** Per-state result derived from an execution's event history. */
+export interface ExecutionStateResult {
+    /** Number of attempts (1 + retries); always ≥ 1 for states that were entered */
+    attempts: number;
+    /** Total time spent in the state in milliseconds (summed across re-entries) */
+    durationMs?: number;
+    /** Error name associated with a failed/caught state */
+    error?: string;
+    /** Outcome of the state */
+    status: ExecutionStateStatus;
+}
+
+/** Overall terminal status of an execution. */
+export type ExecutionStatus =
+    | 'aborted'
+    | 'failed'
+    | 'running'
+    | 'succeeded'
+    | 'timedOut';
+
+/** A transition (edge) the execution actually followed. */
+export interface TakenEdge {
+    from: string;
+    to: string;
+}
+
+/**
+ * The computed execution model produced by {@link parseExecutionHistory}.
+ * A pure, render-agnostic summary that any surface can consume.
+ */
+export interface ExecutionOverlay {
+    /** Overall execution status */
+    executionStatus: ExecutionStatus;
+    /** Name of the state the execution started at, if determinable */
+    startState?: string;
+    /** Per-state results keyed by state name */
+    states: Record<string, ExecutionStateResult>;
+    /** Transitions the execution followed, deduplicated */
+    takenEdges: TakenEdge[];
+}
+
+/**
+ * Accepted forms of execution history input:
+ * an events array, a raw GetExecutionHistory response, or a JSON string of either.
+ */
+export type ExecutionHistoryInput =
+    | HistoryEvent[]
+    | GetExecutionHistoryCommandOutput
+    | { events: HistoryEvent[] }
+    | string;
+
+export interface GenerateExecutionParams extends DiagramOptions {
+    /** ASL definition as object or JSON string */
+    aslDefinition: AslDefinition | string;
+    /** Execution history (events array, GetExecutionHistory response, or JSON string) */
+    history: ExecutionHistoryInput;
+}
+
+export interface GenerateMermaidExecutionParams {
+    /** ASL definition as object or JSON string */
+    aslDefinition: AslDefinition | string;
+    /** Execution history (events array, GetExecutionHistory response, or JSON string) */
+    history: ExecutionHistoryInput;
+}
+
+/** Status summary shared by execution overlay outputs. */
+export interface ExecutionMetadataSummary {
+    /** State names that were caught */
+    caught: string[];
+    /** State names that failed */
+    failed: string[];
+    /** State names never reached */
+    notReached: string[];
+    /** State names still running */
+    running: string[];
+    /** State names that succeeded */
+    succeeded: string[];
+    /** Number of transitions the execution followed */
+    takenEdgeCount: number;
+}
+
+/** SVG execution overlay output. */
+export interface ExecutionOutput {
+    /** Height of the diagram in pixels */
+    height: number;
+    /** Execution summary metadata */
+    metadata: ExecutionMetadataSummary & {
+        /** Number of edges in the rendered diagram */
+        edgeCount: number;
+        /** Overall execution status */
+        executionStatus: ExecutionStatus;
+        /** Number of nodes in the rendered diagram */
+        nodeCount: number;
+    };
+    /** Complete SVG markup as a string */
+    svg: string;
+    /** Width of the diagram in pixels */
+    width: number;
+}
+
+/** Mermaid execution overlay output. */
+export interface MermaidExecutionOutput {
+    /** Mermaid state diagram syntax with execution highlighting */
+    code: string;
+    /** Execution summary metadata */
+    metadata: ExecutionMetadataSummary & {
+        /** Number of transitions in the diagram */
+        edgeCount: number;
+        /** Overall execution status */
+        executionStatus: ExecutionStatus;
+        /** Number of states in the diagram */
+        stateCount: number;
+    };
 }

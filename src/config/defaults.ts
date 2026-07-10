@@ -4,13 +4,24 @@ import type { DiagramOptions } from '../types';
  * Default diagram options - used when options not provided
  */
 export const DEFAULT_DIAGRAM_OPTIONS: Required<
-    Omit<DiagramOptions, 'width' | 'height' | 'customColors' | 'iconResolver' | 'nodeOverrides'>
+    Omit<
+        DiagramOptions,
+        | 'width'
+        | 'height'
+        | 'customColors'
+        | 'iconResolver'
+        | 'nodeOverrides'
+        | 'edgeOverrides'
+        | 'nodeAnnotations'
+    >
 > & {
     width: number | undefined;
     height: number | undefined;
     customColors: DiagramOptions['customColors'];
     iconResolver: DiagramOptions['iconResolver'];
     nodeOverrides: DiagramOptions['nodeOverrides'];
+    edgeOverrides: DiagramOptions['edgeOverrides'];
+    nodeAnnotations: DiagramOptions['nodeAnnotations'];
 } = {
     // Output format
     format: 'svg',
@@ -48,8 +59,10 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     pngQuality: 90,
     backgroundColor: 'transparent',
 
-    // Diff / per-node style overrides
+    // Diff / execution overlay style overrides
     nodeOverrides: undefined,
+    edgeOverrides: undefined,
+    nodeAnnotations: undefined,
 };
 
 /**

@@ -63,6 +63,7 @@ stateDiagram-v2
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
 - **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages, plus `Catch`/`Retry` rendering
 - **Visual Diffing**: Compare two definitions and highlight added / modified / removed states — drives the PR-preview GitHub Action
+- **Execution Overlays**: Paint a real execution's history onto the diagram — succeeded/failed/caught/not-reached states, the taken path, and per-state duration & retry counts
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
@@ -314,6 +315,66 @@ stateDiagram-v2
 ```
 
 > This is exactly what the [GitHub Action](#github-action) posts on pull requests that touch ASL files.
+
+### generateExecution(params) / generateMermaidExecution(params)
+
+Overlay a **real execution** onto the diagram. Where the diff shows how a definition
+_changed_, the execution overlay shows what one _run_ actually did: which path it took,
+which states succeeded (green), failed (red), were caught and recovered (orange), or were
+never reached (grey) — plus per-state duration and retry counts.
+
+Pass the ASL definition plus the execution's history. `history` accepts the events array
+from `GetExecutionHistory`, the raw command output, or a JSON string of either — so the
+core stays credential-free and runs in the browser.
+
+```typescript
+import { generateExecution, generateMermaidExecution } from 'sfn-diagram';
+
+// history: events from `aws stepfunctions get-execution-history`, or the SDK response
+const { svg, metadata } = generateExecution({ aslDefinition: asl, history });
+
+metadata;
+// { succeeded: [...], failed: [...], caught: [...], notReached: [...], running: [...],
+//   takenEdgeCount, executionStatus, nodeCount, edgeCount }
+
+// Mermaid variant (states coloured + duration/retry annotations in labels):
+const { code } = generateMermaidExecution({ aslDefinition: asl, history });
+```
+
+> **Note:** Mermaid `stateDiagram-v2` cannot style individual transitions, so taken-path
+> emphasis in Mermaid is expressed through node colours and label annotations. The SVG
+> overlay additionally dims the transitions the run did not take.
+
+Need just the data (no rendering)? `parseExecutionHistory({ events })` returns the pure
+`ExecutionOverlay` model — per-state status, attempts, duration, and the taken edges — for
+building your own UI.
+
+```typescript
+import { parseExecutionHistory } from 'sfn-diagram';
+
+const overlay = parseExecutionHistory({ events });
+overlay.states['ProcessOrder']; // { status: 'succeeded', attempts: 1, durationMs: 1250 }
+overlay.takenEdges;             // [{ from: 'ValidateOrder', to: 'ProcessOrder' }, ...]
+```
+
+Fetching history from AWS yourself (Node):
+
+```typescript
+import { SFNClient, GetExecutionHistoryCommand } from '@aws-sdk/client-sfn';
+
+const client = new SFNClient({ region: 'us-east-1' });
+const events = [];
+let nextToken;
+do {
+  const page = await client.send(
+    new GetExecutionHistoryCommand({ executionArn, nextToken, maxResults: 1000 }),
+  );
+  events.push(...(page.events ?? []));
+  nextToken = page.nextToken;
+} while (nextToken);
+
+const { svg } = generateExecution({ aslDefinition: asl, history: events });
+```
 
 ### SfnDiagramGenerator Class
 
@@ -635,7 +696,7 @@ pnpm install
 pnpm dev
 ```
 
-Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — no install required beyond the dev server.
+Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — no install required beyond the dev server. Switch **Mode** to _Execution overlay_ to paste an execution history alongside the definition and watch the run's path light up.
 
 ### VS Code Extension
 
@@ -663,6 +724,7 @@ import { SfnDiagram } from 'sfn-diagram-react';
   format="svg"         // 'svg' (default) | 'mermaid'
   theme="dark"         // 'light' | 'dark' | CustomTheme
   layout="LR"          // 'TB' | 'LR' | 'RL' | 'BT'
+  history={history}    // optional: renders an execution overlay
   onError={(err) => console.error(err)}
 />
 ```

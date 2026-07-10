@@ -36929,12 +36929,26 @@ var DIFF_CLASS_NAMES = {
   modified: "diffModified",
   removed: "diffRemoved"
 };
+var EXECUTION_CLASS_DEFS = {
+  caught: "classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px",
+  failed: "classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px",
+  notReached: "classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px",
+  running: "classDef execRunning fill:#bbdefb,stroke:#1565c0,stroke-width:2px",
+  succeeded: "classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px"
+};
+var EXECUTION_CLASS_NAMES = {
+  caught: "execCaught",
+  failed: "execFailed",
+  notReached: "execNotReached",
+  running: "execRunning",
+  succeeded: "execSucceeded"
+};
 var MermaidRenderer = class {
   /**
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
-    const { asl, edges, nodes, stateClasses } = params;
+    const { asl, edges, executionClasses, nodeAnnotations, nodes, stateClasses } = params;
     const lines = [];
     lines.push("stateDiagram-v2");
     lines.push("");
@@ -36947,8 +36961,11 @@ var MermaidRenderer = class {
     const stateDefinitions = /* @__PURE__ */ new Set();
     nodes.forEach((node) => {
       const id = this.sanitizeId(node.id);
-      if (node.label !== node.id && !stateDefinitions.has(id)) {
-        lines.push(`    ${id}: ${this.escapeLabel(node.label)}`);
+      if (stateDefinitions.has(id)) return;
+      const annotation = nodeAnnotations?.[node.id];
+      const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
+      if (displayLabel !== node.id) {
+        lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
         stateDefinitions.add(id);
       }
     });
@@ -36975,9 +36992,15 @@ var MermaidRenderer = class {
     lines.push("    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px");
     lines.push("    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px");
     if (stateClasses && Object.keys(stateClasses).length > 0) for (const status of Object.keys(DIFF_CLASS_DEFS)) lines.push(`    ${DIFF_CLASS_DEFS[status]}`);
+    if (executionClasses && Object.keys(executionClasses).length > 0) for (const status of Object.keys(EXECUTION_CLASS_DEFS)) lines.push(`    ${EXECUTION_CLASS_DEFS[status]}`);
     lines.push("");
     nodes.forEach((node) => {
       const id = this.sanitizeId(node.id);
+      const executionStatus = executionClasses?.[node.id];
+      if (executionStatus) {
+        lines.push(`    class ${id} ${EXECUTION_CLASS_NAMES[executionStatus]}`);
+        return;
+      }
       const diffStatus = stateClasses?.[node.id];
       if (diffStatus) {
         lines.push(`    class ${id} ${DIFF_CLASS_NAMES[diffStatus]}`);
@@ -37051,7 +37074,9 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   showIcons: false,
   pngQuality: 90,
   backgroundColor: "transparent",
-  nodeOverrides: void 0
+  nodeOverrides: void 0,
+  edgeOverrides: void 0,
+  nodeAnnotations: void 0
 };
 function mergeOptions(options = {}) {
   return {

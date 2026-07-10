@@ -1,0 +1,12 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z" },
+    { "id": 2, "previousEventId": 1, "type": "PassStateEntered", "timestamp": "2024-01-01T00:00:00.100Z", "stateEnteredEventDetails": { "name": "Start" } },
+    { "id": 3, "previousEventId": 2, "type": "PassStateExited", "timestamp": "2024-01-01T00:00:00.150Z", "stateExitedEventDetails": { "name": "Start" } },
+    { "id": 4, "previousEventId": 3, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.200Z", "stateEnteredEventDetails": { "name": "Process" } },
+    { "id": 5, "previousEventId": 4, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.210Z" },
+    { "id": 6, "previousEventId": 5, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.300Z" },
+    { "id": 7, "previousEventId": 6, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:00.900Z", "taskFailedEventDetails": { "error": "Lambda.Unknown", "cause": "boom" } },
+    { "id": 8, "previousEventId": 7, "type": "ExecutionFailed", "timestamp": "2024-01-01T00:00:00.910Z", "executionFailedEventDetails": { "error": "Lambda.Unknown", "cause": "boom" } }
+  ]
+}
