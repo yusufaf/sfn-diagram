@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.6.0...sfn-diagram-v0.7.0) (2026-07-10)
+
+
+### Features
+
+* **aws:** add fetchExecutionHistory helper on sfn-diagram/aws subpath ([#21](https://github.com/yusufaf/sfn-diagram/issues/21)) ([6123c2a](https://github.com/yusufaf/sfn-diagram/commit/6123c2a22a4d618978c92ec71e2a66fa4f753fd0))
+* execution overlay — render a real run onto the diagram ([#19](https://github.com/yusufaf/sfn-diagram/issues/19)) ([8ce3d82](https://github.com/yusufaf/sfn-diagram/commit/8ce3d82da6b834bc63ddbcd5b7078fe9bcca0024))
+* **github-action:** optional execution-overlay PR comment ([#23](https://github.com/yusufaf/sfn-diagram/issues/23)) ([5fd4f33](https://github.com/yusufaf/sfn-diagram/commit/5fd4f3376eeaff446495936e20bc6d5b0b25b4fc))
+* **github-action:** render colour-highlighted mermaid diff on PRs ([70c81c9](https://github.com/yusufaf/sfn-diagram/commit/70c81c9d90f2069aeeb4dd800d28b87a761334ce))
+* **mermaid:** add generateMermaidDiff for highlighted diff diagrams ([0cc5f26](https://github.com/yusufaf/sfn-diagram/commit/0cc5f26ce94a3d524125b21590a041e0136aeb67))
+* **vscode:** add execution overlay preview ([#22](https://github.com/yusufaf/sfn-diagram/issues/22)) ([80799ec](https://github.com/yusufaf/sfn-diagram/commit/80799ec3893b390c95d86dbf2032e21c9282e3af))
+
+
+### Bug Fixes
+
+* **github-action:** avoid Marketplace name collision with mirror repo ([#17](https://github.com/yusufaf/sfn-diagram/issues/17)) ([279cdf1](https://github.com/yusufaf/sfn-diagram/commit/279cdf1193a11e79432b70b56a59858cf8ace83b))
+* **github-action:** stop monorepo from being detected as the action ([#18](https://github.com/yusufaf/sfn-diagram/issues/18)) ([166b0cd](https://github.com/yusufaf/sfn-diagram/commit/166b0cde9e1acd964d6577de810c8b3a2be7dfdb))
+
 ## [0.6.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.5.1...sfn-diagram-v0.6.0) (2026-07-08)
 
 
