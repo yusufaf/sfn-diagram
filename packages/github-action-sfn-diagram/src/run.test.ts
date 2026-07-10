@@ -14,6 +14,7 @@ vi.mock('@actions/core', () => ({
     getInput: vi.fn(),
     info: vi.fn(),
     setFailed: vi.fn(),
+    warning: vi.fn(),
 }))
 
 vi.mock('@actions/github', () => ({
@@ -22,6 +23,14 @@ vi.mock('@actions/github', () => ({
         payload: {} as Record<string, unknown>,
         repo: { owner: 'acme', repo: 'workflows' },
     },
+}))
+
+const { fetchExecutionForOverlayMock } = vi.hoisted(() => ({
+    fetchExecutionForOverlayMock: vi.fn(),
+}))
+
+vi.mock('./sfn.js', () => ({
+    fetchExecutionForOverlay: fetchExecutionForOverlayMock,
 }))
 
 const MARKER = '<!-- sfn-diagram-action:sfn-diagram-preview-->'
@@ -303,5 +312,92 @@ describe('run', () => {
         await run()
 
         expect(createdBody(stub)).toContain('<!-- sfn-diagram-action:my-preview-->')
+    })
+
+    const withExecutionInputs = (arn = 'arn:aws:states:us-east-1:1:stateMachine:order', mode = 'latest') =>
+        vi.mocked(core.getInput).mockImplementation((name: string) => {
+            if (name === 'github-token') return 'test-token'
+            if (name === 'execution-mode') return mode
+            if (name === 'state-machine-arn') return arn
+            return ''
+        })
+
+    it('does not fetch executions when execution-mode is off (default)', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(fetchExecutionForOverlayMock).not.toHaveBeenCalled()
+    })
+
+    it('appends an execution overlay section when execution-mode + state-machine-arn are set', async () => {
+        setPullRequest()
+        withExecutionInputs()
+        fetchExecutionForOverlayMock.mockResolvedValue({
+            events: [],
+            executionArn: 'arn:aws:states:us-east-1:1:execution:order:run-1',
+            status: 'SUCCEEDED',
+        })
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(fetchExecutionForOverlayMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                mode: 'latest',
+                stateMachineArn: 'arn:aws:states:us-east-1:1:stateMachine:order',
+            }),
+        )
+        const body = createdBody(stub)
+        expect(body).toContain('Execution overlay')
+        expect(body).toContain('run-1')
+        // The overlay diagram is a separate mermaid block from the diff.
+        expect(body.match(/```mermaid/g)?.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('skips the overlay (and does not fetch) when multiple ASL files changed', async () => {
+        setPullRequest()
+        withExecutionInputs()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [
+                { filename: 'flows/a.asl.json', status: 'added' },
+                { filename: 'flows/b.asl.json', status: 'added' },
+            ],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(fetchExecutionForOverlayMock).not.toHaveBeenCalled()
+        expect(createdBody(stub)).not.toContain('Execution overlay')
+    })
+
+    it('notes when no matching execution is found', async () => {
+        setPullRequest()
+        withExecutionInputs('arn:aws:states:us-east-1:1:stateMachine:order', 'latest-failed')
+        fetchExecutionForOverlayMock.mockResolvedValue(undefined)
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(fetchExecutionForOverlayMock).toHaveBeenCalledWith(
+            expect.objectContaining({ mode: 'latest-failed' }),
+        )
+        // Diff comment still posts; overlay section is simply absent.
+        expect(createdBody(stub)).not.toContain('Execution overlay')
     })
 })

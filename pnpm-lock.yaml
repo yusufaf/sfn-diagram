@@ -120,6 +120,9 @@ importers:
       '@actions/github':
         specifier: ^9.1.1
         version: 9.1.1
+      '@aws-sdk/client-sfn':
+        specifier: ^3.879.0
+        version: 3.1024.0
       minimatch:
         specifier: '>=9.0.7'
         version: 10.2.5

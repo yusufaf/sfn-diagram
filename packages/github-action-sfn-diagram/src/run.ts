@@ -1,10 +1,26 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { minimatch } from 'minimatch'
-import { generateMermaid, generateMermaidDiff } from 'sfn-diagram'
+import { generateMermaid, generateMermaidDiff, generateMermaidExecution } from 'sfn-diagram'
 import type { AslDefinition } from 'sfn-diagram'
+import { fetchExecutionForOverlay } from './sfn.js'
+import type { ExecutionMode } from './sfn.js'
 
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
+const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
+
+/** An added/modified ASL file whose after-state can be overlaid with an execution. */
+interface OverlayCandidate {
+    afterAsl: AslDefinition
+    filename: string
+}
+
+interface BuildExecutionOverlayParams {
+    candidates: OverlayCandidate[]
+    mode: Exclude<ExecutionMode, 'off'>
+    region?: string
+    stateMachineArn: string
+}
 
 interface GetFileAtRefParams {
     octokit: ReturnType<typeof github.getOctokit>
@@ -53,10 +69,85 @@ export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ')
 }
 
+/**
+ * Builds the execution-overlay comment section, or returns `null` (logging why)
+ * when it can't. Requires exactly one changed definition so the single
+ * `state-machine-arn` maps unambiguously to a diagram.
+ */
+async function buildExecutionOverlaySection(
+    params: BuildExecutionOverlayParams,
+): Promise<string | null> {
+    const { candidates, mode, region, stateMachineArn } = params
+
+    if (candidates.length === 0) {
+        core.info('Execution overlay: no added/modified ASL definition to overlay — skipping')
+        return null
+    }
+    if (candidates.length > 1) {
+        core.warning(
+            'Execution overlay: multiple ASL files changed; a single state-machine-arn cannot ' +
+                'be mapped to them — skipping. Limit the PR to one state machine or unset execution-mode.',
+        )
+        return null
+    }
+
+    const [candidate] = candidates
+
+    let execution
+    try {
+        execution = await fetchExecutionForOverlay({ mode, region, stateMachineArn })
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        core.warning(`Execution overlay: failed to fetch execution history — ${message}`)
+        return null
+    }
+
+    if (!execution) {
+        core.info(
+            `Execution overlay: no ${mode === 'latest-failed' ? 'failed ' : ''}execution found for ${stateMachineArn}`,
+        )
+        return null
+    }
+
+    const { code, metadata } = generateMermaidExecution({
+        aslDefinition: candidate.afterAsl,
+        history: execution.events,
+    })
+
+    const summary = [
+        `✅ ${metadata.succeeded.length}`,
+        `❌ ${metadata.failed.length}`,
+        `🟠 ${metadata.caught.length}`,
+        `⚪ ${metadata.notReached.length}`,
+    ].join(' · ')
+
+    let section = `### 🎬 Execution overlay — \`${candidate.filename}\`\n\n`
+    section += `> Most recent${mode === 'latest-failed' ? ' **failed**' : ''} execution: \`${execution.executionArn}\`\n`
+    section += `> Status: **${execution.status ?? metadata.executionStatus}** — ${summary} (succeeded · failed · caught · not reached)\n\n`
+    section += `<details open>\n<summary>📊 Execution diagram</summary>\n\n\`\`\`mermaid\n${code}\n\`\`\`\n\n</details>\n`
+
+    return section
+}
+
 export async function run(): Promise<void> {
     const token = core.getInput('github-token', { required: true })
     const aslGlobRaw = core.getInput('asl-glob') || '**/*.asl.json,**/*.asl'
     const commentTag = core.getInput('comment-tag') || 'sfn-diagram-preview'
+
+    const executionModeRaw = (core.getInput('execution-mode') || 'off').trim()
+    const stateMachineArn = core.getInput('state-machine-arn').trim()
+    const awsRegion = core.getInput('aws-region').trim() || undefined
+
+    let executionMode: ExecutionMode = 'off'
+    if (EXECUTION_MODES.includes(executionModeRaw as ExecutionMode)) {
+        executionMode = executionModeRaw as ExecutionMode
+    } else {
+        core.warning(`Unknown execution-mode "${executionModeRaw}"; expected one of ${EXECUTION_MODES.join(', ')}. Disabling overlay.`)
+    }
+    if (executionMode !== 'off' && !stateMachineArn) {
+        core.warning('execution-mode is set but state-machine-arn is empty; skipping the execution overlay.')
+        executionMode = 'off'
+    }
 
     const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
     const { context } = github
@@ -96,6 +187,7 @@ export async function run(): Promise<void> {
     }
 
     const sections: string[] = []
+    const overlayCandidates: OverlayCandidate[] = []
 
     for (const file of aslFiles) {
         const { filename, status } = file
@@ -116,6 +208,10 @@ export async function run(): Promise<void> {
         if (!beforeAsl && !afterAsl) {
             core.info(`Skipping ${filename}: not a valid ASL definition`)
             continue
+        }
+
+        if (afterAsl) {
+            overlayCandidates.push({ afterAsl, filename })
         }
 
         let section = `### \`${filename}\`\n\n`
@@ -148,6 +244,18 @@ export async function run(): Promise<void> {
         }
 
         sections.push(section)
+    }
+
+    if (executionMode !== 'off') {
+        const overlaySection = await buildExecutionOverlaySection({
+            candidates: overlayCandidates,
+            mode: executionMode,
+            region: awsRegion,
+            stateMachineArn,
+        })
+        if (overlaySection) {
+            sections.push(overlaySection)
+        }
     }
 
     if (sections.length === 0) {
