@@ -7,17 +7,25 @@
 # on the Marketplace when its action.yml sits at the repository root, which a
 # monorepo subdirectory cannot satisfy — hence this mirror.
 #
+# This runs automatically from the `mirror-sync` job in
+# .github/workflows/release-please.yml whenever release-please cuts a new action
+# release. It is also safe to run by hand for recovery.
+#
 # Usage:
 #   scripts/sync-action-mirror.sh
 #
 # Requirements:
-#   - `gh` authenticated with push access to the mirror repo.
+#   - `gh` authenticated with push + release access to the mirror repo. In CI,
+#     set GH_TOKEN to a token scoped to the mirror repo (the workflow mints one
+#     from the release GitHub App, which must be installed on the mirror repo
+#     with Contents: write).
+#   - The version comes from packages/github-action-sfn-diagram/package.json;
+#     release-please bumps it, so no manual edit is needed for automated runs.
 #   - Run from anywhere inside the repo.
 #
-# To cut a release: bump the version in
-# packages/github-action-sfn-diagram/package.json, run this script, then create
-# a GitHub Release for the new vX.Y.Z tag in the mirror (first time only: tick
-# "Publish this Action to the GitHub Marketplace").
+# First release of a brand-new Marketplace listing still needs a one-time manual
+# tick of "Publish this Action to the GitHub Marketplace" on the release; every
+# release after that is published automatically by this script.
 
 set -euo pipefail
 
@@ -35,10 +43,20 @@ echo "Building bundle…"
 $PNPM --filter github-action-sfn-diagram build
 
 # 2. Clone the mirror into a throwaway dir (with its tags).
+# When GH_TOKEN is set (CI), route git auth for github.com through gh so pushes
+# to the mirror use the minted token. Locally, GH_TOKEN is usually unset and the
+# developer's existing gh credentials are used.
+if [ -n "${GH_TOKEN:-}" ]; then
+  gh auth setup-git
+fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 gh repo clone "$MIRROR_REPO" "$WORK" -- --quiet
 git -C "$WORK" fetch --tags --force --quiet origin
+
+# A fresh clone on a CI runner has no committer identity — set one (overridable).
+git -C "$WORK" config user.name "${MIRROR_GIT_NAME:-sfn-diagram-release[bot]}"
+git -C "$WORK" config user.email "${MIRROR_GIT_EMAIL:-41898282+github-actions[bot]@users.noreply.github.com}"
 
 # 3. Copy the generated payload (action.yml, bundle, README, LICENSE).
 # The source is action.template.yml, not action.yml, so GitHub never detects the
@@ -74,7 +92,19 @@ git tag -f "v$MAJOR" >/dev/null
 git push -f origin "v$MAJOR"
 echo "Moved major tag v$MAJOR → v$VERSION"
 
+# 6. Publish the GitHub Release (idempotent). For an action already listed on the
+# Marketplace, a published (non-draft) release automatically becomes a new
+# Marketplace version — no per-release UI step needed after the first listing.
+if gh release view "v$VERSION" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
+  echo "Release v$VERSION already exists on $MIRROR_REPO — nothing to publish."
+else
+  gh release create "v$VERSION" \
+    --repo "$MIRROR_REPO" \
+    --target main \
+    --title "v$VERSION" \
+    --notes "Automated release of the sfn-diagram action v$VERSION. See the [monorepo changelog](https://github.com/yusufaf/sfn-diagram/blob/main/packages/github-action-sfn-diagram/CHANGELOG.md) for details."
+  echo "Published release v$VERSION on $MIRROR_REPO"
+fi
+
 echo
-echo "Done. Next: create a GitHub Release for v$VERSION at"
-echo "  https://github.com/$MIRROR_REPO/releases/new?tag=v$VERSION"
-echo "(first release only: tick 'Publish this Action to the GitHub Marketplace')."
+echo "Done. Action v$VERSION synced, tagged, and released on $MIRROR_REPO."

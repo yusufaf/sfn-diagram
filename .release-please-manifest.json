@@ -1,3 +1,4 @@
 {
-  ".": "0.7.0"
+  ".": "0.7.0",
+  "packages/github-action-sfn-diagram": "1.0.0"
 }
