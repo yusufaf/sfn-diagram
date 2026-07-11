@@ -182,6 +182,12 @@ Commit types that increment the version:
 - `fix` / `perf` → PATCH bump
 - `feat!` or `BREAKING CHANGE:` footer → MAJOR bump
 
+**Two packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
+- `.` — the `sfn-diagram` npm package. Merging the release PR publishes to npm.
+- `packages/github-action-sfn-diagram` — the GitHub Action (versioned independently, `private`, not on npm). Commits under that path — including a rebuilt `dist/` bundle from a core change — attribute to it. Merging the release PR runs the `mirror-sync` job, which syncs `scripts/sync-action-mirror.sh` to the Marketplace mirror repo (`yusufaf/sfn-diagram-action`), tags it, and publishes the Release automatically. No manual version bump or `sync:action` run is needed.
+
+release-please emits **one combined release PR** covering both packages. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
+
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
 - HelloWorldStateMachine.asl.json in root can be used for testing

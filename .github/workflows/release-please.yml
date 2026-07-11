@@ -24,6 +24,8 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      action_release_created: ${{ steps.release.outputs['packages/github-action-sfn-diagram--release_created'] }}
+      action_tag_name: ${{ steps.release.outputs['packages/github-action-sfn-diagram--tag_name'] }}
     steps:
       - uses: actions/create-github-app-token@v3
         id: app-token
@@ -96,3 +98,52 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --provenance --access public
+
+  # Sync the bundled action to its Marketplace mirror repo when release-please
+  # cut a new action release. Mirrors the npm-publish flow, but pushes to the
+  # standalone yusufaf/sfn-diagram-action repo instead of npm.
+  mirror-sync:
+    needs: release-please
+    if: needs.release-please.outputs.action_release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # A token scoped to the mirror repo. The release GitHub App must be
+      # installed on yusufaf/sfn-diagram-action with Contents: write.
+      - name: Mint mirror-scoped token
+        uses: actions/create-github-app-token@v3
+        id: mirror-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: yusufaf
+          repositories: sfn-diagram-action
+
+      - name: Checkout released action tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.action_tag_name }}
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The action bundles the root sfn-diagram package, so its dist/ must exist
+      # before the sync script rebuilds the action bundle against it.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Sync action to Marketplace mirror
+        env:
+          GH_TOKEN: ${{ steps.mirror-token.outputs.token }}
+        run: bash scripts/sync-action-mirror.sh
