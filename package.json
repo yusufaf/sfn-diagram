@@ -99,11 +99,11 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.3.0",
     "husky": "^9.1.7",
-    "node-html-to-image": "^5.0.0",
+    "node-html-to-image": "^6.2.0",
     "oxlint": "^1.69.0",
     "prettier": "3.6.2",
     "publint": "^0.3.16",
-    "puppeteer": "23.2.2",
+    "puppeteer": "25.3.0",
     "tsdown": "^0.21.7",
     "tsx": "^4.20.5",
     "turbo": "^2.10.0",
@@ -117,7 +117,7 @@
   },
   "peerDependencies": {
     "@aws-sdk/client-sfn": "^3.0.0",
-    "node-html-to-image": "^5.0.0"
+    "node-html-to-image": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-sfn": {
