@@ -72,8 +72,12 @@ export function validateAsl(params: ValidateAslParams): void {
         throw new AslValidationError('States object cannot be empty');
     }
 
+    // Set for O(1) reference checks. Every state validates its Next/Default/Choices/Catch
+    // targets, so scanning the name array per state made validation O(n^2).
+    const stateNameSet = new Set(stateNames);
+
     // Check that StartAt references an existing state
-    if (!stateNames.includes(asl.StartAt as string)) {
+    if (!stateNameSet.has(asl.StartAt as string)) {
         throw new AslValidationError(
             `StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(', ')}`
         );
@@ -81,15 +85,15 @@ export function validateAsl(params: ValidateAslParams): void {
 
     // Validate each state
     for (const [stateName, stateValue] of Object.entries(states)) {
-        validateState({ stateName, stateNames, stateValue });
+        validateState({ stateName, stateNames: stateNameSet, stateValue });
     }
 }
 
 interface ValidateStateParams {
     /** Name of the state being validated */
     stateName: string;
-    /** List of all valid state names for reference checking */
-    stateNames: string[];
+    /** All valid state names, as a set for O(1) reference checking */
+    stateNames: ReadonlySet<string>;
     /** The state object to validate */
     stateValue: unknown;
 }
@@ -123,7 +127,7 @@ function validateState(params: ValidateStateParams): void {
         if (typeof state.Next !== 'string') {
             throw new AslValidationError(`State "${stateName}": Next must be a string`);
         }
-        if (!stateNames.includes(state.Next)) {
+        if (!stateNames.has(state.Next)) {
             throw new AslValidationError(
                 `State "${stateName}": Next references non-existent state "${state.Next}"`
             );
@@ -135,7 +139,7 @@ function validateState(params: ValidateStateParams): void {
         if (typeof state.Default !== 'string') {
             throw new AslValidationError(`State "${stateName}": Default must be a string`);
         }
-        if (!stateNames.includes(state.Default)) {
+        if (!stateNames.has(state.Default)) {
             throw new AslValidationError(
                 `State "${stateName}": Default references non-existent state "${state.Default}"`
             );
@@ -147,7 +151,7 @@ function validateState(params: ValidateStateParams): void {
         for (const [index, choice] of (state.Choices as unknown[]).entries()) {
             if (choice && typeof choice === 'object' && 'Next' in choice) {
                 const choiceNext = (choice as Record<string, unknown>).Next;
-                if (typeof choiceNext === 'string' && !stateNames.includes(choiceNext)) {
+                if (typeof choiceNext === 'string' && !stateNames.has(choiceNext)) {
                     throw new AslValidationError(
                         `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`
                     );
@@ -161,7 +165,7 @@ function validateState(params: ValidateStateParams): void {
         for (const [index, catchBlock] of (state.Catch as unknown[]).entries()) {
             if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
                 const catchNext = (catchBlock as Record<string, unknown>).Next;
-                if (typeof catchNext === 'string' && !stateNames.includes(catchNext)) {
+                if (typeof catchNext === 'string' && !stateNames.has(catchNext)) {
                     throw new AslValidationError(
                         `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`
                     );

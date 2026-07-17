@@ -19,6 +19,30 @@ function timeMs(fn: () => void): number {
     return performance.now() - start;
 }
 
+interface MedianTimeMsParams {
+    /** The work to time */
+    fn: () => void;
+    /** How many samples to take */
+    runs?: number;
+}
+
+/**
+ * Median wall-clock ms across several runs.
+ *
+ * Parse times here are sub-millisecond, so a single sample is dominated by
+ * scheduling noise — especially on shared CI runners, where an unlucky
+ * denominator used to make the ratio check below fail spuriously.
+ */
+function medianTimeMs(params: MedianTimeMsParams): number {
+    const { fn, runs = 7 } = params;
+    const samples: number[] = [];
+    for (let run = 0; run < runs; run++) {
+        samples.push(timeMs(fn));
+    }
+    samples.sort((first, second) => first - second);
+    return samples[Math.floor(samples.length / 2)];
+}
+
 describe('parser scaling', () => {
     test('parses a 2000-state linear chain quickly', () => {
         const asl = buildLinearChain({ length: 2000 });
@@ -27,19 +51,22 @@ describe('parser scaling', () => {
     });
 
     test('parse time scales roughly linearly with state count', () => {
-        const small = buildLinearChain({ length: 500 });
-        const large = buildLinearChain({ length: 2000 }); // 4x the states
+        const small = buildLinearChain({ length: 1000 });
+        const large = buildLinearChain({ length: 8000 }); // 8x the states
 
         // Warm up to avoid first-run JIT skew dominating the measurement.
         parseAsl({ definition: small });
         parseAsl({ definition: large });
 
-        const smallTime = timeMs(() => parseAsl({ definition: small })) || 0.01;
-        const largeTime = timeMs(() => parseAsl({ definition: large }));
+        const smallTime = medianTimeMs({ fn: () => parseAsl({ definition: small }) }) || 0.01;
+        const largeTime = medianTimeMs({ fn: () => parseAsl({ definition: large }) });
 
-        // 4x input should stay well under quadratic (16x). Allow 10x headroom
-        // for measurement noise; an O(n^2) regression would blow past this.
-        expect(largeTime / smallTime).toBeLessThan(10);
+        // 8x input costs ~12x on linear code (GC and cache effects add a little
+        // over the ideal 8x) versus ~64x if quadratic. 24x sits well clear of
+        // both. The span has to be this wide to separate the two curves: across
+        // a 4x span the quadratic term is still too small to stand out from
+        // noise, which is how an O(n^2) validator once passed this check.
+        expect(largeTime / smallTime).toBeLessThan(24);
     });
 
     test('parses a wide Parallel without quadratic blowup', () => {
