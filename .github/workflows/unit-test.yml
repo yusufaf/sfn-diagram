@@ -26,7 +26,7 @@ jobs:
       - name: Install
         run: pnpm install
 
-      # PNG export (node-html-to-image) launches puppeteer 23.2.2 with
+      # PNG export (node-html-to-image) launches puppeteer 25.3.0 with
       # headless: "shell", so it needs the chrome-headless-shell binary in
       # puppeteer's cache (~/.cache/puppeteer) — not just chrome. Install both
       # explicitly rather than relying on puppeteer's postinstall, which pnpm may
