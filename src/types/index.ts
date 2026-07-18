@@ -5,6 +5,7 @@ import type {
 } from '@aws-sdk/client-sfn';
 
 // ASL Definition Types
+/** The set of Amazon States Language state types a state machine can contain. */
 export type StateType =
     | 'Pass'
     | 'Task'
@@ -15,12 +16,14 @@ export type StateType =
     | 'Parallel'
     | 'Map';
 
+/** An ASL `Catch` handler: routes matching errors to a fallback state. */
 export interface CatchBlock {
     ErrorEquals: string[];
     Next?: string;
     ResultPath?: string;
 }
 
+/** An ASL `Retry` policy: re-attempts a state on matching errors with backoff. */
 export interface RetryBlock {
     BackoffRate?: number;
     ErrorEquals: string[];
@@ -28,6 +31,7 @@ export interface RetryBlock {
     MaxAttempts?: number;
 }
 
+/** A single rule in a Choice state: a condition plus the `Next` state to take when it matches. */
 export interface ChoiceRule {
     BooleanEquals?: boolean;
     Next: string;
@@ -38,6 +42,7 @@ export interface ChoiceRule {
     [key: string]: any; // AWS ASL spec allows arbitrary condition types
 }
 
+/** A single state within an ASL definition, covering fields for every state type. */
 export interface AslState {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
@@ -69,6 +74,7 @@ export interface AslState {
     Type: StateType;
 }
 
+/** A complete Amazon States Language state machine definition. */
 export interface AslDefinition {
     Comment?: string;
     QueryLanguage?: 'JSONata' | 'JSONPath';
@@ -79,6 +85,7 @@ export interface AslDefinition {
 }
 
 // Internal Graph Types
+/** A positioned graph node in the internal diagram model, produced from an ASL state. */
 export interface StateNode {
     /** Child node IDs (for container nodes like Parallel/Map) */
     children?: string[];
@@ -106,6 +113,7 @@ export type EdgeType = 'normal' | 'error' | 'choice' | 'default' | 'retry';
 /** Diff status of a state between two ASL definitions */
 export type DiffStatus = 'added' | 'modified' | 'removed';
 
+/** A directed transition between two graph nodes in the internal diagram model. */
 export interface GraphEdge {
     condition?: string;
     from: string;
@@ -118,6 +126,7 @@ export interface GraphEdge {
 /** Node shape types for rendering state nodes */
 export type NodeShape = 'rect' | 'diamond' | 'circle';
 
+/** Visual styling (fill, stroke, shape) applied to a rendered state node. */
 export interface NodeStyle {
     fill: string;
     stroke: string;
@@ -140,6 +149,7 @@ export interface EdgeStyleOverride {
 }
 
 // Theme Types
+/** A fully-specified colour/typography theme for diagram rendering. */
 export interface CustomTheme {
     background: string;
     edgeColors: {
@@ -176,6 +186,7 @@ export type CatchLabelStyle = 'error-type' | 'catch-number';
 export type StylePreset = 'aws-standard' | 'enhanced';
 
 // Configuration Types
+/** Shared configuration options accepted by every diagram-generation function. */
 export interface DiagramOptions {
     /**
      * Background color for PNG export
@@ -364,29 +375,35 @@ export interface PngOutput {
     width: number;
 }
 
+/** Any diagram-generation result: SVG, Mermaid, or PNG output. */
 export type DiagramOutput = SvgOutput | MermaidOutput | PngOutput;
 
 // Function Parameter Types (object-based API)
+/** Parameters for {@link SvgOutput}-producing `generateSvg`. */
 export interface GenerateSvgParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
 }
 
+/** Parameters for `generateMermaid`. */
 export interface GenerateMermaidParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
 }
 
+/** Parameters for the format-dispatching `generateDiagram`. */
 export interface GenerateDiagramParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
 }
 
+/** Parameters for `exportPng` (from the `sfn-diagram/png` subpath). */
 export interface ExportPngParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
 }
 
+/** Parameters for `generateFromAwsResponse`, which accepts a raw AWS SDK response. */
 export interface GenerateFromAwsParams extends DiagramOptions {
     /** AWS SDK DescribeStateMachine command output */
     response: DescribeStateMachineCommandOutput;
@@ -425,6 +442,7 @@ export interface DiffOutput {
     width: number;
 }
 
+/** Parameters for `generateDiff`, comparing two ASL definitions into an SVG diff. */
 export interface GenerateDiffParams extends DiagramOptions {
     /** The new (head) ASL definition */
     after: AslDefinition | string;
@@ -460,6 +478,7 @@ export interface MermaidDiffOutput {
     };
 }
 
+/** Parameters for `generateMermaidDiff`, comparing two ASL definitions into a Mermaid diff. */
 export interface GenerateMermaidDiffParams {
     /** The new (head) ASL definition */
     after: AslDefinition | string;
@@ -536,6 +555,7 @@ export type ExecutionHistoryInput =
     | { events: HistoryEvent[] }
     | string;
 
+/** Parameters for `generateExecution`, overlaying an execution's outcome onto an SVG diagram. */
 export interface GenerateExecutionParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
@@ -543,6 +563,7 @@ export interface GenerateExecutionParams extends DiagramOptions {
     history: ExecutionHistoryInput;
 }
 
+/** Parameters for `generateMermaidExecution`, overlaying an execution's outcome onto a Mermaid diagram. */
 export interface GenerateMermaidExecutionParams {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;

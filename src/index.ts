@@ -1,3 +1,28 @@
+/**
+ * @module
+ *
+ * Core entry point for `sfn-diagram` — generate diagrams from AWS Step Functions
+ * ASL (Amazon States Language) definitions. This module is platform-agnostic and
+ * runs in Node, browsers, and edge runtimes.
+ *
+ * It exposes both a function-based API ({@link generateSvg}, {@link generateMermaid},
+ * {@link generateDiagram}, {@link generateFromAwsResponse}) and a class-based API
+ * ({@link SfnDiagramGenerator}), plus diff, execution-overlay, and ASL-validation
+ * helpers. PNG export lives in the Node-only `sfn-diagram/png` subpath; AWS SDK
+ * helpers live in `sfn-diagram/aws`.
+ *
+ * @example
+ * ```typescript
+ * import { generateSvg } from 'sfn-diagram';
+ *
+ * const { svg } = generateSvg({
+ *   aslDefinition: {
+ *     StartAt: 'HelloWorld',
+ *     States: { HelloWorld: { Type: 'Pass', End: true } },
+ *   },
+ * });
+ * ```
+ */
 import { parseAsl } from './AslParser';
 import { DagreLayout } from './layout';
 import { SvgRenderer, MermaidRenderer } from './renderers';
