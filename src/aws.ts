@@ -1,5 +1,7 @@
 /**
- * Node-only AWS convenience helpers for `sfn-diagram`.
+ * @module
+ *
+ * Node-only AWS convenience helpers for `sfn-diagram` (the `sfn-diagram/aws` subpath).
  *
  * This subpath (`sfn-diagram/aws`) is isolated from the core entry so that
  * importing `sfn-diagram` never pulls in `@aws-sdk/client-sfn`, keeping the core
