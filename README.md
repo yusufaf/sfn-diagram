@@ -113,7 +113,9 @@ npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
 cat state.asl.json | npx sfn-diagram - --format svg
 ```
 
-Flags: `--format <svg|mermaid|png|html>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `--hide-catch`, `-h/--help`, `-v/--version`.
+Flags: `--format <svg|mermaid|png|html>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `--hide-catch`, `--resolve-cfn`, `--resource <logicalId>`, `-h/--help`, `-v/--version`.
+
+CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](#extracting-asl-from-a-cdkcloudformation-template).
 
 > **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
 
@@ -274,6 +276,35 @@ const { svg } = generateFromAwsResponse({
   theme: 'dark'
 });
 ```
+
+### Extracting ASL from a CDK/CloudFormation template
+
+`cdk synth` emits a state machine whose `DefinitionString` is an `Fn::Join` full
+of intrinsics, not plain ASL. The `sfn-diagram/cfn` subpath flattens it:
+
+```typescript
+import { extractAslFromTemplate } from 'sfn-diagram/cfn';
+import { generateMermaid } from 'sfn-diagram';
+
+const { aslDefinition, warnings } = extractAslFromTemplate({ template: cdkSynthJson });
+const { code } = generateMermaid({ aslDefinition });
+```
+
+Both JSON and YAML templates are supported (CloudFormation short-form tags like
+`!Sub` / `!GetAtt` included), and `DefinitionSubstitutions` are applied. When a
+template contains more than one state machine, pass `resourceId` to pick one.
+
+CLI (JSON templates auto-detect; use `--resolve-cfn` for YAML):
+
+```bash
+cdk synth > template.json
+npx sfn-diagram template.json --format mermaid
+npx sfn-diagram template.yaml --resolve-cfn --resource MyMachine --format svg -o out.svg
+```
+
+Intrinsics that don't affect the flow become readable placeholders
+(`${AWS::Partition}`, `<Ref:LogicalId>`). External `DefinitionUri` definitions
+are not supported — pass a template with an inline definition.
 
 ### generateMermaidDiff(params) / generateDiff(params)
 
