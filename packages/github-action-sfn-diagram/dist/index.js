@@ -62332,12 +62332,19 @@ var EXECUTION_CLASS_NAMES = {
   succeeded: "execSucceeded"
 };
 var MermaidRenderer = class {
+  /** Maps an original state id to its allocated, collision-safe Mermaid id. */
+  idMap = /* @__PURE__ */ new Map();
+  /** Set of Mermaid ids already handed out in the current render pass. */
+  usedIds = /* @__PURE__ */ new Set();
   /**
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
     const { asl, edges, executionClasses, nodeAnnotations, nodes, stateClasses } = params;
     const lines = [];
+    this.idMap = /* @__PURE__ */ new Map();
+    this.usedIds = /* @__PURE__ */ new Set();
+    nodes.forEach((node) => this.mermaidId(node.id));
     lines.push("stateDiagram-v2");
     lines.push("");
     const startState = this.findStartState({
@@ -62345,22 +62352,22 @@ var MermaidRenderer = class {
       edges,
       nodes
     });
-    if (startState) lines.push(`    [*] --> ${this.sanitizeId(startState)}`);
+    if (startState) lines.push(`    [*] --> ${this.mermaidId(startState)}`);
     const stateDefinitions = /* @__PURE__ */ new Set();
     nodes.forEach((node) => {
-      const id = this.sanitizeId(node.id);
+      const id = this.mermaidId(node.id);
       if (stateDefinitions.has(id)) return;
       const annotation = nodeAnnotations?.[node.id];
       const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
-      if (displayLabel !== node.id) {
+      if (displayLabel !== id) {
         lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
         stateDefinitions.add(id);
       }
     });
     if (stateDefinitions.size > 0) lines.push("");
     edges.forEach((edge) => {
-      const from = this.sanitizeId(edge.from);
-      const to = this.sanitizeId(edge.to);
+      const from = this.mermaidId(edge.from);
+      const to = this.mermaidId(edge.to);
       if (edge.label || edge.condition) {
         const label = this.escapeLabel(edge.condition || edge.label || "");
         lines.push(`    ${from} --> ${to}: ${label}`);
@@ -62370,7 +62377,7 @@ var MermaidRenderer = class {
     if (endStates.length > 0) {
       lines.push("");
       endStates.forEach((node) => {
-        const id = this.sanitizeId(node.id);
+        const id = this.mermaidId(node.id);
         lines.push(`    ${id} --> [*]`);
       });
     }
@@ -62383,7 +62390,7 @@ var MermaidRenderer = class {
     if (executionClasses && Object.keys(executionClasses).length > 0) for (const status of Object.keys(EXECUTION_CLASS_DEFS)) lines.push(`    ${EXECUTION_CLASS_DEFS[status]}`);
     lines.push("");
     nodes.forEach((node) => {
-      const id = this.sanitizeId(node.id);
+      const id = this.mermaidId(node.id);
       const executionStatus = executionClasses?.[node.id];
       if (executionStatus) {
         lines.push(`    class ${id} ${EXECUTION_CLASS_NAMES[executionStatus]}`);
@@ -62418,10 +62425,24 @@ var MermaidRenderer = class {
     };
   }
   /**
-  * Sanitize state ID for Mermaid (no spaces, special chars)
+  * Resolve an original state id to a collision-safe Mermaid id.
+  *
+  * Sanitizes the id (non-`[a-zA-Z0-9_]` chars become `_`) and guarantees
+  * uniqueness within a render: if the sanitized base is already taken by a
+  * different original id, a numeric suffix (`_2`, `_3`, …) is appended.
+  * Results are cached per original id so every reference (node definition,
+  * edge endpoint, class assignment) resolves to the same id.
   */
-  sanitizeId(id) {
-    return id.replace(/[^a-zA-Z0-9_]/g, "_");
+  mermaidId(originalId) {
+    const cached = this.idMap.get(originalId);
+    if (cached) return cached;
+    const base = originalId.replace(/[^a-zA-Z0-9_]/g, "_") || "state";
+    let candidate = base;
+    let counter = 2;
+    while (this.usedIds.has(candidate)) candidate = `${base}_${counter++}`;
+    this.usedIds.add(candidate);
+    this.idMap.set(originalId, candidate);
+    return candidate;
   }
   /**
   * Escape label text for Mermaid
