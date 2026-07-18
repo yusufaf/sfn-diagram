@@ -2,7 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bootstrap-sha": "80799ec3893b390c95d86dbf2032e21c9282e3af",
   "packages": {
-    ".": { "release-type": "node" },
+    ".": {
+      "release-type": "node",
+      "extra-files": [
+        { "type": "json", "path": "jsr.json", "jsonpath": "$.version" }
+      ]
+    },
     "packages/github-action-sfn-diagram": {
       "component": "github-action-sfn-diagram",
       "release-type": "node"

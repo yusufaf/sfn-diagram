@@ -1,0 +1,14 @@
+{
+  "$schema": "https://jsr.io/schema/config-file.v1.json",
+  "name": "@yusufaf/sfn-diagram",
+  "version": "0.7.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./png": "./src/png.ts",
+    "./aws": "./src/aws.ts"
+  },
+  "publish": {
+    "include": ["src/**/*.ts", "README.md", "LICENSE", "jsr.json"],
+    "exclude": ["src/**/*.test.ts", "dist", "tests"]
+  }
+}

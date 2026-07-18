@@ -99,6 +99,42 @@ jobs:
       - name: Publish to npm
         run: npm publish --provenance --access public
 
+  # Publish to JSR (jsr.io) alongside npm. JSR reads TypeScript source directly,
+  # so no build/browser install is needed. Tokenless OIDC — id-token: write, no
+  # secret. Requires the JSR package to be linked to this GitHub repo (one-time,
+  # in JSR package settings). `jsr publish` no-ops if the version already exists,
+  # so this is safe on both release merges and manual dispatch.
+  jsr-publish:
+    needs: release-please
+    if: |
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish to JSR
+        run: npx jsr publish
+
   # Sync the bundled action to its Marketplace mirror repo when release-please
   # cut a new action release. Mirrors the npm-publish flow, but pushes to the
   # standalone yusufaf/sfn-diagram-action repo instead of npm.
