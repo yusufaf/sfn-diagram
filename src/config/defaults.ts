@@ -46,6 +46,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     includeComments: true,
     showStateTypes: false,
     edgeStyle: 'curved',
+    catchHandling: 'show',
     catchLabelStyle: 'error-type',
     stylePreset: 'aws-standard',
 

@@ -51,3 +51,24 @@ test('can create minimal diagram', () => {
     expect(result.width).toBeGreaterThan(0);
     expect(result.height).toBeGreaterThan(0);
 });
+
+test('catchHandling hide drops error-handler branches', () => {
+    const asl: AslDefinition = {
+        StartAt: 'T',
+        States: {
+            T: {
+                Type: 'Task',
+                Resource: 'arn:x',
+                Next: 'Done',
+                Catch: [{ ErrorEquals: ['States.ALL'], Next: 'H' }],
+            },
+            H: { Type: 'Fail', Error: 'x' },
+            Done: { Type: 'Succeed' },
+        },
+    };
+    const shown = generateMermaid({ aslDefinition: asl });
+    const hidden = generateMermaid({ aslDefinition: asl, catchHandling: 'hide' });
+    expect(shown.code).toContain('H');
+    expect(hidden.code).not.toContain(' H\n');
+    expect(hidden.metadata.stateCount).toBeLessThan(shown.metadata.stateCount);
+});

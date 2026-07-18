@@ -182,6 +182,9 @@ export type EdgePathStyle = 'straight' | 'curved' | 'orthogonal';
 /** Catch/Retry label display style */
 export type CatchLabelStyle = 'error-type' | 'catch-number';
 
+/** How per-state Catch (error-handler) branches are treated in the diagram. */
+export type CatchHandling = 'hide' | 'show';
+
 /** Visual style preset for node shapes */
 export type StylePreset = 'aws-standard' | 'enhanced';
 
@@ -193,6 +196,14 @@ export interface DiagramOptions {
      * @default 'transparent'
      */
     backgroundColor?: string | 'transparent';
+
+    /**
+     * How to treat per-state Catch (error-handler) branches.
+     * 'show' (default) renders them; 'hide' drops error edges and handler-only
+     * nodes so the happy path reads clearly on large machines.
+     * @default 'show'
+     */
+    catchHandling?: CatchHandling;
 
     /**
      * Style for Catch block edge labels: 'error-type' shows error names, 'catch-number' shows "Catch #N"

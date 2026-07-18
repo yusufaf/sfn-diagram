@@ -24,6 +24,7 @@
  * ```
  */
 import { parseAsl } from './AslParser';
+import { applyCatchHandling } from './graph';
 import { DagreLayout } from './layout';
 import { SvgRenderer, MermaidRenderer } from './renderers';
 import { mergeOptions } from './config';
@@ -107,9 +108,17 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
     // Parse ASL to graph
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
 
+    // Apply catch handling (drops error branches when mode is 'hide')
+    const graph = applyCatchHandling({
+        edges,
+        mode: mergedOptions.catchHandling ?? 'show',
+        nodes,
+        startStateId: aslObj.StartAt,
+    });
+
     // Calculate layout
     const layout = new DagreLayout(mergedOptions);
-    const positioned = layout.calculate(nodes, edges);
+    const positioned = layout.calculate(graph.nodes, graph.edges);
 
     // Render SVG
     const renderer = new SvgRenderer(mergedOptions);
@@ -170,8 +179,16 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
 
+    // Apply catch handling (drops error branches when mode is 'hide')
+    const graph = applyCatchHandling({
+        edges,
+        mode: mergedOptions.catchHandling ?? 'show',
+        nodes,
+        startStateId: aslObj.StartAt,
+    });
+
     const renderer = new MermaidRenderer();
-    return renderer.render({ nodes, edges, asl: aslObj });
+    return renderer.render({ nodes: graph.nodes, edges: graph.edges, asl: aslObj });
 }
 
 /**
@@ -414,6 +431,7 @@ export type {
     EdgeType,
     DiffStatus,
     NodeShape,
+    CatchHandling,
 } from './types';
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
