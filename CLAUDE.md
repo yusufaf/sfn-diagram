@@ -86,17 +86,12 @@ Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map - each with distinct visu
 
 ## Current Status
 
-✅ **Core Implementation Complete**
-- All rendering engines implemented (SVG, Mermaid, PNG)
-- Full type safety (no `any` types)
-- Public API finalized
-- Build succeeds (~54KB gzipped)
-
-🚧 **In Progress**
-- Comprehensive test suite needed
-- Documentation and examples needed
-- Consider barrel exports (index.ts in folders)
-- Enhance JSDoc annotations for public API
+✅ **Shipped**
+- All rendering engines (SVG, Mermaid, HTML, PNG) plus diff and execution overlays
+- Template input via `sfn-diagram/cfn` (CloudFormation/SAM/CDK), AWS SDK input via `sfn-diagram/aws`
+- CLI (`sfn-diagram`), published to npm and JSR
+- Full type safety (no `any` types), JSR no-slow-types clean
+- Comprehensive test suite (`pnpm test`) and README documentation
 
 ## Development Guidelines
 
