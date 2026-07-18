@@ -15,11 +15,14 @@ export interface ApplyCatchHandlingParams {
 /**
  * Apply catch-branch handling to a parsed graph.
  *
- * In 'hide' mode, removes every error edge and then any node left reachable only
- * through catch branches (per-state error handlers and the chains they lead to),
- * iterating to a fixed point. Nodes still on the happy path — those with a
- * non-error incoming edge, plus the start state — are always kept. In 'show'
- * mode the graph is returned unchanged.
+ * In 'hide' mode, removes every error edge and then any node that is not
+ * reachable from the start state by following the remaining (non-error) edges.
+ * This drops catch-handler chains entirely, including ones that only reference
+ * each other (e.g. a cyclic handler chain unreachable from the happy path), since
+ * reachability is computed with a single forward pass from the start state rather
+ * than an incoming-edge check. If no start state id is provided, every node that
+ * still has a surviving incoming or outgoing edge is kept instead. In 'show' mode
+ * the graph is returned unchanged.
  */
 export function applyCatchHandling(params: ApplyCatchHandlingParams): {
     edges: GraphEdge[];
@@ -32,30 +35,46 @@ export function applyCatchHandling(params: ApplyCatchHandlingParams): {
     }
 
     // Drop error edges up front.
-    let keptEdges = edges.filter((edge) => edge.type !== 'error');
-    let keptNodes = nodes;
+    const keptEdges = edges.filter((edge) => edge.type !== 'error');
 
-    // Iteratively drop nodes that have no non-error incoming edge and are not the
-    // start state — this sweeps handler chains, not just direct handler targets.
-    let changed = true;
-    while (changed) {
-        changed = false;
-        const reachableTargets = new Set(keptEdges.map((edge) => edge.to));
+    let reachableIds: Set<string>;
+    if (startStateId !== undefined) {
+        // Forward reachability from the start state over the kept edges.
+        const adjacency = new Map<string, string[]>();
+        for (const edge of keptEdges) {
+            const targets = adjacency.get(edge.from);
+            if (targets) {
+                targets.push(edge.to);
+            } else {
+                adjacency.set(edge.from, [edge.to]);
+            }
+        }
 
-        const survivingNodes = keptNodes.filter((node) => {
-            if (node.id === startStateId) return true;
-            return reachableTargets.has(node.id);
-        });
-
-        if (survivingNodes.length !== keptNodes.length) {
-            const survivingIds = new Set(survivingNodes.map((node) => node.id));
-            keptNodes = survivingNodes;
-            keptEdges = keptEdges.filter(
-                (edge) => survivingIds.has(edge.from) && survivingIds.has(edge.to),
-            );
-            changed = true;
+        reachableIds = new Set([startStateId]);
+        const queue = [startStateId];
+        while (queue.length > 0) {
+            const currentId = queue.shift() as string;
+            for (const targetId of adjacency.get(currentId) ?? []) {
+                if (!reachableIds.has(targetId)) {
+                    reachableIds.add(targetId);
+                    queue.push(targetId);
+                }
+            }
+        }
+    } else {
+        // Fall back to keeping any node still touched by a kept edge.
+        reachableIds = new Set<string>();
+        for (const edge of keptEdges) {
+            reachableIds.add(edge.from);
+            reachableIds.add(edge.to);
         }
     }
 
-    return { edges: keptEdges, nodes: keptNodes };
+    const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
+    const survivingIds = new Set(survivingNodes.map((node) => node.id));
+    const survivingEdges = keptEdges.filter(
+        (edge) => survivingIds.has(edge.from) && survivingIds.has(edge.to),
+    );
+
+    return { edges: survivingEdges, nodes: survivingNodes };
 }

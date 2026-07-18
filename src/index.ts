@@ -111,7 +111,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
     // Apply catch handling (drops error branches when mode is 'hide')
     const graph = applyCatchHandling({
         edges,
-        mode: mergedOptions.catchHandling ?? 'show',
+        mode: mergedOptions.catchHandling,
         nodes,
         startStateId: aslObj.StartAt,
     });
@@ -182,7 +182,7 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
     // Apply catch handling (drops error branches when mode is 'hide')
     const graph = applyCatchHandling({
         edges,
-        mode: mergedOptions.catchHandling ?? 'show',
+        mode: mergedOptions.catchHandling,
         nodes,
         startStateId: aslObj.StartAt,
     });

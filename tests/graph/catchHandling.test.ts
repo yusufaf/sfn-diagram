@@ -45,4 +45,56 @@ describe('applyCatchHandling', () => {
         const result = applyCatchHandling({ edges, mode: 'hide', nodes, startStateId: 'TaskA' });
         expect(result.nodes.map((node) => node.id)).toContain('TaskA');
     });
+
+    it("'hide' removes a multi-hop acyclic handler chain", () => {
+        const multiHopAsl: AslDefinition = {
+            StartAt: 'TaskA',
+            States: {
+                TaskA: {
+                    Type: 'Task',
+                    Resource: 'arn:a',
+                    Next: 'Done',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'H1' }],
+                },
+                H1: { Type: 'Pass', Next: 'H2' },
+                H2: { Type: 'Fail', Error: 'H2' },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const { nodes, edges } = parseAsl({ definition: multiHopAsl });
+        const result = applyCatchHandling({ edges, mode: 'hide', nodes, startStateId: 'TaskA' });
+        const ids = result.nodes.map((node) => node.id);
+        expect(ids).toContain('TaskA');
+        expect(ids).toContain('Done');
+        expect(ids).not.toContain('H1');
+        expect(ids).not.toContain('H2');
+    });
+
+    it("'hide' removes a cyclic handler chain unreachable from the start state", () => {
+        // TaskA --Catch--> HandleA --Next--> HandleB --Next--> HandleA
+        // HandleA/HandleB reference each other, so a naive "keep any node with a
+        // surviving incoming edge" check wrongly keeps both. Only forward
+        // reachability from the start state correctly removes them.
+        const cyclicAsl: AslDefinition = {
+            StartAt: 'TaskA',
+            States: {
+                TaskA: {
+                    Type: 'Task',
+                    Resource: 'arn:a',
+                    Next: 'Done',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'HandleA' }],
+                },
+                HandleA: { Type: 'Pass', Next: 'HandleB' },
+                HandleB: { Type: 'Pass', Next: 'HandleA' },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const { nodes, edges } = parseAsl({ definition: cyclicAsl });
+        const result = applyCatchHandling({ edges, mode: 'hide', nodes, startStateId: 'TaskA' });
+        const ids = result.nodes.map((node) => node.id);
+        expect(ids).toContain('TaskA');
+        expect(ids).toContain('Done');
+        expect(ids).not.toContain('HandleA');
+        expect(ids).not.toContain('HandleB');
+    });
 });
