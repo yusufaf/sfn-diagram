@@ -1,0 +1,13 @@
+{
+  "Resources": {
+    "Subbed": {
+      "Type": "AWS::StepFunctions::StateMachine",
+      "Properties": {
+        "DefinitionString": {
+          "Fn::Sub": "{\"StartAt\":\"Call\",\"States\":{\"Call\":{\"Type\":\"Task\",\"Resource\":\"${LambdaArn}\",\"End\":true}}}"
+        },
+        "DefinitionSubstitutions": { "LambdaArn": "<Ref:MyLambda>" }
+      }
+    }
+  }
+}
