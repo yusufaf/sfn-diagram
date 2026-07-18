@@ -186,4 +186,32 @@ describe('run', () => {
         expect(code).toBe(1);
         expect(stderrData).toContain('Error:');
     });
+
+    it('--hide-catch removes error-handler nodes from output', async () => {
+        const asl = JSON.stringify({
+            StartAt: 'T',
+            States: {
+                T: {
+                    Type: 'Task',
+                    Resource: 'arn:x',
+                    Next: 'Done',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'H' }],
+                },
+                H: { Type: 'Fail', Error: 'x' },
+                Done: { Type: 'Succeed' },
+            },
+        });
+        const inputPath = join(tempDir, 'catch.asl.json');
+        writeFileSync(inputPath, asl);
+
+        const withCatchCode = await run([inputPath, '--format', 'mermaid']);
+        const withCatch = stdoutData;
+        expect(withCatchCode).toBe(0);
+        expect(withCatch).toContain('H');
+
+        stdoutData = '';
+        const withoutCode = await run([inputPath, '--format', 'mermaid', '--hide-catch']);
+        expect(withoutCode).toBe(0);
+        expect(stdoutData).not.toContain(' H\n');
+    });
 });

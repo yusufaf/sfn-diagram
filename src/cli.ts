@@ -8,6 +8,7 @@ import type { DiagramFormat, LayoutDirection, ThemeOption } from './types';
 
 export interface CliArgs {
     format: DiagramFormat;
+    hideCatch: boolean;
     input: string | null;
     layout: LayoutDirection;
     output: string | null;
@@ -27,6 +28,7 @@ Options:
   -o, --output <path>          Output file path (required for png; stdout otherwise)
   --theme <light|dark>         Color theme for SVG/PNG (default: light)
   --layout <TB|LR|RL|BT>       Graph layout direction (default: TB)
+  --hide-catch                 Drop error-handler (Catch) branches from the diagram
   -h, --help                   Show this help and exit
   -v, --version                Show version and exit
 
@@ -39,6 +41,7 @@ Examples:
 export function parseArgs(argv: string[]): CliArgs {
     const args: CliArgs = {
         format: 'svg',
+        hideCatch: false,
         input: null,
         layout: 'TB',
         output: null,
@@ -104,6 +107,10 @@ export function parseArgs(argv: string[]): CliArgs {
                 );
             }
             args.layout = value as LayoutDirection;
+            continue;
+        }
+        if (arg === '--hide-catch') {
+            args.hideCatch = true;
             continue;
         }
         if (arg.startsWith('--') || (arg.startsWith('-') && arg !== '-')) {
@@ -189,7 +196,10 @@ export async function run(argv: string[]): Promise<number> {
 
     try {
         if (args.format === 'mermaid') {
-            const result = generateMermaid({ aslDefinition: aslSource });
+            const result = generateMermaid({
+                aslDefinition: aslSource,
+                catchHandling: args.hideCatch ? 'hide' : 'show',
+            });
             writeOutput(result.code, args.output);
             return 0;
         }
@@ -197,6 +207,7 @@ export async function run(argv: string[]): Promise<number> {
         if (args.format === 'svg') {
             const result = generateSvg({
                 aslDefinition: aslSource,
+                catchHandling: args.hideCatch ? 'hide' : 'show',
                 layout: args.layout,
                 theme: args.theme,
             });
@@ -206,6 +217,7 @@ export async function run(argv: string[]): Promise<number> {
 
         const result = await exportPng({
             aslDefinition: aslSource,
+            catchHandling: args.hideCatch ? 'hide' : 'show',
             layout: args.layout,
             theme: args.theme,
         });
