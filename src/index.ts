@@ -26,16 +26,18 @@
 import { parseAsl } from './AslParser';
 import { applyCatchHandling } from './graph';
 import { DagreLayout } from './layout';
-import { SvgRenderer, MermaidRenderer } from './renderers';
+import { SvgRenderer, MermaidRenderer, wrapSvgInInteractiveHtml } from './renderers';
 import { mergeOptions } from './config';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
+    GenerateHtmlParams,
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
+    HtmlOutput,
     AslDefinition,
 } from './types';
 
@@ -189,6 +191,37 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 
     const renderer = new MermaidRenderer();
     return renderer.render({ nodes: graph.nodes, edges: graph.edges, asl: aslObj });
+}
+
+/**
+ * Generate a self-contained interactive HTML diagram (pan/zoom viewer) from an
+ * ASL definition. Wraps the SVG output in an HTML document with an inline
+ * vanilla-JS controller — no external dependencies, works offline.
+ *
+ * @param params - ASL definition plus the same options as {@link generateSvg}.
+ * @returns The HTML document string plus dimensions and metadata.
+ *
+ * @example
+ * ```typescript
+ * import { generateHtml } from 'sfn-diagram';
+ * import { writeFileSync } from 'node:fs';
+ * const { html } = generateHtml({ aslDefinition: asl });
+ * writeFileSync('diagram.html', html);
+ * ```
+ */
+export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
+    const { aslDefinition, ...options } = params;
+    const svgOutput = generateSvg({ aslDefinition, ...options });
+    return {
+        height: svgOutput.height,
+        html: wrapSvgInInteractiveHtml({
+            height: svgOutput.height,
+            svg: svgOutput.svg,
+            width: svgOutput.width,
+        }),
+        metadata: svgOutput.metadata,
+        width: svgOutput.width,
+    };
 }
 
 /**
@@ -399,6 +432,7 @@ export type {
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
+    HtmlOutput,
     DiffOutput,
     MermaidDiffOutput,
     StateNode,
@@ -407,6 +441,7 @@ export type {
     CustomTheme,
     GenerateSvgParams,
     GenerateMermaidParams,
+    GenerateHtmlParams,
     GenerateDiagramParams,
     GenerateDiffParams,
     GenerateMermaidDiffParams,

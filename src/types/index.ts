@@ -168,7 +168,7 @@ export interface CustomTheme {
 
 // Diagram Configuration Union Types
 /** Supported output formats for diagram generation */
-export type DiagramFormat = 'svg' | 'mermaid' | 'png';
+export type DiagramFormat = 'html' | 'mermaid' | 'png' | 'svg';
 
 /** Theme options: built-in themes or custom theme object */
 export type ThemeOption = 'light' | 'dark' | CustomTheme;
@@ -353,6 +353,27 @@ export interface SvgOutput {
     width: number;
 }
 
+/** Self-contained interactive HTML diagram output. */
+export interface HtmlOutput {
+    /** Height of the diagram in pixels. */
+    height: number;
+
+    /** Complete, self-contained HTML document with an inline pan/zoom viewer. */
+    html: string;
+
+    /** Metadata about the generated diagram. */
+    metadata: {
+        /** Number of edges (transitions) in the diagram. */
+        edgeCount: number;
+
+        /** Number of state nodes in the diagram. */
+        nodeCount: number;
+    };
+
+    /** Width of the diagram in pixels. */
+    width: number;
+}
+
 /** Mermaid diagram code output */
 export interface MermaidOutput {
     /** Mermaid state diagram syntax */
@@ -399,6 +420,12 @@ export interface GenerateSvgParams extends DiagramOptions {
 /** Parameters for `generateMermaid`. */
 export interface GenerateMermaidParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
+    aslDefinition: AslDefinition | string;
+}
+
+/** Parameters for `generateHtml`. */
+export interface GenerateHtmlParams extends DiagramOptions {
+    /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
 }
 
