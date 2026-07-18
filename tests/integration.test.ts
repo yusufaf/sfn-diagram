@@ -135,6 +135,16 @@ describe('Integration Tests', () => {
 
             expect('code' in result).toBe(true);
         });
+
+        it('should generate interactive HTML when format is specified', () => {
+            const aslDefinition = loadFixture('simple');
+            const result = generateDiagram({ aslDefinition, format: 'html' });
+
+            expect('html' in result).toBe(true);
+            const { html } = result as { html: string };
+            expect(html).toContain('<!DOCTYPE html>');
+            expect(html).toContain('data-sfn-zoom');
+        });
     });
 
     describe('exportPng', () => {

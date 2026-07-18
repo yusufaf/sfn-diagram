@@ -232,12 +232,13 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  *
  * @param params - Configuration object
  * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.format - Output format: 'svg' (default) or 'mermaid'
+ * @param params.format - Output format: 'svg' (default), 'mermaid' or 'html'
  * @param params.theme - Color theme (SVG only)
  * @param params.layout - Layout direction (SVG only)
- * @param ...params - Other options (see generateSvg or generateMermaid)
+ * @param ...params - Other options (see generateSvg, generateMermaid or generateHtml)
  *
- * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid'
+ * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid',
+ *   interactive HTML output if format is 'html'
  *
  * @throws {SyntaxError} If params.asl is a string with invalid JSON
  * @throws {Error} If the ASL definition structure is invalid
@@ -253,12 +254,18 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * const mermaidResult = generateDiagram({ asl: myAsl, format: 'mermaid' });
  * ```
  */
-export function generateDiagram(params: GenerateDiagramParams): SvgOutput | MermaidOutput {
+export function generateDiagram(
+    params: GenerateDiagramParams,
+): HtmlOutput | MermaidOutput | SvgOutput {
     const { aslDefinition, format, ...options } = params;
     const mergedOptions = mergeOptions({ format, ...options });
 
     if (mergedOptions.format === 'mermaid') {
         return generateMermaid({ aslDefinition, ...options });
+    }
+
+    if (mergedOptions.format === 'html') {
+        return generateHtml({ aslDefinition, ...options });
     }
 
     return generateSvg({ aslDefinition, ...options });
@@ -302,7 +309,7 @@ export function generateDiagram(params: GenerateDiagramParams): SvgOutput | Merm
  */
 export function generateFromAwsResponse(
     params: GenerateFromAwsParams
-): SvgOutput | MermaidOutput {
+): HtmlOutput | MermaidOutput | SvgOutput {
     const { response, ...options } = params;
 
     if (!response.definition) {
@@ -367,7 +374,9 @@ export class SfnDiagramGenerator {
      * const result = generator.generate({ asl: myStateMachine });
      * ```
      */
-    generate(params: { aslDefinition: AslDefinition | string }): SvgOutput | MermaidOutput {
+    generate(params: {
+        aslDefinition: AslDefinition | string;
+    }): HtmlOutput | MermaidOutput | SvgOutput {
         return generateDiagram({ ...params, ...this.options });
     }
 
