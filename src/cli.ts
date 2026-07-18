@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { generateMermaid, generateSvg } from './index';
+import { generateHtml, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
 import type { DiagramFormat, LayoutDirection, ThemeOption } from './types';
 
@@ -24,18 +24,19 @@ Usage:
   sfn-diagram - [options]            (read ASL from stdin)
 
 Options:
-  --format <svg|mermaid|png>   Output format (default: svg)
-  -o, --output <path>          Output file path (required for png; stdout otherwise)
-  --theme <light|dark>         Color theme for SVG/PNG (default: light)
-  --layout <TB|LR|RL|BT>       Graph layout direction (default: TB)
-  --hide-catch                 Drop error-handler (Catch) branches from the diagram
-  -h, --help                   Show this help and exit
-  -v, --version                Show version and exit
+  --format <svg|mermaid|png|html>  Output format (default: svg)
+  -o, --output <path>              Output file path (required for png; stdout otherwise)
+  --theme <light|dark>             Color theme for SVG/PNG (default: light)
+  --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
+  --hide-catch                     Drop error-handler (Catch) branches from the diagram
+  -h, --help                       Show this help and exit
+  -v, --version                    Show version and exit
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
   sfn-diagram state.asl.json --format mermaid > diagram.mmd
   cat state.asl.json | sfn-diagram - --format png -o diagram.png
+  sfn-diagram state.asl.json --format html -o diagram.html
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -50,7 +51,7 @@ export function parseArgs(argv: string[]): CliArgs {
         theme: 'light',
     };
 
-    const validFormats: DiagramFormat[] = ['svg', 'mermaid', 'png'];
+    const validFormats: DiagramFormat[] = ['svg', 'mermaid', 'png', 'html'];
     const validLayouts: LayoutDirection[] = ['TB', 'LR', 'RL', 'BT'];
     const validThemes = ['light', 'dark'] as const;
 
@@ -212,6 +213,17 @@ export async function run(argv: string[]): Promise<number> {
                 theme: args.theme,
             });
             writeOutput(result.svg, args.output);
+            return 0;
+        }
+
+        if (args.format === 'html') {
+            const result = generateHtml({
+                aslDefinition: aslSource,
+                catchHandling: args.hideCatch ? 'hide' : 'show',
+                layout: args.layout,
+                theme: args.theme,
+            });
+            writeOutput(result.html, args.output);
             return 0;
         }
 
