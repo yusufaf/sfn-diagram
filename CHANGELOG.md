@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.7.0...sfn-diagram-v1.0.0) (2026-07-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** PNG export now requires node-html-to-image ^6.0.0, which requires Node >=22.12.0.
+
+### Features
+
+* **cfn:** accept CloudFormation/SAM/CDK templates as input ([#33](https://github.com/yusufaf/sfn-diagram/issues/33)) ([e485fe1](https://github.com/yusufaf/sfn-diagram/commit/e485fe1be24eb0bedcdee095c61ac33fdb43b91e))
+* readability options for large state machines ([#32](https://github.com/yusufaf/sfn-diagram/issues/32)) ([dcc5d88](https://github.com/yusufaf/sfn-diagram/commit/dcc5d881014062a50dc20d6908891bd0a6b5cca8))
+
+
+### Bug Fixes
+
+* **deps:** require node-html-to-image v6 to clear handlebars CVEs ([#27](https://github.com/yusufaf/sfn-diagram/issues/27)) ([eca8118](https://github.com/yusufaf/sfn-diagram/commit/eca811871f9cf0dc49176894c54bd0cbcfbe2e2b))
+* **mermaid:** prevent silent node merge on id collision ([#31](https://github.com/yusufaf/sfn-diagram/issues/31)) ([a2b1263](https://github.com/yusufaf/sfn-diagram/commit/a2b126323bc6b267dfd3791c2b9c5ebd343700ba))
+
+
+### Performance Improvements
+
+* **parser:** use a Set for state name lookups in validateAsl ([#28](https://github.com/yusufaf/sfn-diagram/issues/28)) ([a6423f8](https://github.com/yusufaf/sfn-diagram/commit/a6423f87b2144423daa98c44911cff6f86364ac6))
+
 ## [0.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.6.0...sfn-diagram-v0.7.0) (2026-07-10)
 
 
