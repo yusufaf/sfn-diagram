@@ -186,4 +186,49 @@ describe('run', () => {
         expect(code).toBe(1);
         expect(stderrData).toContain('Error:');
     });
+
+    it('--hide-catch removes error-handler nodes from output', async () => {
+        const asl = JSON.stringify({
+            StartAt: 'T',
+            States: {
+                T: {
+                    Type: 'Task',
+                    Resource: 'arn:x',
+                    Next: 'Done',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'H' }],
+                },
+                H: { Type: 'Fail', Error: 'x' },
+                Done: { Type: 'Succeed' },
+            },
+        });
+        const inputPath = join(tempDir, 'catch.asl.json');
+        writeFileSync(inputPath, asl);
+
+        const withCatchCode = await run([inputPath, '--format', 'mermaid']);
+        const withCatch = stdoutData;
+        expect(withCatchCode).toBe(0);
+        expect(withCatch).toContain('class H failState');
+
+        stdoutData = '';
+        const withoutCode = await run([inputPath, '--format', 'mermaid', '--hide-catch']);
+        expect(withoutCode).toBe(0);
+        expect(stdoutData).not.toContain('class H failState');
+        expect(stdoutData).not.toBe(withCatch);
+    });
+
+    it('--format html emits a self-contained viewer', async () => {
+        const code = await run([simpleFixture, '--format', 'html']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<!DOCTYPE html>');
+        expect(stdoutData).toContain('data-sfn-zoom');
+    });
+
+    it('writes HTML to a file with -o', async () => {
+        const outPath = join(tempDir, 'out.html');
+        const code = await run([simpleFixture, '--format', 'html', '-o', outPath]);
+        expect(code).toBe(0);
+        const written = readFileSync(outPath, 'utf-8');
+        expect(written).toContain('<!DOCTYPE html>');
+        expect(stdoutData).toBe('');
+    });
 });

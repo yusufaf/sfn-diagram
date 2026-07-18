@@ -24,17 +24,20 @@
  * ```
  */
 import { parseAsl } from './AslParser';
+import { applyCatchHandling } from './graph';
 import { DagreLayout } from './layout';
-import { SvgRenderer, MermaidRenderer } from './renderers';
+import { SvgRenderer, MermaidRenderer, wrapSvgInInteractiveHtml } from './renderers';
 import { mergeOptions } from './config';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
+    GenerateHtmlParams,
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
+    HtmlOutput,
     AslDefinition,
 } from './types';
 
@@ -107,9 +110,17 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
     // Parse ASL to graph
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
 
+    // Apply catch handling (drops error branches when mode is 'hide')
+    const graph = applyCatchHandling({
+        edges,
+        mode: mergedOptions.catchHandling,
+        nodes,
+        startStateId: aslObj.StartAt,
+    });
+
     // Calculate layout
     const layout = new DagreLayout(mergedOptions);
-    const positioned = layout.calculate(nodes, edges);
+    const positioned = layout.calculate(graph.nodes, graph.edges);
 
     // Render SVG
     const renderer = new SvgRenderer(mergedOptions);
@@ -170,8 +181,43 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
 
+    // Apply catch handling (drops error branches when mode is 'hide')
+    const graph = applyCatchHandling({
+        edges,
+        mode: mergedOptions.catchHandling,
+        nodes,
+        startStateId: aslObj.StartAt,
+    });
+
     const renderer = new MermaidRenderer();
-    return renderer.render({ nodes, edges, asl: aslObj });
+    return renderer.render({ nodes: graph.nodes, edges: graph.edges, asl: aslObj });
+}
+
+/**
+ * Generate a self-contained interactive HTML diagram (pan/zoom viewer) from an
+ * ASL definition. Wraps the SVG output in an HTML document with an inline
+ * vanilla-JS controller — no external dependencies, works offline.
+ *
+ * @param params - ASL definition plus the same options as {@link generateSvg}.
+ * @returns The HTML document string plus dimensions and metadata.
+ *
+ * @example
+ * ```typescript
+ * import { generateHtml } from 'sfn-diagram';
+ * import { writeFileSync } from 'node:fs';
+ * const { html } = generateHtml({ aslDefinition: asl });
+ * writeFileSync('diagram.html', html);
+ * ```
+ */
+export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
+    const { aslDefinition, ...options } = params;
+    const svgOutput = generateSvg({ aslDefinition, ...options });
+    return {
+        height: svgOutput.height,
+        html: wrapSvgInInteractiveHtml({ svg: svgOutput.svg }),
+        metadata: svgOutput.metadata,
+        width: svgOutput.width,
+    };
 }
 
 /**
@@ -182,12 +228,13 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  *
  * @param params - Configuration object
  * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.format - Output format: 'svg' (default) or 'mermaid'
+ * @param params.format - Output format: 'svg' (default), 'mermaid' or 'html'
  * @param params.theme - Color theme (SVG only)
  * @param params.layout - Layout direction (SVG only)
- * @param ...params - Other options (see generateSvg or generateMermaid)
+ * @param ...params - Other options (see generateSvg, generateMermaid or generateHtml)
  *
- * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid'
+ * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid',
+ *   interactive HTML output if format is 'html'
  *
  * @throws {SyntaxError} If params.asl is a string with invalid JSON
  * @throws {Error} If the ASL definition structure is invalid
@@ -203,12 +250,25 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * const mermaidResult = generateDiagram({ asl: myAsl, format: 'mermaid' });
  * ```
  */
-export function generateDiagram(params: GenerateDiagramParams): SvgOutput | MermaidOutput {
+export function generateDiagram(
+    params: GenerateDiagramParams,
+): HtmlOutput | MermaidOutput | SvgOutput {
     const { aslDefinition, format, ...options } = params;
     const mergedOptions = mergeOptions({ format, ...options });
 
     if (mergedOptions.format === 'mermaid') {
         return generateMermaid({ aslDefinition, ...options });
+    }
+
+    if (mergedOptions.format === 'html') {
+        return generateHtml({ aslDefinition, ...options });
+    }
+
+    if (mergedOptions.format === 'png') {
+        throw new Error(
+            'generateDiagram cannot produce PNG because it is synchronous. ' +
+                "Use `import { exportPng } from 'sfn-diagram/png'` instead.",
+        );
     }
 
     return generateSvg({ aslDefinition, ...options });
@@ -252,7 +312,7 @@ export function generateDiagram(params: GenerateDiagramParams): SvgOutput | Merm
  */
 export function generateFromAwsResponse(
     params: GenerateFromAwsParams
-): SvgOutput | MermaidOutput {
+): HtmlOutput | MermaidOutput | SvgOutput {
     const { response, ...options } = params;
 
     if (!response.definition) {
@@ -317,7 +377,9 @@ export class SfnDiagramGenerator {
      * const result = generator.generate({ asl: myStateMachine });
      * ```
      */
-    generate(params: { aslDefinition: AslDefinition | string }): SvgOutput | MermaidOutput {
+    generate(params: {
+        aslDefinition: AslDefinition | string;
+    }): HtmlOutput | MermaidOutput | SvgOutput {
         return generateDiagram({ ...params, ...this.options });
     }
 
@@ -382,6 +444,7 @@ export type {
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
+    HtmlOutput,
     DiffOutput,
     MermaidDiffOutput,
     StateNode,
@@ -390,6 +453,7 @@ export type {
     CustomTheme,
     GenerateSvgParams,
     GenerateMermaidParams,
+    GenerateHtmlParams,
     GenerateDiagramParams,
     GenerateDiffParams,
     GenerateMermaidDiffParams,
@@ -414,6 +478,7 @@ export type {
     EdgeType,
     DiffStatus,
     NodeShape,
+    CatchHandling,
 } from './types';
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';

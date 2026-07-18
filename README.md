@@ -113,7 +113,7 @@ npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
 cat state.asl.json | npx sfn-diagram - --format svg
 ```
 
-Flags: `--format <svg|mermaid|png>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `-h/--help`, `-v/--version`.
+Flags: `--format <svg|mermaid|png|html>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `--hide-catch`, `-h/--help`, `-v/--version`.
 
 > **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
 
@@ -476,6 +476,29 @@ generateSvg({ aslDefinition: asl, theme: customTheme });
 - `'curved'` - Smooth curved paths (default)
 - `'straight'` - Direct straight lines
 - `'orthogonal'` - Right-angled paths
+
+### Large diagrams
+
+Big, branchy state machines are hard to read as a static image. A few options help:
+
+- **`--format html`** (or `generateHtml()`) — a self-contained interactive viewer
+  (drag to pan, wheel to zoom, fit/reset toolbar). No external dependencies, opens
+  offline straight from `file://`.
+  ```bash
+  npx sfn-diagram state.asl.json --format html -o diagram.html
+  ```
+  > **Known limitation:** if you also pass `showIcons: true`, the embedded SVG
+  > references AWS service icons hosted on a jsDelivr CDN (see
+  > [AWS Service Icons](#aws-service-icons) below), so the HTML is no longer fully
+  > offline — icons won't load without network access.
+- **`--hide-catch`** (or `catchHandling: 'hide'`) — drop per-state error-handler
+  (`Catch`) branches so the happy path stands out. A handler that's also reachable
+  via the happy path is kept.
+  ```bash
+  npx sfn-diagram state.asl.json --hide-catch --format svg -o diagram.svg
+  ```
+- **`--layout LR`** (or `layout: 'LR'`) — the default `TB` layout makes catch-heavy
+  or deeply branching machines extremely tall; `LR` reads better for wide graphs.
 
 ### AWS Service Icons
 
