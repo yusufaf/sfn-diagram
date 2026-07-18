@@ -1,11 +1,10 @@
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
-export interface WrapSvgInteractiveParams {
-    /** Diagram height in pixels. */
-    height: number;
-    /** The rendered SVG markup to embed. */
+export interface WrapSvgInInteractiveHtmlParams {
+    /**
+     * The rendered SVG markup to embed. Dimensions are read from the SVG's own
+     * width/height attributes at runtime, so they need not be passed separately.
+     */
     svg: string;
-    /** Diagram width in pixels. */
-    width: number;
 }
 
 const VIEWER_SCRIPT = `
@@ -40,7 +39,7 @@ const VIEWER_SCRIPT = `
   }, { passive: false });
   stage.addEventListener('pointerdown', function (e) { dragging = true; lastX = e.clientX; lastY = e.clientY; stage.setPointerCapture(e.pointerId); });
   stage.addEventListener('pointermove', function (e) { if (!dragging) return; tx += e.clientX - lastX; ty += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; apply(); });
-  stage.addEventListener('pointerup', function (e) { dragging = false; stage.releasePointerCapture(e.pointerId); });
+  stage.addEventListener('pointerup', function (e) { if (!dragging) return; dragging = false; stage.releasePointerCapture(e.pointerId); });
   document.querySelector('[data-sfn-zoom="in"]').addEventListener('click', function () { scale = Math.min(8, scale * 1.2); apply(); });
   document.querySelector('[data-sfn-zoom="out"]').addEventListener('click', function () { scale = Math.max(0.05, scale / 1.2); apply(); });
   document.querySelector('[data-sfn-zoom="fit"]').addEventListener('click', fit);
@@ -54,7 +53,7 @@ const VIEWER_SCRIPT = `
  * viewer (drag to pan, wheel to zoom, fit/reset toolbar). No external references,
  * so it works offline and from file://.
  */
-export function wrapSvgInInteractiveHtml(params: WrapSvgInteractiveParams): string {
+export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams): string {
     const { svg } = params;
     return `<!DOCTYPE html>
 <html lang="en">

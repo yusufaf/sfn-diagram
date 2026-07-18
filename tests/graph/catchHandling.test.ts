@@ -29,6 +29,32 @@ describe('applyCatchHandling', () => {
         expect(result.edges.some((edge) => edge.type === 'error')).toBe(false);
     });
 
+    // Guards the forward-BFS reachability rule: a node is kept when it is still
+    // reachable from the start over non-error edges, even if it is ALSO a catch
+    // target. An in-degree check would wrongly drop it once its error edge goes.
+    it("'hide' keeps a handler that is also on the happy path", () => {
+        const sharedTargetAsl: AslDefinition = {
+            StartAt: 'TaskA',
+            States: {
+                TaskA: {
+                    Type: 'Task',
+                    Resource: 'arn:a',
+                    Next: 'Shared',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Shared' }],
+                },
+                Shared: { Type: 'Pass', Next: 'Done' },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const { nodes, edges } = parseAsl({ definition: sharedTargetAsl });
+        const result = applyCatchHandling({ edges, mode: 'hide', nodes, startStateId: 'TaskA' });
+        const ids = result.nodes.map((node) => node.id);
+
+        expect(ids).toContain('Shared');
+        expect(ids).toContain('Done');
+        expect(result.edges.some((edge) => edge.type === 'error')).toBe(false);
+    });
+
     it("'hide' removes handler-only nodes but keeps the happy path", () => {
         const { nodes, edges } = parseAsl({ definition: asl });
         const result = applyCatchHandling({ edges, mode: 'hide', nodes, startStateId: 'TaskA' });

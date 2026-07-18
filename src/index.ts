@@ -214,11 +214,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const svgOutput = generateSvg({ aslDefinition, ...options });
     return {
         height: svgOutput.height,
-        html: wrapSvgInInteractiveHtml({
-            height: svgOutput.height,
-            svg: svgOutput.svg,
-            width: svgOutput.width,
-        }),
+        html: wrapSvgInInteractiveHtml({ svg: svgOutput.svg }),
         metadata: svgOutput.metadata,
         width: svgOutput.width,
     };
@@ -266,6 +262,13 @@ export function generateDiagram(
 
     if (mergedOptions.format === 'html') {
         return generateHtml({ aslDefinition, ...options });
+    }
+
+    if (mergedOptions.format === 'png') {
+        throw new Error(
+            'generateDiagram cannot produce PNG because it is synchronous. ' +
+                "Use `import { exportPng } from 'sfn-diagram/png'` instead.",
+        );
     }
 
     return generateSvg({ aslDefinition, ...options });

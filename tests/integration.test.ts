@@ -145,6 +145,12 @@ describe('Integration Tests', () => {
             expect(html).toContain('<!DOCTYPE html>');
             expect(html).toContain('data-sfn-zoom');
         });
+
+        it('should throw rather than silently return SVG for format png', () => {
+            const aslDefinition = loadFixture('simple');
+
+            expect(() => generateDiagram({ aslDefinition, format: 'png' })).toThrow(/exportPng/);
+        });
     });
 
     describe('exportPng', () => {
