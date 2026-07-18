@@ -207,11 +207,12 @@ describe('run', () => {
         const withCatchCode = await run([inputPath, '--format', 'mermaid']);
         const withCatch = stdoutData;
         expect(withCatchCode).toBe(0);
-        expect(withCatch).toContain('H');
+        expect(withCatch).toContain('class H failState');
 
         stdoutData = '';
         const withoutCode = await run([inputPath, '--format', 'mermaid', '--hide-catch']);
         expect(withoutCode).toBe(0);
-        expect(stdoutData).not.toContain(' H\n');
+        expect(stdoutData).not.toContain('class H failState');
+        expect(stdoutData).not.toBe(withCatch);
     });
 });
