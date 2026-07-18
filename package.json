@@ -38,6 +38,16 @@
         "types": "./dist/aws.d.cts",
         "default": "./dist/aws.cjs"
       }
+    },
+    "./cfn": {
+      "import": {
+        "types": "./dist/cfn.d.ts",
+        "default": "./dist/cfn.js"
+      },
+      "require": {
+        "types": "./dist/cfn.d.cts",
+        "default": "./dist/cfn.cjs"
+      }
     }
   },
   "typesVersions": {
@@ -47,6 +57,9 @@
       ],
       "aws": [
         "./dist/aws.d.ts"
+      ],
+      "cfn": [
+        "./dist/cfn.d.ts"
       ]
     }
   },
