@@ -115,6 +115,8 @@ cat state.asl.json | npx sfn-diagram - --format svg
 
 Flags: `--format <svg|mermaid|png>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `-h/--help`, `-v/--version`.
 
+> **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
+
 ## Docker
 
 A prebuilt image is published to GitHub Container Registry with Chromium baked in, so PNG export works out of the box:
