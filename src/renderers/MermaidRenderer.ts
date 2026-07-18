@@ -62,6 +62,11 @@ interface FindStartStateParams {
  * MermaidRenderer - Generates Mermaid state diagram syntax from ASL
  */
 export class MermaidRenderer {
+    /** Maps an original state id to its allocated, collision-safe Mermaid id. */
+    private idMap = new Map<string, string>();
+    /** Set of Mermaid ids already handed out in the current render pass. */
+    private usedIds = new Set<string>();
+
     /**
      * Render nodes and edges to Mermaid syntax
      */
@@ -70,6 +75,14 @@ export class MermaidRenderer {
             params;
         const lines: string[] = [];
 
+        // Reset per-render id allocation, then pre-allocate ids for every node in
+        // order. Distinct state names that sanitize to the same base (e.g.
+        // 'Check X' and 'Check-X' both -> 'Check_X') get suffixed unique ids, and
+        // edges resolve to the same ids because allocation is cached per original id.
+        this.idMap = new Map();
+        this.usedIds = new Set();
+        nodes.forEach((node) => this.mermaidId(node.id));
+
         // Header
         lines.push('stateDiagram-v2');
         lines.push('');
@@ -77,21 +90,23 @@ export class MermaidRenderer {
         // Find start state from ASL or edges
         const startState = this.findStartState({ asl, edges, nodes });
         if (startState) {
-            lines.push(`    [*] --> ${this.sanitizeId(startState)}`);
+            lines.push(`    [*] --> ${this.mermaidId(startState)}`);
         }
 
         // Define states with labels
         const stateDefinitions = new Set<string>();
         nodes.forEach((node) => {
-            const id = this.sanitizeId(node.id);
+            const id = this.mermaidId(node.id);
             if (stateDefinitions.has(id)) return;
 
             // Append any execution annotation (duration / retries) to the label.
             const annotation = nodeAnnotations?.[node.id];
             const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
 
-            // Add a label line when it differs from the ID (or an annotation was added).
-            if (displayLabel !== node.id) {
+            // Add a label line when the human label differs from the emitted id
+            // (covers sanitized/suffixed ids and annotations), so the readable
+            // name survives even when the id was rewritten for Mermaid.
+            if (displayLabel !== id) {
                 lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
                 stateDefinitions.add(id);
             }
@@ -103,8 +118,8 @@ export class MermaidRenderer {
 
         // Define transitions
         edges.forEach((edge) => {
-            const from = this.sanitizeId(edge.from);
-            const to = this.sanitizeId(edge.to);
+            const from = this.mermaidId(edge.from);
+            const to = this.mermaidId(edge.to);
 
             if (edge.label || edge.condition) {
                 const label = this.escapeLabel(
@@ -123,7 +138,7 @@ export class MermaidRenderer {
         if (endStates.length > 0) {
             lines.push('');
             endStates.forEach((node) => {
-                const id = this.sanitizeId(node.id);
+                const id = this.mermaidId(node.id);
                 lines.push(`    ${id} --> [*]`);
             });
         }
@@ -164,7 +179,7 @@ export class MermaidRenderer {
         // over the state-type colour so the run outcome / change stands out.
         lines.push('');
         nodes.forEach((node) => {
-            const id = this.sanitizeId(node.id);
+            const id = this.mermaidId(node.id);
 
             const executionStatus = executionClasses?.[node.id];
             if (executionStatus) {
@@ -204,10 +219,28 @@ export class MermaidRenderer {
     }
 
     /**
-     * Sanitize state ID for Mermaid (no spaces, special chars)
+     * Resolve an original state id to a collision-safe Mermaid id.
+     *
+     * Sanitizes the id (non-`[a-zA-Z0-9_]` chars become `_`) and guarantees
+     * uniqueness within a render: if the sanitized base is already taken by a
+     * different original id, a numeric suffix (`_2`, `_3`, …) is appended.
+     * Results are cached per original id so every reference (node definition,
+     * edge endpoint, class assignment) resolves to the same id.
      */
-    private sanitizeId(id: string): string {
-        return id.replace(/[^a-zA-Z0-9_]/g, '_');
+    private mermaidId(originalId: string): string {
+        const cached = this.idMap.get(originalId);
+        if (cached) return cached;
+
+        const base = originalId.replace(/[^a-zA-Z0-9_]/g, '_') || 'state';
+        let candidate = base;
+        let counter = 2;
+        while (this.usedIds.has(candidate)) {
+            candidate = `${base}_${counter++}`;
+        }
+
+        this.usedIds.add(candidate);
+        this.idMap.set(originalId, candidate);
+        return candidate;
     }
 
     /**
