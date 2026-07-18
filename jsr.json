@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./png": "./src/png.ts",
-    "./aws": "./src/aws.ts"
+    "./aws": "./src/aws.ts",
+    "./cfn": "./src/cfn.ts"
   },
   "publish": {
     "include": ["src/**/*.ts", "README.md", "LICENSE", "jsr.json"],

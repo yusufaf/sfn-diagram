@@ -1,0 +1,16 @@
+{
+  "Resources": {
+    "InspectorMachine": {
+      "Type": "AWS::StepFunctions::StateMachine",
+      "Properties": {
+        "DefinitionString": {
+          "Fn::Join": ["", [
+            "{\"StartAt\":\"Run\",\"States\":{\"Run\":{\"Type\":\"Task\",\"Resource\":\"arn:",
+            { "Ref": "AWS::Partition" },
+            ":states:::lambda:invoke\",\"Next\":\"Done\"},\"Done\":{\"Type\":\"Succeed\"}}}"
+          ]]
+        }
+      }
+    }
+  }
+}

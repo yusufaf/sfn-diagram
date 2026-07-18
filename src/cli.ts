@@ -2,9 +2,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { extractAslFromTemplate } from './cfn';
 import { generateHtml, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
-import type { DiagramFormat, LayoutDirection, ThemeOption } from './types';
+import type { AslDefinition, DiagramFormat, LayoutDirection, ThemeOption } from './types';
 
 export interface CliArgs {
     format: DiagramFormat;
@@ -12,6 +13,8 @@ export interface CliArgs {
     input: string | null;
     layout: LayoutDirection;
     output: string | null;
+    resolveCfn: boolean;
+    resource: string | null;
     showHelp: boolean;
     showVersion: boolean;
     theme: ThemeOption;
@@ -29,6 +32,9 @@ Options:
   --theme <light|dark>             Color theme for SVG/PNG (default: light)
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
+  --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
+                                   (JSON templates are detected automatically)
+  --resource <logicalId>           State machine to extract when the template has several
   -h, --help                       Show this help and exit
   -v, --version                    Show version and exit
 
@@ -37,6 +43,8 @@ Examples:
   sfn-diagram state.asl.json --format mermaid > diagram.mmd
   cat state.asl.json | sfn-diagram - --format png -o diagram.png
   sfn-diagram state.asl.json --format html -o diagram.html
+  cdk synth > template.json && sfn-diagram template.json --format mermaid
+  sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -46,6 +54,8 @@ export function parseArgs(argv: string[]): CliArgs {
         input: null,
         layout: 'TB',
         output: null,
+        resolveCfn: false,
+        resource: null,
         showHelp: false,
         showVersion: false,
         theme: 'light',
@@ -114,6 +124,14 @@ export function parseArgs(argv: string[]): CliArgs {
             args.hideCatch = true;
             continue;
         }
+        if (arg === '--resolve-cfn') {
+            args.resolveCfn = true;
+            continue;
+        }
+        if (arg === '--resource') {
+            args.resource = expectValue(arg, argv[++index]);
+            continue;
+        }
         if (arg.startsWith('--') || (arg.startsWith('-') && arg !== '-')) {
             throw new CliError(`Unknown flag: ${arg}`, 2);
         }
@@ -150,6 +168,24 @@ function readPackageVersion(): string {
         return packageJson.version;
     } catch {
         return 'unknown';
+    }
+}
+
+function isCfnTemplate(source: string): boolean {
+    try {
+        const parsed = JSON.parse(source) as { Resources?: Record<string, unknown> };
+        const resources = parsed?.Resources;
+        return (
+            !!resources &&
+            Object.values(resources).some(
+                (resource) =>
+                    (resource as { Type?: string })?.Type === 'AWS::StepFunctions::StateMachine'
+            )
+        );
+    } catch {
+        // Non-JSON (e.g. YAML template or raw ASL) — auto-detect stays a no-op;
+        // users pass --resolve-cfn for YAML templates.
+        return false;
     }
 }
 
@@ -195,10 +231,28 @@ export async function run(argv: string[]): Promise<number> {
         return 1;
     }
 
+    let definitionSource: AslDefinition | string = aslSource;
+    if (args.resolveCfn || isCfnTemplate(aslSource)) {
+        try {
+            const { aslDefinition, warnings } = extractAslFromTemplate({
+                resourceId: args.resource ?? undefined,
+                template: aslSource,
+            });
+            for (const warning of warnings) {
+                process.stderr.write(`warning: ${warning}\n`);
+            }
+            definitionSource = aslDefinition;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            process.stderr.write(`Error: ${message}\n`);
+            return 1;
+        }
+    }
+
     try {
         if (args.format === 'mermaid') {
             const result = generateMermaid({
-                aslDefinition: aslSource,
+                aslDefinition: definitionSource,
                 catchHandling: args.hideCatch ? 'hide' : 'show',
             });
             writeOutput(result.code, args.output);
@@ -207,7 +261,7 @@ export async function run(argv: string[]): Promise<number> {
 
         if (args.format === 'svg') {
             const result = generateSvg({
-                aslDefinition: aslSource,
+                aslDefinition: definitionSource,
                 catchHandling: args.hideCatch ? 'hide' : 'show',
                 layout: args.layout,
                 theme: args.theme,
@@ -218,7 +272,7 @@ export async function run(argv: string[]): Promise<number> {
 
         if (args.format === 'html') {
             const result = generateHtml({
-                aslDefinition: aslSource,
+                aslDefinition: definitionSource,
                 catchHandling: args.hideCatch ? 'hide' : 'show',
                 layout: args.layout,
                 theme: args.theme,
@@ -228,7 +282,7 @@ export async function run(argv: string[]): Promise<number> {
         }
 
         const result = await exportPng({
-            aslDefinition: aslSource,
+            aslDefinition: definitionSource,
             catchHandling: args.hideCatch ? 'hide' : 'show',
             layout: args.layout,
             theme: args.theme,

@@ -1,0 +1,6 @@
+{
+  "Resources": {
+    "First":  { "Type": "AWS::StepFunctions::StateMachine", "Properties": { "DefinitionString": "{\"StartAt\":\"A\",\"States\":{\"A\":{\"Type\":\"Succeed\"}}}" } },
+    "Second": { "Type": "AWS::StepFunctions::StateMachine", "Properties": { "DefinitionString": "{\"StartAt\":\"B\",\"States\":{\"B\":{\"Type\":\"Succeed\"}}}" } }
+  }
+}

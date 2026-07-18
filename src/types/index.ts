@@ -441,6 +441,26 @@ export interface ExportPngParams extends DiagramOptions {
     aslDefinition: AslDefinition | string;
 }
 
+/** Parameters for `extractAslFromTemplate` (from the `sfn-diagram/cfn` subpath). */
+export interface ExtractAslFromTemplateParams {
+    /** Input format. 'auto' (default) sniffs JSON vs YAML. */
+    format?: 'auto' | 'json' | 'yaml';
+    /** Logical id of the state machine to extract when the template has more than one. */
+    resourceId?: string;
+    /** Raw template string (JSON or YAML) or an already-parsed template object. */
+    template: string | Record<string, unknown>;
+}
+
+/** Result of extracting an ASL definition from a CloudFormation/SAM template. */
+export interface ExtractAslResult {
+    /** The recovered ASL definition, ready for generateSvg/generateMermaid/etc. */
+    aslDefinition: AslDefinition;
+    /** Logical id of the state machine that was extracted. */
+    resourceId: string;
+    /** Non-fatal notes (e.g. unresolved intrinsics replaced with placeholders). */
+    warnings: string[];
+}
+
 /** Parameters for `generateFromAwsResponse`, which accepts a raw AWS SDK response. */
 export interface GenerateFromAwsParams extends DiagramOptions {
     /** AWS SDK DescribeStateMachine command output */
