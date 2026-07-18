@@ -232,3 +232,139 @@ describe('run', () => {
         expect(stdoutData).toBe('');
     });
 });
+
+describe('CFN template input', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    const writeTemplate = (name: string, content: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, content);
+        return path;
+    };
+
+    const cfnJson = JSON.stringify({
+        Resources: {
+            M: {
+                Type: 'AWS::StepFunctions::StateMachine',
+                Properties: {
+                    DefinitionString: {
+                        'Fn::Join': [
+                            '',
+                            [
+                                '{"StartAt":"Run","States":{"Run":{"Type":"Task","Resource":"arn:',
+                                { Ref: 'AWS::Partition' },
+                                ':x","Next":"Done"},"Done":{"Type":"Succeed"}}}',
+                            ],
+                        ],
+                    },
+                },
+            },
+        },
+    });
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-cfn-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('parses --resolve-cfn and --resource', () => {
+        const args = parseArgs(['t.json', '--resolve-cfn', '--resource', 'MyMachine']);
+        expect(args.resolveCfn).toBe(true);
+        expect(args.resource).toBe('MyMachine');
+    });
+
+    it('auto-detects a template and renders its ASL', async () => {
+        const inputPath = writeTemplate('template.json', cfnJson);
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Run');
+        expect(stdoutData).toContain('Done');
+    });
+
+    it('resolves a YAML template with --resolve-cfn', async () => {
+        const yamlTemplate = [
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::StepFunctions::StateMachine',
+            '    Properties:',
+            '      DefinitionString: !Sub |',
+            '        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}',
+        ].join('\n');
+        const inputPath = writeTemplate('template.yaml', yamlTemplate);
+        const code = await run([inputPath, '--resolve-cfn', '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Go');
+    });
+
+    it('errors with resource ids when multiple machines and no --resource', async () => {
+        const multi = JSON.stringify({
+            Resources: {
+                A: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        DefinitionString: '{"StartAt":"A","States":{"A":{"Type":"Succeed"}}}',
+                    },
+                },
+                B: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        DefinitionString: '{"StartAt":"B","States":{"B":{"Type":"Succeed"}}}',
+                    },
+                },
+            },
+        });
+        const inputPath = writeTemplate('multi.json', multi);
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toMatch(/A.*B|B.*A/s);
+    });
+
+    it('selects a machine with --resource', async () => {
+        const multi = JSON.stringify({
+            Resources: {
+                A: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        DefinitionString: '{"StartAt":"Alpha","States":{"Alpha":{"Type":"Succeed"}}}',
+                    },
+                },
+                B: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        DefinitionString: '{"StartAt":"Beta","States":{"Beta":{"Type":"Succeed"}}}',
+                    },
+                },
+            },
+        });
+        const inputPath = writeTemplate('multi.json', multi);
+        const code = await run([inputPath, '--format', 'mermaid', '--resource', 'B']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Beta');
+        expect(stdoutData).not.toContain('Alpha');
+    });
+
+    it('leaves plain ASL input untouched', async () => {
+        const code = await run([simpleFixture, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('stateDiagram-v2');
+    });
+});
