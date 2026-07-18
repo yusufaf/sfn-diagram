@@ -91,6 +91,46 @@ describe('MermaidRenderer', () => {
         });
     });
 
+    describe('Id collisions', () => {
+        // Distinct state names that sanitize to the same Mermaid id must not merge:
+        // 'Check X' and 'Check-X' both reduce to 'Check_X'.
+        const collidingAsl: AslDefinition = {
+            StartAt: 'Check X',
+            States: {
+                'Check X': { Type: 'Pass', Next: 'Check-X' },
+                'Check-X': { Type: 'Pass', Next: 'Done' },
+                Done: { Type: 'Succeed' },
+            },
+        };
+
+        it('should give colliding state names distinct ids', () => {
+            const { nodes, edges } = parseAsl({ definition: collidingAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: collidingAsl });
+
+            expect(result.code).toContain('Check_X:');
+            expect(result.code).toContain('Check_X_2:');
+        });
+
+        it('should preserve the human label for each colliding state', () => {
+            const { nodes, edges } = parseAsl({ definition: collidingAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: collidingAsl });
+
+            expect(result.code).toContain('Check_X: Check X');
+            expect(result.code).toContain('Check_X_2: Check-X');
+        });
+
+        it('should route edges to the correct colliding node, not merge them', () => {
+            const { nodes, edges } = parseAsl({ definition: collidingAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: collidingAsl });
+
+            // The transition between the two colliding states must survive as an
+            // edge between distinct ids (a merge would produce a Check_X self-loop).
+            expect(result.code).toContain('Check_X --> Check_X_2');
+            expect(result.code).not.toContain('Check_X --> Check_X\n');
+            expect(result.metadata.stateCount).toBe(3);
+        });
+    });
+
     describe('CSS classes', () => {
         it('should apply successState class to Succeed states', () => {
             const asl = loadFixture('simple');
