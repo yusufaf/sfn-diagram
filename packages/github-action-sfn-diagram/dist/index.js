@@ -62307,6 +62307,44 @@ function extractNestedEdges(params) {
     }
   }
 }
+function applyCatchHandling(params) {
+  const { edges, mode, nodes, startStateId } = params;
+  if (mode === "show") return {
+    edges,
+    nodes
+  };
+  const keptEdges = edges.filter((edge) => edge.type !== "error");
+  let reachableIds;
+  if (startStateId !== void 0) {
+    const adjacency = /* @__PURE__ */ new Map();
+    for (const edge of keptEdges) {
+      const targets = adjacency.get(edge.from);
+      if (targets) targets.push(edge.to);
+      else adjacency.set(edge.from, [edge.to]);
+    }
+    reachableIds = /* @__PURE__ */ new Set([startStateId]);
+    const queue = [startStateId];
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      for (const targetId of adjacency.get(currentId) ?? []) if (!reachableIds.has(targetId)) {
+        reachableIds.add(targetId);
+        queue.push(targetId);
+      }
+    }
+  } else {
+    reachableIds = /* @__PURE__ */ new Set();
+    for (const edge of keptEdges) {
+      reachableIds.add(edge.from);
+      reachableIds.add(edge.to);
+    }
+  }
+  const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
+  const survivingIds = new Set(survivingNodes.map((node) => node.id));
+  return {
+    edges: keptEdges.filter((edge) => survivingIds.has(edge.from) && survivingIds.has(edge.to)),
+    nodes: survivingNodes
+  };
+}
 var DIFF_CLASS_DEFS = {
   added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
   modified: "classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px",
@@ -62475,6 +62513,7 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   includeComments: true,
   showStateTypes: false,
   edgeStyle: "curved",
+  catchHandling: "show",
   catchLabelStyle: "error-type",
   stylePreset: "aws-standard",
   iconPosition: "left",
@@ -62801,13 +62840,20 @@ function generateMermaidExecution(params) {
 function generateMermaid(params) {
   const { aslDefinition, ...options } = params;
   const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
+  const mergedOptions = mergeOptions(options);
   const { nodes, edges } = parseAsl({
     definition: aslObj,
-    options: mergeOptions(options)
+    options: mergedOptions
+  });
+  const graph = applyCatchHandling({
+    edges,
+    mode: mergedOptions.catchHandling,
+    nodes,
+    startStateId: aslObj.StartAt
   });
   return new MermaidRenderer().render({
-    nodes,
-    edges,
+    nodes: graph.nodes,
+    edges: graph.edges,
     asl: aslObj
   });
 }
