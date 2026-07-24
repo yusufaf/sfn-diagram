@@ -1,4 +1,5 @@
 import { line, curveBasis } from 'd3-shape';
+import { estimateTextWidth } from '../utils/textMeasure';
 import type {
     StateNode,
     GraphEdge,
@@ -699,13 +700,11 @@ export class SvgRenderer {
         height: number;
         width: number;
     } {
-        // Approximate character width based on font size
         const fontSize = this.theme.fontSize - 2;
-        const avgCharWidth = fontSize * 0.6; // Approximate ratio for proportional fonts
         const padding = 8; // Horizontal padding
         const verticalPadding = 4; // Vertical padding
 
-        const width = label.length * avgCharWidth + padding * 2;
+        const width = estimateTextWidth(label, fontSize) + padding * 2;
         const height = fontSize + verticalPadding * 2;
 
         return { height, width };
