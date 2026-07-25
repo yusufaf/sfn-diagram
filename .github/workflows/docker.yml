@@ -12,6 +12,9 @@ on:
 jobs:
   docker:
     runs-on: ubuntu-latest
+    # Only build for sfn-diagram releases (legacy v* or sfn-diagram-v* tags),
+    # never for github-action-sfn-diagram-v* releases of the other package.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !startsWith(github.event.release.tag_name, 'github-action'))
     permissions:
       contents: read
       packages: write
@@ -43,10 +46,11 @@ jobs:
         with:
           images: ghcr.io/yusufaf/sfn-diagram
           tags: |
-            # release-please tags: sfn-diagram-v0.5.0 → 0.5.0
-            type=match,pattern=sfn-diagram-v(\d+\.\d+\.\d+),group=1
+            # release-please tags: sfn-diagram-v0.5.0 → 0.5.0 (anchored so it
+            # doesn't also match github-action-sfn-diagram-v* release tags)
+            type=match,pattern=^sfn-diagram-v(\d+\.\d+\.\d+)$,group=1
             # legacy tags: v0.4.1 → 0.4.1
-            type=match,pattern=v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=^v(\d+\.\d+\.\d+)$,group=1
             # manual dispatch: use stripped version from input
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
             type=raw,value=latest
