@@ -24844,7 +24844,7 @@ var require_eventsource_stream = __commonJS({
     var LF = 10;
     var CR = 13;
     var COLON = 58;
-    var SPACE = 32;
+    var SPACE2 = 32;
     var EventSourceStream = class extends Transform {
       /**
        * @type {eventSourceSettings}
@@ -24995,7 +24995,7 @@ var require_eventsource_stream = __commonJS({
         if (colonPosition !== -1) {
           field = line.subarray(0, colonPosition).toString("utf8");
           let valueStart = colonPosition + 1;
-          if (line[valueStart] === SPACE) {
+          if (line[valueStart] === SPACE2) {
             ++valueStart;
           }
           value = line.subarray(valueStart).toString("utf8");
@@ -36757,7 +36757,7 @@ var require_dist_cjs24 = __commonJS({
     }
     var USER_AGENT = "user-agent";
     var X_AMZ_USER_AGENT = "x-amz-user-agent";
-    var SPACE = " ";
+    var SPACE2 = " ";
     var UA_NAME_SEPARATOR = "/";
     var UA_NAME_ESCAPE_REGEX = /[^!$%&'*+\-.^_`|~\w]/g;
     var UA_VALUE_ESCAPE_REGEX = /[^!$%&'*+\-.^_`|~\w#]/g;
@@ -36796,11 +36796,11 @@ var require_dist_cjs24 = __commonJS({
         defaultUserAgent.push(escapeUserAgent([`app`, `${appId}`]));
       }
       const prefix = utilEndpoints.getUserAgentPrefix();
-      const sdkUserAgentValue = (prefix ? [prefix] : []).concat([...defaultUserAgent, ...userAgent2, ...customUserAgent]).join(SPACE);
+      const sdkUserAgentValue = (prefix ? [prefix] : []).concat([...defaultUserAgent, ...userAgent2, ...customUserAgent]).join(SPACE2);
       const normalUAValue = [
         ...defaultUserAgent.filter((section) => section.startsWith("aws-sdk-")),
         ...customUserAgent
-      ].join(SPACE);
+      ].join(SPACE2);
       if (options.runtime !== "browser") {
         if (normalUAValue) {
           headers[X_AMZ_USER_AGENT] = headers[X_AMZ_USER_AGENT] ? `${headers[USER_AGENT]} ${normalUAValue}` : normalUAValue;
@@ -62377,6 +62377,20 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+var NARROW = 0.3;
+var MEDIUM_NARROW = 0.4;
+var WIDE = 0.65;
+var EXTRA_WIDE = 0.78;
+var SPACE = 0.28;
+var CHAR_WIDTHS = {};
+for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
+for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
+for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
+for (let code = 65; code <= 90; code++) {
+  const ch = String.fromCharCode(code);
+  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
+}
+CHAR_WIDTHS[" "] = SPACE;
 var DIFF_CLASS_DEFS = {
   added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
   modified: "classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px",
