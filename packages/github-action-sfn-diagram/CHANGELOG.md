@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.2.0...github-action-sfn-diagram-v1.2.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **github-action-sfn-diagram:** rebuild stale action bundle ([#38](https://github.com/yusufaf/sfn-diagram/issues/38)) ([ebb6825](https://github.com/yusufaf/sfn-diagram/commit/ebb68253b33b458e9d121e465eb9e694b774c056))
+
 ## [1.2.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.1.0...github-action-sfn-diagram-v1.2.0) (2026-07-18)
 
 
