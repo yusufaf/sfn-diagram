@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.1.0...sfn-diagram-v1.1.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **ci:** anchor docker tag regex and gate job to sfn-diagram releases ([#36](https://github.com/yusufaf/sfn-diagram/issues/36)) ([c93b84f](https://github.com/yusufaf/sfn-diagram/commit/c93b84f01a8e897fb9d7739e66dcc96ec17055ff))
+* **github-action-sfn-diagram:** rebuild stale action bundle ([#38](https://github.com/yusufaf/sfn-diagram/issues/38)) ([ebb6825](https://github.com/yusufaf/sfn-diagram/commit/ebb68253b33b458e9d121e465eb9e694b774c056))
+
 ## [1.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.0.0...sfn-diagram-v1.1.0) (2026-07-25)
 
 

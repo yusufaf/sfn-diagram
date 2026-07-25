@@ -1,6 +1,6 @@
 {
     "name": "github-action-sfn-diagram",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "private": true,
     "description": "GitHub Action — preview and diff Step Functions diagrams on pull requests",
     "main": "dist/index.js",
