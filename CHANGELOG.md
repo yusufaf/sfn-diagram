@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.0.0...sfn-diagram-v1.1.0) (2026-07-25)
+
+
+### Features
+
+* improve edge label sizing with per-character width heuristic ([2c03d08](https://github.com/yusufaf/sfn-diagram/commit/2c03d088a97077c94ea84938e8da60cfdbbfac60))
+
+
+### Bug Fixes
+
+* **deps:** bump js-yaml and postcss to patch newly-flagged vulns ([d342114](https://github.com/yusufaf/sfn-diagram/commit/d34211403b38761ce38af5aa312b62e77b6929bd))
+* **deps:** bump transitive deps to patch DoS/host-confusion vulns ([67d23c2](https://github.com/yusufaf/sfn-diagram/commit/67d23c2301bd162c368e435a1613f6f07860d9ea))
+
 ## [1.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0.7.0...sfn-diagram-v1.0.0) (2026-07-18)
 
 
