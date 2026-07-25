@@ -24844,7 +24844,7 @@ var require_eventsource_stream = __commonJS({
     var LF = 10;
     var CR = 13;
     var COLON = 58;
-    var SPACE = 32;
+    var SPACE2 = 32;
     var EventSourceStream = class extends Transform {
       /**
        * @type {eventSourceSettings}
@@ -24995,7 +24995,7 @@ var require_eventsource_stream = __commonJS({
         if (colonPosition !== -1) {
           field = line.subarray(0, colonPosition).toString("utf8");
           let valueStart = colonPosition + 1;
-          if (line[valueStart] === SPACE) {
+          if (line[valueStart] === SPACE2) {
             ++valueStart;
           }
           value = line.subarray(valueStart).toString("utf8");
@@ -36757,7 +36757,7 @@ var require_dist_cjs24 = __commonJS({
     }
     var USER_AGENT = "user-agent";
     var X_AMZ_USER_AGENT = "x-amz-user-agent";
-    var SPACE = " ";
+    var SPACE2 = " ";
     var UA_NAME_SEPARATOR = "/";
     var UA_NAME_ESCAPE_REGEX = /[^!$%&'*+\-.^_`|~\w]/g;
     var UA_VALUE_ESCAPE_REGEX = /[^!$%&'*+\-.^_`|~\w#]/g;
@@ -36796,11 +36796,11 @@ var require_dist_cjs24 = __commonJS({
         defaultUserAgent.push(escapeUserAgent([`app`, `${appId}`]));
       }
       const prefix = utilEndpoints.getUserAgentPrefix();
-      const sdkUserAgentValue = (prefix ? [prefix] : []).concat([...defaultUserAgent, ...userAgent2, ...customUserAgent]).join(SPACE);
+      const sdkUserAgentValue = (prefix ? [prefix] : []).concat([...defaultUserAgent, ...userAgent2, ...customUserAgent]).join(SPACE2);
       const normalUAValue = [
         ...defaultUserAgent.filter((section) => section.startsWith("aws-sdk-")),
         ...customUserAgent
-      ].join(SPACE);
+      ].join(SPACE2);
       if (options.runtime !== "browser") {
         if (normalUAValue) {
           headers[X_AMZ_USER_AGENT] = headers[X_AMZ_USER_AGENT] ? `${headers[USER_AGENT]} ${normalUAValue}` : normalUAValue;
@@ -58193,7 +58193,7 @@ var range = (a5, b5, str) => {
   return result;
 };
 
-// ../../node_modules/.pnpm/brace-expansion@5.0.5/node_modules/brace-expansion/dist/esm/index.js
+// ../../node_modules/.pnpm/brace-expansion@5.0.8/node_modules/brace-expansion/dist/esm/index.js
 var escSlash = "\0SLASH" + Math.random() + "\0";
 var escOpen = "\0OPEN" + Math.random() + "\0";
 var escClose = "\0CLOSE" + Math.random() + "\0";
@@ -58210,6 +58210,7 @@ var closePattern = /\\}/g;
 var commaPattern = /\\,/g;
 var periodPattern = /\\\./g;
 var EXPANSION_MAX = 1e5;
+var EXPANSION_MAX_LENGTH = 4e6;
 function numeric(str) {
   return !isNaN(str) ? parseInt(str, 10) : str.charCodeAt(0);
 }
@@ -58244,11 +58245,11 @@ function expand2(str, options = {}) {
   if (!str) {
     return [];
   }
-  const { max = EXPANSION_MAX } = options;
+  const { max = EXPANSION_MAX, maxLength = EXPANSION_MAX_LENGTH } = options;
   if (str.slice(0, 2) === "{}") {
     str = "\\{\\}" + str.slice(2);
   }
-  return expand_(escapeBraces(str), max, true).map(unescapeBraces);
+  return expand_(escapeBraces(str), max, maxLength, true).map(unescapeBraces);
 }
 function embrace(str) {
   return "{" + str + "}";
@@ -58262,19 +58263,84 @@ function lte(i5, y3) {
 function gte(i5, y3) {
   return i5 >= y3;
 }
-function expand_(str, max, isTop) {
-  const expansions = [];
-  const m5 = balanced("{", "}", str);
-  if (!m5)
-    return [str];
-  const pre = m5.pre;
-  const post = m5.post.length ? expand_(m5.post, max, false) : [""];
-  if (/\$$/.test(m5.pre)) {
-    for (let k5 = 0; k5 < post.length && k5 < max; k5++) {
-      const expansion = pre + "{" + m5.body + "}" + post[k5];
-      expansions.push(expansion);
+function combine(acc, pre, values, max, maxLength, dropEmpties) {
+  const out = [];
+  let length = 0;
+  for (let a5 = 0; a5 < acc.length; a5++) {
+    for (let v6 = 0; v6 < values.length; v6++) {
+      if (out.length >= max)
+        return out;
+      const expansion = acc[a5] + pre + values[v6];
+      if (dropEmpties && !expansion)
+        continue;
+      if (length + expansion.length > maxLength)
+        return out;
+      out.push(expansion);
+      length += expansion.length;
     }
-  } else {
+  }
+  return out;
+}
+function expandSequence(body, isAlphaSequence, max) {
+  const n5 = body.split(/\.\./);
+  const N = [];
+  if (n5[0] === void 0 || n5[1] === void 0) {
+    return N;
+  }
+  const x5 = numeric(n5[0]);
+  const y3 = numeric(n5[1]);
+  const width = Math.max(n5[0].length, n5[1].length);
+  let incr = n5.length === 3 && n5[2] !== void 0 ? Math.max(Math.abs(numeric(n5[2])), 1) : 1;
+  let test = lte;
+  const reverse = y3 < x5;
+  if (reverse) {
+    incr *= -1;
+    test = gte;
+  }
+  const pad = n5.some(isPadded);
+  for (let i5 = x5; test(i5, y3) && N.length < max; i5 += incr) {
+    let c5;
+    if (isAlphaSequence) {
+      c5 = String.fromCharCode(i5);
+      if (c5 === "\\") {
+        c5 = "";
+      }
+    } else {
+      c5 = String(i5);
+      if (pad) {
+        const need = width - c5.length;
+        if (need > 0) {
+          const z2 = new Array(need + 1).join("0");
+          if (i5 < 0) {
+            c5 = "-" + z2 + c5.slice(1);
+          } else {
+            c5 = z2 + c5;
+          }
+        }
+      }
+    }
+    N.push(c5);
+  }
+  return N;
+}
+function expand_(str, max, maxLength, isTop) {
+  let acc = [""];
+  let dropEmpties = false;
+  let firstGroup = true;
+  for (; ; ) {
+    const m5 = balanced("{", "}", str);
+    if (!m5) {
+      return combine(acc, str, [""], max, maxLength, dropEmpties);
+    }
+    const pre = m5.pre;
+    if (/\$$/.test(pre)) {
+      acc = combine(acc, pre + "{" + m5.body + "}", [""], max, maxLength, dropEmpties && !m5.post.length);
+      firstGroup = false;
+      if (!m5.post.length)
+        break;
+      str = m5.post;
+      continue;
+    }
     const isNumericSequence = /^-?\d+\.\.-?\d+(?:\.\.-?\d+)?$/.test(m5.body);
     const isAlphaSequence = /^[a-zA-Z]\.\.[a-zA-Z](?:\.\.-?\d+)?$/.test(m5.body);
     const isSequence = isNumericSequence || isAlphaSequence;
@@ -58282,75 +58348,41 @@ function expand_(str, max, isTop) {
     if (!isSequence && !isOptions) {
       if (m5.post.match(/,(?!,).*\}/)) {
         str = m5.pre + "{" + m5.body + escClose + m5.post;
-        return expand_(str, max, true);
+        isTop = true;
+        continue;
       }
-      return [str];
+      return combine(acc, pre + "{" + m5.body + "}" + m5.post, [""], max, maxLength, dropEmpties);
     }
-    let n5;
+    if (firstGroup) {
+      dropEmpties = isTop && !isSequence;
+      firstGroup = false;
+    }
+    let values;
     if (isSequence) {
-      n5 = m5.body.split(/\.\./);
+      values = expandSequence(m5.body, isAlphaSequence, max);
     } else {
-      n5 = parseCommaParts(m5.body);
+      let n5 = parseCommaParts(m5.body);
       if (n5.length === 1 && n5[0] !== void 0) {
-        n5 = expand_(n5[0], max, false).map(embrace);
+        n5 = expand_(n5[0], max, maxLength, false).map(embrace);
         if (n5.length === 1) {
-          return post.map((p5) => m5.pre + n5[0] + p5);
+          acc = combine(acc, pre + n5[0], [""], max, maxLength, dropEmpties && !m5.post.length);
+          if (!m5.post.length)
+            break;
+          str = m5.post;
+          continue;
         }
       }
-    }
-    let N;
-    if (isSequence && n5[0] !== void 0 && n5[1] !== void 0) {
-      const x5 = numeric(n5[0]);
-      const y3 = numeric(n5[1]);
-      const width = Math.max(n5[0].length, n5[1].length);
-      let incr = n5.length === 3 && n5[2] !== void 0 ? Math.max(Math.abs(numeric(n5[2])), 1) : 1;
-      let test = lte;
-      const reverse = y3 < x5;
-      if (reverse) {
-        incr *= -1;
-        test = gte;
-      }
-      const pad = n5.some(isPadded);
-      N = [];
-      for (let i5 = x5; test(i5, y3); i5 += incr) {
-        let c5;
-        if (isAlphaSequence) {
-          c5 = String.fromCharCode(i5);
-          if (c5 === "\\") {
-            c5 = "";
-          }
-        } else {
-          c5 = String(i5);
-          if (pad) {
-            const need = width - c5.length;
-            if (need > 0) {
-              const z2 = new Array(need + 1).join("0");
-              if (i5 < 0) {
-                c5 = "-" + z2 + c5.slice(1);
-              } else {
-                c5 = z2 + c5;
-              }
-            }
-          }
-        }
-        N.push(c5);
-      }
-    } else {
-      N = [];
+      values = [];
       for (let j6 = 0; j6 < n5.length; j6++) {
-        N.push.apply(N, expand_(n5[j6], max, false));
+        values.push.apply(values, expand_(n5[j6], max, maxLength, false));
       }
     }
-    for (let j6 = 0; j6 < N.length; j6++) {
-      for (let k5 = 0; k5 < post.length && expansions.length < max; k5++) {
-        const expansion = pre + N[j6] + post[k5];
-        if (!isTop || isSequence || expansion) {
-          expansions.push(expansion);
-        }
-      }
-    }
+    acc = combine(acc, pre, values, max, maxLength, dropEmpties && !m5.post.length);
+    if (!m5.post.length)
+      break;
+    str = m5.post;
   }
-  return expansions;
+  return acc;
 }
 
 // ../../node_modules/.pnpm/minimatch@10.2.5/node_modules/minimatch/dist/esm/assert-valid-pattern.js
@@ -62345,6 +62377,20 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+var NARROW = 0.3;
+var MEDIUM_NARROW = 0.4;
+var WIDE = 0.65;
+var EXTRA_WIDE = 0.78;
+var SPACE = 0.28;
+var CHAR_WIDTHS = {};
+for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
+for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
+for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
+for (let code = 65; code <= 90; code++) {
+  const ch = String.fromCharCode(code);
+  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
+}
+CHAR_WIDTHS[" "] = SPACE;
 var DIFF_CLASS_DEFS = {
   added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
   modified: "classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px",
