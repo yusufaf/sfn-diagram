@@ -190,7 +190,12 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
     });
 
     const renderer = new MermaidRenderer();
-    return renderer.render({ nodes: graph.nodes, edges: graph.edges, asl: aslObj });
+    return renderer.render({
+        asl: aslObj,
+        edges: graph.edges,
+        nodes: graph.nodes,
+        showVariables: mergedOptions.showVariables,
+    });
 }
 
 /**

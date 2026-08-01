@@ -103,6 +103,7 @@ In short: reach for the AWS Console visualizer to eyeball a state machine you al
 - **Multiple Output Formats**: SVG (D3.js), Mermaid syntax, and PNG
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
 - **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages, plus `Catch`/`Retry` rendering
+- **Modern ASL**: Variables (`Assign`) shown per state, and Distributed Map rendered distinctly from an inline Map — including its `MaxConcurrency`, `ItemReader` source, and `ResultWriter` sink
 - **Visual Diffing**: Compare two definitions and highlight added / modified / removed states — drives the PR-preview GitHub Action
 - **Execution Overlays**: Paint a real execution's history onto the diagram — succeeded/failed/caught/not-reached states, the taken path, and per-state duration & retry counts
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
@@ -243,6 +244,7 @@ const result = generateSvg({
   padding: 20,                     // Diagram padding
   edgeStyle: 'curved',             // 'curved', 'straight', 'orthogonal'
   showStateTypes: false,           // Display state types on nodes
+  showVariables: true,             // Annotate nodes with the variables they Assign
   includeComments: true,           // Use state comments as labels
   customColors: {}                 // Override colors for specific states
 });
@@ -575,6 +577,36 @@ Big, branchy state machines are hard to read as a static image. A few options he
   ```
 - **`--layout LR`** (or `layout: 'LR'`) — the default `TB` layout makes catch-heavy
   or deeply branching machines extremely tall; `LR` reads better for wide graphs.
+
+### Variables and Distributed Map
+
+Two pieces of modern ASL are rendered explicitly, because both are otherwise
+invisible in a diagram.
+
+**Variables (`Assign`).** A state that assigns variables is annotated with their
+names beneath its label — `$orderId, $total`. The list caps at three names, then
+collapses to `+N more`, so a state assigning many variables cannot blow out the
+node width. Disable with `showVariables: false`.
+
+```typescript
+const { svg } = generateSvg({ aslDefinition: asl, showVariables: false });
+```
+
+**Distributed Map.** A Map whose `ItemProcessor` declares
+`ProcessorConfig.Mode: 'DISTRIBUTED'` runs a child execution per batch rather than
+iterating inline, so it is labelled `Distributed` in the container header instead
+of rendering identically to an inline Map. `MaxConcurrency` is shown alongside it
+when set.
+
+Its `ItemReader` (dataset source — S3 or Athena) and `ResultWriter` (result sink)
+each become a satellite node beside the container, wired in and out of the Map.
+With `showIcons: true` they pick up the appropriate AWS service icon, resolved
+from the ARN the same way Task states are.
+
+```
+ItemReader (s3) ──▶ ProcessItems ──▶ ResultWriter (s3)
+                  Distributed · max 100
+```
 
 ### AWS Service Icons
 

@@ -1,3 +1,4 @@
+import { getAssignedVariablesLabel, getContainerSubLabel } from '../constants/labels';
 import type {
     StateNode,
     GraphEdge,
@@ -48,6 +49,11 @@ interface RenderMermaidParams {
     /** Optional extra text appended to a state's label (e.g. execution duration) */
     nodeAnnotations?: Record<string, string>;
     nodes: StateNode[];
+    /**
+     * Whether to append assigned ASL variables to state labels.
+     * @default true
+     */
+    showVariables?: boolean;
     /** Optional per-state diff status used to colour added/modified/removed states */
     stateClasses?: Record<string, DiffStatus>;
 }
@@ -71,8 +77,15 @@ export class MermaidRenderer {
      * Render nodes and edges to Mermaid syntax
      */
     render(params: RenderMermaidParams): MermaidOutput {
-        const { asl, edges, executionClasses, nodeAnnotations, nodes, stateClasses } =
-            params;
+        const {
+            asl,
+            edges,
+            executionClasses,
+            nodeAnnotations,
+            nodes,
+            showVariables,
+            stateClasses,
+        } = params;
         const lines: string[] = [];
 
         // Reset per-render id allocation, then pre-allocate ids for every node in
@@ -99,9 +112,21 @@ export class MermaidRenderer {
             const id = this.mermaidId(node.id);
             if (stateDefinitions.has(id)) return;
 
-            // Append any execution annotation (duration / retries) to the label.
-            const annotation = nodeAnnotations?.[node.id];
-            const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
+            // Append any execution annotation (duration / retries), the container's
+            // Distributed/MaxConcurrency summary, and assigned ASL variables to the
+            // label. All are collapsed into one parenthesised, `·`-separated group.
+            const suffixParts = [
+                nodeAnnotations?.[node.id],
+                getContainerSubLabel({ node, showStateType: false }),
+                showVariables === false
+                    ? ''
+                    : getAssignedVariablesLabel(node.assignedVariables ?? []),
+            ].filter((part): part is string => Boolean(part));
+
+            const displayLabel =
+                suffixParts.length > 0
+                    ? `${node.label} (${suffixParts.join(' · ')})`
+                    : node.label;
 
             // Add a label line when the human label differs from the emitted id
             // (covers sanitized/suffixed ids and annotations), so the readable

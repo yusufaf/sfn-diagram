@@ -1,0 +1,42 @@
+{
+    "Comment": "Exercises ASL Variables (Assign) and the JSONata Arguments field",
+    "QueryLanguage": "JSONata",
+    "StartAt": "LoadOrder",
+    "States": {
+        "LoadOrder": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:LoadOrder",
+            "Assign": {
+                "orderId": "{% $states.result.orderId %}",
+                "total": "{% $states.result.total %}"
+            },
+            "Next": "ApplyDiscount"
+        },
+        "ApplyDiscount": {
+            "Type": "Pass",
+            "Assign": {
+                "discount": "{% $total > 100 ? 0.1 : 0 %}"
+            },
+            "Next": "ChargeCustomer"
+        },
+        "ChargeCustomer": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Charge",
+            "Arguments": {
+                "orderId": "{% $orderId %}",
+                "amount": "{% $total * (1 - $discount) %}"
+            },
+            "Assign": {
+                "chargeId": "{% $states.result.chargeId %}",
+                "chargedAt": "{% $now() %}",
+                "receiptUrl": "{% $states.result.receiptUrl %}",
+                "attempts": "{% $states.result.attempts %}",
+                "currency": "{% $states.result.currency %}"
+            },
+            "Next": "Done"
+        },
+        "Done": {
+            "Type": "Succeed"
+        }
+    }
+}

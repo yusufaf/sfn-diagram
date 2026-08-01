@@ -306,7 +306,15 @@ describe('Integration Tests', () => {
     });
 
     describe('Snapshot tests', () => {
-        const fixtures = ['simple', 'choice', 'parallel', 'error-handling', 'wait-fail', 'map'];
+        const fixtures = [
+            'simple',
+            'choice',
+            'parallel',
+            'error-handling',
+            'wait-fail',
+            'map',
+            'distributed-map',
+        ];
 
         describe('SVG snapshots', () => {
             fixtures.forEach((fixtureName) => {

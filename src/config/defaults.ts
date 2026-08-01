@@ -45,6 +45,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     // Content options
     includeComments: true,
     showStateTypes: false,
+    showVariables: true,
     edgeStyle: 'curved',
     catchHandling: 'show',
     catchLabelStyle: 'error-type',
