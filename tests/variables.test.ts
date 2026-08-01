@@ -172,6 +172,20 @@ describe('Distributed Map', () => {
             expect(svg).toContain('ItemReader (s3)');
             expect(svg).toContain('ResultWriter (s3)');
         });
+
+        // An ItemReader is a graph source: its only edge points at the Map, so a
+        // forward reachability pass from the start state never visits it. Without
+        // explicit handling, catchHandling 'hide' pruned the reader while keeping
+        // the writer.
+        it('keeps both satellites when catch branches are hidden', () => {
+            const { svg } = generateSvg({
+                aslDefinition: distributed,
+                catchHandling: 'hide',
+            });
+
+            expect(svg).toContain('ItemReader (s3)');
+            expect(svg).toContain('ResultWriter (s3)');
+        });
     });
 
     describe('getContainerSubLabel', () => {

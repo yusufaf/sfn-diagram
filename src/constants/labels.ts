@@ -15,6 +15,13 @@ export const EDGE_LABELS = {
     RETRY_SYMBOL: '↻',
 } as const;
 
+/**
+ * Node types for the Distributed Map I/O satellites. These are not ASL states —
+ * they represent the AWS resources a Distributed Map reads from and writes to, so
+ * graph transforms that reason about state reachability need to recognise them.
+ */
+export const MAP_IO_NODE_TYPES: ReadonlySet<string> = new Set(['ItemReader', 'ResultWriter']);
+
 /** Default MaxAttempts when a Retry block omits it (per the ASL spec). */
 const DEFAULT_MAX_ATTEMPTS = 3;
 

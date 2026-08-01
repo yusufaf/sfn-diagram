@@ -61807,6 +61807,7 @@ var EDGE_LABELS = {
   ITERATOR: "Iterator",
   RETRY_SYMBOL: "\u21BB"
 };
+var MAP_IO_NODE_TYPES = /* @__PURE__ */ new Set(["ItemReader", "ResultWriter"]);
 var DEFAULT_MAX_ATTEMPTS = 3;
 function getRetryLabel(retryBlocks) {
   const parts = retryBlocks.map((retry) => {
@@ -62453,6 +62454,11 @@ function applyCatchHandling(params) {
       reachableIds.add(edge.from);
       reachableIds.add(edge.to);
     }
+  }
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of keptEdges) {
+    const source = nodesById.get(edge.from);
+    if (source && MAP_IO_NODE_TYPES.has(source.type) && reachableIds.has(edge.to)) reachableIds.add(edge.from);
   }
   const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
   const survivingIds = new Set(survivingNodes.map((node) => node.id));
