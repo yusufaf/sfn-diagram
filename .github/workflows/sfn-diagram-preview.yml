@@ -18,6 +18,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The action's manifest is committed as action.template.yml, never as
+      # action.yml — a real action.yml in this subdirectory makes GitHub treat the
+      # monorepo as the canonical action and suppress the Marketplace mirror (#18).
+      # A local `uses:` needs a real manifest though, so render one at run time.
+      # This mirrors what scripts/sync-action-mirror.sh does for the mirror repo.
+      - name: Render action manifest
+        run: |
+          sed '/^#/d' packages/github-action-sfn-diagram/action.template.yml \
+            > packages/github-action-sfn-diagram/action.yml
+
       - name: Preview Step Functions diagrams
         uses: ./packages/github-action-sfn-diagram
         with:
