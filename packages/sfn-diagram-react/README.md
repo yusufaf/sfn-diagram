@@ -1,5 +1,8 @@
 # sfn-diagram-react
 
+[![npm version](https://img.shields.io/npm/v/sfn-diagram-react.svg)](https://www.npmjs.com/package/sfn-diagram-react)
+[![license](https://img.shields.io/npm/l/sfn-diagram-react.svg)](https://github.com/yusufaf/sfn-diagram/blob/main/LICENSE)
+
 React component for rendering [AWS Step Functions](https://aws.amazon.com/step-functions/) ASL definitions as diagrams, built on top of [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram).
 
 The core is DOM-free, so `<SfnDiagram>` renders the SVG (or Mermaid code) with no browser-only dependencies.

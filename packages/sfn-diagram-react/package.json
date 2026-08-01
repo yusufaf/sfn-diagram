@@ -20,26 +20,54 @@
         }
     },
     "files": ["dist"],
+    "engines": {
+        "node": ">=20"
+    },
     "scripts": {
         "build": "tsdown",
         "dev": "tsdown --watch",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "prepublishOnly": "pnpm run build && pnpm run validate",
+        "validate": "pnpm run validate:publint && pnpm run validate:types",
+        "validate:publint": "publint",
+        "validate:types": "attw --pack ."
     },
-    "keywords": ["aws", "step-functions", "react", "diagram", "asl"],
+    "keywords": [
+        "aws",
+        "step-functions",
+        "react",
+        "diagram",
+        "asl",
+        "state-machine",
+        "visualization",
+        "svg",
+        "mermaid"
+    ],
     "author": "Yusuf Afzal",
     "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/yusufaf/sfn-diagram.git",
+        "directory": "packages/sfn-diagram-react"
+    },
+    "bugs": {
+        "url": "https://github.com/yusufaf/sfn-diagram/issues"
+    },
+    "homepage": "https://github.com/yusufaf/sfn-diagram/tree/main/packages/sfn-diagram-react#readme",
     "peerDependencies": {
-        "react": "^18.0.0",
-        "sfn-diagram": "workspace:*"
+        "react": "^18.0.0 || ^19.0.0",
+        "sfn-diagram": "^1.1.1"
     },
     "devDependencies": {
+        "@arethetypeswrong/cli": "^0.18.2",
         "@testing-library/jest-dom": "^6.6.0",
         "@testing-library/react": "^16.0.0",
         "@types/react": "^18.3.0",
         "@types/react-dom": "^18.3.0",
         "jsdom": "^26.0.0",
+        "publint": "^0.3.16",
         "react": "^18.3.0",
         "react-dom": "^18.3.0",
         "sfn-diagram": "workspace:*",

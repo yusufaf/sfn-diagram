@@ -11,6 +11,10 @@
     "packages/github-action-sfn-diagram": {
       "component": "github-action-sfn-diagram",
       "release-type": "node"
+    },
+    "packages/sfn-diagram-react": {
+      "component": "sfn-diagram-react",
+      "release-type": "node"
     }
   }
 }
