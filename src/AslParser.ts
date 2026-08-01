@@ -1,7 +1,7 @@
 import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
 import { EDGE_LABELS, getCatchLabel, getRetryLabel } from './constants';
-import { detectService } from './services';
+import { detectService, detectServiceFromResource } from './services';
 
 /**
  * Error thrown when ASL validation fails
@@ -272,9 +272,30 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         type: state.Type,
     };
 
+    // ASL Variables: record which variables the state assigns so renderers can
+    // surface them. Assignment is otherwise invisible in the diagram.
+    const assignedVariables = Object.keys(state.Assign ?? {});
+    if (assignedVariables.length > 0) {
+        baseNode.assignedVariables = assignedVariables;
+    }
+
     // For container nodes, we'll populate children later
     if (isContainer) {
         baseNode.children = [];
+
+        // A Distributed Map has materially different runtime semantics from an
+        // inline Map (child executions, its own concurrency and failure
+        // tolerance), so it is marked for distinct rendering. Note that
+        // ProcessorConfig sits on the ItemProcessor sub-definition, not on the
+        // Map state itself.
+        if (state.Type === 'Map') {
+            if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
+                baseNode.isDistributedMap = true;
+            }
+            if (state.MaxConcurrency !== undefined) {
+                baseNode.maxConcurrency = state.MaxConcurrency;
+            }
+        }
     }
 
     // Detect AWS service for Task states if icons enabled
@@ -295,6 +316,23 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
 function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[] {
     const { catchLabelStyle, state, stateName } = params;
     const edges: GraphEdge[] = [];
+
+    // Connect Distributed Map I/O satellites: the ItemReader feeds the Map, and
+    // the Map feeds the ResultWriter.
+    if (state.Type === 'Map') {
+        for (const io of ITEM_IO_ROLES) {
+            if (!state[io.field]?.Resource) {
+                continue;
+            }
+
+            const satelliteId = `${stateName}${io.idSuffix}`;
+            edges.push(
+                io.edgeDirection === 'in'
+                    ? { from: satelliteId, label: io.label, to: stateName }
+                    : { from: stateName, label: io.label, to: satelliteId }
+            );
+        }
+    }
 
     switch (state.Type) {
         case 'Choice':
@@ -507,6 +545,33 @@ function getMapProcessor(state: AslState): AslDefinition | undefined {
 }
 
 /**
+ * The two Distributed Map I/O roles, rendered as satellite nodes beside the Map
+ * container. `ItemReader` feeds the dataset in; `ResultWriter` receives results.
+ */
+const ITEM_IO_ROLES = [
+    {
+        edgeDirection: 'in',
+        field: 'ItemReader',
+        idSuffix: '__itemreader',
+        label: 'ItemReader',
+        nodeType: 'ItemReader',
+    },
+    {
+        edgeDirection: 'out',
+        field: 'ResultWriter',
+        idSuffix: '__resultwriter',
+        label: 'ResultWriter',
+        nodeType: 'ResultWriter',
+    },
+] as const satisfies ReadonlyArray<{
+    edgeDirection: 'in' | 'out';
+    field: 'ItemReader' | 'ResultWriter';
+    idSuffix: string;
+    label: string;
+    nodeType: string;
+}>;
+
+/**
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
 function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void {
@@ -590,6 +655,46 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
 
             // Track all iterator states as children for bounding box
             markBranchStatesAsChildren({ branch: iterator, containerNode: stateNode, nodeIndex });
+        }
+
+        // A Distributed Map reads its dataset from an ItemReader and writes
+        // results to a ResultWriter. Both are real AWS resources (S3, Athena) that
+        // the diagram would otherwise omit entirely, so surface each as a satellite
+        // node beside the container rather than inside it.
+        if (state.Type === 'Map') {
+            for (const io of ITEM_IO_ROLES) {
+                const resource = state[io.field]?.Resource;
+                if (!resource) {
+                    continue;
+                }
+
+                const service = detectServiceFromResource({
+                    iconResolver: options?.iconResolver,
+                    resource,
+                });
+
+                const satelliteId = `${stateName}${io.idSuffix}`;
+                const satelliteNode: StateNode = {
+                    id: satelliteId,
+                    isContainer: false,
+                    label: service ? `${io.label} (${service.serviceName})` : io.label,
+                    style: {
+                        fill: '#eceff1',
+                        shape: 'rect',
+                        stroke: '#607d8b',
+                        strokeWidth: 2,
+                    },
+                    type: io.nodeType,
+                };
+
+                if (options?.showIcons && service?.iconUrl) {
+                    satelliteNode.iconUrl = service.iconUrl;
+                    satelliteNode.serviceType = service.serviceName;
+                }
+
+                nodes.push(satelliteNode);
+                nodeIndex.set(satelliteId, satelliteNode);
+            }
         }
     }
 }

@@ -61807,6 +61807,7 @@ var EDGE_LABELS = {
   ITERATOR: "Iterator",
   RETRY_SYMBOL: "\u21BB"
 };
+var MAP_IO_NODE_TYPES = /* @__PURE__ */ new Set(["ItemReader", "ResultWriter"]);
 var DEFAULT_MAX_ATTEMPTS = 3;
 function getRetryLabel(retryBlocks) {
   const parts = retryBlocks.map((retry) => {
@@ -61817,6 +61818,22 @@ function getRetryLabel(retryBlocks) {
 function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
   return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
+}
+var MAX_SHOWN_VARIABLES = 3;
+function getAssignedVariablesLabel(variableNames) {
+  if (variableNames.length === 0) return "";
+  const shown = variableNames.slice(0, MAX_SHOWN_VARIABLES);
+  const label = shown.map((variableName) => `$${variableName}`).join(", ");
+  const remaining = variableNames.length - shown.length;
+  return remaining > 0 ? `${label} +${remaining} more` : label;
+}
+function getContainerSubLabel(params) {
+  const { node, showStateType } = params;
+  const parts = [];
+  if (showStateType) parts.push(`${node.type} state`);
+  if (node.isDistributedMap) parts.push("Distributed");
+  if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
+  return parts.join(" \xB7 ");
 }
 function getCatchLabel(params) {
   const { catchLabelStyle = "error-type", errorTypes, index } = params;
@@ -61909,7 +61926,14 @@ function buildIconUrl(params) {
 function detectService(params) {
   const { iconResolver, state: state2 } = params;
   if (state2.Type !== "Task" || !state2.Resource) return null;
-  const serviceName = extractServiceFromArn({ arn: state2.Resource });
+  return detectServiceFromResource({
+    iconResolver,
+    resource: state2.Resource
+  });
+}
+function detectServiceFromResource(params) {
+  const { iconResolver, resource } = params;
+  const serviceName = extractServiceFromArn({ arn: resource });
   if (!serviceName) return null;
   if (iconResolver) return {
     iconUrl: iconResolver(serviceName),
@@ -62035,7 +62059,15 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
-  if (isContainer) baseNode.children = [];
+  const assignedVariables = Object.keys(state2.Assign ?? {});
+  if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
+  if (isContainer) {
+    baseNode.children = [];
+    if (state2.Type === "Map") {
+      if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
+      if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+    }
+  }
   if (options?.showIcons && state2.Type === "Task") {
     const serviceInfo = detectService({
       iconResolver: options.iconResolver,
@@ -62051,6 +62083,19 @@ function createStateNode(params) {
 function extractEdgesFromState(params) {
   const { catchLabelStyle, state: state2, stateName } = params;
   const edges = [];
+  if (state2.Type === "Map") for (const io of ITEM_IO_ROLES) {
+    if (!state2[io.field]?.Resource) continue;
+    const satelliteId = `${stateName}${io.idSuffix}`;
+    edges.push(io.edgeDirection === "in" ? {
+      from: satelliteId,
+      label: io.label,
+      to: stateName
+    } : {
+      from: stateName,
+      label: io.label,
+      to: satelliteId
+    });
+  }
   switch (state2.Type) {
     case "Choice":
       if (state2.Choices) state2.Choices.forEach((choice) => {
@@ -62170,6 +62215,19 @@ function extractConditionLabel(choice) {
 function getMapProcessor(state2) {
   return state2.ItemProcessor ?? state2.Iterator;
 }
+var ITEM_IO_ROLES = [{
+  edgeDirection: "in",
+  field: "ItemReader",
+  idSuffix: "__itemreader",
+  label: "ItemReader",
+  nodeType: "ItemReader"
+}, {
+  edgeDirection: "out",
+  field: "ResultWriter",
+  idSuffix: "__resultwriter",
+  label: "ResultWriter",
+  nodeType: "ResultWriter"
+}];
 function extractStatesRecursively(params) {
   const { definition, nodeIndex, nodes, options } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
@@ -62242,6 +62300,33 @@ function extractStatesRecursively(params) {
         containerNode: stateNode,
         nodeIndex
       });
+    }
+    if (state2.Type === "Map") for (const io of ITEM_IO_ROLES) {
+      const resource = state2[io.field]?.Resource;
+      if (!resource) continue;
+      const service = detectServiceFromResource({
+        iconResolver: options?.iconResolver,
+        resource
+      });
+      const satelliteId = `${stateName}${io.idSuffix}`;
+      const satelliteNode = {
+        id: satelliteId,
+        isContainer: false,
+        label: service ? `${io.label} (${service.serviceName})` : io.label,
+        style: {
+          fill: "#eceff1",
+          shape: "rect",
+          stroke: "#607d8b",
+          strokeWidth: 2
+        },
+        type: io.nodeType
+      };
+      if (options?.showIcons && service?.iconUrl) {
+        satelliteNode.iconUrl = service.iconUrl;
+        satelliteNode.serviceType = service.serviceName;
+      }
+      nodes.push(satelliteNode);
+      nodeIndex.set(satelliteId, satelliteNode);
     }
   }
 }
@@ -62370,6 +62455,11 @@ function applyCatchHandling(params) {
       reachableIds.add(edge.to);
     }
   }
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of keptEdges) {
+    const source = nodesById.get(edge.from);
+    if (source && MAP_IO_NODE_TYPES.has(source.type) && reachableIds.has(edge.to)) reachableIds.add(edge.from);
+  }
   const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
   const survivingIds = new Set(survivingNodes.map((node) => node.id));
   return {
@@ -62424,7 +62514,7 @@ var MermaidRenderer = class {
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
-    const { asl, edges, executionClasses, nodeAnnotations, nodes, stateClasses } = params;
+    const { asl, edges, executionClasses, nodeAnnotations, nodes, showVariables, stateClasses } = params;
     const lines = [];
     this.idMap = /* @__PURE__ */ new Map();
     this.usedIds = /* @__PURE__ */ new Set();
@@ -62441,8 +62531,15 @@ var MermaidRenderer = class {
     nodes.forEach((node) => {
       const id = this.mermaidId(node.id);
       if (stateDefinitions.has(id)) return;
-      const annotation = nodeAnnotations?.[node.id];
-      const displayLabel = annotation ? `${node.label} (${annotation})` : node.label;
+      const suffixParts = [
+        nodeAnnotations?.[node.id],
+        getContainerSubLabel({
+          node,
+          showStateType: false
+        }),
+        showVariables === false ? "" : getAssignedVariablesLabel(node.assignedVariables ?? [])
+      ].filter((part) => Boolean(part));
+      const displayLabel = suffixParts.length > 0 ? `${node.label} (${suffixParts.join(" \xB7 ")})` : node.label;
       if (displayLabel !== id) {
         lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
         stateDefinitions.add(id);
@@ -62558,6 +62655,7 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   padding: 20,
   includeComments: true,
   showStateTypes: false,
+  showVariables: true,
   edgeStyle: "curved",
   catchHandling: "show",
   catchLabelStyle: "error-type",
@@ -62898,9 +62996,10 @@ function generateMermaid(params) {
     startStateId: aslObj.StartAt
   });
   return new MermaidRenderer().render({
-    nodes: graph.nodes,
+    asl: aslObj,
     edges: graph.edges,
-    asl: aslObj
+    nodes: graph.nodes,
+    showVariables: mergedOptions.showVariables
   });
 }
 

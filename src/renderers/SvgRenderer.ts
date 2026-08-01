@@ -1,4 +1,5 @@
 import { line, curveBasis } from 'd3-shape';
+import { getAssignedVariablesLabel, getContainerSubLabel } from '../constants/labels';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
     StateNode,
@@ -325,8 +326,15 @@ export class SvgRenderer {
             .attr('font-family', this.theme.fontFamily)
             .text(node.label);
 
-        // Optionally add state type label
-        if (this.options.showStateTypes) {
+        // Sub-label under the container name. The Distributed marker and
+        // MaxConcurrency are always shown when present — a Distributed Map runs a
+        // child execution per batch rather than iterating inline, so it must not
+        // read as a plain Map. The state type itself stays opt-in.
+        const subLabel = getContainerSubLabel({
+            node,
+            showStateType: this.options.showStateTypes === true,
+        });
+        if (subLabel) {
             containerGroup
                 .append('text')
                 .attr('x', 0)
@@ -336,7 +344,7 @@ export class SvgRenderer {
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .attr('opacity', 0.7)
-                .text(`${node.type} state`);
+                .text(subLabel);
         }
     }
 
@@ -434,6 +442,24 @@ export class SvgRenderer {
                 .attr('font-size', this.theme.fontSize - 3)
                 .attr('opacity', 0.75)
                 .text(annotation);
+        }
+
+        // ASL Variables assigned by this state, stacked beneath whichever of the
+        // state type and annotation lines are present.
+        if (this.options.showVariables !== false && node.assignedVariables?.length) {
+            const stackedOffset =
+                (this.options.showStateTypes ? 36 : 18) + (annotation ? 16 : 0);
+            nodeGroup
+                .append('text')
+                .attr('class', 'node-variables')
+                .attr('x', labelX)
+                .attr('y', labelY + stackedOffset)
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', this.theme.fontSize - 3)
+                .attr('opacity', 0.7)
+                .text(getAssignedVariablesLabel(node.assignedVariables));
         }
     }
 

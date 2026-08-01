@@ -1,2 +1,2 @@
-export { detectService } from './ServiceDetector';
+export { detectService, detectServiceFromResource } from './ServiceDetector';
 export type { ServiceInfo } from './ServiceDetector';

@@ -1,3 +1,4 @@
+import { MAP_IO_NODE_TYPES } from '../constants';
 import type { CatchHandling, GraphEdge, StateNode } from '../types';
 
 /** Parameters for {@link applyCatchHandling}. */
@@ -23,6 +24,11 @@ export interface ApplyCatchHandlingParams {
  * than an incoming-edge check. If no start state id is provided, every node that
  * still has a surviving incoming or outgoing edge is kept instead. In 'show' mode
  * the graph is returned unchanged.
+ *
+ * Distributed Map `ItemReader` / `ResultWriter` satellites are exempt from the
+ * forward-reachability rule: they are attached to their Map structurally, and an
+ * ItemReader is a graph source that no forward pass can reach. Each is kept
+ * whenever the node it connects to survives.
  */
 export function applyCatchHandling(params: ApplyCatchHandlingParams): {
     edges: GraphEdge[];
@@ -67,6 +73,19 @@ export function applyCatchHandling(params: ApplyCatchHandlingParams): {
         for (const edge of keptEdges) {
             reachableIds.add(edge.from);
             reachableIds.add(edge.to);
+        }
+    }
+
+    // Distributed Map I/O satellites are attached to their Map structurally
+    // rather than reached from the start state. An ItemReader in particular is a
+    // graph source — its only edge points at the Map — so the forward pass above
+    // never visits it, and without this the reader would be dropped while the
+    // writer survived. Keep a satellite whenever the node it connects to did.
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+    for (const edge of keptEdges) {
+        const source = nodesById.get(edge.from);
+        if (source && MAP_IO_NODE_TYPES.has(source.type) && reachableIds.has(edge.to)) {
+            reachableIds.add(edge.from);
         }
     }
 

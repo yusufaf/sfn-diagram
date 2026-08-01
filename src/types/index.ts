@@ -42,8 +42,38 @@ export interface ChoiceRule {
     [key: string]: any; // AWS ASL spec allows arbitrary condition types
 }
 
+/**
+ * A Map state's `ProcessorConfig`, which selects between the inline and
+ * distributed execution modes. `Mode: 'DISTRIBUTED'` marks a Distributed Map —
+ * a separate child execution per batch, with its own concurrency and failure
+ * tolerance semantics.
+ */
+export interface ProcessorConfig {
+    ExecutionType?: 'EXPRESS' | 'STANDARD';
+    Mode?: 'DISTRIBUTED' | 'INLINE';
+}
+
+/**
+ * A Distributed Map `ItemReader` (dataset source) or `ResultWriter` (result sink).
+ * Both point at an AWS resource — typically S3, or Athena for `ItemReader` — via
+ * the same `Resource` ARN shape used by Task states.
+ */
+export interface ItemIo {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+    ReaderConfig?: {
+        InputType?: string;
+        MaxItems?: number;
+    };
+    Resource?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    WriterConfig?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+}
+
 /** A single state within an ASL definition, covering fields for every state type. */
 export interface AslState {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Arguments?: Record<string, any>; // JSONata-mode counterpart to Parameters
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Branches?: AslDefinition[]; // Parallel/Map-specific
@@ -54,8 +84,15 @@ export interface AslState {
     Default?: string; // Choice-specific
     End?: boolean;
     Error?: string; // Fail-specific
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ItemBatcher?: Record<string, any>; // Distributed Map-specific; batching config
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
+    ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ItemSelector?: Record<string, any>; // Map-specific; per-item input shaping
     Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
+    Label?: string; // Distributed Map-specific; prefix for child execution names
+    MaxConcurrency?: number | string; // Map-specific; can be a JSONata expression
     Next?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Output?: any; // AWS ASL spec - arbitrary JSON values
@@ -66,17 +103,26 @@ export interface AslState {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Result?: any; // AWS ASL spec - arbitrary JSON values
     ResultPath?: string; // Task-specific
+    ResultWriter?: ItemIo; // Distributed Map-specific; result sink (S3)
     Retry?: RetryBlock[]; // Task-specific
     Seconds?: number | string; // Wait-specific; Can be JSONata expression
     SecondsPath?: string; // Wait-specific
     Timestamp?: string; // Wait-specific
     TimestampPath?: string; // Wait-specific
+    ToleratedFailureCount?: number; // Distributed Map-specific
+    ToleratedFailurePercentage?: number; // Distributed Map-specific
     Type: StateType;
 }
 
 /** A complete Amazon States Language state machine definition. */
 export interface AslDefinition {
     Comment?: string;
+    /**
+     * Map-specific, and only valid on an `ItemProcessor` sub-definition rather
+     * than on the Map state itself — this is where the ASL spec places it.
+     * Selects inline vs distributed execution.
+     */
+    ProcessorConfig?: ProcessorConfig;
     QueryLanguage?: 'JSONata' | 'JSONPath';
     StartAt: string;
     States: Record<string, AslState>;
@@ -87,6 +133,11 @@ export interface AslDefinition {
 // Internal Graph Types
 /** A positioned graph node in the internal diagram model, produced from an ASL state. */
 export interface StateNode {
+    /**
+     * Names of the variables a state assigns via ASL `Assign`, in declaration
+     * order. Empty/absent when the state assigns nothing.
+     */
+    assignedVariables?: string[];
     /** Child node IDs (for container nodes like Parallel/Map) */
     children?: string[];
     height?: number;
@@ -95,7 +146,11 @@ export interface StateNode {
     id: string;
     /** Whether this node is a container (Parallel or Map state) */
     isContainer?: boolean;
+    /** Whether this Map state runs in distributed mode (`ProcessorConfig.Mode: 'DISTRIBUTED'`) */
+    isDistributedMap?: boolean;
     label: string;
+    /** A Map state's `MaxConcurrency`, when set. Displayed on the container header. */
+    maxConcurrency?: number | string;
     /** Parent node ID (for nodes inside Parallel/Map containers) */
     parent?: string;
     /** AWS service identifier for Task states (e.g., 'lambda', 's3') */
@@ -297,6 +352,14 @@ export interface DiagramOptions {
      * @default false
      */
     showStateTypes?: boolean;
+
+    /**
+     * Whether to annotate nodes with the variables they assign via ASL `Assign`.
+     * Shown as `$var1, $var2` beneath the node label. States that assign nothing
+     * are unaffected.
+     * @default true
+     */
+    showVariables?: boolean;
 
     /**
      * Visual style preset: 'aws-standard' uses rectangles (AWS parity), 'enhanced' uses shapes for visual distinction

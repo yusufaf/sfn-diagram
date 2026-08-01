@@ -10,6 +10,29 @@
             "Type": "Map",
             "ItemsPath": "$.items",
             "MaxConcurrency": 100,
+            "ToleratedFailurePercentage": 5,
+            "Label": "OrderBatch",
+            "ItemReader": {
+                "Resource": "arn:aws:states:::s3:getObject",
+                "ReaderConfig": {
+                    "InputType": "CSV",
+                    "MaxItems": 10000
+                },
+                "Parameters": {
+                    "Bucket": "orders-input",
+                    "Key": "batch.csv"
+                }
+            },
+            "ItemBatcher": {
+                "MaxItemsPerBatch": 50
+            },
+            "ResultWriter": {
+                "Resource": "arn:aws:states:::s3:putObject",
+                "Parameters": {
+                    "Bucket": "orders-output",
+                    "Prefix": "results"
+                }
+            },
             "ItemProcessor": {
                 "ProcessorConfig": {
                     "Mode": "DISTRIBUTED",

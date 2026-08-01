@@ -237,7 +237,39 @@ export function detectService(params: DetectServiceParams): ServiceInfo | null {
         return null;
     }
 
-    const serviceName = extractServiceFromArn({ arn: state.Resource });
+    return detectServiceFromResource({ iconResolver, resource: state.Resource });
+}
+
+interface DetectServiceFromResourceParams {
+    /** Custom function to resolve an icon URL for a detected service */
+    iconResolver?: (service: string) => string | null;
+    /** An AWS resource ARN */
+    resource: string;
+}
+
+/**
+ * Resolve an AWS service (and its icon) directly from a resource ARN.
+ *
+ * The ARN-shaped counterpart to {@link detectService}, for resources that are
+ * not Task states — a Distributed Map's `ItemReader` dataset source or
+ * `ResultWriter` sink, for example.
+ *
+ * @param params.resource - The AWS resource ARN to inspect
+ * @param params.iconResolver - Optional custom icon URL resolver, applied instead of the built-in mapping
+ * @returns The service name and icon URL, or `null` when no service can be read from the ARN
+ *
+ * @example
+ * ```typescript
+ * detectServiceFromResource({ resource: 'arn:aws:states:::s3:getObject' });
+ * // { serviceName: 's3', iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@latest/...' }
+ * ```
+ */
+export function detectServiceFromResource(
+    params: DetectServiceFromResourceParams
+): ServiceInfo | null {
+    const { iconResolver, resource } = params;
+
+    const serviceName = extractServiceFromArn({ arn: resource });
     if (!serviceName) {
         return null;
     }
