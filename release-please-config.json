@@ -6,6 +6,10 @@
       "release-type": "node",
       "extra-files": [
         { "type": "json", "path": "jsr.json", "jsonpath": "$.version" }
+      ],
+      "exclude-paths": [
+        "packages/github-action-sfn-diagram",
+        "packages/sfn-diagram-react"
       ]
     },
     "packages/github-action-sfn-diagram": {
