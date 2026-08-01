@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.1.1...sfn-diagram-v1.2.0) (2026-08-01)
 
+**No functional changes to the `sfn-diagram` package.** This version was cut alongside the first npm release of the companion [`sfn-diagram-react`](https://www.npmjs.com/package/sfn-diagram-react) wrapper; the release tooling attributed part of that work to the core package as well.
 
-### Features
 
-* **sfn-diagram-react:** publish the React wrapper to npm ([2001746](https://github.com/yusufaf/sfn-diagram/commit/200174618155fb211e088faa71bc2788079a08a2))
+### Documentation
+
+* add framework usage snippets for Svelte, Vue, Solid, Angular, and Astro ([#45](https://github.com/yusufaf/sfn-diagram/issues/45)) ([5a02f8a](https://github.com/yusufaf/sfn-diagram/commit/5a02f8a))
 
 ## [1.1.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.1.0...sfn-diagram-v1.1.1) (2026-07-25)
 
