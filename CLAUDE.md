@@ -177,11 +177,27 @@ Commit types that increment the version:
 - `fix` / `perf` → PATCH bump
 - `feat!` or `BREAKING CHANGE:` footer → MAJOR bump
 
-**Two packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
+**Three packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
 - `.` — the `sfn-diagram` npm package. Merging the release PR publishes to npm.
 - `packages/github-action-sfn-diagram` — the GitHub Action (versioned independently, `private`, not on npm). Commits under that path — including a rebuilt `dist/` bundle from a core change — attribute to it. Merging the release PR runs the `mirror-sync` job, which syncs `scripts/sync-action-mirror.sh` to the Marketplace mirror repo (`yusufaf/sfn-diagram-action`), tags it, and publishes the Release automatically. No manual version bump or `sync:action` run is needed.
+- `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job.
 
-release-please emits **one combined release PR** covering both packages. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
+release-please emits **one combined release PR** covering all three. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
+
+### Keeping subpackage work out of the core changelog
+
+The root `.` component would otherwise claim every commit in the repo, so it declares
+`exclude-paths` for both subpackages. release-please skips a commit for `.` only when
+**every** file it touches falls under an excluded path — a commit spanning both a
+subpackage and root files still bumps core.
+
+That makes **PR titles load-bearing**: a merge commit inherits its PR title as its
+conventional-commit subject, and that merge commit touches every file in the PR. A PR
+that changes a subpackage *and* root files (workflows, root README, release config)
+must be titled `ci:`, `chore:`, or `docs:` — never `feat:` — or it silently
+minor-bumps `sfn-diagram` with a changelog entry describing subpackage work. Splitting
+the work into per-path commits is not enough on its own; the merge commit still spans
+both.
 
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
