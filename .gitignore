@@ -8,6 +8,10 @@ packages/*/out
 coverage
 # Action bundle must be committed so `uses: ./packages/github-action-sfn-diagram` works
 !packages/github-action-sfn-diagram/dist
+# ...but its manifest must NOT be committed as action.yml, or GitHub treats this
+# monorepo as the canonical action and suppresses the Marketplace mirror. The
+# source of truth is action.template.yml; action.yml is rendered at run time.
+packages/github-action-sfn-diagram/action.yml
 *.log
 .DS_Store
 .env
