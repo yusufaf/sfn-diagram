@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.2.0...sfn-diagram-v1.3.0) (2026-08-02)
+
+
+### Features
+
+* **cli:** add --diff, --execution and icon flags ([cc15e37](https://github.com/yusufaf/sfn-diagram/commit/cc15e379e3913e46db72e5dca2b2ace274d4bf82))
+* **parser:** render ASL Variables and Distributed Map details ([2ae20ce](https://github.com/yusufaf/sfn-diagram/commit/2ae20ced9a4a66be67ad154de8b5b07cbf13b05f))
+
+
+### Bug Fixes
+
+* **graph:** keep Distributed Map I/O satellites when hiding catch branches ([5337434](https://github.com/yusufaf/sfn-diagram/commit/533743484f9e01ea84bbe4e706d6e6f12a3f8574))
+
 ## [1.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.1.1...sfn-diagram-v1.2.0) (2026-08-01)
 
 **No functional changes to the `sfn-diagram` package.** This version was cut alongside the first npm release of the companion [`sfn-diagram-react`](https://www.npmjs.com/package/sfn-diagram-react) wrapper; the release tooling attributed part of that work to the core package as well.
