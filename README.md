@@ -159,7 +159,51 @@ npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
 cat state.asl.json | npx sfn-diagram - --format svg
 ```
 
-Flags: `--format <svg|mermaid|png|html>`, `-o/--output <path>`, `--theme <light|dark>`, `--layout <TB|LR|RL|BT>`, `--hide-catch`, `--resolve-cfn`, `--resource <logicalId>`, `-h/--help`, `-v/--version`.
+| Flag | Description |
+|---|---|
+| `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
+| `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
+| `--theme <light\|dark>` | Color theme for SVG/PNG/HTML (default: `light`) |
+| `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
+| `--hide-catch` | Drop error-handler (`Catch`) branches |
+| `--hide-variables` | Drop the `$var` annotations for ASL `Assign` blocks |
+| `--show-icons` | Draw [AWS service icons](#aws-service-icons) on Task states |
+| `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
+| `--icon-size <pixels>` | Icon size in pixels (default: `24`) |
+| `--diff <baseline>` | Compare the input (head) against a baseline definition |
+| `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
+| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template |
+| `--resource <logicalId>` | State machine to extract when the template has several |
+| `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
+
+### Diff and execution overlays from the CLI
+
+```bash
+# Highlight what changed between two revisions of a definition
+npx sfn-diagram head.asl.json --diff base.asl.json -o diff.svg
+npx sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
+
+# Colour a diagram by what actually happened in a run
+aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
+npx sfn-diagram state.asl.json --execution history.json -o run.svg
+```
+
+Both flags support `--format svg` and `--format mermaid` only, and cannot be combined
+with each other. The change/status summary is written to **stderr**, so the diagram on
+stdout still pipes cleanly:
+
+```
+Diff summary:
+  Added:     NewStep
+  Modified:  StepB
+  Removed:   StepC
+  Unchanged: 1
+```
+
+`--execution` accepts either a full `GetExecutionHistory` response (`{"events": [...]}`)
+or a bare events array. See [generateDiff](#generatemermaiddiffparams--generatediffparams)
+and [generateExecution](#generateexecutionparams--generatemermaidexecutionparams) for the
+programmatic equivalents.
 
 CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](#extracting-asl-from-a-cdkcloudformation-template).
 
