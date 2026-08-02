@@ -11,7 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 * **cli:** add --diff, --execution and icon flags ([cc15e37](https://github.com/yusufaf/sfn-diagram/commit/cc15e379e3913e46db72e5dca2b2ace274d4bf82))
-* **cli:** add --diff, --execution and icon flags ([b2e06a4](https://github.com/yusufaf/sfn-diagram/commit/b2e06a4454e59036026c10cee2428634e7fa22d7))
 * **parser:** render ASL Variables and Distributed Map details ([2ae20ce](https://github.com/yusufaf/sfn-diagram/commit/2ae20ced9a4a66be67ad154de8b5b07cbf13b05f))
 
 
