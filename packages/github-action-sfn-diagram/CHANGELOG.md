@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.2.1...github-action-sfn-diagram-v1.3.0) (2026-08-02)
+
+
+### Features
+
+* **parser:** render ASL Variables and Distributed Map details ([2ae20ce](https://github.com/yusufaf/sfn-diagram/commit/2ae20ced9a4a66be67ad154de8b5b07cbf13b05f))
+
+
+### Bug Fixes
+
+* **graph:** keep Distributed Map I/O satellites when hiding catch branches ([5337434](https://github.com/yusufaf/sfn-diagram/commit/533743484f9e01ea84bbe4e706d6e6f12a3f8574))
+
 ## [1.2.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.2.0...github-action-sfn-diagram-v1.2.1) (2026-07-25)
 
 
