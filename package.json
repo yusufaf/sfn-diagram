@@ -75,6 +75,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
+    "docs:images": "pnpm run build && node scripts/generate-doc-images.mjs",
     "examples": "vitest run tests/visual-outputs.test.ts",
     "lint": "eslint .",
     "lint:ox": "oxlint",
