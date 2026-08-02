@@ -291,17 +291,18 @@ describe('Integration Tests', () => {
     });
 
     describe('Real-world example', () => {
-        it.skip('should handle HelloWorld state machine', () => {
-            const path = join(__dirname, '..', 'HelloWorldStateMachine.asl.json');
+        it('should handle the order-processing state machine', () => {
+            const path = join(__dirname, '..', 'examples', 'order-processing.asl.json');
             const aslDefinition: AslDefinition = JSON.parse(readFileSync(path, 'utf-8'));
 
             const svgResult = generateSvg({ aslDefinition, theme: 'light', layout: 'TB' });
-            expect(svgResult.svg).toBeDefined();
-            expect(svgResult.metadata.nodeCount).toBeGreaterThan(5);
+            expect(svgResult.svg).toContain('<svg');
+            expect(svgResult.metadata.nodeCount).toBe(6);
+            expect(svgResult.metadata.edgeCount).toBe(5);
 
             const mermaidResult = generateMermaid({ aslDefinition });
-            expect(mermaidResult.code).toBeDefined();
             expect(mermaidResult.code).toContain('stateDiagram-v2');
+            expect(mermaidResult.code).toContain('ValidateOrder');
         });
     });
 

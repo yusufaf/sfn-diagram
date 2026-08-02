@@ -201,6 +201,6 @@ both.
 
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
-- HelloWorldStateMachine.asl.json in root can be used for testing
+- For manual testing, use `examples/order-processing.asl.json` or any fixture in `tests/fixtures/` (`simple`, `choice`, `parallel`, `distributed-map`, `variables`, …). Execution-overlay history fixtures are `tests/fixtures/execution-*.json`
 - Core (`sfn-diagram`: SVG/Mermaid) is platform-agnostic — runs in Node, browser, and edge. Only `sfn-diagram/png` (node-html-to-image) and the CLI are Node-only
 
