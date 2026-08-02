@@ -3,19 +3,40 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractAslFromTemplate } from './cfn';
+import { generateDiff, generateMermaidDiff } from './diff';
+import { generateExecution, generateMermaidExecution } from './execution';
 import { generateHtml, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
-import type { AslDefinition, DiagramFormat, LayoutDirection, ThemeOption } from './types';
+import type {
+    AslDefinition,
+    DiagramFormat,
+    DiffOutput,
+    ExecutionOutput,
+    ExecutionStateStatus,
+    LayoutDirection,
+    MermaidDiffOutput,
+    MermaidExecutionOutput,
+    ThemeOption,
+} from './types';
+
+/** Placement of AWS service icons relative to the node label. */
+export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
+    diff: string | null;
+    execution: string | null;
     format: DiagramFormat;
     hideCatch: boolean;
+    hideVariables: boolean;
+    iconPosition: IconPosition | null;
+    iconSize: number | null;
     input: string | null;
     layout: LayoutDirection;
     output: string | null;
     resolveCfn: boolean;
     resource: string | null;
     showHelp: boolean;
+    showIcons: boolean;
     showVersion: boolean;
     theme: ThemeOption;
 }
@@ -32,36 +53,58 @@ Options:
   --theme <light|dark>             Color theme for SVG/PNG (default: light)
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
+  --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
+  --show-icons                     Draw AWS service icons on Task states
+  --icon-position <left|top|right> Icon placement relative to the label (default: left)
+  --icon-size <pixels>             Icon size in pixels (default: 24)
+  --diff <baseline>                Compare the input (head) against a baseline definition;
+                                   added/modified/removed states are highlighted
+  --execution <history.json>       Overlay a GetExecutionHistory result on the diagram
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
                                    (JSON templates are detected automatically)
   --resource <logicalId>           State machine to extract when the template has several
   -h, --help                       Show this help and exit
   -v, --version                    Show version and exit
 
+Notes:
+  --diff and --execution are mutually exclusive, and both support only
+  --format svg and --format mermaid. Their change/status summary is written to stderr,
+  so the diagram itself still pipes cleanly on stdout.
+
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
   sfn-diagram state.asl.json --format mermaid > diagram.mmd
   cat state.asl.json | sfn-diagram - --format png -o diagram.png
   sfn-diagram state.asl.json --format html -o diagram.html
+  sfn-diagram state.asl.json --show-icons --icon-position top -o diagram.svg
+  sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
+  sfn-diagram state.asl.json --execution history.json -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
     const args: CliArgs = {
+        diff: null,
+        execution: null,
         format: 'svg',
         hideCatch: false,
+        hideVariables: false,
+        iconPosition: null,
+        iconSize: null,
         input: null,
         layout: 'TB',
         output: null,
         resolveCfn: false,
         resource: null,
         showHelp: false,
+        showIcons: false,
         showVersion: false,
         theme: 'light',
     };
 
     const validFormats: DiagramFormat[] = ['svg', 'mermaid', 'png', 'html'];
+    const validIconPositions: IconPosition[] = ['left', 'top', 'right'];
     const validLayouts: LayoutDirection[] = ['TB', 'LR', 'RL', 'BT'];
     const validThemes = ['light', 'dark'] as const;
 
@@ -122,6 +165,45 @@ export function parseArgs(argv: string[]): CliArgs {
         }
         if (arg === '--hide-catch') {
             args.hideCatch = true;
+            continue;
+        }
+        if (arg === '--hide-variables') {
+            args.hideVariables = true;
+            continue;
+        }
+        if (arg === '--show-icons') {
+            args.showIcons = true;
+            continue;
+        }
+        if (arg === '--icon-position') {
+            const value = expectValue(arg, argv[++index]);
+            if (!validIconPositions.includes(value as IconPosition)) {
+                throw new CliError(
+                    `Invalid --icon-position: ${value}. Expected one of: ${validIconPositions.join(', ')}`,
+                    2
+                );
+            }
+            args.iconPosition = value as IconPosition;
+            continue;
+        }
+        if (arg === '--icon-size') {
+            const value = expectValue(arg, argv[++index]);
+            const size = Number(value);
+            if (!Number.isFinite(size) || size <= 0) {
+                throw new CliError(
+                    `Invalid --icon-size: ${value}. Expected a positive number of pixels`,
+                    2
+                );
+            }
+            args.iconSize = size;
+            continue;
+        }
+        if (arg === '--diff') {
+            args.diff = expectValue(arg, argv[++index]);
+            continue;
+        }
+        if (arg === '--execution') {
+            args.execution = expectValue(arg, argv[++index]);
             continue;
         }
         if (arg === '--resolve-cfn') {
@@ -196,6 +278,73 @@ async function loadAsl(input: string | null): Promise<string> {
     return readFileSync(resolve(input), 'utf-8');
 }
 
+interface ResolveDefinitionSourceParams {
+    resolveCfn: boolean;
+    resource: string | null;
+    source: string;
+}
+
+/**
+ * Turn a raw file body into something the generators accept: a CloudFormation/SAM/CDK
+ * template is unwrapped to its ASL definition, anything else is passed through as-is.
+ * Extraction warnings go to stderr so stdout stays a clean diagram stream.
+ */
+function resolveDefinitionSource(params: ResolveDefinitionSourceParams): AslDefinition | string {
+    const { resolveCfn, resource, source } = params;
+    if (!resolveCfn && !isCfnTemplate(source)) {
+        return source;
+    }
+    const { aslDefinition, warnings } = extractAslFromTemplate({
+        resourceId: resource ?? undefined,
+        template: source,
+    });
+    for (const warning of warnings) {
+        process.stderr.write(`warning: ${warning}\n`);
+    }
+    return aslDefinition;
+}
+
+/** Formats that have a diff / execution-overlay renderer. */
+const OVERLAY_FORMATS: DiagramFormat[] = ['mermaid', 'svg'];
+
+/** Statuses printed in the `--execution` summary, worst outcome first. */
+const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
+    'failed',
+    'caught',
+    'running',
+    'succeeded',
+    'notReached',
+];
+
+/** Print the added/modified/removed breakdown of a `--diff` run to stderr. */
+function writeDiffSummary(metadata: DiffOutput['metadata'] | MermaidDiffOutput['metadata']): void {
+    const { added, modified, removed, unchanged } = metadata;
+    const lines: string[] = [];
+    if (added.length > 0) lines.push(`  Added:     ${added.join(', ')}`);
+    if (modified.length > 0) lines.push(`  Modified:  ${modified.join(', ')}`);
+    if (removed.length > 0) lines.push(`  Removed:   ${removed.join(', ')}`);
+    if (lines.length === 0) {
+        lines.push(`  No changes (${unchanged.length} state${unchanged.length === 1 ? '' : 's'})`);
+    } else {
+        lines.push(`  Unchanged: ${unchanged.length}`);
+    }
+    process.stderr.write(`Diff summary:\n${lines.join('\n')}\n`);
+}
+
+/** Print the per-status state breakdown of an `--execution` run to stderr. */
+function writeExecutionSummary(
+    metadata: ExecutionOutput['metadata'] | MermaidExecutionOutput['metadata']
+): void {
+    const lines: string[] = [];
+    for (const status of EXECUTION_STATUS_ORDER) {
+        const names = metadata[status];
+        if (names.length > 0) lines.push(`  ${status}: ${names.join(', ')}`);
+    }
+    process.stderr.write(
+        `Execution summary (execution ${metadata.executionStatus}):\n${lines.join('\n')}\n`
+    );
+}
+
 export async function run(argv: string[]): Promise<number> {
     let args: CliArgs;
     try {
@@ -217,6 +366,20 @@ export async function run(argv: string[]): Promise<number> {
         return 0;
     }
 
+    if (args.diff !== null && args.execution !== null) {
+        process.stderr.write(
+            '--diff and --execution cannot be combined; pick one overlay per run\n'
+        );
+        return 1;
+    }
+    if (args.diff !== null && !OVERLAY_FORMATS.includes(args.format)) {
+        process.stderr.write(`--diff supports --format svg or mermaid, not ${args.format}\n`);
+        return 1;
+    }
+    if (args.execution !== null && !OVERLAY_FORMATS.includes(args.format)) {
+        process.stderr.write(`--execution supports --format svg or mermaid, not ${args.format}\n`);
+        return 1;
+    }
     if (args.format === 'png' && !args.output) {
         process.stderr.write('--output is required when --format is png\n');
         return 1;
@@ -231,29 +394,109 @@ export async function run(argv: string[]): Promise<number> {
         return 1;
     }
 
-    let definitionSource: AslDefinition | string = aslSource;
-    if (args.resolveCfn || isCfnTemplate(aslSource)) {
+    let baselineSource: string | null = null;
+    if (args.diff !== null) {
         try {
-            const { aslDefinition, warnings } = extractAslFromTemplate({
-                resourceId: args.resource ?? undefined,
-                template: aslSource,
-            });
-            for (const warning of warnings) {
-                process.stderr.write(`warning: ${warning}\n`);
-            }
-            definitionSource = aslDefinition;
+            baselineSource = readFileSync(resolve(args.diff), 'utf-8');
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            process.stderr.write(`Error: ${message}\n`);
+            process.stderr.write(`Failed to read --diff baseline: ${message}\n`);
             return 1;
         }
     }
 
+    let historySource: string | null = null;
+    if (args.execution !== null) {
+        try {
+            historySource = readFileSync(resolve(args.execution), 'utf-8');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            process.stderr.write(`Failed to read --execution history: ${message}\n`);
+            return 1;
+        }
+    }
+
+    let definitionSource: AslDefinition | string;
+    let baselineDefinition: AslDefinition | string | null = null;
     try {
+        definitionSource = resolveDefinitionSource({
+            resolveCfn: args.resolveCfn,
+            resource: args.resource,
+            source: aslSource,
+        });
+        if (baselineSource !== null) {
+            baselineDefinition = resolveDefinitionSource({
+                resolveCfn: args.resolveCfn,
+                resource: args.resource,
+                source: baselineSource,
+            });
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Error: ${message}\n`);
+        return 1;
+    }
+
+    const sharedOptions = {
+        catchHandling: args.hideCatch ? ('hide' as const) : ('show' as const),
+        ...(args.hideVariables ? { showVariables: false } : {}),
+    };
+    const svgOptions = {
+        ...sharedOptions,
+        layout: args.layout,
+        theme: args.theme,
+        ...(args.showIcons ? { showIcons: true } : {}),
+        ...(args.iconPosition !== null ? { iconPosition: args.iconPosition } : {}),
+        ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
+    };
+
+    try {
+        if (baselineDefinition !== null) {
+            if (args.format === 'mermaid') {
+                const result = generateMermaidDiff({
+                    after: definitionSource,
+                    before: baselineDefinition,
+                });
+                writeDiffSummary(result.metadata);
+                writeOutput(result.code, args.output);
+                return 0;
+            }
+
+            const result = generateDiff({
+                after: definitionSource,
+                before: baselineDefinition,
+                ...svgOptions,
+            });
+            writeDiffSummary(result.metadata);
+            writeOutput(result.svg, args.output);
+            return 0;
+        }
+
+        if (historySource !== null) {
+            if (args.format === 'mermaid') {
+                const result = generateMermaidExecution({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                });
+                writeExecutionSummary(result.metadata);
+                writeOutput(result.code, args.output);
+                return 0;
+            }
+
+            const result = generateExecution({
+                aslDefinition: definitionSource,
+                history: historySource,
+                ...svgOptions,
+            });
+            writeExecutionSummary(result.metadata);
+            writeOutput(result.svg, args.output);
+            return 0;
+        }
+
         if (args.format === 'mermaid') {
             const result = generateMermaid({
                 aslDefinition: definitionSource,
-                catchHandling: args.hideCatch ? 'hide' : 'show',
+                ...sharedOptions,
             });
             writeOutput(result.code, args.output);
             return 0;
@@ -262,9 +505,7 @@ export async function run(argv: string[]): Promise<number> {
         if (args.format === 'svg') {
             const result = generateSvg({
                 aslDefinition: definitionSource,
-                catchHandling: args.hideCatch ? 'hide' : 'show',
-                layout: args.layout,
-                theme: args.theme,
+                ...svgOptions,
             });
             writeOutput(result.svg, args.output);
             return 0;
@@ -273,9 +514,7 @@ export async function run(argv: string[]): Promise<number> {
         if (args.format === 'html') {
             const result = generateHtml({
                 aslDefinition: definitionSource,
-                catchHandling: args.hideCatch ? 'hide' : 'show',
-                layout: args.layout,
-                theme: args.theme,
+                ...svgOptions,
             });
             writeOutput(result.html, args.output);
             return 0;
@@ -283,9 +522,7 @@ export async function run(argv: string[]): Promise<number> {
 
         const result = await exportPng({
             aslDefinition: definitionSource,
-            catchHandling: args.hideCatch ? 'hide' : 'show',
-            layout: args.layout,
-            theme: args.theme,
+            ...svgOptions,
         });
         writeFileSync(resolve(args.output as string), result.buffer);
         return 0;

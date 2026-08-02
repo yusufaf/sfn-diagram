@@ -87,6 +87,61 @@ describe('parseArgs', () => {
     it('errors when a flag is missing its value', () => {
         expect(() => parseArgs(['in.json', '--format'])).toThrowError(/requires a value/);
     });
+
+    it('parses --diff and --execution', () => {
+        expect(parseArgs(['head.json', '--diff', 'base.json']).diff).toBe('base.json');
+        expect(parseArgs(['head.json', '--execution', 'history.json']).execution).toBe(
+            'history.json'
+        );
+    });
+
+    it('parses the icon flags', () => {
+        const args = parseArgs([
+            'in.json',
+            '--show-icons',
+            '--icon-position',
+            'top',
+            '--icon-size',
+            '32',
+        ]);
+        expect(args).toMatchObject({
+            iconPosition: 'top',
+            iconSize: 32,
+            showIcons: true,
+        });
+    });
+
+    it('leaves icon options unset by default', () => {
+        const args = parseArgs(['in.json']);
+        expect(args).toMatchObject({
+            diff: null,
+            execution: null,
+            hideVariables: false,
+            iconPosition: null,
+            iconSize: null,
+            showIcons: false,
+        });
+    });
+
+    it('parses --hide-variables', () => {
+        expect(parseArgs(['in.json', '--hide-variables']).hideVariables).toBe(true);
+    });
+
+    it('rejects an invalid --icon-position', () => {
+        expect(() => parseArgs(['in.json', '--icon-position', 'below'])).toThrowError(
+            /Invalid --icon-position/
+        );
+    });
+
+    it('rejects a non-numeric --icon-size', () => {
+        expect(() => parseArgs(['in.json', '--icon-size', 'big'])).toThrowError(
+            /Invalid --icon-size/
+        );
+    });
+
+    it('rejects a non-positive --icon-size', () => {
+        expect(() => parseArgs(['in.json', '--icon-size', '0'])).toThrowError(/Invalid --icon-size/);
+    });
 });
 
 describe('run', () => {
@@ -230,6 +285,233 @@ describe('run', () => {
         const written = readFileSync(outPath, 'utf-8');
         expect(written).toContain('<!DOCTYPE html>');
         expect(stdoutData).toBe('');
+    });
+});
+
+describe('diff, execution and icon flags', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    const variablesFixture = join(__dirname, 'fixtures', 'variables.asl.json');
+    const executionFixture = join(__dirname, 'fixtures', 'execution-success.json');
+
+    const baseAsl = JSON.stringify({
+        StartAt: 'StepA',
+        States: {
+            StepA: { Type: 'Pass', Next: 'StepB' },
+            StepB: { Type: 'Pass', Next: 'StepC' },
+            StepC: { Type: 'Succeed' },
+        },
+    });
+    const headAsl = JSON.stringify({
+        StartAt: 'StepA',
+        States: {
+            StepA: { Type: 'Pass', Next: 'NewStep' },
+            NewStep: { Type: 'Pass', Next: 'StepB' },
+            StepB: { Type: 'Wait', Seconds: 5, End: true },
+        },
+    });
+    const lambdaAsl = JSON.stringify({
+        StartAt: 'ProcessData',
+        States: {
+            ProcessData: {
+                Type: 'Task',
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:ProcessData',
+                End: true,
+            },
+        },
+    });
+
+    const write = (name: string, content: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, content);
+        return path;
+    };
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-flags-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('--diff renders an SVG with per-state diff colors', async () => {
+        const code = await run([write('head.json', headAsl), '--diff', write('base.json', baseAsl)]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<svg');
+        // added green, modified yellow, removed red
+        expect(stdoutData).toContain('#c8e6c9');
+        expect(stdoutData).toContain('#fff9c4');
+        expect(stdoutData).toContain('#ffcdd2');
+    });
+
+    it('--diff prints a change summary to stderr', async () => {
+        const code = await run([write('head.json', headAsl), '--diff', write('base.json', baseAsl)]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Added');
+        expect(stderrData).toContain('NewStep');
+        expect(stderrData).toContain('Modified');
+        expect(stderrData).toContain('StepB');
+        expect(stderrData).toContain('Removed');
+        expect(stderrData).toContain('StepC');
+    });
+
+    it('--diff with --format mermaid emits diff classes', async () => {
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('classDef diffAdded');
+        expect(stdoutData).toContain('class NewStep diffAdded');
+    });
+
+    it('--diff writes to a file with -o', async () => {
+        const outPath = join(tempDir, 'diff.svg');
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+            '-o',
+            outPath,
+        ]);
+        expect(code).toBe(0);
+        expect(readFileSync(outPath, 'utf-8')).toContain('<svg');
+        expect(stdoutData).toBe('');
+    });
+
+    it('returns exit code 1 when the --diff baseline is missing', async () => {
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            join(tempDir, 'nope.json'),
+        ]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('Failed to read --diff baseline');
+    });
+
+    it('--execution renders an SVG overlay', async () => {
+        const code = await run([simpleFixture, '--execution', executionFixture]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<svg');
+        // succeeded states are green
+        expect(stdoutData).toContain('#c8e6c9');
+    });
+
+    it('--execution prints a status summary to stderr', async () => {
+        const code = await run([simpleFixture, '--execution', executionFixture]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('succeeded');
+        expect(stderrData).toContain('Process');
+    });
+
+    it('--execution with --format mermaid emits execution classes', async () => {
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('classDef execSucceeded');
+        expect(stdoutData).toContain('class Process execSucceeded');
+    });
+
+    it('returns exit code 1 when the --execution history is missing', async () => {
+        const code = await run([simpleFixture, '--execution', join(tempDir, 'nope.json')]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('Failed to read --execution history');
+    });
+
+    it('rejects --diff combined with --execution', async () => {
+        const code = await run([
+            simpleFixture,
+            '--diff',
+            write('base.json', baseAsl),
+            '--execution',
+            executionFixture,
+        ]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('--diff and --execution cannot be combined');
+    });
+
+    it('rejects --diff with a format that has no diff renderer', async () => {
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+            '--format',
+            'html',
+        ]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('--diff supports --format svg or mermaid');
+    });
+
+    it('rejects --execution with a format that has no overlay renderer', async () => {
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+            '--format',
+            'png',
+            '-o',
+            join(tempDir, 'out.png'),
+        ]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('--execution supports --format svg or mermaid');
+    });
+
+    it('--show-icons renders AWS service icons', async () => {
+        const inputPath = write('lambda.asl.json', lambdaAsl);
+
+        const withoutCode = await run([inputPath]);
+        expect(withoutCode).toBe(0);
+        expect(stdoutData).not.toContain('<image');
+
+        stdoutData = '';
+        const code = await run([inputPath, '--show-icons']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<image');
+        expect(stdoutData).toContain('AWSLambda.svg');
+    });
+
+    it('--icon-size changes the rendered icon dimensions', async () => {
+        const inputPath = write('lambda.asl.json', lambdaAsl);
+        const code = await run([inputPath, '--show-icons', '--icon-size', '40']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('width="40"');
+        expect(stdoutData).toContain('height="40"');
+    });
+
+    it('--hide-variables drops Assign annotations from the diagram', async () => {
+        const withCode = await run([variablesFixture]);
+        expect(withCode).toBe(0);
+        expect(stdoutData).toContain('$orderId');
+
+        stdoutData = '';
+        const code = await run([variablesFixture, '--hide-variables']);
+        expect(code).toBe(0);
+        expect(stdoutData).not.toContain('$orderId');
     });
 });
 
