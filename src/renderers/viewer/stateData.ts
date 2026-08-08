@@ -2,16 +2,19 @@ import { getMapProcessor } from '../../AslParser';
 import type { AslDefinition, AslState } from '../../types';
 
 /**
- * Characters that must not appear raw inside an inline `<script>` block.
+ * Match the characters that must not appear raw inside an inline `<script>` block.
  *
  * `<` and `>` are escaped so a state's own content cannot terminate the script
  * element or open an HTML comment; U+2028 and U+2029 are valid in JSON but are
  * illegal raw in a JavaScript string literal.
+ *
+ * Built on demand rather than at module scope: a top-level `new RegExp(...)` reads
+ * as a side effect to bundlers, which pins it into builds that never touch the
+ * viewer (the GitHub Action bundle, for one).
  */
-const SCRIPT_UNSAFE_PATTERN = new RegExp(
-    '[<>' + String.fromCharCode(0x2028) + String.fromCharCode(0x2029) + ']',
-    'g',
-);
+function scriptUnsafePattern(): RegExp {
+    return new RegExp('[<>' + String.fromCharCode(0x2028) + String.fromCharCode(0x2029) + ']', 'g');
+}
 
 /** Parameters for {@link collectStateData}. */
 export interface CollectStateDataParams {
@@ -91,7 +94,7 @@ export function collectStateData(params: CollectStateDataParams): Record<string,
 export function serializeStateData(params: SerializeStateDataParams): string {
     const { stateData } = params;
     return JSON.stringify(stateData).replace(
-        SCRIPT_UNSAFE_PATTERN,
+        scriptUnsafePattern(),
         (character) => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'),
     );
 }
