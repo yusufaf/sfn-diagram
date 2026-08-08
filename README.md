@@ -1049,9 +1049,9 @@ Paste any ASL JSON, switch themes, and see the SVG diagram update instantly — 
 
 ### VS Code Extension
 
-Preview Step Functions diagrams directly inside VS Code. Located in [`packages/vscode-sfn-diagram/`](packages/vscode-sfn-diagram/).
+Preview Step Functions diagrams directly inside your editor. Located in [`packages/vscode-sfn-diagram/`](packages/vscode-sfn-diagram/).
 
-**Install from source:**
+**Install from source** (registry listings are tracked in [#40](https://github.com/yusufaf/sfn-diagram/issues/40)):
 ```bash
 cd packages/vscode-sfn-diagram
 pnpm install
