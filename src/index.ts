@@ -26,8 +26,15 @@
 import { parseAsl } from './AslParser';
 import { applyCatchHandling } from './graph';
 import { DagreLayout } from './layout';
-import { SvgRenderer, MermaidRenderer, wrapSvgInInteractiveHtml } from './renderers';
+import {
+    SvgRenderer,
+    MermaidRenderer,
+    collectStateData,
+    resolveViewerTheme,
+    wrapSvgInInteractiveHtml,
+} from './renderers';
 import { mergeOptions } from './config';
+import { embedIcons } from './utils/iconEmbedder';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
@@ -199,9 +206,12 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 }
 
 /**
- * Generate a self-contained interactive HTML diagram (pan/zoom viewer) from an
- * ASL definition. Wraps the SVG output in an HTML document with an inline
- * vanilla-JS controller — no external dependencies, works offline.
+ * Generate a self-contained interactive HTML diagram from an ASL definition.
+ *
+ * Wraps the SVG output in an HTML document with an inline vanilla-JS controller
+ * providing pan/zoom, state search (press `/` to focus, `Enter` to cycle hits),
+ * and a click-a-state detail panel showing the state's raw ASL. No external
+ * dependencies, so it opens from `file://`.
  *
  * @param params - ASL definition plus the same options as {@link generateSvg}.
  * @returns The HTML document string plus dimensions and metadata.
@@ -213,13 +223,61 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * const { html } = generateHtml({ aslDefinition: asl });
  * writeFileSync('diagram.html', html);
  * ```
+ *
+ * @remarks
+ * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons,
+ * so the document is not fully offline. Use {@link generateHtmlAsync} to inline
+ * those icons as data URIs.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, ...options } = params;
-    const svgOutput = generateSvg({ aslDefinition, ...options });
+    const aslObj: AslDefinition =
+        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
     return {
         height: svgOutput.height,
-        html: wrapSvgInInteractiveHtml({ svg: svgOutput.svg }),
+        html: wrapSvgInInteractiveHtml({
+            stateData: collectStateData({ definition: aslObj }),
+            svg: svgOutput.svg,
+            theme: resolveViewerTheme({ theme: options.theme }),
+        }),
+        metadata: svgOutput.metadata,
+        width: svgOutput.width,
+    };
+}
+
+/**
+ * Generate a fully offline interactive HTML diagram from an ASL definition.
+ *
+ * Identical to {@link generateHtml}, except AWS service icons are fetched once and
+ * inlined as base64 data URIs, so the document has no external references even with
+ * `showIcons: true`. When the diagram has no remote icons this costs nothing —
+ * `embedIcons` returns immediately and no network request is made.
+ *
+ * @param params - ASL definition plus the same options as {@link generateSvg}.
+ * @returns Promise resolving to the HTML document string plus dimensions and metadata.
+ *
+ * @example
+ * ```typescript
+ * import { generateHtmlAsync } from 'sfn-diagram';
+ * import { writeFileSync } from 'node:fs';
+ * const { html } = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
+ * writeFileSync('diagram.html', html); // opens offline, icons included
+ * ```
+ */
+export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
+    const { aslDefinition, ...options } = params;
+    const aslObj: AslDefinition =
+        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
+    return {
+        height: svgOutput.height,
+        html: wrapSvgInInteractiveHtml({
+            stateData: collectStateData({ definition: aslObj }),
+            svg: embeddedSvg,
+            theme: resolveViewerTheme({ theme: options.theme }),
+        }),
         metadata: svgOutput.metadata,
         width: svgOutput.width,
     };

@@ -1,5 +1,5 @@
 // Renderer exports
 export { SvgRenderer } from './SvgRenderer';
 export { MermaidRenderer } from './MermaidRenderer';
-export { wrapSvgInInteractiveHtml } from './htmlViewer';
-export type { WrapSvgInInteractiveHtmlParams } from './htmlViewer';
+export { collectStateData, resolveViewerTheme, wrapSvgInInteractiveHtml } from './viewer';
+export type { CollectStateDataParams, ViewerTheme, WrapSvgInInteractiveHtmlParams } from './viewer';
