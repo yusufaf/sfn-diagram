@@ -59,5 +59,15 @@ jobs:
       - name: Typecheck
         run: pnpm turbo run typecheck
 
+      # publint + attw catch export-map and type-resolution regressions across the
+      # dual ESM/CJS subpaths. These also run at publish time (release-please.yml),
+      # but by then the release tag is already cut and a failure leaves a tagged
+      # release with nothing on npm — catching it on the PR is the cheap path.
+      # Only the two npm-published packages; vscode and github-action are not.
+      - name: Validate package exports
+        run: |
+          pnpm run validate
+          pnpm --filter sfn-diagram-react run validate
+
       - name: Test
         run: pnpm turbo run test
