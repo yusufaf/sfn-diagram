@@ -4,6 +4,8 @@
     "description": "Preview AWS Step Functions ASL definitions as diagrams",
     "version": "0.1.0",
     "publisher": "yusufaf",
+    "icon": "media/icon.png",
+    "galleryBanner": { "color": "#232f3e", "theme": "dark" },
     "engines": { "vscode": "^1.85.0" },
     "categories": ["Visualization", "Other"],
     "keywords": ["aws", "step-functions", "asl", "diagram", "state-machine"],
@@ -46,13 +48,15 @@
         "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap",
         "dev": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap --watch",
         "typecheck": "tsc --noEmit",
-        "package": "vsce package --no-dependencies"
+        "package": "vsce package --no-dependencies",
+        "publish:openvsx": "ovsx publish"
     },
     "devDependencies": {
         "@types/node": "^24.0.0",
         "@types/vscode": "^1.85.0",
         "@vscode/vsce": "^3.0.0",
         "esbuild": "^0.25.0",
+        "ovsx": "^0.10.0",
         "sfn-diagram": "workspace:*",
         "typescript": "^5.9.2"
     },
@@ -61,5 +65,9 @@
         "type": "git",
         "url": "https://github.com/yusufaf/sfn-diagram.git",
         "directory": "packages/vscode-sfn-diagram"
+    },
+    "homepage": "https://github.com/yusufaf/sfn-diagram/tree/main/packages/vscode-sfn-diagram#readme",
+    "bugs": {
+        "url": "https://github.com/yusufaf/sfn-diagram/issues"
     }
 }

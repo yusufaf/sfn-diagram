@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="26" fill="#232f3e"/>
+
+  <!-- Edges drawn first so the nodes sit on top. -->
+  <g stroke="#8b98a7" stroke-width="3.5" fill="none" stroke-linecap="round">
+    <path d="M64 42 L64 54"/>
+    <path d="M46 72 L38 84"/>
+    <path d="M82 72 L90 84"/>
+  </g>
+
+  <!-- Start: Pass state (blue), matching AWS_LIGHT_THEME Pass colours. -->
+  <rect x="40" y="20" width="48" height="22" rx="6" fill="#e1f5fe" stroke="#0277bd" stroke-width="3"/>
+
+  <!-- Middle: Choice state (diamond, purple) — the branch that makes it a state machine. -->
+  <path d="M64 54 L82 67 L64 80 L46 67 Z" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="3"/>
+
+  <!-- Two Task outcomes (orange), the busiest state type in real machines. -->
+  <rect x="14" y="84" width="44" height="22" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="3"/>
+  <rect x="70" y="84" width="44" height="22" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="3"/>
+</svg>

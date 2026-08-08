@@ -27,3 +27,6 @@ examples/outputs/
 
 # AI planning docs (local only)
 docs/superpowers/
+
+# Packaged VS Code extension artifacts
+*.vsix

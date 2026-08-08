@@ -26,9 +26,12 @@ To overlay a real run, run **Step Functions: Preview Execution Overlay** and pic
 | `sfn-diagram.previewExecution` | Preview Execution Overlay |
 | `sfn-diagram.clearExecution` | Clear Execution Overlay |
 
-## Install from source
+## Install
 
-The extension is not yet published to the Marketplace. To build and install a local `.vsix`:
+Registry listings are tracked in [#40](https://github.com/yusufaf/sfn-diagram/issues/40).
+Until then, build and install a local `.vsix`:
+
+### Install from source
 
 ```bash
 cd packages/vscode-sfn-diagram

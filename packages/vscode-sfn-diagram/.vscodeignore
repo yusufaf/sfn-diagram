@@ -1,5 +1,16 @@
 .gitignore
+.vscodeignore
 src/
 tsconfig.json
-*.map
 node_modules/
+
+# Build and editor artifacts that must never reach the published package.
+.turbo/
+.vscode/
+
+# `*.map` alone only matches the package root, so out/extension.js.map (380 KB)
+# was shipping. Sourcemaps are of no use to installers.
+**/*.map
+
+# Packaged output, so re-running `vsce package` never nests a .vsix inside itself.
+*.vsix
