@@ -1,6 +1,16 @@
-# Step Functions Diagram — VS Code Extension
+# Step Functions Diagram
 
 Preview AWS Step Functions ASL definitions as diagrams directly inside VS Code, powered by [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram).
+
+![A Step Functions state machine rendered as a diagram, with Choice branching and AWS service icons](https://raw.githubusercontent.com/yusufaf/sfn-diagram/main/docs/images/order-processing-light.png)
+
+## Install
+
+Search for **Step Functions Diagram** in the Extensions panel, or:
+
+```bash
+code --install-extension yusufaf.vscode-sfn-diagram
+```
 
 ## Features
 
@@ -26,12 +36,9 @@ To overlay a real run, run **Step Functions: Preview Execution Overlay** and pic
 | `sfn-diagram.previewExecution` | Preview Execution Overlay |
 | `sfn-diagram.clearExecution` | Clear Execution Overlay |
 
-## Install
+## Install from source
 
-Registry listings are tracked in [#40](https://github.com/yusufaf/sfn-diagram/issues/40).
-Until then, build and install a local `.vsix`:
-
-### Install from source
+To build and install a local `.vsix` instead:
 
 ```bash
 cd packages/vscode-sfn-diagram
