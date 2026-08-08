@@ -5,8 +5,10 @@ import { pathToFileURL } from 'node:url';
 import { extractAslFromTemplate } from './cfn';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
-import { generateHtml, generateMermaid, generateSvg } from './index';
+import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
+import { collectStateData, resolveViewerTheme, wrapSvgInInteractiveHtml } from './renderers';
+import { embedIcons } from './utils/iconEmbedder';
 import type {
     AslDefinition,
     DiagramFormat,
@@ -67,9 +69,13 @@ Options:
   -v, --version                    Show version and exit
 
 Notes:
-  --diff and --execution are mutually exclusive, and both support only
-  --format svg and --format mermaid. Their change/status summary is written to stderr,
-  so the diagram itself still pipes cleanly on stdout.
+  --diff and --execution are mutually exclusive, and both support
+  --format svg, mermaid and html (not png). Their change/status summary is written to
+  stderr, so the diagram itself still pipes cleanly on stdout.
+
+  --format html produces a self-contained interactive viewer: drag to pan, wheel to
+  zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
+  icons are inlined, so the file works offline.
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
@@ -304,8 +310,11 @@ function resolveDefinitionSource(params: ResolveDefinitionSourceParams): AslDefi
     return aslDefinition;
 }
 
-/** Formats that have a diff / execution-overlay renderer. */
-const OVERLAY_FORMATS: DiagramFormat[] = ['mermaid', 'svg'];
+/**
+ * Formats that have a diff / execution-overlay renderer. `html` qualifies because
+ * the overlay SVG is wrapped in the interactive viewer; `png` still does not.
+ */
+const OVERLAY_FORMATS: DiagramFormat[] = ['html', 'mermaid', 'svg'];
 
 /** Statuses printed in the `--execution` summary, worst outcome first. */
 const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
@@ -373,11 +382,15 @@ export async function run(argv: string[]): Promise<number> {
         return 1;
     }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(args.format)) {
-        process.stderr.write(`--diff supports --format svg or mermaid, not ${args.format}\n`);
+        process.stderr.write(
+            `--diff supports --format svg, mermaid or html, not ${args.format}\n`,
+        );
         return 1;
     }
     if (args.execution !== null && !OVERLAY_FORMATS.includes(args.format)) {
-        process.stderr.write(`--execution supports --format svg or mermaid, not ${args.format}\n`);
+        process.stderr.write(
+            `--execution supports --format svg, mermaid or html, not ${args.format}\n`,
+        );
         return 1;
     }
     if (args.format === 'png' && !args.output) {
@@ -450,6 +463,24 @@ export async function run(argv: string[]): Promise<number> {
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
     };
 
+    /**
+     * Wrap a diff or execution-overlay SVG in the interactive viewer, so
+     * `--format html` is honoured alongside `--diff` / `--execution` rather than
+     * silently falling back to raw SVG. Icons are inlined so the document stays
+     * offline, matching the plain `--format html` path.
+     */
+    const toInteractiveHtml = async (svg: string): Promise<string> =>
+        wrapSvgInInteractiveHtml({
+            stateData: collectStateData({
+                definition:
+                    typeof definitionSource === 'string'
+                        ? (JSON.parse(definitionSource) as AslDefinition)
+                        : definitionSource,
+            }),
+            svg: await embedIcons({ svg }),
+            theme: resolveViewerTheme({ theme: args.theme }),
+        });
+
     try {
         if (baselineDefinition !== null) {
             if (args.format === 'mermaid') {
@@ -468,7 +499,10 @@ export async function run(argv: string[]): Promise<number> {
                 ...svgOptions,
             });
             writeDiffSummary(result.metadata);
-            writeOutput(result.svg, args.output);
+            writeOutput(
+                args.format === 'html' ? await toInteractiveHtml(result.svg) : result.svg,
+                args.output,
+            );
             return 0;
         }
 
@@ -489,7 +523,10 @@ export async function run(argv: string[]): Promise<number> {
                 ...svgOptions,
             });
             writeExecutionSummary(result.metadata);
-            writeOutput(result.svg, args.output);
+            writeOutput(
+                args.format === 'html' ? await toInteractiveHtml(result.svg) : result.svg,
+                args.output,
+            );
             return 0;
         }
 
@@ -512,7 +549,7 @@ export async function run(argv: string[]): Promise<number> {
         }
 
         if (args.format === 'html') {
-            const result = generateHtml({
+            const result = await generateHtmlAsync({
                 aslDefinition: definitionSource,
                 ...svgOptions,
             });
@@ -553,6 +590,11 @@ const invokedDirectly =
 
 if (invokedDirectly) {
     void run(process.argv.slice(2)).then((code) => {
-        process.exit(code);
+        // Set the exit code and let Node unwind on its own rather than calling
+        // process.exit(). `--format html` embeds icons over fetch, and tearing the
+        // process down while undici's sockets are still open aborts with a libuv
+        // assertion (exit 9) on Windows. Unwinding naturally also avoids truncating
+        // a large diagram when stdout is a pipe.
+        process.exitCode = code;
     });
 }

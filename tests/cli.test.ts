@@ -417,6 +417,50 @@ describe('diff, execution and icon flags', () => {
         expect(stdoutData).toContain('#c8e6c9');
     });
 
+    it('--diff with --format html emits an interactive document', async () => {
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+            '--format',
+            'html',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<!DOCTYPE html>');
+        expect(stdoutData).toContain('data-sfn-zoom'); // viewer toolbar
+        expect(stdoutData).toContain('data-state-id="NewStep"');
+        // Diff colours survive the wrapping.
+        expect(stdoutData).toContain('<svg');
+        // The change summary still goes to stderr, not into the document.
+        expect(stderrData).toContain('NewStep');
+    });
+
+    it('--execution with --format html emits an interactive document', async () => {
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+            '--format',
+            'html',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<!DOCTYPE html>');
+        expect(stdoutData).toContain('data-sfn-zoom');
+        // succeeded states are still green under the overlay
+        expect(stdoutData).toContain('#c8e6c9');
+        expect(stderrData).toContain('succeeded');
+    });
+
+    it('--format html embeds state data for the detail panel', async () => {
+        const code = await run([simpleFixture, '--format', 'html']);
+        expect(code).toBe(0);
+        const match = stdoutData.match(
+            /<script type="application\/json" id="sfn-state-data">([\s\S]*?)<\/script>/,
+        );
+        expect(match).not.toBeNull();
+        expect(JSON.parse(match![1])).toHaveProperty('Process');
+    });
+
     it('--execution prints a status summary to stderr', async () => {
         const code = await run([simpleFixture, '--execution', executionFixture]);
         expect(code).toBe(0);
@@ -461,10 +505,12 @@ describe('diff, execution and icon flags', () => {
             '--diff',
             write('base.json', baseAsl),
             '--format',
-            'html',
+            'png',
+            '-o',
+            join(tempDir, 'out.png'),
         ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('--diff supports --format svg or mermaid');
+        expect(stderrData).toContain('--diff supports --format svg, mermaid or html');
     });
 
     it('rejects --execution with a format that has no overlay renderer', async () => {
@@ -478,7 +524,7 @@ describe('diff, execution and icon flags', () => {
             join(tempDir, 'out.png'),
         ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('--execution supports --format svg or mermaid');
+        expect(stderrData).toContain('--execution supports --format svg, mermaid or html');
     });
 
     it('--show-icons renders AWS service icons', async () => {

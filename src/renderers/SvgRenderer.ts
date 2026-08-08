@@ -283,6 +283,8 @@ export class SvgRenderer {
         const containerGroup = group
             .append('g')
             .attr('class', `container container-${node.type}`)
+            .attr('data-state-id', node.id)
+            .attr('data-state-type', node.type)
             .attr('transform', `translate(${node.x}, ${node.y})`);
 
         const width = node.width || 480;
@@ -356,6 +358,8 @@ export class SvgRenderer {
         const nodeGroup = group
             .append('g')
             .attr('class', `node node-${node.type}`)
+            .attr('data-state-id', node.id)
+            .attr('data-state-type', node.type)
             .attr('transform', `translate(${node.x}, ${node.y})`);
 
         const baseStyle = node.style;

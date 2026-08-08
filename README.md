@@ -311,6 +311,24 @@ const result = generateMermaid({
 // Returns MermaidOutput: { code: string, metadata: { edgeCount: number, stateCount: number } }
 ```
 
+### generateHtml(params) / generateHtmlAsync(params)
+
+Generate a self-contained interactive HTML viewer — pan, zoom, state search, and a
+click-a-state detail panel. Accepts the same options as `generateSvg`.
+
+```typescript
+import { generateHtml, generateHtmlAsync } from 'sfn-diagram';
+
+const result = generateHtml({ aslDefinition: asl, theme: 'dark' });
+// Returns HtmlOutput: { html: string, width: number, height: number, metadata: {...} }
+
+// Same output, but AWS service icons are inlined as data URIs so the document
+// has no external references at all.
+const offline = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
+```
+
+See [Large diagrams](#large-diagrams) for the full list of viewer interactions.
+
 ### generateDiagram(params)
 
 Generate a diagram, choosing the output format via the `format` option (defaults to `'svg'`).
@@ -603,16 +621,40 @@ generateSvg({ aslDefinition: asl, theme: customTheme });
 
 Big, branchy state machines are hard to read as a static image. A few options help:
 
-- **`--format html`** (or `generateHtml()`) — a self-contained interactive viewer
-  (drag to pan, wheel to zoom, fit/reset toolbar). No external dependencies, opens
-  offline straight from `file://`.
+- **`--format html`** (or `generateHtml()`) — a self-contained interactive viewer.
+  No external dependencies, opens offline straight from `file://`.
   ```bash
   npx sfn-diagram state.asl.json --format html -o diagram.html
   ```
-  > **Known limitation:** if you also pass `showIcons: true`, the embedded SVG
-  > references AWS service icons hosted on a jsDelivr CDN (see
-  > [AWS Service Icons](#aws-service-icons) below), so the HTML is no longer fully
-  > offline — icons won't load without network access.
+
+  | Interaction | |
+  | --- | --- |
+  | Pan | drag the background |
+  | Zoom | mouse wheel, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
+  | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
+  | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
+
+  Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
+  target states from your own scripts or styles.
+
+  The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
+
+  `--diff` and `--execution` also accept `--format html`, which is where the viewer
+  earns its keep: a large diff or execution overlay is far easier to read when you
+  can search and inspect it.
+
+  ```bash
+  npx sfn-diagram head.asl.json --diff base.asl.json --format html -o diff.html
+  ```
+
+  > **Icons and offline use:** the CLI inlines AWS service icons as data URIs, so
+  > `--format html --show-icons` still works with no network. In the library, the
+  > synchronous `generateHtml()` leaves icon URLs pointing at the jsDelivr CDN — use
+  > the async `generateHtmlAsync()` to inline them:
+  > ```typescript
+  > import { generateHtmlAsync } from 'sfn-diagram';
+  > const { html } = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
+  > ```
 - **`--hide-catch`** (or `catchHandling: 'hide'`) — drop per-state error-handler
   (`Catch`) branches so the happy path stands out. A handler that's also reachable
   via the happy path is kept.
