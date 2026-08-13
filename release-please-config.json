@@ -9,7 +9,8 @@
       ],
       "exclude-paths": [
         "packages/github-action-sfn-diagram",
-        "packages/sfn-diagram-react"
+        "packages/sfn-diagram-react",
+        "packages/vscode-sfn-diagram"
       ]
     },
     "packages/github-action-sfn-diagram": {
@@ -18,6 +19,10 @@
     },
     "packages/sfn-diagram-react": {
       "component": "sfn-diagram-react",
+      "release-type": "node"
+    },
+    "packages/vscode-sfn-diagram": {
+      "component": "vscode-sfn-diagram",
       "release-type": "node"
     }
   }

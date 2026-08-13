@@ -6,10 +6,19 @@ Preview AWS Step Functions ASL definitions as diagrams directly inside VS Code, 
 
 ## Install
 
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/yusufaf.vscode-sfn-diagram?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=yusufaf.vscode-sfn-diagram)
+[![Open VSX](https://img.shields.io/open-vsx/v/yusufaf/vscode-sfn-diagram?label=open%20vsx)](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram)
+
 Search for **Step Functions Diagram** in the Extensions panel, or:
 
 ```bash
 code --install-extension yusufaf.vscode-sfn-diagram
+```
+
+The same build is published to [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram), which is the default registry for **Cursor, Windsurf, VSCodium, Gitpod, and Eclipse Theia** — searching the Extensions panel works there too:
+
+```bash
+codium --install-extension yusufaf.vscode-sfn-diagram
 ```
 
 ## Features
