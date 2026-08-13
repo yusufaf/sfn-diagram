@@ -28,6 +28,8 @@ jobs:
       action_tag_name: ${{ steps.release.outputs['packages/github-action-sfn-diagram--tag_name'] }}
       react_release_created: ${{ steps.release.outputs['packages/sfn-diagram-react--release_created'] }}
       react_tag_name: ${{ steps.release.outputs['packages/sfn-diagram-react--tag_name'] }}
+      vscode_release_created: ${{ steps.release.outputs['packages/vscode-sfn-diagram--release_created'] }}
+      vscode_tag_name: ${{ steps.release.outputs['packages/vscode-sfn-diagram--tag_name'] }}
     steps:
       - uses: actions/create-github-app-token@v3
         id: app-token
@@ -205,6 +207,65 @@ jobs:
       - name: Publish to npm
         working-directory: packages/sfn-diagram-react
         run: npm publish --provenance --access public
+
+  # Publish the VS Code extension to Open VSX when release-please cut a release
+  # for it. Open VSX is the default registry for Cursor, Windsurf, VSCodium,
+  # Gitpod and Eclipse Theia.
+  #
+  # The Microsoft Marketplace is deliberately NOT automated here. `vsce publish`
+  # requires a *global* Azure DevOps PAT, and global PATs are retired on
+  # 2026-12-01; the supported replacement is Entra workload identity federation
+  # (`vsce publish --azure-credential`), which is tracked separately in #40.
+  # Open VSX uses its own token and is unaffected by that cutoff.
+  openvsx-publish:
+    needs: release-please
+    if: needs.release-please.outputs.vscode_release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release-please.outputs.vscode_tag_name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # esbuild bundles the core package into out/extension.js, so core dist/
+      # must exist before the extension can build.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm --filter vscode-sfn-diagram run typecheck
+
+      - name: Build
+        run: pnpm --filter vscode-sfn-diagram run build
+
+      # --no-dependencies: the extension is a single esbuild bundle, so there is
+      # no node_modules tree to pack.
+      - name: Package
+        run: pnpm --filter vscode-sfn-diagram run package
+
+      # ovsx reads the token from OVSX_PAT. Passing it as `-p` instead would put
+      # it in the process argument list; the env var keeps it out.
+      # --skip-duplicate so a re-run of a partially failed release is a no-op
+      # rather than a hard failure.
+      - name: Publish to Open VSX
+        working-directory: packages/vscode-sfn-diagram
+        run: pnpm exec ovsx publish vscode-sfn-diagram-*.vsix --skip-duplicate
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
   # Sync the bundled action to its Marketplace mirror repo when release-please
   # cut a new action release. Mirrors the npm-publish flow, but pushes to the
