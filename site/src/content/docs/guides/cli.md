@@ -19,7 +19,7 @@ cat state.asl.json | npx sfn-diagram - --format svg
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
 | `--hide-catch` | Drop error-handler (`Catch`) branches |
 | `--hide-variables` | Drop the `$var` annotations for ASL `Assign` blocks |
-| `--show-icons` | Draw [AWS service icons](#aws-service-icons) on Task states |
+| `--show-icons` | Draw [AWS service icons](/guides/configuration/#aws-service-icons) on Task states |
 | `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
 | `--icon-size <pixels>` | Icon size in pixels (default: `24`) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
@@ -53,11 +53,11 @@ Diff summary:
 ```
 
 `--execution` accepts either a full `GetExecutionHistory` response (`{"events": [...]}`)
-or a bare events array. See [generateDiff](#generatemermaiddiffparams--generatediffparams)
-and [generateExecution](#generateexecutionparams--generatemermaidexecutionparams) for the
+or a bare events array. See [generateDiff](/reference/index/functions/generatediff/)
+and [generateExecution](/reference/index/functions/generateexecution/) for the
 programmatic equivalents.
 
-CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](#extracting-asl-from-a-cdkcloudformation-template).
+CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/).
 
 > **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
 

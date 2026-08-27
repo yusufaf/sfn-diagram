@@ -11,11 +11,20 @@
     --text: var(--sl-color-text);
     --toolbar-bg: var(--sl-color-bg-nav);
 
-    /* Fill whatever viewport is left under the Starlight header. */
+    /* Full-bleed: the splash template already drops the sidebar and table of
+       contents, so only the content gutters need clearing. Height subtracts the
+       nav plus the title block the splash template still reserves, so both panes
+       fit without a page scroll.
+
+       This is the single owner of the route's layout — an earlier duplicate in
+       custom.css sat at equal specificity, so which one won depended on
+       stylesheet order and could differ between dev and a bundled build. */
     display: flex;
     flex-direction: column;
-    height: calc(100vh - var(--sl-nav-height));
+    height: calc(100vh - var(--sl-nav-height) - 6rem);
+    margin-inline: calc(-1 * var(--sl-content-pad-x));
     min-height: 30rem;
+    width: calc(100% + 2 * var(--sl-content-pad-x));
 }
 
 .playground-route .app {

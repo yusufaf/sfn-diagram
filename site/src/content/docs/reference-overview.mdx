@@ -1,0 +1,43 @@
+---
+title: API reference
+description: Generated from the JSDoc in source, covering all four sfn-diagram entry points.
+slug: reference
+tableOfContents: false
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components'
+
+Every page under this section is generated from the JSDoc in `src/` at build
+time, so it tracks the published signatures rather than a hand-maintained copy.
+
+<CardGrid>
+  <LinkCard
+    title="sfn-diagram"
+    href="/reference/index/"
+    description="Core entry point: generateSvg, generateMermaid, generateHtml, generateDiagram, diffs, and execution overlays. Runs in Node, the browser, and edge runtimes."
+  />
+  <LinkCard
+    title="sfn-diagram/cfn"
+    href="/reference/cfn/"
+    description="Extract ASL from CloudFormation, SAM, and CDK templates."
+  />
+  <LinkCard
+    title="sfn-diagram/aws"
+    href="/reference/aws/"
+    description="Fetch execution history through the AWS SDK. Node only."
+  />
+  <LinkCard
+    title="sfn-diagram/png"
+    href="/reference/png/"
+    description="PNG export via a headless browser. Node only."
+  />
+</CardGrid>
+
+## Most-used entry points
+
+<CardGrid>
+  <LinkCard title="generateSvg" href="/reference/index/functions/generatesvg/" />
+  <LinkCard title="generateMermaid" href="/reference/index/functions/generatemermaid/" />
+  <LinkCard title="generateHtml" href="/reference/index/functions/generatehtml/" />
+  <LinkCard title="exportPng" href="/reference/png/functions/exportpng/" />
+</CardGrid>

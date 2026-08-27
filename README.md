@@ -33,14 +33,15 @@ npm install sfn-diagram node-html-to-image
 import { generateSvg } from 'sfn-diagram';
 
 const { svg } = generateSvg({
-  asl: {
+  aslDefinition: {
     StartAt: 'Hello',
     States: {
       Hello: { Type: 'Pass', Next: 'World' },
       World: { Type: 'Succeed' },
     },
   },
-  options: { layout: 'TB', theme: 'light' },
+  layout: 'TB',
+  theme: 'light',
 });
 ```
 

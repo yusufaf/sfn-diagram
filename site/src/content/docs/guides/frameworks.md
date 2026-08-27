@@ -8,8 +8,8 @@ framework can render a diagram by injecting that string. There is nothing React-
 in the core — [`sfn-diagram-react`](https://github.com/yusufaf/sfn-diagram/tree/main/packages/sfn-diagram-react/) exists for convenience,
 not necessity.
 
-Each snippet below is the whole integration. See [API Reference](#api-reference) for the
-full option set (`theme`, `layout`, `showIcons`, …) and [`generateMermaid`](#generatemermaidparams)
+Each snippet below is the whole integration. See [API reference](/reference/) for the
+full option set (`theme`, `layout`, `showIcons`, …) and [`generateMermaid`](/reference/index/functions/generatemermaid/)
 if you would rather emit Mermaid than SVG.
 
 **Svelte 5**

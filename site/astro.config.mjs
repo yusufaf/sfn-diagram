@@ -1,6 +1,7 @@
 // @ts-check
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
+import { rm } from 'node:fs/promises'
 import { defineConfig } from 'astro/config'
 import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightPageActions from 'starlight-page-actions'
@@ -8,10 +9,37 @@ import starlightTypeDoc, { typeDocSidebarGroup } from 'starlight-typedoc'
 
 const SITE = 'https://sfn.yusufaf.dev'
 
+/**
+ * Drop the package-overview page TypeDoc emits for a multi-entry-point project.
+ *
+ * With four entry points TypeDoc writes a root `README.md` whose body is empty
+ * and whose links all point at per-module readme pages it never emits (the
+ * plugin defaults to `readme: 'none'`). The hand-written reference landing page
+ * at `/reference/` replaces it, so this removes the orphan rather than leaving
+ * four broken links in the sitemap and search index.
+ *
+ * @returns {import('astro').AstroIntegration} An Astro integration that deletes
+ *   the page after the build.
+ */
+function removeTypeDocOverviewPage() {
+    return {
+        hooks: {
+            'astro:build:done': async ({ dir }) => {
+                await rm(new URL('reference/readme/', dir), {
+                    force: true,
+                    recursive: true,
+                })
+            },
+        },
+        name: 'remove-typedoc-overview-page',
+    }
+}
+
 export default defineConfig({
     base: '/',
     integrations: [
         react(),
+        removeTypeDocOverviewPage(),
         starlight({
             components: {
                 Head: './src/components/Head.astro',
@@ -37,6 +65,10 @@ export default defineConfig({
                         entryPointStrategy: 'resolve',
                         excludeInternal: true,
                         excludePrivate: true,
+                        // The generated readme page comes out empty and links to
+                        // per-module readmes that are never emitted; the
+                        // hand-written reference landing page replaces it.
+                        readme: 'none',
                         useCodeBlocks: true,
                     },
                 }),

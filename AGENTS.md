@@ -9,14 +9,19 @@ raw Markdown by appending `.md` to its URL.
 
 | Import | Contents | Runtime |
 |---|---|---|
-| `sfn-diagram` | `generateSvg`, `generateMermaid`, `generateHtml`, `generateDiagram`, diff and execution overlays | Node, browser, edge |
+| `sfn-diagram` | `generateSvg`, `generateMermaid`, `generateHtml`, `generateDiagram`, `generateFromAwsResponse`, diff and execution overlays | Node, browser, edge |
 | `sfn-diagram/png` | `exportPng` | Node only |
-| `sfn-diagram/aws` | `generateFromAwsResponse`, `fetchExecutionHistory` | Node, browser, edge |
+| `sfn-diagram/aws` | `fetchExecutionHistory` | Node only |
 | `sfn-diagram/cfn` | `extractAslFromTemplate` for CloudFormation/SAM/CDK | Node, browser, edge |
 
-The core is platform-agnostic and has no browser-engine dependency. Only
-`sfn-diagram/png` (via the optional `node-html-to-image` peer) and the CLI are
-Node-only. Do not import `sfn-diagram/png` in browser or edge code.
+The core is platform-agnostic and has no browser-engine dependency.
+`sfn-diagram/png` (via the optional `node-html-to-image` peer),
+`sfn-diagram/aws` (via the optional `@aws-sdk/client-sfn` peer), and the CLI are
+Node-only. Do not import either subpath in browser or edge code.
+
+Note that `generateFromAwsResponse` lives on the **root** entry, not on
+`sfn-diagram/aws` — it only reshapes a `DescribeStateMachine` response you
+already have, so it needs no AWS SDK.
 
 ## Calling convention
 
@@ -27,8 +32,10 @@ arguments:
 import { generateSvg } from 'sfn-diagram';
 
 const { svg, height, width } = generateSvg({
-  asl: definition,
-  options: { edgeStyle: 'curved', layout: 'LR', theme: 'dark' },
+  aslDefinition: definition,
+  edgeStyle: 'curved',
+  layout: 'LR',
+  theme: 'dark',
 });
 ```
 
@@ -38,6 +45,9 @@ Type-only imports (`AslDefinition`, `DiagramOptions`, `CustomTheme`,
 ## Common mistakes
 
 - Passing positional arguments — the API is object-parameter throughout.
+- Nesting options under an `options` key, or naming the definition `asl`. Params
+  are flat: `GenerateSvgParams extends DiagramOptions` with an `aslDefinition`
+  field, so options sit beside it at the top level.
 - Importing `exportPng` from `sfn-diagram` — it lives in `sfn-diagram/png`.
 - Assuming a DOM. SVG output is built as a string with no `document` access, so
   it works server-side and in edge runtimes without a shim.
