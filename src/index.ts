@@ -95,7 +95,7 @@ import type {
  * ```typescript
  * // From JSON string
  * const aslJson = fs.readFileSync('state-machine.json', 'utf-8');
- * const result = generateSvg({ asl: aslJson, theme: 'light' });
+ * const result = generateSvg({ aslDefinition: aslJson, theme: 'light' });
  * ```
  *
  * @example
@@ -161,7 +161,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
  *   }
  * };
  *
- * const { code, metadata } = generateMermaid({ asl });
+ * const { code, metadata } = generateMermaid({ aslDefinition });
  * console.log(code);
  * // Output:
  * // stateDiagram-v2
@@ -176,7 +176,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
  * @example
  * ```typescript
  * // Use in Markdown
- * const { code } = generateMermaid({ asl: myStateMachine });
+ * const { code } = generateMermaid({ aslDefinition: myStateMachine });
  * const markdown = `\`\`\`mermaid\n${code}\n\`\`\``;
  * fs.writeFileSync('diagram.md', markdown);
  * ```
@@ -307,10 +307,10 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
  * import { generateDiagram } from 'sfn-diagram';
  *
  * // Generate SVG (default)
- * const svgResult = generateDiagram({ asl: myAsl });
+ * const svgResult = generateDiagram({ aslDefinition: myAsl });
  *
  * // Generate Mermaid
- * const mermaidResult = generateDiagram({ asl: myAsl, format: 'mermaid' });
+ * const mermaidResult = generateDiagram({ aslDefinition: myAsl, format: 'mermaid' });
  * ```
  */
 export function generateDiagram(
@@ -403,12 +403,12 @@ export function generateFromAwsResponse(
  * });
  *
  * // Generate multiple diagrams with the same options
- * const diagram1 = generator.generateSvg({ asl: stateMachine1 });
- * const diagram2 = generator.generateSvg({ asl: stateMachine2 });
+ * const diagram1 = generator.generateSvg({ aslDefinition: stateMachine1 });
+ * const diagram2 = generator.generateSvg({ aslDefinition: stateMachine2 });
  *
  * // Update options and generate more
  * generator.setOptions({ theme: 'light' });
- * const diagram3 = generator.generateSvg({ asl: stateMachine3 });
+ * const diagram3 = generator.generateSvg({ aslDefinition: stateMachine3 });
  * ```
  */
 export class SfnDiagramGenerator {
@@ -432,12 +432,12 @@ export class SfnDiagramGenerator {
      * Generate a diagram (auto-detects format from options)
      *
      * @param params - Generation parameters
-     * @param params.asl - ASL definition as an object or JSON string
+     * @param params.aslDefinition - ASL definition as an object or JSON string
      * @returns SVG or Mermaid output based on format option
      *
      * @example
      * ```typescript
-     * const result = generator.generate({ asl: myStateMachine });
+     * const result = generator.generate({ aslDefinition: myStateMachine });
      * ```
      */
     generate(params: {
@@ -450,12 +450,12 @@ export class SfnDiagramGenerator {
      * Generate an SVG diagram
      *
      * @param params - Generation parameters
-     * @param params.asl - ASL definition as an object or JSON string
+     * @param params.aslDefinition - ASL definition as an object or JSON string
      * @returns SVG output with diagram and metadata
      *
      * @example
      * ```typescript
-     * const { svg } = generator.generateSvg({ asl: myStateMachine });
+     * const { svg } = generator.generateSvg({ aslDefinition: myStateMachine });
      * ```
      */
     generateSvg(params: { aslDefinition: AslDefinition | string }): SvgOutput {
@@ -466,12 +466,12 @@ export class SfnDiagramGenerator {
      * Generate Mermaid diagram syntax
      *
      * @param params - Generation parameters
-     * @param params.asl - ASL definition as an object or JSON string
+     * @param params.aslDefinition - ASL definition as an object or JSON string
      * @returns Mermaid output with code and metadata
      *
      * @example
      * ```typescript
-     * const { code } = generator.generateMermaid({ asl: myStateMachine });
+     * const { code } = generator.generateMermaid({ aslDefinition: myStateMachine });
      * ```
      */
     generateMermaid(params: { aslDefinition: AslDefinition | string }): MermaidOutput {
@@ -490,7 +490,7 @@ export class SfnDiagramGenerator {
      *   .setOptions({ theme: 'dark' })
      *   .setOptions({ layout: 'LR' });
      *
-     * const result = generator.generateSvg({ asl: myAsl });
+     * const result = generator.generateSvg({ aslDefinition: myAsl });
      * ```
      */
     setOptions(options: Partial<DiagramOptions>): this {

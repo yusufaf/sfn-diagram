@@ -1,0 +1,76 @@
+---
+title: Command line
+description: Use the sfn-diagram CLI to render diagrams, diffs, and execution overlays.
+---
+
+The package ships a CLI for use without writing any JavaScript:
+
+```bash
+npx sfn-diagram state.asl.json --format svg -o diagram.svg
+npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
+cat state.asl.json | npx sfn-diagram - --format svg
+```
+
+| Flag | Description |
+|---|---|
+| `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
+| `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
+| `--theme <light\|dark>` | Color theme for SVG/PNG/HTML (default: `light`) |
+| `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
+| `--hide-catch` | Drop error-handler (`Catch`) branches |
+| `--hide-variables` | Drop the `$var` annotations for ASL `Assign` blocks |
+| `--show-icons` | Draw [AWS service icons](/guides/configuration/#aws-service-icons) on Task states |
+| `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
+| `--icon-size <pixels>` | Icon size in pixels (default: `24`) |
+| `--diff <baseline>` | Compare the input (head) against a baseline definition |
+| `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
+| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template |
+| `--resource <logicalId>` | State machine to extract when the template has several |
+| `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
+
+## Diff and execution overlays from the CLI
+
+```bash
+# Highlight what changed between two revisions of a definition
+npx sfn-diagram head.asl.json --diff base.asl.json -o diff.svg
+npx sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
+
+# Colour a diagram by what actually happened in a run
+aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
+npx sfn-diagram state.asl.json --execution history.json -o run.svg
+```
+
+Both flags support `--format svg` and `--format mermaid` only, and cannot be combined
+with each other. The change/status summary is written to **stderr**, so the diagram on
+stdout still pipes cleanly:
+
+```
+Diff summary:
+  Added:     NewStep
+  Modified:  StepB
+  Removed:   StepC
+  Unchanged: 1
+```
+
+`--execution` accepts either a full `GetExecutionHistory` response (`{"events": [...]}`)
+or a bare events array. See [generateDiff](/reference/index/functions/generatediff/)
+and [generateExecution](/reference/index/functions/generateexecution/) for the
+programmatic equivalents.
+
+CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/).
+
+> **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
+
+## Docker
+
+A prebuilt image is published to GitHub Container Registry with Chromium baked in, so PNG export works out of the box:
+
+```bash
+docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
+  /work/state.asl.json --format svg -o /work/diagram.svg
+
+docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
+  /work/state.asl.json --format png -o /work/diagram.png
+```
+
+Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.

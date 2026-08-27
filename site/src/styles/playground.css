@@ -1,0 +1,156 @@
+/* Playground styles, scoped to the /playground route.
+   The standalone app's global resets (`*`, `html, body, #root`) are deliberately
+   dropped: inside Starlight they hijacked the document and broke the header and
+   page layout. Theme variables hang off the route wrapper instead of :root, and
+   inherit Starlight's own light/dark state rather than a second toggle. */
+.playground-route {
+    --bg: var(--sl-color-bg);
+    --border: var(--sl-color-hairline);
+    --error-bg: var(--sl-color-red-low);
+    --error-text: var(--sl-color-red-high);
+    --text: var(--sl-color-text);
+    --toolbar-bg: var(--sl-color-bg-nav);
+
+    /* Full-bleed: the splash template already drops the sidebar and table of
+       contents, so only the content gutters need clearing. Height subtracts the
+       nav plus the title block the splash template still reserves, so both panes
+       fit without a page scroll.
+
+       This is the single owner of the route's layout — an earlier duplicate in
+       custom.css sat at equal specificity, so which one won depended on
+       stylesheet order and could differ between dev and a bundled build. */
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--sl-nav-height) - 6rem);
+    margin-inline: calc(-1 * var(--sl-content-pad-x));
+    min-height: 30rem;
+    width: calc(100% + 2 * var(--sl-content-pad-x));
+}
+
+.playground-route .app {
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.playground-route *,
+.playground-route *::before,
+.playground-route *::after {
+    box-sizing: border-box;
+}
+
+.playground-route .toolbar {
+    align-items: center;
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-shrink: 0;
+    gap: 16px;
+    padding: 8px 16px;
+}
+
+.playground-route .toolbar-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-right: 8px;
+}
+
+.playground-route .toolbar-group {
+    align-items: center;
+    display: flex;
+    font-size: 13px;
+    gap: 6px;
+}
+
+.playground-route .toolbar-group select {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    padding: 3px 6px;
+}
+
+.playground-route .panes {
+    display: grid;
+    flex: 1;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+}
+
+.playground-route .editor-pane {
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+}
+
+.playground-route .editor-split {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.playground-route .editor-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.playground-route .editor-section + .editor-section {
+    border-top: 1px solid var(--border);
+}
+
+.playground-route .editor-label {
+    background: var(--toolbar-bg);
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.75;
+    padding: 4px 12px;
+}
+
+.playground-route .editor-body {
+    flex: 1;
+    min-height: 0;
+}
+
+.playground-route .editor-loading {
+    align-items: center;
+    color: var(--text);
+    display: flex;
+    font-size: 13px;
+    height: 100%;
+    justify-content: center;
+    opacity: 0.5;
+}
+
+.playground-route .preview-pane {
+    align-items: flex-start;
+    display: flex;
+    justify-content: center;
+    overflow: auto;
+    padding: 16px;
+}
+
+.playground-route .svg-preview svg {
+    height: auto;
+    max-width: 100%;
+}
+
+.playground-route .mermaid-code {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 13px;
+    white-space: pre;
+}
+
+.playground-route .error-banner {
+    background: var(--error-bg);
+    border-radius: 4px;
+    color: var(--error-text);
+    font-family: monospace;
+    font-size: 13px;
+    padding: 12px 16px;
+    width: 100%;
+}

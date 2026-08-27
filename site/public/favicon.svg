@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="sfn-diagram">
+  <rect width="32" height="32" rx="6" fill="#24714b"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <rect x="11" y="5" width="10" height="6" rx="1.5"/>
+    <path d="M16 11v4M16 15h-5v2M16 15h5v2"/>
+    <rect x="4" y="17" width="10" height="6" rx="1.5"/>
+    <rect x="18" y="17" width="10" height="6" rx="1.5"/>
+  </g>
+</svg>
