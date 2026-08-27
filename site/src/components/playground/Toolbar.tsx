@@ -1,6 +1,6 @@
 import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
-import { SAMPLE_KEYS, SAMPLE_LABELS } from '../samples'
-import type { SampleKey } from '../samples'
+import { SAMPLE_KEYS, SAMPLE_LABELS } from './samples'
+import type { SampleKey } from './samples'
 
 export type Mode = 'definition' | 'execution'
 
@@ -29,8 +29,6 @@ export function Toolbar({
 }: ToolbarProps) {
     return (
         <div className="toolbar">
-            <span className="toolbar-title">sfn-diagram</span>
-
             <label className="toolbar-group">
                 Sample:
                 <select onChange={(e) => onSampleSelect(e.target.value as SampleKey)}>

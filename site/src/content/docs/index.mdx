@@ -1,0 +1,41 @@
+---
+title: Step Functions diagrams
+description: Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, or live AWS state machines.
+template: splash
+hero:
+  title: sfn-diagram
+  tagline: Turn any Step Functions state machine into a diagram — in Node, the browser, an edge runtime, your editor, or a pull request.
+  actions:
+    - text: Quick start
+      link: /quick-start/
+      icon: right-arrow
+    - text: Open the playground
+      link: /playground/
+      icon: rocket
+      variant: minimal
+    - text: View on GitHub
+      link: https://github.com/yusufaf/sfn-diagram
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components'
+
+<CardGrid stagger>
+  <Card title="Four output formats" icon="seti:image">
+    SVG, Mermaid, standalone HTML, and PNG from one definition. SVG is built
+    DOM-free, so it renders anywhere JavaScript runs.
+  </Card>
+  <Card title="Reads more than raw ASL" icon="document">
+    Point it at an ASL file, a CloudFormation/SAM/CDK template, or a live state
+    machine fetched through the AWS SDK.
+  </Card>
+  <Card title="Diff and execution overlays" icon="approve-check">
+    Highlight what changed between two revisions, or colour a diagram by what
+    actually happened in a run.
+  </Card>
+  <Card title="An ecosystem, not just a library" icon="puzzle">
+    A CLI, a VS Code extension, a React component, and a GitHub Action that
+    comments diagrams on pull requests.
+  </Card>
+</CardGrid>

@@ -1,14 +1,12 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-    // Served at the root of sfn.yusufaf.dev (custom domain), not a GH Pages
-    // project-page subpath — must be '/', not '/sfn-diagram/'.
-    base: '/',
     plugins: [react()],
     test: {
         environment: 'jsdom',
         globals: true,
+        include: ['src/**/*.test.{ts,tsx}'],
         setupFiles: ['./test-setup.ts'],
     },
 })

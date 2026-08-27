@@ -1,4 +1,4 @@
-name: Deploy Playground
+name: Deploy Docs
 
 on:
   push:
@@ -37,17 +37,20 @@ jobs:
       - name: Install deps
         run: pnpm install
 
+      # The library must build first: the site imports `sfn-diagram` as a
+      # workspace dependency for the playground island, and TypeDoc resolves
+      # the API reference against src/.
       - name: Build library
         run: pnpm run build
 
-      - name: Build playground
+      - name: Build docs site
         run: pnpm run build
-        working-directory: playground
+        working-directory: site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: playground/dist
+          path: site/dist
 
   deploy:
     name: Deploy

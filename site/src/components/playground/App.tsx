@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
-import { Editor } from './components/Editor'
-import { Preview } from './components/Preview'
-import { Toolbar } from './components/Toolbar'
-import type { Mode } from './components/Toolbar'
+import { Editor } from './Editor'
+import { Preview } from './Preview'
+import { Toolbar } from './Toolbar'
+import type { Mode } from './Toolbar'
 import { SAMPLE_HISTORIES, SAMPLES } from './samples'
 import type { SampleKey } from './samples'
 

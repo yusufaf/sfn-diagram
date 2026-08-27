@@ -1,0 +1,26 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { App } from '../components/playground/App'
+import '../styles/playground.css'
+---
+
+<StarlightPage
+    frontmatter={{
+        description:
+            'Paste any ASL definition and preview the diagram instantly — no install required.',
+        // The page-actions menu is for prose pages; on the editor it would only
+        // offer to copy an empty document.
+        pageActions: false,
+        pagefind: false,
+        tableOfContents: false,
+        template: 'splash',
+        title: 'Playground',
+    }}
+    hasSidebar={false}
+>
+    <div class="playground-route">
+        {/* Monaco loads from its own CDN loader and touches `window` on import,
+            so this island must skip SSR entirely. */}
+        <App client:only="react" />
+    </div>
+</StarlightPage>

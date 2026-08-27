@@ -1,0 +1,24 @@
+:root {
+    --sl-color-accent-low: #16281f;
+    --sl-color-accent: #2f855a;
+    --sl-color-accent-high: #b8e0c8;
+}
+
+:root[data-theme='light'] {
+    --sl-color-accent-low: #d6efdf;
+    --sl-color-accent: #24714b;
+    --sl-color-accent-high: #123825;
+}
+
+/* The playground route runs full-bleed: the splash template already drops the
+   sidebar and table of contents, so only the content gutters need clearing. */
+.playground-route {
+    margin-inline: calc(-1 * var(--sl-content-pad-x));
+    width: calc(100% + 2 * var(--sl-content-pad-x));
+}
+
+/* The splash template still reserves the title block above the editor; pulling
+   that height back keeps both panes on screen without a page scroll. */
+.playground-route {
+    height: calc(100vh - var(--sl-nav-height) - 6rem);
+}
