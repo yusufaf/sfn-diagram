@@ -3,13 +3,18 @@ title: Command line
 description: Use the sfn-diagram CLI to render diagrams, diffs, and execution overlays.
 ---
 
+import { PackageManagers } from 'starlight-package-managers'
+
 The package ships a CLI for use without writing any JavaScript:
 
+<PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format svg -o diagram.svg" />
+<PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format mermaid > diagram.mmd" />
+
 ```bash
-npx sfn-diagram state.asl.json --format svg -o diagram.svg
-npx sfn-diagram state.asl.json --format mermaid > diagram.mmd
 cat state.asl.json | npx sfn-diagram - --format svg
 ```
+
+Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn dlx`, or `bunx`.
 
 | Flag | Description |
 |---|---|
