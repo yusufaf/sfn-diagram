@@ -237,6 +237,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -274,6 +275,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),

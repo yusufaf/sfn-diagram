@@ -168,3 +168,109 @@ describe('interactive viewer runtime', () => {
         expect(await isPanelOpen()).toBe(false);
     });
 });
+
+async function isMinimapCollapsed(): Promise<boolean> {
+    return page.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+}
+
+async function rectOf(
+    selector: string,
+): Promise<{ height: number; width: number; x: number; y: number }> {
+    return page.$eval(selector, (element) => {
+        const rect = element.getBoundingClientRect();
+        return { height: rect.height, width: rect.width, x: rect.x, y: rect.y };
+    });
+}
+
+describe('minimap', () => {
+    // This fixture has 3 states, well under the auto-visible threshold, so the
+    // markup assertion in tests/HtmlViewer.test.ts (not runtime) covers the
+    // collapsed-by-default class; this confirms it reads the same way at runtime.
+    it('starts collapsed for a small diagram', async () => {
+        expect(await isMinimapCollapsed()).toBe(true);
+    });
+
+    it('opens via the toolbar toggle, with text stripped from the thumbnail', async () => {
+        await page.click('[data-sfn-minimap-toggle]');
+
+        expect(await isMinimapCollapsed()).toBe(false);
+        expect(
+            await page.$eval('#sfn-minimap-thumb', (element) => !!element.querySelector('svg')),
+        ).toBe(true);
+        // Labels are illegible at thumbnail size — stripped rather than rendered.
+        expect(await page.$$eval('#sfn-minimap-thumb text', (elements) => elements.length)).toBe(0);
+    });
+
+    it('tracks the viewport rectangle across a pan', async () => {
+        const before = await rectOf('#sfn-minimap-viewport');
+        const target = await centerOf('Beta');
+
+        await page.mouse.move(target.x, target.y);
+        await page.mouse.down();
+        await page.mouse.move(target.x - 100, target.y - 60, { steps: 10 });
+        await page.mouse.up();
+
+        expect(await rectOf('#sfn-minimap-viewport')).not.toEqual(before);
+    });
+
+    it('jumps the stage when the minimap thumbnail is clicked, without opening the panel', async () => {
+        const before = await page.$eval(
+            '#sfn-content',
+            (element) => (element as HTMLElement).style.transform,
+        );
+        const thumb = await rectOf('#sfn-minimap-thumb');
+
+        await clickAt(thumb.x + 5, thumb.y + 5);
+
+        const after = await page.$eval(
+            '#sfn-content',
+            (element) => (element as HTMLElement).style.transform,
+        );
+        expect(after).not.toBe(before);
+        // The minimap is a DOM descendant of the stage, so a click here also
+        // reaches the stage's own click handler unless stopPropagation held.
+        expect(await isPanelOpen()).toBe(false);
+    });
+
+    it('toggles via the "m" keyboard shortcut', async () => {
+        await page.keyboard.press('KeyM');
+        expect(await isMinimapCollapsed()).toBe(true);
+
+        await page.keyboard.press('KeyM');
+        expect(await isMinimapCollapsed()).toBe(false);
+    });
+});
+
+describe('minimap on a large diagram', () => {
+    let largePage: Page;
+
+    beforeAll(async () => {
+        const states: AslDefinition['States'] = {};
+        for (let index = 0; index < 30; index++) {
+            const isLast = index === 29;
+            states[`Step${index}`] = {
+                Type: 'Task',
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:worker',
+                Next: isLast ? 'Done' : `Step${index + 1}`,
+            };
+        }
+        states.Done = { Type: 'Succeed' };
+
+        const { html } = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
+        largePage = await browser.newPage();
+        await largePage.setViewport({ width: 1280, height: 800 });
+        await largePage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await largePage?.close();
+    });
+
+    it('starts open once the diagram is large enough to need it', async () => {
+        expect(
+            await largePage.$eval('#sfn-minimap', (element) =>
+                element.classList.contains('sfn-minimap-collapsed'),
+            ),
+        ).toBe(false);
+    });
+});

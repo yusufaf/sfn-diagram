@@ -143,6 +143,44 @@ describe('generateHtml', () => {
         });
     });
 
+    describe('minimap', () => {
+        it('renders the minimap container, toggle, and no external references', () => {
+            const result = generateHtml({ aslDefinition: asl });
+            expect(result.html).toContain('id="sfn-minimap"');
+            expect(result.html).toContain('id="sfn-minimap-thumb"');
+            expect(result.html).toContain('id="sfn-minimap-viewport"');
+            expect(result.html).toContain('data-sfn-minimap-toggle');
+            expect(result.html).not.toMatch(EXTERNAL_REFERENCE);
+        });
+
+        it('starts collapsed for a diagram at or under the auto-visible threshold', () => {
+            // asl has 2 states, well under the threshold.
+            const result = generateHtml({ aslDefinition: asl });
+            expect(result.html).toMatch(/id="sfn-minimap" class="sfn-minimap-collapsed"/);
+        });
+
+        it('starts open for a diagram over the auto-visible threshold', () => {
+            const states: AslDefinition['States'] = {};
+            for (let index = 0; index < 30; index++) {
+                const isLast = index === 29;
+                states[`Step${index}`] = {
+                    Type: 'Pass',
+                    Next: isLast ? 'Done' : `Step${index + 1}`,
+                };
+            }
+            states.Done = { Type: 'Succeed' };
+
+            const result = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
+            expect(result.html).toContain('id="sfn-minimap"><div id="sfn-minimap-thumb"');
+            expect(result.html).not.toContain('id="sfn-minimap" class="sfn-minimap-collapsed"');
+        });
+
+        it('starts collapsed when called directly with no nodeCount', () => {
+            const html = wrapSvgInInteractiveHtml({ svg: '<svg width="10" height="10"></svg>' });
+            expect(html).toMatch(/id="sfn-minimap" class="sfn-minimap-collapsed"/);
+        });
+    });
+
     describe('theming', () => {
         it('uses light chrome by default', () => {
             const result = generateHtml({ aslDefinition: asl });

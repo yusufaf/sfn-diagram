@@ -469,8 +469,9 @@ export async function run(argv: string[]): Promise<number> {
      * silently falling back to raw SVG. Icons are inlined so the document stays
      * offline, matching the plain `--format html` path.
      */
-    const toInteractiveHtml = async (svg: string): Promise<string> =>
+    const toInteractiveHtml = async (svg: string, nodeCount: number): Promise<string> =>
         wrapSvgInInteractiveHtml({
+            nodeCount,
             stateData: collectStateData({
                 definition:
                     typeof definitionSource === 'string'
@@ -500,7 +501,9 @@ export async function run(argv: string[]): Promise<number> {
             });
             writeDiffSummary(result.metadata);
             writeOutput(
-                args.format === 'html' ? await toInteractiveHtml(result.svg) : result.svg,
+                args.format === 'html'
+                    ? await toInteractiveHtml(result.svg, result.metadata.nodeCount)
+                    : result.svg,
                 args.output,
             );
             return 0;
@@ -524,7 +527,9 @@ export async function run(argv: string[]): Promise<number> {
             });
             writeExecutionSummary(result.metadata);
             writeOutput(
-                args.format === 'html' ? await toInteractiveHtml(result.svg) : result.svg,
+                args.format === 'html'
+                    ? await toInteractiveHtml(result.svg, result.metadata.nodeCount)
+                    : result.svg,
                 args.output,
             );
             return 0;

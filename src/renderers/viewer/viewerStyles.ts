@@ -167,5 +167,12 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   .sfn-field dd { margin: 0; overflow-wrap: anywhere; }
   #sfn-panel-json { margin: 12px 0 0; padding: 10px; background: ${palette.surface}; border-radius: 6px;
     font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #sfn-minimap { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
+    background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden; }
+  #sfn-minimap.sfn-minimap-collapsed { display: none; }
+  #sfn-minimap-thumb { position: absolute; inset: 0; cursor: pointer; }
+  #sfn-minimap-thumb svg { display: block; }
+  #sfn-minimap-viewport { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
 `;
 }
