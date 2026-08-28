@@ -28,7 +28,7 @@ export function Toolbar({
     theme,
 }: ToolbarProps) {
     return (
-        <div className="toolbar">
+        <div className="toolbar not-content">
             <label className="toolbar-group">
                 Sample:
                 <select onChange={(e) => onSampleSelect(e.target.value as SampleKey)}>
