@@ -72,6 +72,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   | Zoom | mouse wheel, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
   | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
   | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
+  | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
 
   Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
   target states from your own scripts or styles.

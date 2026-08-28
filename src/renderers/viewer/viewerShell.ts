@@ -3,8 +3,18 @@ import { serializeStateData } from './stateData';
 import { buildViewerScript } from './viewerScript';
 import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
 
+/** Node count at or below which the minimap starts collapsed. */
+const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
+
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
 export interface WrapSvgInInteractiveHtmlParams {
+    /**
+     * Node count from the rendered diagram's metadata. Decides the minimap's initial
+     * visibility: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD} nodes,
+     * open above it (still toggleable either way via the toolbar button or `m`).
+     * Omit it (or when unknown) to start collapsed.
+     */
+    nodeCount?: number;
     /**
      * Raw ASL for each state, keyed by state name (as produced by `collectStateData`).
      * Enables the click-a-state detail panel; omit it to render the viewer without one.
@@ -30,6 +40,7 @@ export interface WrapSvgInInteractiveHtmlParams {
  * to keep the document fully offline.
  *
  * @param params - Wrapping parameters
+ * @param params.nodeCount - Diagram node count; decides the minimap's initial visibility
  * @param params.stateData - Raw ASL per state; enables the detail panel
  * @param params.svg - Rendered SVG markup to embed
  * @param params.theme - Viewer chrome theme, `'light'` (default) or `'dark'`
@@ -37,8 +48,9 @@ export interface WrapSvgInInteractiveHtmlParams {
  *
  * @example
  * ```typescript
- * const { svg } = generateSvg({ aslDefinition: asl });
+ * const { svg, metadata } = generateSvg({ aslDefinition: asl });
  * const html = wrapSvgInInteractiveHtml({
+ *     nodeCount: metadata.nodeCount,
  *     stateData: collectStateData({ definition: asl }),
  *     svg,
  *     theme: 'dark',
@@ -46,8 +58,9 @@ export interface WrapSvgInInteractiveHtmlParams {
  * ```
  */
 export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams): string {
-    const { stateData, svg, theme = 'light' } = params;
+    const { nodeCount, stateData, svg, theme = 'light' } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
+    const minimapCollapsed = nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
 
     const stateDataScript = hasStateData
         ? `<script type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
@@ -81,8 +94,10 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
   <span class="sfn-divider"></span>
   <input id="sfn-search" type="search" placeholder="Search states (/)" aria-label="Search states">
   <span id="sfn-search-count"></span>
+  <span class="sfn-divider"></span>
+  <button data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
 </div>
-${panelMarkup}<div id="sfn-stage"><div id="sfn-content">${svg}</div></div>
+${panelMarkup}<div id="sfn-stage"><div id="sfn-content">${svg}</div><div id="sfn-minimap"${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''}><div id="sfn-minimap-thumb"></div><div id="sfn-minimap-viewport"></div></div></div>
 ${stateDataScript}<script>${buildViewerScript({ hasStateData })}</script>
 </body>
 </html>`;

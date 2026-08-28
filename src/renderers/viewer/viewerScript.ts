@@ -14,10 +14,15 @@ const CORE_SCRIPT = `
   var label = document.getElementById('sfn-zoom-label');
   var scale = 1, tx = 0, ty = 0;
   var MIN_SCALE = 0.05, MAX_SCALE = 8;
+  // Blocks that need to react to every pan/zoom (the minimap viewport rect) push a
+  // callback here, so CORE_SCRIPT stays unaware of them — same composition style
+  // as the hasStateData branches below.
+  var onApply = [];
 
   function apply() {
     content.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
     label.textContent = Math.round(scale * 100) + '%';
+    for (var i = 0; i < onApply.length; i++) onApply[i]();
   }
 
   function svgSize() {
@@ -161,6 +166,107 @@ const SEARCH_SCRIPT = `
   });
 `;
 
+/**
+ * Scaled overview of the whole diagram with a draggable viewport rectangle. Built
+ * once from a clone of the rendered SVG (text/image/title stripped — illegible at
+ * thumbnail size and just extra DOM); the viewport rectangle tracks pan/zoom via
+ * the onApply hook from CORE_SCRIPT. Placed as a sibling of #sfn-content inside
+ * #sfn-stage, so it sits outside the panned/zoomed transform and automatically
+ * shifts with the stage when the detail panel opens (viewerStyles.ts shrinks the
+ * stage, not the whole viewport, when the panel is open).
+ */
+const MINIMAP_SCRIPT = `
+  var minimap = document.getElementById('sfn-minimap');
+  var minimapThumb = document.getElementById('sfn-minimap-thumb');
+  var minimapViewport = document.getElementById('sfn-minimap-viewport');
+  var minimapToggle = document.querySelector('[data-sfn-minimap-toggle]');
+
+  function buildMinimapThumbnail() {
+    var clone = content.firstElementChild.cloneNode(true);
+    clone.removeAttribute('width');
+    clone.removeAttribute('height');
+    clone.style.width = '100%';
+    clone.style.height = '100%';
+    clone.style.display = 'block';
+    // defs (arrowhead markers etc.) carries ids that would otherwise collide with
+    // the original SVG's — invalid HTML, and a latent bug if a marker ever needs to
+    // render differently per-copy. Edges keep their marker-end url(#...) attributes,
+    // but with no matching id in the document they just draw without an arrowhead,
+    // which doesn't matter at thumbnail scale.
+    var stripped = clone.querySelectorAll('text, image, title, defs');
+    for (var i = 0; i < stripped.length; i++) stripped[i].remove();
+    minimapThumb.appendChild(clone);
+  }
+
+  // The thumbnail's own box replicates the meet-scaling the SVG's
+  // preserveAspectRatio already does when the diagram's aspect ratio doesn't
+  // match the box's, so viewport placement lines up with what's actually drawn.
+  function minimapGeometry() {
+    var size = svgSize();
+    var box = minimapThumb.getBoundingClientRect();
+    var minimapScale = Math.min(box.width / size.width, box.height / size.height);
+    return {
+      offsetX: (box.width - size.width * minimapScale) / 2,
+      offsetY: (box.height - size.height * minimapScale) / 2,
+      scale: minimapScale
+    };
+  }
+
+  function updateMinimapViewport() {
+    if (minimap.classList.contains('sfn-minimap-collapsed')) return;
+    var geometry = minimapGeometry();
+    minimapViewport.style.left = ((-tx / scale) * geometry.scale + geometry.offsetX) + 'px';
+    minimapViewport.style.top = ((-ty / scale) * geometry.scale + geometry.offsetY) + 'px';
+    minimapViewport.style.width = Math.max(0, (stage.clientWidth / scale) * geometry.scale) + 'px';
+    minimapViewport.style.height = Math.max(0, (stage.clientHeight / scale) * geometry.scale) + 'px';
+  }
+
+  function jumpToMinimapPoint(clientX, clientY) {
+    var geometry = minimapGeometry();
+    var box = minimapThumb.getBoundingClientRect();
+    var contentX = (clientX - box.left - geometry.offsetX) / geometry.scale;
+    var contentY = (clientY - box.top - geometry.offsetY) / geometry.scale;
+    tx = stage.clientWidth / 2 - contentX * scale;
+    ty = stage.clientHeight / 2 - contentY * scale;
+    apply();
+  }
+
+  function toggleMinimap() {
+    minimap.classList.toggle('sfn-minimap-collapsed');
+    updateMinimapViewport();
+  }
+
+  var minimapDragging = false;
+  // Stop propagation throughout: the minimap sits inside #sfn-stage, so without
+  // it every drag here would also trigger the stage's own pan-the-canvas handler.
+  minimapThumb.addEventListener('pointerdown', function (e) {
+    e.stopPropagation();
+    minimapDragging = true;
+    minimapThumb.setPointerCapture(e.pointerId);
+    jumpToMinimapPoint(e.clientX, e.clientY);
+  });
+  minimapThumb.addEventListener('pointermove', function (e) {
+    if (!minimapDragging) return;
+    e.stopPropagation();
+    jumpToMinimapPoint(e.clientX, e.clientY);
+  });
+  minimapThumb.addEventListener('pointerup', function (e) {
+    if (!minimapDragging) return;
+    e.stopPropagation();
+    minimapDragging = false;
+    minimapThumb.releasePointerCapture(e.pointerId);
+  });
+  minimapThumb.addEventListener('wheel', function (e) { e.stopPropagation(); }, { passive: true });
+
+  minimapToggle.addEventListener('click', toggleMinimap);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'm' && document.activeElement !== searchInput) toggleMinimap();
+  });
+
+  buildMinimapThumbnail();
+  onApply.push(updateMinimapViewport);
+`;
+
 const DETAIL_SCRIPT = `
   var panel = document.getElementById('sfn-panel');
   var panelTitle = document.getElementById('sfn-panel-title');
@@ -263,6 +369,7 @@ ${hasStateData ? DETAIL_SCRIPT : ''}
 ${hasStateData ? STAGE_CLICK_WITH_PANEL : STAGE_CLICK_WITHOUT_PANEL}
 ${PAN_ZOOM_SCRIPT}
 ${SEARCH_SCRIPT}
+${MINIMAP_SCRIPT}
   fit();
 })();
 `;
