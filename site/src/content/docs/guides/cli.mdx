@@ -14,6 +14,8 @@ The package ships a CLI for use without writing any JavaScript:
 cat state.asl.json | npx sfn-diagram - --format svg
 ```
 
+Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn dlx`, or `bunx`.
+
 | Flag | Description |
 |---|---|
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
