@@ -73,7 +73,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "pnpm run build:viewer-script && tsdown",
+    "build:viewer-script": "node scripts/build-viewer-script.mjs",
     "dev": "tsdown --watch",
     "docs:images": "pnpm run build && node scripts/generate-doc-images.mjs",
     "examples": "vitest run tests/visual-outputs.test.ts",
@@ -82,9 +83,10 @@
     "prepublishOnly": "pnpm run build && pnpm run validate",
     "release": "npm publish",
     "sync:action": "bash scripts/sync-action-mirror.sh",
-    "test": "vitest run --project unit && vitest run --project perf",
+    "test": "pnpm run test:viewer-script && vitest run --project unit && vitest run --project perf",
     "test:perf": "vitest run --project perf",
     "test:coverage": "vitest run --project unit --coverage",
+    "test:viewer-script": "node scripts/build-viewer-script.mjs --check",
     "typecheck": "tsc --noEmit",
     "validate": "pnpm run validate:publint && pnpm run validate:types",
     "validate:publint": "publint",

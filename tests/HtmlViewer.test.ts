@@ -52,7 +52,7 @@ describe('generateHtml', () => {
             const result = generateHtml({ aslDefinition: asl });
             expect(result.html).toContain('id="sfn-search"');
             expect(result.html).toContain('id="sfn-search-count"');
-            expect(result.html).toContain("e.key === '/'"); // focus shortcut
+            expect(result.html).toContain("key === '/'"); // focus shortcut
             expect(result.html).toContain('sfn-dim'); // non-matches dimmed
         });
     });
@@ -171,7 +171,7 @@ describe('generateHtml', () => {
             states.Done = { Type: 'Succeed' };
 
             const result = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
-            expect(result.html).toContain('id="sfn-minimap"><div id="sfn-minimap-thumb"');
+            expect(result.html).toContain('id="sfn-minimap" data-sfn="minimap"><div id="sfn-minimap-thumb"');
             expect(result.html).not.toContain('id="sfn-minimap" class="sfn-minimap-collapsed"');
         });
 

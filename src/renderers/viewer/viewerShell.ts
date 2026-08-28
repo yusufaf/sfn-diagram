@@ -67,12 +67,12 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         : '';
 
     const panelMarkup = hasStateData
-        ? `<aside id="sfn-panel">
-  <div id="sfn-panel-head">
-    <span id="sfn-panel-title"></span>
-    <button id="sfn-panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
+        ? `<aside id="sfn-panel" data-sfn="panel">
+  <div id="sfn-panel-head" data-sfn="panel-head">
+    <span id="sfn-panel-title" data-sfn="panel-title"></span>
+    <button id="sfn-panel-close" data-sfn="panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
   </div>
-  <div id="sfn-panel-body"></div>
+  <div id="sfn-panel-body" data-sfn="panel-body"></div>
 </aside>\n`
         : '';
 
@@ -85,19 +85,19 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 <style>${buildViewerStyles({ theme })}</style>
 </head>
 <body>
-<div id="sfn-toolbar">
-  <button data-sfn-zoom="out" title="Zoom out">-</button>
-  <span id="sfn-zoom-label">100%</span>
-  <button data-sfn-zoom="in" title="Zoom in">+</button>
-  <button data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
-  <button data-sfn-zoom="reset" title="Reset">Reset</button>
+<div id="sfn-toolbar" data-sfn="toolbar">
+  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out">-</button>
+  <span id="sfn-zoom-label" data-sfn="zoom-label">100%</span>
+  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in">+</button>
+  <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
+  <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="Reset">Reset</button>
   <span class="sfn-divider"></span>
-  <input id="sfn-search" type="search" placeholder="Search states (/)" aria-label="Search states">
-  <span id="sfn-search-count"></span>
+  <input id="sfn-search" data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
+  <span id="sfn-search-count" data-sfn="search-count"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
 </div>
-${panelMarkup}<div id="sfn-stage"><div id="sfn-content">${svg}</div><div id="sfn-minimap"${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''}><div id="sfn-minimap-thumb"></div><div id="sfn-minimap-viewport"></div></div></div>
+${panelMarkup}<div id="sfn-stage" data-sfn="stage"><div id="sfn-content" data-sfn="content">${svg}</div><div id="sfn-minimap"${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div id="sfn-minimap-thumb" data-sfn="minimap-thumb"></div><div id="sfn-minimap-viewport" data-sfn="minimap-viewport"></div></div></div>
 ${stateDataScript}<script>${buildViewerScript({ hasStateData })}</script>
 </body>
 </html>`;
