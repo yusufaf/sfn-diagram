@@ -6,7 +6,8 @@
     ".": "./src/index.ts",
     "./png": "./src/png.ts",
     "./aws": "./src/aws.ts",
-    "./cfn": "./src/cfn.ts"
+    "./cfn": "./src/cfn.ts",
+    "./element": "./src/element/index.ts"
   },
   "publish": {
     "include": [

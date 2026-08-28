@@ -4,7 +4,11 @@
   "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, or live AWS state machines",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/element.js",
+    "./dist/element.cjs"
+  ],
+  "customElements": "custom-elements.json",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -48,6 +52,16 @@
         "types": "./dist/cfn.d.cts",
         "default": "./dist/cfn.cjs"
       }
+    },
+    "./element": {
+      "import": {
+        "types": "./dist/element.d.ts",
+        "default": "./dist/element.js"
+      },
+      "require": {
+        "types": "./dist/element.d.cts",
+        "default": "./dist/element.cjs"
+      }
     }
   },
   "typesVersions": {
@@ -60,6 +74,9 @@
       ],
       "cfn": [
         "./dist/cfn.d.ts"
+      ],
+      "element": [
+        "./dist/element.d.ts"
       ]
     }
   },
@@ -67,13 +84,15 @@
     "sfn-diagram": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "custom-elements.json"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "build": "pnpm run build:viewer-script && tsdown",
+    "build": "pnpm run build:viewer-script && pnpm run build:manifest && tsdown",
+    "build:manifest": "cem analyze --globs \"src/element/**/*.ts\" --exclude \"src/element/**/*.test.ts\" --outdir .",
     "build:viewer-script": "node scripts/build-viewer-script.mjs",
     "dev": "tsdown --watch",
     "docs:images": "pnpm run build && node scripts/generate-doc-images.mjs",
@@ -115,6 +134,7 @@
     "@aws-sdk/client-sfn": "^3.879.0",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
+    "@custom-elements-manifest/analyzer": "^0.11.0",
     "@eslint/js": "^9.34.0",
     "@types/d3-shape": "^3.1.8",
     "@types/node": "^24.3.0",

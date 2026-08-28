@@ -1,0 +1,262 @@
+{
+  "schemaVersion": "1.0.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "src/element/index.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "defineSfnDiagram",
+          "return": {
+            "type": {
+              "text": "void"
+            }
+          },
+          "parameters": [
+            {
+              "name": "params",
+              "default": "{}",
+              "type": {
+                "text": "DefineSfnDiagramParams"
+              },
+              "description": "Registration parameters"
+            },
+            {
+              "description": "Tag name to register under. Defaults to `'sfn-diagram'`",
+              "name": "params.name"
+            }
+          ],
+          "description": "Register SfnDiagramElement under a custom element tag name. Safe to call\nmore than once (including for the default name this module auto-registers) —\na name already registered, by this call or the auto-registration side effect,\nis left alone rather than throwing `NotSupportedError`.\n\nNo-ops outside a DOM environment (`typeof customElements === 'undefined'`), so\nimporting this module on the server never throws."
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "SfnDiagramElement",
+          "declaration": {
+            "name": "SfnDiagramElement",
+            "module": "./SfnDiagramElement"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "defineSfnDiagram",
+          "declaration": {
+            "name": "defineSfnDiagram",
+            "module": "src/element/index.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "name",
+          "declaration": {
+            "name": "SfnDiagramElement",
+            "module": "/src/element/SfnDiagramElement"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/element/renderDiagram.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "renderDiagramString",
+          "return": {
+            "type": {
+              "text": "RenderDiagramResult"
+            }
+          },
+          "parameters": [
+            {
+              "name": "params",
+              "type": {
+                "text": "RenderDiagramParams"
+              },
+              "description": "Render parameters"
+            }
+          ],
+          "description": "Render an ASL definition to a diagram string (SVG markup or Mermaid code), branching\non `format` and whether an execution `history` was supplied.\n\nShared by the `sfn-diagram/element` custom element - the same branch the\n`sfn-diagram-react` `<SfnDiagram>` component runs, kept independent rather than\nimported across the package boundary since it is a handful of lines."
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "renderDiagramString",
+          "declaration": {
+            "name": "renderDiagramString",
+            "module": "src/element/renderDiagram.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/element/SfnDiagramElement.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "`<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step\nFunctions ASL definition as an SVG or Mermaid diagram, with an optional\ninteractive viewer (pan/zoom, search, minimap, click-a-state detail panel).\n\nRenders in light DOM (no shadow root), so page CSS reaches the SVG and the\nelement degrades to plain server-rendered markup: give it a pre-rendered\n`<svg>` child (from `generateSvg()` run at build/server time) and omit\n`definition` entirely for a zero-client-JS diagram; setting `interactive`\non top still upgrades that markup with pan/zoom/search.\n\nRegister it with defineSfnDiagram (imported from `sfn-diagram/element`),\nor rely on that module's auto-registration side effect.",
+          "name": "SfnDiagramElement",
+          "members": [
+            {
+              "kind": "field",
+              "name": "#customTheme",
+              "privacy": "private",
+              "type": {
+                "text": "ThemeOption | undefined"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "#definitionSource",
+              "privacy": "private",
+              "type": {
+                "text": "AslDefinition | string | undefined"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "#history",
+              "privacy": "private",
+              "type": {
+                "text": "ExecutionHistoryInput | undefined"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "#renderScheduled",
+              "privacy": "private",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false"
+            },
+            {
+              "kind": "field",
+              "name": "#viewerHandle",
+              "privacy": "private",
+              "type": {
+                "text": "ViewerHandle | undefined"
+              }
+            },
+            {
+              "kind": "field",
+              "name": "definition",
+              "type": {
+                "text": "AslDefinition | string | undefined"
+              },
+              "description": "ASL definition as an object or JSON string. Property-set values are not reflected to the `definition` attribute."
+            },
+            {
+              "kind": "field",
+              "name": "history",
+              "type": {
+                "text": "ExecutionHistoryInput | undefined"
+              },
+              "description": "Optional execution history overlay. Property-only — objects don't survive an attribute round-trip."
+            },
+            {
+              "kind": "field",
+              "name": "format",
+              "type": {
+                "text": "'mermaid' | 'svg'"
+              },
+              "description": "`'svg'` (default) or `'mermaid'`. Reflected to/from the `format` attribute."
+            },
+            {
+              "kind": "field",
+              "name": "layout",
+              "type": {
+                "text": "LayoutDirection"
+              },
+              "description": "Graph layout direction. Reflected to/from the `layout` attribute. Defaults to `'TB'`."
+            },
+            {
+              "kind": "field",
+              "name": "theme",
+              "type": {
+                "text": "ThemeOption"
+              },
+              "description": "Diagram theme. The `theme` attribute only accepts `'light'`/`'dark'`; set the\nproperty directly for a `CustomTheme` object."
+            },
+            {
+              "kind": "field",
+              "name": "interactive",
+              "type": {
+                "text": "boolean"
+              },
+              "description": "Enables pan/zoom, state search, the minimap, and the click-a-state detail panel."
+            },
+            {
+              "kind": "method",
+              "name": "#scheduleRender",
+              "privacy": "private",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              }
+            },
+            {
+              "kind": "method",
+              "name": "#render",
+              "privacy": "private",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              }
+            },
+            {
+              "kind": "method",
+              "name": "#hydrateExisting",
+              "privacy": "private",
+              "return": {
+                "type": {
+                  "text": "void"
+                }
+              },
+              "parameters": [
+                {
+                  "name": "chromeTheme",
+                  "type": {
+                    "text": "'dark' | 'light'"
+                  }
+                }
+              ],
+              "description": "No `definition` was ever set - either there's nothing to do, or (progressive\nenhancement) the server already rendered an `<svg>` into this element and only\n`interactive` behaviour needs wiring up. The detail panel can't populate without\nASL data, so a bare-SVG hydration path never gets one - set `definition` too if\nyou need it alongside server-rendered markup."
+            }
+          ],
+          "events": [
+            {
+              "name": "sfn-error",
+              "type": {
+                "text": "CustomEvent"
+              },
+              "description": "`CustomEvent<Error>`, bubbles and composes across shadow boundaries. Dispatched when `definition` fails to parse or fails ASL validation; the element renders nothing when this fires."
+            }
+          ],
+          "superclass": {
+            "name": "HTMLElement"
+          },
+          "tagName": "sfn-diagram",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "SfnDiagramElement",
+          "declaration": {
+            "name": "SfnDiagramElement",
+            "module": "src/element/SfnDiagramElement.ts"
+          }
+        }
+      ]
+    }
+  ]
+}
