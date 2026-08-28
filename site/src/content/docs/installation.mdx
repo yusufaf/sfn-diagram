@@ -3,12 +3,14 @@ title: Installation
 description: Install sfn-diagram and its optional peer dependencies.
 ---
 
-```bash
-npm install sfn-diagram
-```
+import { PackageManagers } from 'starlight-package-managers'
+
+<PackageManagers pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 
 The core package pulls in **no browser engine** — SVG and Mermaid generation stay lightweight. PNG export relies on a headless browser, provided by the optional peer dependency `node-html-to-image`. Install it only if you use `sfn-diagram/png`:
 
-```bash
-npm install sfn-diagram node-html-to-image
-```
+<PackageManagers pkg="sfn-diagram node-html-to-image" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
+
+## Deno / JSR
+
+<PackageManagers pkgManagers={['deno']} pkg="jsr:@yusufaf/sfn-diagram" />

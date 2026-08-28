@@ -3,11 +3,11 @@ title: React component
 description: Render diagrams in a React app with sfn-diagram-react.
 ---
 
+import { PackageManagers } from 'starlight-package-managers'
+
 Render diagrams in a React app with the [`sfn-diagram-react`](https://www.npmjs.com/package/sfn-diagram-react) package ([source](https://github.com/yusufaf/sfn-diagram/tree/main/packages/sfn-diagram-react/)). It wraps `generateSvg`/`generateMermaid` in a component with the same platform-agnostic core, so it works in any React renderer. React 18 and 19 are both supported.
 
-```bash
-npm install sfn-diagram-react sfn-diagram react
-```
+<PackageManagers pkg="sfn-diagram-react sfn-diagram react" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 
 ```tsx
 import { SfnDiagram } from 'sfn-diagram-react';
