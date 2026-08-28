@@ -6,7 +6,9 @@
   "packageManager": "pnpm@9.15.9",
   "sideEffects": [
     "./dist/element.js",
-    "./dist/element.cjs"
+    "./dist/element.cjs",
+    "./dist/element-auto.js",
+    "./dist/element-auto.cjs"
   ],
   "customElements": "custom-elements.json",
   "main": "./dist/index.cjs",
@@ -62,6 +64,16 @@
         "types": "./dist/element.d.cts",
         "default": "./dist/element.cjs"
       }
+    },
+    "./element/auto": {
+      "import": {
+        "types": "./dist/element-auto.d.ts",
+        "default": "./dist/element-auto.js"
+      },
+      "require": {
+        "types": "./dist/element-auto.d.cts",
+        "default": "./dist/element-auto.cjs"
+      }
     }
   },
   "typesVersions": {
@@ -77,6 +89,9 @@
       ],
       "element": [
         "./dist/element.d.ts"
+      ],
+      "element/auto": [
+        "./dist/element-auto.d.ts"
       ]
     }
   },

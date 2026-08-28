@@ -58,6 +58,17 @@ export default defineConfig([
     },
     {
         clean: false,
+        dts: true,
+        entry: {
+            'element-auto': './src/element/auto.ts',
+        },
+        format: ['cjs', 'esm'],
+        hash: false,
+        outDir: './dist',
+        platform: 'neutral',
+    },
+    {
+        clean: false,
         dts: false,
         entry: {
             cli: './src/cli.ts',

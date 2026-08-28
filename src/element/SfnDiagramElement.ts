@@ -27,6 +27,21 @@ function parseAsl(source: AslDefinition | string): AslDefinition {
     return typeof source === 'string' ? (JSON.parse(source) as AslDefinition) : source;
 }
 
+let nextInstanceId = 0;
+
+/**
+ * `generateSvg()` emits fixed `id="arrowhead-{type}"` marker defs (and matching
+ * `url(#arrowhead-{type})` references) - fine for one diagram, but two `<sfn-diagram>`
+ * elements on the same page would otherwise emit duplicate ids, and (since `url(#...)`
+ * resolves the first matching id in the whole document, not scoped to its own `<svg>`)
+ * the second instance would silently borrow the first instance's marker colours. This
+ * makes them unique per element instance without touching the shared renderer, whose
+ * fixed ids are relied on elsewhere (e.g. offline single-diagram HTML export).
+ */
+function namespaceMarkerIds(svg: string, instanceId: number): string {
+    return svg.replace(/(?:id="|url\(#)arrowhead-/g, (match) => match.replace('arrowhead-', `arrowhead-${instanceId}-`));
+}
+
 /**
  * `<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step
  * Functions ASL definition as an SVG or Mermaid diagram, with an optional
@@ -39,11 +54,11 @@ function parseAsl(source: AslDefinition | string): AslDefinition {
  * on top still upgrades that markup with pan/zoom/search.
  *
  * Register it with {@link defineSfnDiagram} (imported from `sfn-diagram/element`),
- * or rely on that module's auto-registration side effect.
+ * or import `sfn-diagram/element/auto` for its zero-config `<sfn-diagram>` side effect.
  *
  * @example
  * ```html
- * <script type="module" src="sfn-diagram/element"></script>
+ * <script type="module" src="sfn-diagram/element/auto"></script>
  * <sfn-diagram interactive theme="dark"></sfn-diagram>
  * <script type="module">
  *   document.querySelector('sfn-diagram').definition = myAslDefinition;
@@ -67,6 +82,7 @@ export class SfnDiagramElement extends HTMLElement {
     #customTheme: ThemeOption | undefined;
     #definitionSource: AslDefinition | string | undefined;
     #history: ExecutionHistoryInput | undefined;
+    readonly #instanceId = nextInstanceId++;
     #renderScheduled = false;
     #viewerHandle: ViewerHandle | undefined;
 
@@ -218,8 +234,12 @@ export class SfnDiagramElement extends HTMLElement {
             return;
         }
 
+        // Namespaced so more than one <sfn-diagram> on a page doesn't collide on the
+        // renderer's fixed marker ids - see namespaceMarkerIds().
+        const svg = namespaceMarkerIds(result.svg, this.#instanceId);
+
         if (!this.interactive) {
-            this.innerHTML = result.svg;
+            this.innerHTML = svg;
             return;
         }
 
@@ -228,7 +248,7 @@ export class SfnDiagramElement extends HTMLElement {
         this.innerHTML = buildViewerBody({
             minimapCollapsed: result.nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD,
             panel: hasStateData,
-            svg: result.svg,
+            svg,
         });
         this.#viewerHandle = attachViewer({ root: this, stateData });
     }
