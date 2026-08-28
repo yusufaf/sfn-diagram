@@ -6,6 +6,62 @@ import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
 /** Node count at or below which the minimap starts collapsed. */
 const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
 
+/** Parameters for {@link buildViewerBody}. */
+export interface BuildViewerBodyParams {
+    /**
+     * Emit the standalone HTML document's original `id="sfn-x"` attributes alongside
+     * `data-sfn="x"`. The document keeps them for its own Puppeteer runtime suite and
+     * for anyone who scripted against them; the custom element omits them, since more
+     * than one instance sharing a page would otherwise collide on duplicate ids.
+     */
+    legacyIds?: boolean;
+    /** Whether to start the minimap collapsed. */
+    minimapCollapsed: boolean;
+    /** Whether to render the click-a-state detail panel markup. */
+    panel: boolean;
+    /** The rendered SVG (or other) markup to embed as the stage content. */
+    svg: string;
+}
+
+/**
+ * Build the viewer chrome markup - toolbar, optional detail panel, stage, and
+ * minimap - around already-rendered diagram markup. Shared by
+ * {@link wrapSvgInInteractiveHtml} (the standalone HTML document) and the
+ * `sfn-diagram/element` custom element, so both stay wired to the same
+ * `data-sfn="..."` hooks {@link attachViewer} expects.
+ *
+ * @param params - Body parameters
+ * @returns HTML fragment: toolbar, optional panel, and stage - no `<html>`/`<body>`
+ */
+export function buildViewerBody(params: BuildViewerBodyParams): string {
+    const { legacyIds = false, minimapCollapsed, panel, svg } = params;
+    const id = (name: string): string => (legacyIds ? ` id="sfn-${name}"` : '');
+
+    const panelMarkup = panel
+        ? `<aside${id('panel')} data-sfn="panel">
+  <div${id('panel-head')} data-sfn="panel-head">
+    <span${id('panel-title')} data-sfn="panel-title"></span>
+    <button${id('panel-close')} data-sfn="panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
+  </div>
+  <div${id('panel-body')} data-sfn="panel-body"></div>
+</aside>\n`
+        : '';
+
+    return `<div${id('toolbar')} data-sfn="toolbar">
+  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out">-</button>
+  <span${id('zoom-label')} data-sfn="zoom-label">100%</span>
+  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in">+</button>
+  <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
+  <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="Reset">Reset</button>
+  <span class="sfn-divider"></span>
+  <input${id('search')} data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
+  <span${id('search-count')} data-sfn="search-count"></span>
+  <span class="sfn-divider"></span>
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
+</div>
+${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${svg}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+}
+
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
 export interface WrapSvgInInteractiveHtmlParams {
     /**
@@ -66,15 +122,12 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         ? `<script type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
         : '';
 
-    const panelMarkup = hasStateData
-        ? `<aside id="sfn-panel" data-sfn="panel">
-  <div id="sfn-panel-head" data-sfn="panel-head">
-    <span id="sfn-panel-title" data-sfn="panel-title"></span>
-    <button id="sfn-panel-close" data-sfn="panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
-  </div>
-  <div id="sfn-panel-body" data-sfn="panel-body"></div>
-</aside>\n`
-        : '';
+    const body = buildViewerBody({
+        legacyIds: true,
+        minimapCollapsed,
+        panel: hasStateData,
+        svg,
+    });
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -85,19 +138,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 <style>${buildViewerStyles({ theme })}</style>
 </head>
 <body>
-<div id="sfn-toolbar" data-sfn="toolbar">
-  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out">-</button>
-  <span id="sfn-zoom-label" data-sfn="zoom-label">100%</span>
-  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in">+</button>
-  <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
-  <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="Reset">Reset</button>
-  <span class="sfn-divider"></span>
-  <input id="sfn-search" data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
-  <span id="sfn-search-count" data-sfn="search-count"></span>
-  <span class="sfn-divider"></span>
-  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
-</div>
-${panelMarkup}<div id="sfn-stage" data-sfn="stage"><div id="sfn-content" data-sfn="content">${svg}</div><div id="sfn-minimap"${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div id="sfn-minimap-thumb" data-sfn="minimap-thumb"></div><div id="sfn-minimap-viewport" data-sfn="minimap-viewport"></div></div></div>
+${body}
 ${stateDataScript}<script>${buildViewerScript({ hasStateData })}</script>
 </body>
 </html>`;

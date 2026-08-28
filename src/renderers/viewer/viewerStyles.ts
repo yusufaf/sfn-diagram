@@ -72,6 +72,13 @@ export function resolveViewerTheme(params: ResolveViewerThemeParams): ViewerThem
 
 /** Parameters for {@link buildViewerStyles}. */
 export interface BuildViewerStylesParams {
+    /**
+     * `'document'` (default) includes the `html, body { height: 100% }` reset the
+     * standalone HTML viewer needs to fill the page. `'element'` omits it - a
+     * `<sfn-diagram interactive>` embedded in a larger page must not reach past
+     * itself and resize the host document's `<body>`.
+     */
+    scope?: 'document' | 'element';
     /** Chrome theme. Defaults to `'light'`. */
     theme?: ViewerTheme;
 }
@@ -126,16 +133,20 @@ const DARK_PALETTE: ChromePalette = {
  * ```
  */
 export function buildViewerStyles(params: BuildViewerStylesParams = {}): string {
-    const { theme = 'light' } = params;
+    const { scope = 'document', theme = 'light' } = params;
     const palette = theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE;
+
+    const documentReset =
+        scope === 'document'
+            ? `html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: ${palette.text}; }\n`
+            : '';
 
     // Selectors key off [data-sfn="..."] rather than #sfn-... ids: markup may carry
     // matching ids too (the standalone viewer document does, for back-compat), but
     // attribute selectors are what let more than one viewer share a page without
     // id collisions - see viewerController.ts.
     return `
-  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: ${palette.text}; }
-  sfn-diagram, [data-sfn-viewer] { position: relative; display: block; }
+  ${documentReset}[data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
   [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
   /* The panel precedes the stage in the markup, so it can shrink it rather than
      cover the diagram. Fit/centre maths reads clientWidth, so this stays correct. */
