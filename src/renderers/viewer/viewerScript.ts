@@ -188,7 +188,12 @@ const MINIMAP_SCRIPT = `
     clone.style.width = '100%';
     clone.style.height = '100%';
     clone.style.display = 'block';
-    var stripped = clone.querySelectorAll('text, image, title');
+    // defs (arrowhead markers etc.) carries ids that would otherwise collide with
+    // the original SVG's — invalid HTML, and a latent bug if a marker ever needs to
+    // render differently per-copy. Edges keep their marker-end url(#...) attributes,
+    // but with no matching id in the document they just draw without an arrowhead,
+    // which doesn't matter at thumbnail scale.
+    var stripped = clone.querySelectorAll('text, image, title, defs');
     for (var i = 0; i < stripped.length; i++) stripped[i].remove();
     minimapThumb.appendChild(clone);
   }

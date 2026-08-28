@@ -201,6 +201,23 @@ describe('minimap', () => {
         expect(await page.$$eval('#sfn-minimap-thumb text', (elements) => elements.length)).toBe(0);
     });
 
+    it('clones the SVG without duplicating ids', async () => {
+        // The fixture's Alpha->Beta edge uses the retry marker, so its <defs> id
+        // would collide with the main diagram's if the clone kept it uncloned.
+        const duplicates = await page.evaluate(() => {
+            const counts = new Map<string, number>();
+            document.querySelectorAll('[id]').forEach((element) => {
+                counts.set(element.id, (counts.get(element.id) ?? 0) + 1);
+            });
+            return Array.from(counts.entries()).filter(([, count]) => count > 1);
+        });
+        expect(duplicates).toEqual([]);
+        // The original diagram's own marker-end references must still resolve.
+        expect(
+            await page.$eval('.edges path', (element) => element.getAttribute('marker-end')),
+        ).toMatch(/^url\(#arrowhead-/);
+    });
+
     it('tracks the viewport rectangle across a pan', async () => {
         const before = await rectOf('#sfn-minimap-viewport');
         const target = await centerOf('Beta');
