@@ -26,7 +26,7 @@ function collectCodeBlocks(params: { languages: string[]; markdown: string }): C
     const { languages, markdown } = params;
     const blocks: CodeBlock[] = [];
 
-    for (const match of markdown.matchAll(/```(\w+)\n([\s\S]*?)```/g)) {
+    for (const match of markdown.matchAll(/```(\w+)\r?\n([\s\S]*?)```/g)) {
         const language = match[1].toLowerCase();
         if (languages.includes(language)) {
             blocks.push({ language, source: match[2] });
