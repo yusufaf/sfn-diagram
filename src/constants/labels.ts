@@ -116,12 +116,17 @@ interface GetContainerSubLabelParams {
  * // 'Distributed · max 100'
  * getContainerSubLabel({ node: inlineMapNode, showStateType: true });
  * // 'Map state'
+ * getContainerSubLabel({ node: collapsedParallelNode, showStateType: false });
+ * // '2 states'
  * ```
  */
 export function getContainerSubLabel(params: GetContainerSubLabelParams): string {
     const { node, showStateType } = params;
     const parts: string[] = [];
 
+    if (node.collapsed && node.collapsedCount) {
+        parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? '' : 's'}`);
+    }
     if (showStateType) {
         parts.push(`${node.type} state`);
     }

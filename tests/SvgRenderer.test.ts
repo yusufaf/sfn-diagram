@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { SvgRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
+import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
@@ -269,5 +270,29 @@ describe('SvgRenderer', () => {
 
             expect(result.metadata.edgeCount).toBe(2);
         });
+    });
+});
+
+describe('collapsed containers', () => {
+    it('renders a collapsed container via the regular-node path, not the bounding-box path', () => {
+        const asl = loadFixture('parallel');
+        const parsed = parseAsl({ definition: asl });
+        const collapsed = applyCollapse({ collapse: true, edges: parsed.edges, nodes: parsed.nodes });
+        const layout = new DagreLayout({}).calculate(collapsed.nodes, collapsed.edges);
+        const result = new SvgRenderer({}).render(layout);
+
+        expect(result.svg).toContain('class="node node-Parallel"');
+        expect(result.svg).not.toContain('class="container container-Parallel"');
+    });
+
+    it('shows the collapsed count and a dashed border', () => {
+        const asl = loadFixture('parallel');
+        const parsed = parseAsl({ definition: asl });
+        const collapsed = applyCollapse({ collapse: true, edges: parsed.edges, nodes: parsed.nodes });
+        const layout = new DagreLayout({}).calculate(collapsed.nodes, collapsed.edges);
+        const result = new SvgRenderer({}).render(layout);
+
+        expect(result.svg).toContain('2 states');
+        expect(result.svg).toContain('stroke-dasharray');
     });
 });
