@@ -148,7 +148,16 @@ describe('parseArgs', () => {
     });
 
     it('parses --collapse=Name1,Name2 as a name list', () => {
-        expect(parseArgs(['in.json', '--collapse', 'Name1,Name2']).collapse).toEqual(['Name1', 'Name2']);
+        expect(parseArgs(['in.json', '--collapse=Name1,Name2']).collapse).toEqual([
+            'Name1',
+            'Name2',
+        ]);
+    });
+
+    it('never swallows the input path as a --collapse value', () => {
+        const args = parseArgs(['--collapse', 'state.asl.json']);
+        expect(args.collapse).toBe(true);
+        expect(args.input).toBe('state.asl.json');
     });
 
     it('defaults --collapse to null (not passed)', () => {

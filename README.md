@@ -91,7 +91,7 @@ In short: reach for the AWS Console visualizer to eyeball a state machine you al
 | `catchHandling` | `'show' \| 'hide'` | `'show'` | Drop per-state error-handler (`Catch`) branches so the happy path stands out. A handler that's also reachable via the happy path is kept. |
 
 **CLI flags:**
-- `--collapse [names]` — collapse Parallel/Map containers into placeholders (bare flag = all; comma-separated names = only those)
+- `--collapse[=names]` — collapse Parallel/Map containers into placeholders (bare flag = all; `--collapse=Name1,Name2` = only those)
 - `--hide-catch` — hide `Catch` error-handler branches
 
 For full configuration options including layouts, themes, edge styles, and more, see the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/).

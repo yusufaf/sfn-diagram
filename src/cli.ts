@@ -57,9 +57,9 @@ Options:
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
-  --collapse [names]               Collapse Parallel/Map containers into placeholders
-                                   (bare flag collapses all; or a comma-separated list
-                                   of state names to collapse only those)
+  --collapse[=names]               Collapse Parallel/Map containers into placeholders
+                                   (bare flag collapses all; --collapse=Name1,Name2
+                                   collapses only those states)
   --show-icons                     Draw AWS service icons on Task states
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
@@ -178,16 +178,15 @@ export function parseArgs(argv: string[]): CliArgs {
             args.hideCatch = true;
             continue;
         }
-        if (arg === '--collapse') {
-            const next = argv[index + 1];
-            if (next !== undefined && !next.startsWith('-')) {
-                args.collapse = next
+        if (arg === '--collapse' || arg.startsWith('--collapse=')) {
+            if (arg === '--collapse') {
+                args.collapse = true;
+            } else {
+                args.collapse = arg
+                    .slice('--collapse='.length)
                     .split(',')
                     .map((name) => name.trim())
                     .filter((name) => name.length > 0);
-                index++;
-            } else {
-                args.collapse = true;
             }
             continue;
         }
