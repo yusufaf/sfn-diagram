@@ -81,6 +81,10 @@ Notes:
   zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
   icons are inlined, so the file works offline.
 
+  --collapse applies to --format svg, mermaid and html, and to --diff (except
+  --diff --format mermaid). It has no effect on --execution overlays, which build
+  their graph separately — the same limitation --hide-catch has there.
+
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
   sfn-diagram state.asl.json --format mermaid > diagram.mmd

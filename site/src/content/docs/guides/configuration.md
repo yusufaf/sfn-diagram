@@ -105,7 +105,9 @@ Big, branchy state machines are hard to read as a static image. A few options he
 - **`--collapse`** (or `collapse: true`) — collapse Parallel/Map containers into
   placeholder nodes so dagre lays out a smaller diagram. Pass specific state names
   (`--collapse=Name1,Name2`, or `collapse: ['Name1', 'Name2']`) to collapse only
-  those containers.
+  those containers. It applies to the SVG, Mermaid and HTML outputs and to
+  `--diff` (except `--diff --format mermaid`), but not to `--execution` overlays,
+  which build their graph separately — the same limitation `--hide-catch` has there.
   ```bash
   npx sfn-diagram state.asl.json --collapse --format svg -o diagram.svg
   ```
