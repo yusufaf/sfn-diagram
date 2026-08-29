@@ -264,6 +264,23 @@ describe('collapse toggle', () => {
         expect(result.html).not.toContain('data-sfn-collapse-toggle');
     });
 
+    it('namespaces marker ids so the two embedded views never collide', () => {
+        const result = generateHtml({ aslDefinition: parallelAsl });
+
+        const markerIds = result.html.match(/id="arrowhead-[^"]*"/g) ?? [];
+        expect(markerIds.length).toBeGreaterThan(1); // both views define their own
+        expect(new Set(markerIds).size).toBe(markerIds.length);
+
+        // Every reference must still resolve to an id that exists in the document.
+        const definedIds = new Set(
+            markerIds.map((attribute) => attribute.slice('id="'.length, -1)),
+        );
+        const references = result.html.match(/url\(#(arrowhead-[^)]*)\)/g) ?? [];
+        for (const reference of references) {
+            expect(definedIds).toContain(reference.slice('url(#'.length, -1));
+        }
+    });
+
     it('embeds only one view and no toggle when the caller\'s collapse selection is a no-op', () => {
         // `collapse: []` resolves to nothing being collapsed, so a second render would
         // be byte-identical to the expanded one and the toggle button would do nothing.

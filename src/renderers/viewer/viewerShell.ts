@@ -31,6 +31,26 @@ export interface BuildViewerBodyParams {
 }
 
 /**
+ * `generateSvg()` emits fixed `id="arrowhead-{type}"` marker defs and matching
+ * `url(#arrowhead-{type})` references - fine for one diagram, but the expanded and
+ * collapsed views embed two renderings of the same diagram into one document, which
+ * would otherwise duplicate every one of those ids. Beyond being invalid HTML,
+ * `url(#...)` resolves the first matching id in the whole document rather than within
+ * its own `<svg>`, so the second view would silently borrow the first's markers.
+ * Prefixing one view's copies keeps them distinct without touching the shared
+ * renderer, whose fixed ids are relied on elsewhere (e.g. single-diagram SVG export).
+ *
+ * `src/element/SfnDiagramElement.ts` solves the same collision per element instance;
+ * that copy stays separate rather than shared, to avoid a `renderers` -> `element`
+ * dependency in either direction.
+ */
+function namespaceMarkerIds(svg: string, prefix: string): string {
+    return svg.replace(/(?:id="|url\(#)arrowhead-/g, (match) =>
+        match.replace('arrowhead-', `arrowhead-${prefix}-`),
+    );
+}
+
+/**
  * Build the viewer chrome markup - toolbar, optional detail panel, stage, and
  * minimap - around already-rendered diagram markup. Shared by
  * {@link wrapSvgInInteractiveHtml} (the standalone HTML document) and the
@@ -57,9 +77,10 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
 
     // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
     // (attachViewer, in viewerController.ts) flips `hidden` between them. Otherwise
-    // the content node holds the SVG directly, exactly as before.
+    // the content node holds the SVG directly, exactly as before. The collapsed view's
+    // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
     const contentInner = hasCollapse
-        ? `<div data-sfn-view="expanded">${svg}</div><div data-sfn-view="collapsed" hidden>${collapsedSvg}</div>`
+        ? `<div data-sfn-view="expanded">${svg}</div><div data-sfn-view="collapsed" hidden>${namespaceMarkerIds(collapsedSvg, 'collapsed')}</div>`
         : svg;
 
     const collapseToggleMarkup = hasCollapse
