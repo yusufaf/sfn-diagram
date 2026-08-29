@@ -25,6 +25,7 @@ import type {
 export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
+    collapse: string[] | boolean | null;
     diff: string | null;
     execution: string | null;
     format: DiagramFormat;
@@ -56,6 +57,9 @@ Options:
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
+  --collapse [names]               Collapse Parallel/Map containers into placeholders
+                                   (bare flag collapses all; or a comma-separated list
+                                   of state names to collapse only those)
   --show-icons                     Draw AWS service icons on Task states
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
@@ -91,6 +95,7 @@ Examples:
 
 export function parseArgs(argv: string[]): CliArgs {
     const args: CliArgs = {
+        collapse: null,
         diff: null,
         execution: null,
         format: 'svg',
@@ -171,6 +176,19 @@ export function parseArgs(argv: string[]): CliArgs {
         }
         if (arg === '--hide-catch') {
             args.hideCatch = true;
+            continue;
+        }
+        if (arg === '--collapse') {
+            const next = argv[index + 1];
+            if (next !== undefined && !next.startsWith('-')) {
+                args.collapse = next
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter((name) => name.length > 0);
+                index++;
+            } else {
+                args.collapse = true;
+            }
             continue;
         }
         if (arg === '--hide-variables') {
@@ -461,6 +479,7 @@ export async function run(argv: string[]): Promise<number> {
         ...(args.showIcons ? { showIcons: true } : {}),
         ...(args.iconPosition !== null ? { iconPosition: args.iconPosition } : {}),
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
+        ...(args.collapse !== null ? { collapse: args.collapse } : {}),
     };
 
     /**
