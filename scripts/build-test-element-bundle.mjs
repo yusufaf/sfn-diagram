@@ -19,6 +19,12 @@ if (!entry || !outDir) {
 }
 
 await build({
+    // Without this, tsdown auto-discovers the repo's own tsdown.config.ts (a 7-entry
+    // array) and merges it in - rolldown then extracts chunks shared between this ad
+    // hoc entry and the real entries (e.g. a `diff.js` shared with `index`/`element`),
+    // leaving `bundle.js` with a relative import that can't resolve once it's inlined
+    // into a bare page with no module resolution.
+    config: false,
     clean: true,
     dts: false,
     entry: { bundle: entry },
