@@ -62385,6 +62385,7 @@ function getAssignedVariablesLabel(variableNames) {
 function getContainerSubLabel(params) {
   const { node, showStateType } = params;
   const parts = [];
+  if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
   if (showStateType) parts.push(`${node.type} state`);
   if (node.isDistributedMap) parts.push("Distributed");
   if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
@@ -62979,6 +62980,66 @@ function extractNestedEdges(params) {
     }
   }
 }
+var SYNTHETIC_MARKER_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
+function applyCollapse(params) {
+  const { collapse, edges, nodes } = params;
+  if (!collapse) return {
+    edges,
+    nodes
+  };
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
+  const requestedTargets = collapse === true ? containerIds : new Set(collapse.filter((name) => containerIds.has(name)));
+  if (requestedTargets.size === 0) return {
+    edges,
+    nodes
+  };
+  const closureFor = (containerId) => {
+    const closure = /* @__PURE__ */ new Set();
+    const queue = [...nodesById.get(containerId)?.children ?? []];
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      if (closure.has(currentId)) continue;
+      closure.add(currentId);
+      const current = nodesById.get(currentId);
+      if (current?.isContainer) queue.push(...current.children ?? []);
+    }
+    return closure;
+  };
+  const closuresByTarget = /* @__PURE__ */ new Map();
+  const removedIds = /* @__PURE__ */ new Set();
+  for (const targetId of requestedTargets) {
+    const closure = closureFor(targetId);
+    closuresByTarget.set(targetId, closure);
+    for (const id of closure) removedIds.add(id);
+  }
+  for (const edge of edges) {
+    const fromNode = nodesById.get(edge.from);
+    const toNode = nodesById.get(edge.to);
+    if (fromNode && MAP_IO_NODE_TYPES.has(fromNode.type) && removedIds.has(edge.to)) removedIds.add(edge.from);
+    if (toNode && MAP_IO_NODE_TYPES.has(toNode.type) && removedIds.has(edge.from)) removedIds.add(edge.to);
+  }
+  const effectiveTargets = new Set([...requestedTargets].filter((targetId) => !removedIds.has(targetId)));
+  const resultNodes = nodes.filter((node) => !removedIds.has(node.id)).map((node) => {
+    if (!effectiveTargets.has(node.id)) return node;
+    const closure = closuresByTarget.get(node.id);
+    let collapsedCount = 0;
+    for (const id of closure) {
+      const descendant = nodesById.get(id);
+      if (descendant && !SYNTHETIC_MARKER_TYPES.has(descendant.type)) collapsedCount += 1;
+    }
+    return {
+      ...node,
+      children: [],
+      collapsed: true,
+      collapsedCount
+    };
+  });
+  return {
+    edges: edges.filter((edge) => !removedIds.has(edge.from) && !removedIds.has(edge.to)),
+    nodes: resultNodes
+  };
+}
 function applyCatchHandling(params) {
   const { edges, mode, nodes, startStateId } = params;
   if (mode === "show") return {
@@ -63214,6 +63275,7 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   edgeStyle: "curved",
   catchHandling: "show",
   catchLabelStyle: "error-type",
+  collapse: void 0,
   stylePreset: "aws-standard",
   iconPosition: "left",
   iconResolver: void 0,
@@ -63550,10 +63612,15 @@ function generateMermaid(params) {
     nodes,
     startStateId: aslObj.StartAt
   });
+  const collapsedGraph = applyCollapse({
+    collapse: mergedOptions.collapse,
+    edges: graph.edges,
+    nodes: graph.nodes
+  });
   return new MermaidRenderer().render({
     asl: aslObj,
-    edges: graph.edges,
-    nodes: graph.nodes,
+    edges: collapsedGraph.edges,
+    nodes: collapsedGraph.nodes,
     showVariables: mergedOptions.showVariables
   });
 }
