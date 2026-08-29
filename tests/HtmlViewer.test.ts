@@ -264,6 +264,14 @@ describe('collapse toggle', () => {
         expect(result.html).not.toContain('data-sfn-collapse-toggle');
     });
 
+    it('embeds only one view and no toggle when the caller\'s collapse selection is a no-op', () => {
+        // `collapse: []` resolves to nothing being collapsed, so a second render would
+        // be byte-identical to the expanded one and the toggle button would do nothing.
+        const result = generateHtml({ aslDefinition: parallelAsl, collapse: [] });
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+        expect(result.html).not.toContain('data-sfn-collapse-toggle');
+    });
+
     it('reports the expanded view\'s metadata/dimensions, not the collapsed one\'s', () => {
         const expandedOnly = generateSvg({ aslDefinition: parallelAsl });
         const result = generateHtml({ aslDefinition: parallelAsl });

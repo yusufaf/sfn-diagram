@@ -249,9 +249,17 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const hasContainers = nodes.some((node) => node.isContainer);
 
     const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
-    const collapsedSvg = hasContainers
-        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse || true }).svg
+    const collapsedSvgOutput = hasContainers
+        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse || true })
         : undefined;
+    // `hasContainers` only skips the second render for the common containerless case;
+    // the node count is the precise check. An explicit selection that collapses
+    // nothing (`collapse: []`, or names that match no container) would otherwise ship
+    // a second view identical to the first behind a toggle button that does nothing.
+    const collapsedSvg =
+        collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
+            ? collapsedSvgOutput.svg
+            : undefined;
 
     return {
         height: svgOutput.height,
@@ -296,6 +304,11 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
 
+    // `hasContainers` only skips the second render for the common containerless case;
+    // the node count is the precise check, applied before the icon embedding is paid
+    // for. An explicit selection that collapses nothing (`collapse: []`, or names that
+    // match no container) would otherwise ship a second view identical to the first
+    // behind a toggle button that does nothing.
     let embeddedCollapsedSvg: string | undefined;
     if (hasContainers) {
         const collapsedSvgOutput = generateSvg({
@@ -303,7 +316,9 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             ...options,
             collapse: options.collapse || true,
         });
-        embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
+        if (collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount) {
+            embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
+        }
     }
 
     return {
