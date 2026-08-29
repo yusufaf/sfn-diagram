@@ -100,7 +100,7 @@ For full configuration options including layouts, themes, edge styles, and more,
 
 The `--format html` output renders an interactive diagram viewer with built-in features:
 
-| Feature | |
+| Feature | Details |
 | --- | --- |
 | **Pan & Zoom** | drag the background; mouse wheel or toolbar buttons |
 | **Search** | type in the toolbar box — non-matches dim, the view pans to the first hit |
