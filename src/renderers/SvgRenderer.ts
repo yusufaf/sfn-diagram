@@ -424,8 +424,9 @@ export class SvgRenderer {
             ? getContainerSubLabel({ node, showStateType: this.options.showStateTypes === true })
             : '';
         const secondLineShown = collapsedSubLabel !== '' || (this.options.showStateTypes && !node.collapsed);
+        const secondLineText = collapsedSubLabel || (this.options.showStateTypes ? node.type : '');
 
-        if (collapsedSubLabel) {
+        if (secondLineText) {
             nodeGroup
                 .append('text')
                 .attr('x', labelX)
@@ -435,18 +436,7 @@ export class SvgRenderer {
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .attr('opacity', 0.7)
-                .text(collapsedSubLabel);
-        } else if (this.options.showStateTypes) {
-            nodeGroup
-                .append('text')
-                .attr('x', labelX)
-                .attr('y', labelY + 20)
-                .attr('text-anchor', 'middle')
-                .attr('dominant-baseline', 'middle')
-                .attr('fill', this.theme.textColor)
-                .attr('font-size', this.theme.fontSize - 2)
-                .attr('opacity', 0.7)
-                .text(node.type);
+                .text(secondLineText);
         }
 
         // Optional annotation (execution overlay: duration / retry count), placed
