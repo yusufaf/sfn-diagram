@@ -24,7 +24,7 @@
  * ```
  */
 import { parseAsl } from './AslParser';
-import { applyCatchHandling } from './graph';
+import { applyCatchHandling, applyCollapse } from './graph';
 import { DagreLayout } from './layout';
 import {
     SvgRenderer,
@@ -125,9 +125,15 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
         startStateId: aslObj.StartAt,
     });
 
+    const collapsedGraph = applyCollapse({
+        collapse: mergedOptions.collapse,
+        edges: graph.edges,
+        nodes: graph.nodes,
+    });
+
     // Calculate layout
     const layout = new DagreLayout(mergedOptions);
-    const positioned = layout.calculate(graph.nodes, graph.edges);
+    const positioned = layout.calculate(collapsedGraph.nodes, collapsedGraph.edges);
 
     // Render SVG
     const renderer = new SvgRenderer(mergedOptions);
@@ -196,11 +202,17 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
         startStateId: aslObj.StartAt,
     });
 
+    const collapsedGraph = applyCollapse({
+        collapse: mergedOptions.collapse,
+        edges: graph.edges,
+        nodes: graph.nodes,
+    });
+
     const renderer = new MermaidRenderer();
     return renderer.render({
         asl: aslObj,
-        edges: graph.edges,
-        nodes: graph.nodes,
+        edges: collapsedGraph.edges,
+        nodes: collapsedGraph.nodes,
         showVariables: mergedOptions.showVariables,
     });
 }
@@ -233,10 +245,26 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const { nodes } = parseAsl({ definition: aslObj, options });
+    const hasContainers = nodes.some((node) => node.isContainer);
+
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
+    const collapsedSvgOutput = hasContainers
+        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse || true })
+        : undefined;
+    // `hasContainers` only skips the second render for the common containerless case;
+    // the node count is the precise check. An explicit selection that collapses
+    // nothing (`collapse: []`, or names that match no container) would otherwise ship
+    // a second view identical to the first behind a toggle button that does nothing.
+    const collapsedSvg =
+        collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
+            ? collapsedSvgOutput.svg
+            : undefined;
+
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
@@ -270,11 +298,33 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const { nodes } = parseAsl({ definition: aslObj, options });
+    const hasContainers = nodes.some((node) => node.isContainer);
+
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
+
+    // `hasContainers` only skips the second render for the common containerless case;
+    // the node count is the precise check, applied before the icon embedding is paid
+    // for. An explicit selection that collapses nothing (`collapse: []`, or names that
+    // match no container) would otherwise ship a second view identical to the first
+    // behind a toggle button that does nothing.
+    let embeddedCollapsedSvg: string | undefined;
+    if (hasContainers) {
+        const collapsedSvgOutput = generateSvg({
+            aslDefinition: aslObj,
+            ...options,
+            collapse: options.collapse || true,
+        });
+        if (collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount) {
+            embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
+        }
+    }
+
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedSvg: embeddedCollapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,

@@ -142,6 +142,27 @@ describe('parseArgs', () => {
     it('rejects a non-positive --icon-size', () => {
         expect(() => parseArgs(['in.json', '--icon-size', '0'])).toThrowError(/Invalid --icon-size/);
     });
+
+    it('parses --collapse as a bare flag (collapse all)', () => {
+        expect(parseArgs(['in.json', '--collapse']).collapse).toBe(true);
+    });
+
+    it('parses --collapse=Name1,Name2 as a name list', () => {
+        expect(parseArgs(['in.json', '--collapse=Name1,Name2']).collapse).toEqual([
+            'Name1',
+            'Name2',
+        ]);
+    });
+
+    it('never swallows the input path as a --collapse value', () => {
+        const args = parseArgs(['--collapse', 'state.asl.json']);
+        expect(args.collapse).toBe(true);
+        expect(args.input).toBe('state.asl.json');
+    });
+
+    it('defaults --collapse to null (not passed)', () => {
+        expect(parseArgs(['in.json']).collapse).toBeNull();
+    });
 });
 
 describe('run', () => {
@@ -285,6 +306,61 @@ describe('run', () => {
         const written = readFileSync(outPath, 'utf-8');
         expect(written).toContain('<!DOCTYPE html>');
         expect(stdoutData).toBe('');
+    });
+
+    it('--collapse shrinks the SVG output for a Parallel state machine', async () => {
+        const asl = JSON.stringify({
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        });
+        const inputPath = join(tempDir, 'parallel.asl.json');
+        writeFileSync(inputPath, asl);
+
+        const codeWithout = await run([inputPath]);
+        const withoutSvg = stdoutData;
+        stdoutData = '';
+        const codeWith = await run([inputPath, '--collapse']);
+
+        expect(codeWithout).toBe(0);
+        expect(codeWith).toBe(0);
+        expect(stdoutData).toContain('2 states');
+        expect(stdoutData.length).toBeLessThan(withoutSvg.length);
+    });
+
+    it('--format mermaid --collapse drops the branch states from the output', async () => {
+        const asl = JSON.stringify({
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        });
+        const inputPath = join(tempDir, 'parallel.asl.json');
+        writeFileSync(inputPath, asl);
+
+        const code = await run([inputPath, '--format', 'mermaid', '--collapse']);
+
+        expect(code).toBe(0);
+        expect(stdoutData).not.toContain('Branch1');
+        expect(stdoutData).not.toContain('Branch2');
+        expect(stdoutData).toContain('FanOut');
     });
 });
 

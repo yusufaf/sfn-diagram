@@ -140,6 +140,10 @@ export interface StateNode {
     assignedVariables?: string[];
     /** Child node IDs (for container nodes like Parallel/Map) */
     children?: string[];
+    /** Whether this container node is a collapse placeholder (its subgraph was removed). */
+    collapsed?: boolean;
+    /** Number of real descendant states hidden behind a collapsed container placeholder. */
+    collapsedCount?: number;
     height?: number;
     /** URL to AWS service icon (CDN path for Task states) */
     iconUrl?: string;
@@ -265,6 +269,16 @@ export interface DiagramOptions {
      * @default 'error-type'
      */
     catchLabelStyle?: CatchLabelStyle;
+
+    /**
+     * Collapse Parallel/Map containers into a placeholder node so dagre lays out a
+     * smaller graph — hiding a container's children shrinks the diagram instead of
+     * leaving an empty bounding box behind. `true` collapses every container; a
+     * string array collapses only the named containers (names that don't resolve to
+     * an existing container are ignored).
+     * @default undefined (no collapsing)
+     */
+    collapse?: string[] | boolean;
 
     /** Custom styling overrides for specific state types */
     customColors?: Partial<Record<StateType, NodeStyle>>;

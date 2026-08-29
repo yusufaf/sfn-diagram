@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateHtmlAsync } from '../src';
+import { generateHtml, generateHtmlAsync, generateSvg } from '../src';
 import { resolveViewerTheme, wrapSvgInInteractiveHtml } from '../src/renderers';
 import type { AslDefinition, CustomTheme } from '../src/types';
 
@@ -226,4 +226,111 @@ describe('generateHtmlAsync', () => {
         const result = await generateHtmlAsync({ aslDefinition: asl });
         expect(result.html).not.toMatch(EXTERNAL_REFERENCE);
     });
+});
+
+describe('collapse toggle', () => {
+    const parallelAsl: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    it('embeds two views and a toggle button when the diagram has a container', () => {
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        expect(result.html).toContain('data-sfn-view="expanded"');
+        expect(result.html).toContain('data-sfn-view="collapsed"');
+        expect(result.html).toContain('data-sfn-collapse-toggle');
+        // Collapsed wrapper starts hidden; expanded is the default view.
+        expect(result.html).toMatch(/data-sfn-view="collapsed" hidden/);
+    });
+
+    it('embeds only one view and no toggle when the diagram has no container', () => {
+        const result = generateHtml({ aslDefinition: asl }); // top-level `asl` fixture: no Parallel/Map
+        // Not a plain `.not.toContain('data-sfn-view')`: the compiled viewer controller
+        // is inlined into every document (the toggle is detected at runtime, per the
+        // architecture note above), and its `querySelector('[data-sfn-view="..."]')`
+        // calls contain that substring unconditionally. Assert on the markup pattern
+        // (`<div data-sfn-view=...`) specifically, which only the two-view branch emits.
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+        expect(result.html).not.toContain('data-sfn-collapse-toggle');
+    });
+
+    it('namespaces marker ids so the two embedded views never collide', () => {
+        const result = generateHtml({ aslDefinition: parallelAsl });
+
+        const markerIds = result.html.match(/id="arrowhead-[^"]*"/g) ?? [];
+        expect(markerIds.length).toBeGreaterThan(1); // both views define their own
+        expect(new Set(markerIds).size).toBe(markerIds.length);
+
+        // Every reference must still resolve to an id that exists in the document.
+        const definedIds = new Set(
+            markerIds.map((attribute) => attribute.slice('id="'.length, -1)),
+        );
+        const references = result.html.match(/url\(#(arrowhead-[^)]*)\)/g) ?? [];
+        for (const reference of references) {
+            expect(definedIds).toContain(reference.slice('url(#'.length, -1));
+        }
+    });
+
+    it('does not corrupt a state literally named like a marker id', () => {
+        // The state must survive collapse (stay outside the container) so it appears
+        // in the namespaced collapsed view too, where the corruption would show up.
+        const trickyAsl: AslDefinition = {
+            StartAt: 'arrowhead-check',
+            States: {
+                'arrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'FanOut' },
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'B', States: { B: { Type: 'Task', Resource: 'arn:b', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const result = generateHtml({ aslDefinition: trickyAsl });
+        expect(result.html).toContain('data-state-id="arrowhead-check"');
+        expect(result.html).not.toContain('data-state-id="arrowhead-collapsed-check"');
+    });
+
+    it('embeds only one view and no toggle when the caller\'s collapse selection is a no-op', () => {
+        // `collapse: []` resolves to nothing being collapsed, so a second render would
+        // be byte-identical to the expanded one and the toggle button would do nothing.
+        const result = generateHtml({ aslDefinition: parallelAsl, collapse: [] });
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+        expect(result.html).not.toContain('data-sfn-collapse-toggle');
+    });
+
+    it('reports the expanded view\'s metadata/dimensions, not the collapsed one\'s', () => {
+        const expandedOnly = generateSvg({ aslDefinition: parallelAsl });
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        expect(result.metadata.nodeCount).toBe(expandedOnly.metadata.nodeCount);
+        expect(result.width).toBe(expandedOnly.width);
+    });
+
+    it.each([true, false])(
+        'keeps the expanded view genuinely expanded when the caller passes collapse: %s',
+        (collapse) => {
+            const result = generateHtml({ aslDefinition: parallelAsl, collapse });
+            // The expanded view must always show the real branch states, regardless of
+            // what `collapse` the caller passed - only the collapsed/toggle-target view
+            // should honor it. Branch1/Branch2 must appear exactly once (in the expanded
+            // view only); if the two views collided (both collapsed or both expanded),
+            // they'd either both be missing or both present.
+            const branch1Count = (result.html.match(/data-state-id="Branch1"/g) ?? []).length;
+            const branch2Count = (result.html.match(/data-state-id="Branch2"/g) ?? []).length;
+            expect(branch1Count).toBe(1);
+            expect(branch2Count).toBe(1);
+        },
+    );
 });

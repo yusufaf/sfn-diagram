@@ -105,8 +105,20 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         for (const callback of onApply) callback();
     }
 
+    // When generateHtml() shipped two pre-rendered views (expanded + fully collapsed,
+    // see the collapse/expand toggle further down), only one is visible (no `hidden`
+    // attribute) at a time. Every reader of "the diagram's SVG" goes through this
+    // instead of always reading content's first child, so size/centering/the minimap
+    // thumbnail all track whichever view is currently active.
+    function activeSvg(): SVGSVGElement | null {
+        const visibleView = content!.querySelector('[data-sfn-view]:not([hidden])');
+        return (
+            visibleView ? visibleView.firstElementChild : content!.firstElementChild
+        ) as SVGSVGElement | null;
+    }
+
     function svgSize(): { width: number; height: number } {
-        const svg = content!.firstElementChild as SVGSVGElement | null;
+        const svg = activeSvg();
         const width = svg?.getAttribute('width');
         const height = svg?.getAttribute('height');
         return {
@@ -130,7 +142,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         const transform = group.getAttribute('transform') || '';
         const match = transform.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
         if (!match) return null;
-        const svg = content!.firstElementChild as SVGSVGElement | null;
+        const svg = activeSvg();
         const viewBox = (svg?.getAttribute('viewBox') || '0 0 0 0').split(/[ ,]+/).map(parseFloat);
         // Node coordinates are in viewBox space; shift by its origin to get content-box pixels.
         return { x: parseFloat(match[1]) - viewBox[0], y: parseFloat(match[2]) - viewBox[1] };
@@ -294,7 +306,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     const searchInput = hook(root, 'search') as HTMLInputElement | null;
     const searchCount = hook(root, 'search-count');
-    const searchables = Array.from(content.querySelectorAll<HTMLElement>('[data-state-id]'));
+    // Scoped to the active view (not `content` directly) so a hidden alternate
+    // view's states never show up as search hits - see the toggle further down.
+    function computeSearchables(): HTMLElement[] {
+        return Array.from((activeSvg() ?? content!).querySelectorAll<HTMLElement>('[data-state-id]'));
+    }
+    let searchables = computeSearchables();
     let hits: HTMLElement[] = [];
     let hitIndex = 0;
 
@@ -367,6 +384,10 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         }
     });
 
+    // Reassigned below when the minimap is present, so the collapse/expand toggle
+    // (further down) can rebuild the thumbnail without knowing whether one exists.
+    let rebuildMinimapThumbnail: () => void = () => {};
+
     // --- minimap --------------------------------------------------------------
     //
     // Scaled overview of the whole diagram with a draggable viewport rectangle. Built
@@ -382,7 +403,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     if (minimap && minimapThumb && minimapViewport && minimapToggle) {
         const buildMinimapThumbnail = (): void => {
-            const source = content!.firstElementChild;
+            const source = activeSvg();
             if (!source) return;
             const clone = source.cloneNode(true) as SVGSVGElement;
             clone.removeAttribute('width');
@@ -398,8 +419,10 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             for (const node of Array.from(clone.querySelectorAll('text, image, title, defs'))) {
                 node.remove();
             }
+            minimapThumb.textContent = ''; // clear a previous thumbnail before rebuilding
             minimapThumb.appendChild(clone);
         };
+        rebuildMinimapThumbnail = buildMinimapThumbnail;
 
         // The thumbnail's own box replicates the meet-scaling the SVG's
         // preserveAspectRatio already does when the diagram's aspect ratio doesn't
@@ -474,6 +497,30 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         buildMinimapThumbnail();
         onApply.push(updateMinimapViewport);
+    }
+
+    // --- collapse / expand toggle (optional) ---------------------------------------
+    //
+    // Present only when generateHtml() shipped two pre-rendered views (expanded and
+    // fully collapsed containers) - see wrapSvgInInteractiveHtml's collapsedSvg param.
+    // Swaps which view is visible; search state and the minimap thumbnail are reset
+    // against the now-active view since both derive from it.
+
+    const collapseToggle = hook(root, 'collapse-toggle');
+    const expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
+    const collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
+
+    if (collapseToggle && expandedView && collapsedView) {
+        on(collapseToggle, 'click', () => {
+            expandedView.hidden = !expandedView.hidden;
+            collapsedView.hidden = !collapsedView.hidden;
+            collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
+            if (searchInput) searchInput.value = '';
+            clearSearch();
+            searchables = computeSearchables();
+            rebuildMinimapThumbnail();
+            fit();
+        });
     }
 
     fit();

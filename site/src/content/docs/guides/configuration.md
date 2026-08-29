@@ -72,6 +72,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   | Zoom | mouse wheel, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
   | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
   | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
+  | Expand/Collapse | when the diagram has a Parallel or Map state, a toggle button switches between the expanded and fully-collapsed view |
   | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
 
   Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
@@ -100,6 +101,15 @@ Big, branchy state machines are hard to read as a static image. A few options he
   via the happy path is kept.
   ```bash
   npx sfn-diagram state.asl.json --hide-catch --format svg -o diagram.svg
+  ```
+- **`--collapse`** (or `collapse: true`) — collapse Parallel/Map containers into
+  placeholder nodes so dagre lays out a smaller diagram. Pass specific state names
+  (`--collapse=Name1,Name2`, or `collapse: ['Name1', 'Name2']`) to collapse only
+  those containers. It applies to the SVG, Mermaid and HTML outputs and to
+  `--diff` (except `--diff --format mermaid`), but not to `--execution` overlays,
+  which build their graph separately — the same limitation `--hide-catch` has there.
+  ```bash
+  npx sfn-diagram state.asl.json --collapse --format svg -o diagram.svg
   ```
 - **`--layout LR`** (or `layout: 'LR'`) — the default `TB` layout makes catch-heavy
   or deeply branching machines extremely tall; `LR` reads better for wide graphs.

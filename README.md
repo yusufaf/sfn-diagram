@@ -82,6 +82,7 @@ In short: reach for the AWS Console visualizer to eyeball a state machine you al
 - **AWS SDK Integration**: Direct integration with AWS Step Functions API
 - **Dual APIs**: Function-based and class-based interfaces
 - **Runs Anywhere**: SVG and Mermaid generation has zero platform dependencies — works in Node, the browser, and edge runtimes
+- **Collapse Large Diagrams**: Replace Parallel/Map containers with placeholder nodes before layout so huge diagrams stay readable, with a live toggle in the interactive HTML viewer. See the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/) for `collapse` and every other option.
 
 ## Supported state types
 

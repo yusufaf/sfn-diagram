@@ -25,6 +25,7 @@ import type {
 export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
+    collapse: string[] | boolean | null;
     diff: string | null;
     execution: string | null;
     format: DiagramFormat;
@@ -56,6 +57,9 @@ Options:
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
+  --collapse[=names]               Collapse Parallel/Map containers into placeholders
+                                   (bare flag collapses all; --collapse=Name1,Name2
+                                   collapses only those states)
   --show-icons                     Draw AWS service icons on Task states
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
@@ -77,6 +81,10 @@ Notes:
   zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
   icons are inlined, so the file works offline.
 
+  --collapse applies to --format svg, mermaid and html, and to --diff (except
+  --diff --format mermaid). It has no effect on --execution overlays, which build
+  their graph separately — the same limitation --hide-catch has there.
+
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
   sfn-diagram state.asl.json --format mermaid > diagram.mmd
@@ -91,6 +99,7 @@ Examples:
 
 export function parseArgs(argv: string[]): CliArgs {
     const args: CliArgs = {
+        collapse: null,
         diff: null,
         execution: null,
         format: 'svg',
@@ -171,6 +180,18 @@ export function parseArgs(argv: string[]): CliArgs {
         }
         if (arg === '--hide-catch') {
             args.hideCatch = true;
+            continue;
+        }
+        if (arg === '--collapse' || arg.startsWith('--collapse=')) {
+            if (arg === '--collapse') {
+                args.collapse = true;
+            } else {
+                args.collapse = arg
+                    .slice('--collapse='.length)
+                    .split(',')
+                    .map((name) => name.trim())
+                    .filter((name) => name.length > 0);
+            }
             continue;
         }
         if (arg === '--hide-variables') {
@@ -453,6 +474,7 @@ export async function run(argv: string[]): Promise<number> {
     const sharedOptions = {
         catchHandling: args.hideCatch ? ('hide' as const) : ('show' as const),
         ...(args.hideVariables ? { showVariables: false } : {}),
+        ...(args.collapse !== null ? { collapse: args.collapse } : {}),
     };
     const svgOptions = {
         ...sharedOptions,

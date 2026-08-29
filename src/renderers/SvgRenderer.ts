@@ -164,8 +164,8 @@ export class SvgRenderer {
         const nodesGroup = svg.append('g').attr('class', 'nodes');
 
         // Separate container nodes from regular nodes
-        const containerNodes = layout.nodes.filter((node) => node.isContainer);
-        const regularNodes = layout.nodes.filter((node) => !node.isContainer);
+        const containerNodes = layout.nodes.filter((node) => node.isContainer && !node.collapsed);
+        const regularNodes = layout.nodes.filter((node) => !node.isContainer || node.collapsed);
 
         // Index nodes by id once so the edge loop below is O(E) instead of O(E*V)
         const nodesById = new Map(layout.nodes.map((node) => [node.id, node]));
@@ -418,8 +418,15 @@ export class SvgRenderer {
             .attr('font-family', this.theme.fontFamily)
             .text(node.label);
 
-        // Optionally add state type
-        if (this.options.showStateTypes) {
+        // Optionally add state type — skipped for a collapsed container, which uses
+        // the richer sub-label below (reusing the same slot/offset) instead.
+        const collapsedSubLabel = node.collapsed
+            ? getContainerSubLabel({ node, showStateType: this.options.showStateTypes === true })
+            : '';
+        const secondLineText = collapsedSubLabel || (this.options.showStateTypes ? node.type : '');
+        const secondLineShown = secondLineText !== '';
+
+        if (secondLineText) {
             nodeGroup
                 .append('text')
                 .attr('x', labelX)
@@ -429,17 +436,17 @@ export class SvgRenderer {
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .attr('opacity', 0.7)
-                .text(node.type);
+                .text(secondLineText);
         }
 
         // Optional annotation (execution overlay: duration / retry count), placed
-        // below the label and the state type when both are shown.
+        // below the label and the state type / collapsed sub-label when shown.
         const annotation = this.options.nodeAnnotations?.[node.id];
         if (annotation) {
             nodeGroup
                 .append('text')
                 .attr('x', labelX)
-                .attr('y', labelY + (this.options.showStateTypes ? 36 : 18))
+                .attr('y', labelY + (secondLineShown ? 36 : 18))
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
@@ -449,10 +456,9 @@ export class SvgRenderer {
         }
 
         // ASL Variables assigned by this state, stacked beneath whichever of the
-        // state type and annotation lines are present.
+        // second line and annotation are present.
         if (this.options.showVariables !== false && node.assignedVariables?.length) {
-            const stackedOffset =
-                (this.options.showStateTypes ? 36 : 18) + (annotation ? 16 : 0);
+            const stackedOffset = (secondLineShown ? 36 : 18) + (annotation ? 16 : 0);
             nodeGroup
                 .append('text')
                 .attr('class', 'node-variables')
@@ -475,7 +481,7 @@ export class SvgRenderer {
         const width = node.width || 120;
         const height = node.height || 60;
 
-        group
+        const rect = group
             .append('rect')
             .attr('x', -width / 2)
             .attr('y', -height / 2)
@@ -485,6 +491,12 @@ export class SvgRenderer {
             .attr('fill', style.fill)
             .attr('stroke', style.stroke)
             .attr('stroke-width', style.strokeWidth);
+
+        // A collapsed container placeholder gets a dashed border so it reads as a
+        // stand-in for hidden content rather than an ordinary state.
+        if (node.collapsed) {
+            rect.attr('stroke-dasharray', '6 3');
+        }
     }
 
     /**

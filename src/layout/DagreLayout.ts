@@ -44,11 +44,11 @@ export class DagreLayout {
         // child states (the targets of the container's visual-only child edges) so that
         // predecessors are ranked above the container's contents.
         const containerIds = new Set(
-            nodes.filter((node) => node.isContainer).map((node) => node.id),
+            nodes.filter((node) => node.isContainer && !node.collapsed).map((node) => node.id),
         );
         const containerChildren = new Map<string, Set<string>>(
             nodes
-                .filter((node) => node.isContainer)
+                .filter((node) => node.isContainer && !node.collapsed)
                 .map((node) => [node.id, new Set(node.children || [])]),
         );
         const entryChildrenByContainer = new Map<string, string[]>();
@@ -65,7 +65,7 @@ export class DagreLayout {
 
         // Add only non-container nodes with dimensions
         // Container nodes will get bounding boxes calculated post-layout
-        const layoutNodes = nodes.filter((node) => !node.isContainer);
+        const layoutNodes = nodes.filter((node) => !node.isContainer || node.collapsed);
 
         layoutNodes.forEach((node) => {
             const dimensions = this.getNodeDimensions(node);
@@ -77,9 +77,22 @@ export class DagreLayout {
             });
         });
 
-        // Add edges (visual-only edges are routed manually, never fed to dagre)
+        // Add edges (visual-only edges are normally routed manually, never fed to
+        // dagre for ranking — except a visual-only edge between two non-open-container
+        // endpoints, which still needs a rank: a collapsed container's `-> Next` edge
+        // relies on this, since the non-visual end-marker edge that used to carry
+        // ranking is deleted along with the container's descendants by applyCollapse.
+        // Self-loops (Retry) are always excluded — they're never meaningfully ranked.
         edges
-            .filter((edge) => !edge.visualOnly)
+            .filter((edge) => {
+                if (edge.from === edge.to) {
+                    return false;
+                }
+                if (!edge.visualOnly) {
+                    return true;
+                }
+                return !containerIds.has(edge.from) && !containerIds.has(edge.to);
+            })
             .forEach((edge) => {
                 const toIsContainer = containerIds.has(edge.to);
                 const fromIsContainer = containerIds.has(edge.from);
@@ -124,7 +137,7 @@ export class DagreLayout {
             positionedNodes.map((node) => [node.id, node]),
         );
         const containerNodes = this.calculateContainerBounds({
-            containers: nodes.filter((node) => node.isContainer),
+            containers: nodes.filter((node) => node.isContainer && !node.collapsed),
             positionedNodeIndex,
         });
 
@@ -140,7 +153,10 @@ export class DagreLayout {
         const routedEdges = edges.map((edge) => {
             const fromNode = positionedNodesById.get(edge.from);
             const toNode = positionedNodesById.get(edge.to);
-            const touchesContainer = Boolean(fromNode?.isContainer || toNode?.isContainer);
+            const touchesContainer = Boolean(
+                (fromNode?.isContainer && !fromNode.collapsed) ||
+                    (toNode?.isContainer && !toNode.collapsed),
+            );
 
             // Visual-only edges and any edge touching a container are not in the dagre
             // graph, so they are routed manually.
