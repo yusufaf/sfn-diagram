@@ -9,6 +9,13 @@ const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
 /** Parameters for {@link buildViewerBody}. */
 export interface BuildViewerBodyParams {
     /**
+     * A second, fully-collapsed rendering of the same diagram. When provided, both
+     * `svg` and this are embedded (as two `data-sfn-view` wrapper divs, `svg` shown
+     * first) and the toolbar gains a toggle button that switches between them. Omit
+     * for a single view with no toggle (unchanged behavior).
+     */
+    collapsedSvg?: string;
+    /**
      * Emit the standalone HTML document's original `id="sfn-x"` attributes alongside
      * `data-sfn="x"`. The document keeps them for its own Puppeteer runtime suite and
      * for anyone who scripted against them; the custom element omits them, since more
@@ -34,8 +41,9 @@ export interface BuildViewerBodyParams {
  * @returns HTML fragment: toolbar, optional panel, and stage - no `<html>`/`<body>`
  */
 export function buildViewerBody(params: BuildViewerBodyParams): string {
-    const { legacyIds = false, minimapCollapsed, panel, svg } = params;
+    const { collapsedSvg, legacyIds = false, minimapCollapsed, panel, svg } = params;
     const id = (name: string): string => (legacyIds ? ` id="sfn-${name}"` : '');
+    const hasCollapse = collapsedSvg !== undefined;
 
     const panelMarkup = panel
         ? `<aside${id('panel')} data-sfn="panel">
@@ -45,6 +53,17 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   </div>
   <div${id('panel-body')} data-sfn="panel-body"></div>
 </aside>\n`
+        : '';
+
+    // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
+    // (attachViewer, in viewerController.ts) flips `hidden` between them. Otherwise
+    // the content node holds the SVG directly, exactly as before.
+    const contentInner = hasCollapse
+        ? `<div data-sfn-view="expanded">${svg}</div><div data-sfn-view="collapsed" hidden>${collapsedSvg}</div>`
+        : svg;
+
+    const collapseToggleMarkup = hasCollapse
+        ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers">Collapse</button>'
         : '';
 
     return `<div${id('toolbar')} data-sfn="toolbar">
@@ -57,13 +76,20 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <input${id('search')} data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
   <span${id('search-count')} data-sfn="search-count"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>${collapseToggleMarkup}
 </div>
-${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${svg}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
 
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
 export interface WrapSvgInInteractiveHtmlParams {
+    /**
+     * A second, fully-collapsed rendering of the same diagram. When provided, both
+     * `svg` and this are embedded (as two `data-sfn-view` wrapper divs, `svg` shown
+     * first) and the toolbar gains a toggle button that switches between them. Omit
+     * for a single view with no toggle (unchanged behavior).
+     */
+    collapsedSvg?: string;
     /**
      * Node count from the rendered diagram's metadata. Decides the minimap's initial
      * visibility: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD} nodes,
@@ -114,7 +140,7 @@ export interface WrapSvgInInteractiveHtmlParams {
  * ```
  */
 export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams): string {
-    const { nodeCount, stateData, svg, theme = 'light' } = params;
+    const { collapsedSvg, nodeCount, stateData, svg, theme = 'light' } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const minimapCollapsed = nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
 
@@ -123,6 +149,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         : '';
 
     const body = buildViewerBody({
+        collapsedSvg,
         legacyIds: true,
         minimapCollapsed,
         panel: hasStateData,

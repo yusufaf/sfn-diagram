@@ -245,10 +245,18 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const { nodes } = parseAsl({ definition: aslObj, options });
+    const hasContainers = nodes.some((node) => node.isContainer);
+
     const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const collapsedSvg = hasContainers
+        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse ?? true }).svg
+        : undefined;
+
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
@@ -282,11 +290,26 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const { nodes } = parseAsl({ definition: aslObj, options });
+    const hasContainers = nodes.some((node) => node.isContainer);
+
     const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
+
+    let embeddedCollapsedSvg: string | undefined;
+    if (hasContainers) {
+        const collapsedSvgOutput = generateSvg({
+            aslDefinition: aslObj,
+            ...options,
+            collapse: options.collapse ?? true,
+        });
+        embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
+    }
+
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedSvg: embeddedCollapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,

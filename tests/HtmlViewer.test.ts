@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateHtmlAsync } from '../src';
+import { generateHtml, generateHtmlAsync, generateSvg } from '../src';
 import { resolveViewerTheme, wrapSvgInInteractiveHtml } from '../src/renderers';
 import type { AslDefinition, CustomTheme } from '../src/types';
 
@@ -225,5 +225,49 @@ describe('generateHtmlAsync', () => {
     it('produces a document with no external references', async () => {
         const result = await generateHtmlAsync({ aslDefinition: asl });
         expect(result.html).not.toMatch(EXTERNAL_REFERENCE);
+    });
+});
+
+describe('collapse toggle', () => {
+    const parallelAsl: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    it('embeds two views and a toggle button when the diagram has a container', () => {
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        expect(result.html).toContain('data-sfn-view="expanded"');
+        expect(result.html).toContain('data-sfn-view="collapsed"');
+        expect(result.html).toContain('data-sfn-collapse-toggle');
+        // Collapsed wrapper starts hidden; expanded is the default view.
+        expect(result.html).toMatch(/data-sfn-view="collapsed" hidden/);
+    });
+
+    it('embeds only one view and no toggle when the diagram has no container', () => {
+        const result = generateHtml({ aslDefinition: asl }); // top-level `asl` fixture: no Parallel/Map
+        // Not a plain `.not.toContain('data-sfn-view')`: the compiled viewer controller
+        // is inlined into every document (the toggle is detected at runtime, per the
+        // architecture note above), and its `querySelector('[data-sfn-view="..."]')`
+        // calls contain that substring unconditionally. Assert on the markup pattern
+        // (`<div data-sfn-view=...`) specifically, which only the two-view branch emits.
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+        expect(result.html).not.toContain('data-sfn-collapse-toggle');
+    });
+
+    it('reports the expanded view\'s metadata/dimensions, not the collapsed one\'s', () => {
+        const expandedOnly = generateSvg({ aslDefinition: parallelAsl });
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        expect(result.metadata.nodeCount).toBe(expandedOnly.metadata.nodeCount);
+        expect(result.width).toBe(expandedOnly.width);
     });
 });
