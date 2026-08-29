@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { DagreLayout } from '../src/layout';
-import type { StateNode, GraphEdge } from '../src/types';
+import type { StateNode, GraphEdge, AslDefinition } from '../src/types';
+import { parseAsl } from '../src/AslParser';
+import { applyCollapse } from '../src/graph';
 
 describe('DagreLayout', () => {
     const createTestNodes = (): StateNode[] => [
@@ -169,5 +171,43 @@ describe('DagreLayout', () => {
             expect(result.nodes.length).toBeGreaterThan(0);
             // Nodes should be spaced according to nodeSeparation
         });
+    });
+});
+
+describe('DagreLayout with collapsed containers', () => {
+    const parallelAsl: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    it('gives a collapsed container real dagre-computed dimensions, not a bounding box', () => {
+        const parsed = parseAsl({ definition: parallelAsl });
+        const collapsed = applyCollapse({ collapse: true, edges: parsed.edges, nodes: parsed.nodes });
+        const layout = new DagreLayout({});
+        const result = layout.calculate(collapsed.nodes, collapsed.edges);
+
+        const fanOut = result.nodes.find((node) => node.id === 'FanOut');
+        expect(fanOut?.width).toBe(120); // default nodeWidth, not a children-derived bounding box
+        expect(fanOut?.height).toBe(60); // default nodeHeight
+    });
+
+    it('produces a smaller overall graph than the uncollapsed layout', () => {
+        const parsed = parseAsl({ definition: parallelAsl });
+        const expandedLayout = new DagreLayout({}).calculate(parsed.nodes, parsed.edges);
+
+        const collapsed = applyCollapse({ collapse: true, edges: parsed.edges, nodes: parsed.nodes });
+        const collapsedLayout = new DagreLayout({}).calculate(collapsed.nodes, collapsed.edges);
+
+        expect(collapsedLayout.graph.height).toBeLessThan(expandedLayout.graph.height);
     });
 });
