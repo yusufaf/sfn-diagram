@@ -117,7 +117,7 @@
     "prepublishOnly": "pnpm run build && pnpm run validate",
     "release": "npm publish",
     "sync:action": "bash scripts/sync-action-mirror.sh",
-    "test": "pnpm run test:viewer-script && vitest run --project unit && vitest run --project perf",
+    "test": "pnpm run test:viewer-script && vitest run --project unit && vitest run --project element && vitest run --project perf",
     "test:perf": "vitest run --project perf",
     "test:coverage": "vitest run --project unit --coverage",
     "test:viewer-script": "node scripts/build-viewer-script.mjs --check",
