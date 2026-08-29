@@ -49,6 +49,48 @@ const nestedAsl: AslDefinition = {
     },
 };
 
+// Parallel containing a nested Distributed Map with ItemReader/ResultWriter
+// satellites, so collapsing the outer container has to sweep satellites that
+// aren't reachable via any `children` array.
+const nestedDistributedAsl: AslDefinition = {
+    StartAt: 'FanOut',
+    States: {
+        FanOut: {
+            Type: 'Parallel',
+            Branches: [
+                {
+                    StartAt: 'ProcessBatch',
+                    States: {
+                        ProcessBatch: {
+                            Type: 'Map',
+                            ItemsPath: '$.batch',
+                            ItemReader: {
+                                Resource: 'arn:aws:states:::s3:getObject',
+                                Parameters: { Bucket: 'in', Key: 'batch.csv' },
+                            },
+                            ResultWriter: {
+                                Resource: 'arn:aws:states:::s3:putObject',
+                                Parameters: { Bucket: 'out' },
+                            },
+                            ItemProcessor: {
+                                ProcessorConfig: { Mode: 'DISTRIBUTED' },
+                                StartAt: 'HandleRecord',
+                                States: {
+                                    HandleRecord: { Type: 'Task', Resource: 'arn:hr', End: true },
+                                },
+                            },
+                            End: true,
+                        },
+                    },
+                },
+                { StartAt: 'Notify', States: { Notify: { Type: 'Task', Resource: 'arn:notify', End: true } } },
+            ],
+            Next: 'Complete',
+        },
+        Complete: { Type: 'Succeed' },
+    },
+};
+
 describe('applyCollapse', () => {
     it('returns the graph unchanged when collapse is undefined', () => {
         const { nodes, edges } = parseAsl({ definition: parallelAsl });
@@ -121,6 +163,19 @@ describe('applyCollapse', () => {
         expect(fanOut?.collapsed).toBe(true);
         // Real states hidden: ProcessBatch, HandleRecord, Notify.
         expect(fanOut?.collapsedCount).toBe(3);
+    });
+
+    it('sweeps a Distributed Map\'s ItemReader/ResultWriter satellites when an ancestor swallows the Map', () => {
+        const { nodes, edges } = parseAsl({ definition: nestedDistributedAsl });
+        const result = applyCollapse({ collapse: ['FanOut'], edges, nodes });
+        const ids = result.nodes.map((node) => node.id);
+
+        expect(ids).toContain('FanOut');
+        expect(ids).not.toContain('ProcessBatch');
+        // The satellites aren't in ProcessBatch's `children`, so without the sweep
+        // they'd survive as disconnected floating nodes with no edges.
+        expect(ids).not.toContain('ProcessBatch__itemreader');
+        expect(ids).not.toContain('ProcessBatch__resultwriter');
     });
 
     it('collapse: true on a graph with no containers is a no-op', () => {

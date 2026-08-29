@@ -124,7 +124,7 @@ export function getContainerSubLabel(params: GetContainerSubLabelParams): string
     const { node, showStateType } = params;
     const parts: string[] = [];
 
-    if (node.collapsed && node.collapsedCount) {
+    if (node.collapsed && node.collapsedCount !== undefined) {
         parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? '' : 's'}`);
     }
     if (showStateType) {

@@ -281,6 +281,28 @@ describe('collapse toggle', () => {
         }
     });
 
+    it('does not corrupt a state literally named like a marker id', () => {
+        // The state must survive collapse (stay outside the container) so it appears
+        // in the namespaced collapsed view too, where the corruption would show up.
+        const trickyAsl: AslDefinition = {
+            StartAt: 'arrowhead-check',
+            States: {
+                'arrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'FanOut' },
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'B', States: { B: { Type: 'Task', Resource: 'arn:b', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const result = generateHtml({ aslDefinition: trickyAsl });
+        expect(result.html).toContain('data-state-id="arrowhead-check"');
+        expect(result.html).not.toContain('data-state-id="arrowhead-collapsed-check"');
+    });
+
     it('embeds only one view and no toggle when the caller\'s collapse selection is a no-op', () => {
         // `collapse: []` resolves to nothing being collapsed, so a second render would
         // be byte-identical to the expanded one and the toggle button would do nothing.

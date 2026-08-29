@@ -1,3 +1,4 @@
+import { MAP_IO_NODE_TYPES } from '../constants';
 import type { GraphEdge, StateNode } from '../types';
 
 /** Synthetic marker node types that don't count as real states. */
@@ -78,6 +79,22 @@ export function applyCollapse(params: ApplyCollapseParams): {
         closuresByTarget.set(targetId, closure);
         for (const id of closure) {
             removedIds.add(id);
+        }
+    }
+
+    // A Distributed Map's ItemReader/ResultWriter satellites are structural siblings
+    // of the Map, not entries in its `children`, so the closure walk above never
+    // visits them. If the Map itself is being removed here — either directly
+    // targeted or swallowed by an ancestor's closure — sweep its satellites into
+    // removedIds too, or they'd survive as disconnected floating nodes with no edges.
+    for (const edge of edges) {
+        const fromNode = nodesById.get(edge.from);
+        const toNode = nodesById.get(edge.to);
+        if (fromNode && MAP_IO_NODE_TYPES.has(fromNode.type) && removedIds.has(edge.to)) {
+            removedIds.add(edge.from);
+        }
+        if (toNode && MAP_IO_NODE_TYPES.has(toNode.type) && removedIds.has(edge.from)) {
+            removedIds.add(edge.to);
         }
     }
 

@@ -45,7 +45,10 @@ export interface BuildViewerBodyParams {
  * dependency in either direction.
  */
 function namespaceMarkerIds(svg: string, prefix: string): string {
-    return svg.replace(/(?:id="|url\(#)arrowhead-/g, (match) =>
+    // Anchored on `<marker id="` specifically, not a bare `id="` - a state literally
+    // named e.g. "arrowhead-check" would otherwise also match inside its own
+    // `data-state-id="arrowhead-check"` attribute and get silently corrupted.
+    return svg.replace(/<marker id="arrowhead-|url\(#arrowhead-/g, (match) =>
         match.replace('arrowhead-', `arrowhead-${prefix}-`),
     );
 }
