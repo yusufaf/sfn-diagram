@@ -83,12 +83,14 @@ export function applyCollapse(params: ApplyCollapseParams): {
 
     // A target swallowed by another target's closure gets no separate placeholder —
     // it's already being removed as part of the ancestor's collapse.
-    const effectiveTargets = [...requestedTargets].filter((targetId) => !removedIds.has(targetId));
+    const effectiveTargets = new Set(
+        [...requestedTargets].filter((targetId) => !removedIds.has(targetId)),
+    );
 
     const resultNodes = nodes
         .filter((node) => !removedIds.has(node.id))
         .map((node) => {
-            if (!effectiveTargets.includes(node.id)) {
+            if (!effectiveTargets.has(node.id)) {
                 return node;
             }
             const closure = closuresByTarget.get(node.id) as Set<string>;

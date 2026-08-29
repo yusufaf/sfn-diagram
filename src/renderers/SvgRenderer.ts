@@ -423,8 +423,8 @@ export class SvgRenderer {
         const collapsedSubLabel = node.collapsed
             ? getContainerSubLabel({ node, showStateType: this.options.showStateTypes === true })
             : '';
-        const secondLineShown = collapsedSubLabel !== '' || (this.options.showStateTypes && !node.collapsed);
         const secondLineText = collapsedSubLabel || (this.options.showStateTypes ? node.type : '');
+        const secondLineShown = secondLineText !== '';
 
         if (secondLineText) {
             nodeGroup
