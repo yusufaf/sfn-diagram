@@ -270,4 +270,20 @@ describe('collapse toggle', () => {
         expect(result.metadata.nodeCount).toBe(expandedOnly.metadata.nodeCount);
         expect(result.width).toBe(expandedOnly.width);
     });
+
+    it.each([true, false])(
+        'keeps the expanded view genuinely expanded when the caller passes collapse: %s',
+        (collapse) => {
+            const result = generateHtml({ aslDefinition: parallelAsl, collapse });
+            // The expanded view must always show the real branch states, regardless of
+            // what `collapse` the caller passed - only the collapsed/toggle-target view
+            // should honor it. Branch1/Branch2 must appear exactly once (in the expanded
+            // view only); if the two views collided (both collapsed or both expanded),
+            // they'd either both be missing or both present.
+            const branch1Count = (result.html.match(/data-state-id="Branch1"/g) ?? []).length;
+            const branch2Count = (result.html.match(/data-state-id="Branch2"/g) ?? []).length;
+            expect(branch1Count).toBe(1);
+            expect(branch2Count).toBe(1);
+        },
+    );
 });

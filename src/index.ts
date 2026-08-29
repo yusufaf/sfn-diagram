@@ -248,9 +248,9 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { nodes } = parseAsl({ definition: aslObj, options });
     const hasContainers = nodes.some((node) => node.isContainer);
 
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
     const collapsedSvg = hasContainers
-        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse ?? true }).svg
+        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse || true }).svg
         : undefined;
 
     return {
@@ -293,7 +293,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { nodes } = parseAsl({ definition: aslObj, options });
     const hasContainers = nodes.some((node) => node.isContainer);
 
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options });
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
 
     let embeddedCollapsedSvg: string | undefined;
@@ -301,7 +301,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
         const collapsedSvgOutput = generateSvg({
             aslDefinition: aslObj,
             ...options,
-            collapse: options.collapse ?? true,
+            collapse: options.collapse || true,
         });
         embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
     }
