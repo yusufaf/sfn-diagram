@@ -153,6 +153,45 @@ describe('Integration Tests', () => {
         });
     });
 
+    describe('collapse option', () => {
+        const parallelAsl = {
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+
+        it('generateSvg: collapse: true shrinks nodeCount and the graph height', () => {
+            const expanded = generateSvg({ aslDefinition: parallelAsl });
+            const collapsed = generateSvg({ aslDefinition: parallelAsl, collapse: true });
+
+            expect(collapsed.metadata.nodeCount).toBeLessThan(expanded.metadata.nodeCount);
+            expect(collapsed.height).toBeLessThan(expanded.height);
+            expect(collapsed.svg).toContain('2 states');
+        });
+
+        it('generateMermaid: collapse: true drops the branch states from the output', () => {
+            const result = generateMermaid({ aslDefinition: parallelAsl, collapse: true });
+            expect(result.code).not.toContain('Branch1');
+            expect(result.code).not.toContain('Branch2');
+            expect(result.code).toContain('FanOut');
+            expect(result.metadata.stateCount).toBeLessThan(4);
+        });
+
+        it('generateDiagram passes collapse through to generateSvg', () => {
+            const result = generateDiagram({ aslDefinition: parallelAsl, collapse: true, format: 'svg' });
+            expect('svg' in result && result.svg).toContain('2 states');
+        });
+    });
+
     describe('exportPng', () => {
         it('should export PNG from ASL definition', async () => {
             const aslDefinition = loadFixture('simple');

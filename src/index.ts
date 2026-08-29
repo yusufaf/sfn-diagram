@@ -24,7 +24,7 @@
  * ```
  */
 import { parseAsl } from './AslParser';
-import { applyCatchHandling } from './graph';
+import { applyCatchHandling, applyCollapse } from './graph';
 import { DagreLayout } from './layout';
 import {
     SvgRenderer,
@@ -125,9 +125,15 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
         startStateId: aslObj.StartAt,
     });
 
+    const collapsedGraph = applyCollapse({
+        collapse: mergedOptions.collapse,
+        edges: graph.edges,
+        nodes: graph.nodes,
+    });
+
     // Calculate layout
     const layout = new DagreLayout(mergedOptions);
-    const positioned = layout.calculate(graph.nodes, graph.edges);
+    const positioned = layout.calculate(collapsedGraph.nodes, collapsedGraph.edges);
 
     // Render SVG
     const renderer = new SvgRenderer(mergedOptions);
@@ -196,11 +202,17 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
         startStateId: aslObj.StartAt,
     });
 
+    const collapsedGraph = applyCollapse({
+        collapse: mergedOptions.collapse,
+        edges: graph.edges,
+        nodes: graph.nodes,
+    });
+
     const renderer = new MermaidRenderer();
     return renderer.render({
         asl: aslObj,
-        edges: graph.edges,
-        nodes: graph.nodes,
+        edges: collapsedGraph.edges,
+        nodes: collapsedGraph.nodes,
         showVariables: mergedOptions.showVariables,
     });
 }
