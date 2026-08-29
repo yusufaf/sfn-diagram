@@ -291,3 +291,86 @@ describe('minimap on a large diagram', () => {
         ).toBe(false);
     });
 });
+
+describe('collapse toggle runtime', () => {
+    let collapsePage: Page;
+
+    const parallelDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        collapsePage = await browser.newPage();
+        await collapsePage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: parallelDefinition });
+        await collapsePage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await collapsePage.close();
+    });
+
+    it('shows the expanded view with both branch states visible by default', async () => {
+        const expandedVisible = await collapsePage.$eval(
+            '[data-sfn-view="expanded"]',
+            (element) => !(element as HTMLElement).hidden,
+        );
+        const collapsedHidden = await collapsePage.$eval(
+            '[data-sfn-view="collapsed"]',
+            (element) => (element as HTMLElement).hidden,
+        );
+        expect(expandedVisible).toBe(true);
+        expect(collapsedHidden).toBe(true);
+    });
+
+    it('toggling shows the collapsed placeholder and hides the branch states', async () => {
+        await collapsePage.click('[data-sfn-collapse-toggle]');
+
+        const expandedHidden = await collapsePage.$eval(
+            '[data-sfn-view="expanded"]',
+            (element) => (element as HTMLElement).hidden,
+        );
+        const collapsedHidden = await collapsePage.$eval(
+            '[data-sfn-view="collapsed"]',
+            (element) => (element as HTMLElement).hidden,
+        );
+        expect(expandedHidden).toBe(true);
+        expect(collapsedHidden).toBe(false);
+
+        const buttonLabel = await collapsePage.$eval(
+            '[data-sfn-collapse-toggle]',
+            (element) => element.textContent,
+        );
+        expect(buttonLabel).toBe('Expand');
+    });
+
+    it('search after toggling only matches states in the now-visible view', async () => {
+        await collapsePage.focus('#sfn-search');
+        await collapsePage.type('#sfn-search', 'FanOut');
+
+        expect(
+            await collapsePage.$eval('#sfn-search-count', (element) => element.textContent),
+        ).toBe('1 / 1');
+        await collapsePage.keyboard.press('Escape');
+    });
+
+    it('toggling back restores the expanded view', async () => {
+        await collapsePage.click('[data-sfn-collapse-toggle]');
+        const buttonLabel = await collapsePage.$eval(
+            '[data-sfn-collapse-toggle]',
+            (element) => element.textContent,
+        );
+        expect(buttonLabel).toBe('Collapse');
+    });
+});
