@@ -327,6 +327,32 @@ describe('run', () => {
         expect(stdoutData).toContain('2 states');
         expect(stdoutData.length).toBeLessThan(withoutSvg.length);
     });
+
+    it('--format mermaid --collapse drops the branch states from the output', async () => {
+        const asl = JSON.stringify({
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        });
+        const inputPath = join(tempDir, 'parallel.asl.json');
+        writeFileSync(inputPath, asl);
+
+        const code = await run([inputPath, '--format', 'mermaid', '--collapse']);
+
+        expect(code).toBe(0);
+        expect(stdoutData).not.toContain('Branch1');
+        expect(stdoutData).not.toContain('Branch2');
+        expect(stdoutData).toContain('FanOut');
+    });
 });
 
 describe('diff, execution and icon flags', () => {

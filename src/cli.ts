@@ -471,6 +471,7 @@ export async function run(argv: string[]): Promise<number> {
     const sharedOptions = {
         catchHandling: args.hideCatch ? ('hide' as const) : ('show' as const),
         ...(args.hideVariables ? { showVariables: false } : {}),
+        ...(args.collapse !== null ? { collapse: args.collapse } : {}),
     };
     const svgOptions = {
         ...sharedOptions,
@@ -479,7 +480,6 @@ export async function run(argv: string[]): Promise<number> {
         ...(args.showIcons ? { showIcons: true } : {}),
         ...(args.iconPosition !== null ? { iconPosition: args.iconPosition } : {}),
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
-        ...(args.collapse !== null ? { collapse: args.collapse } : {}),
     };
 
     /**
