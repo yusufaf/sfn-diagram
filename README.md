@@ -82,31 +82,7 @@ In short: reach for the AWS Console visualizer to eyeball a state machine you al
 - **AWS SDK Integration**: Direct integration with AWS Step Functions API
 - **Dual APIs**: Function-based and class-based interfaces
 - **Runs Anywhere**: SVG and Mermaid generation has zero platform dependencies — works in Node, the browser, and edge runtimes
-
-## Configuration Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `collapse` | `string[] \| boolean` | `undefined` | Collapse Parallel/Map containers into a placeholder node so dagre lays out a smaller diagram. `true` collapses every container; an array collapses only the named ones. |
-| `catchHandling` | `'show' \| 'hide'` | `'show'` | Drop per-state error-handler (`Catch`) branches so the happy path stands out. A handler that's also reachable via the happy path is kept. |
-
-**CLI flags:**
-- `--collapse[=names]` — collapse Parallel/Map containers into placeholders (bare flag = all; `--collapse=Name1,Name2` = only those)
-- `--hide-catch` — hide `Catch` error-handler branches
-
-For full configuration options including layouts, themes, edge styles, and more, see the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/).
-
-## Interactive HTML viewer
-
-The `--format html` output renders an interactive diagram viewer with built-in features:
-
-| Feature | Details |
-| --- | --- |
-| **Pan & Zoom** | drag the background; mouse wheel or toolbar buttons |
-| **Search** | type in the toolbar box — non-matches dim, the view pans to the first hit |
-| **Inspect** | click any node — a side panel shows `Type`, `Resource`, `Next`, `Retry`, `Catch`, and `Assign` |
-| **Minimap** | a scaled overview in the bottom-right corner for navigation on large diagrams |
-| **Expand/Collapse** | when the diagram contains Parallel or Map states, a toggle button appears to collapse those containers into placeholders, making the diagram more readable |
+- **Collapse Large Diagrams**: Replace Parallel/Map containers with placeholder nodes before layout so huge diagrams stay readable, with a live toggle in the interactive HTML viewer. See the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/) for `collapse` and every other option.
 
 ## Supported state types
 
