@@ -8,6 +8,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
         DiagramOptions,
         | 'width'
         | 'height'
+        | 'collapse'
         | 'customColors'
         | 'iconResolver'
         | 'nodeOverrides'
@@ -17,6 +18,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
 > & {
     width: number | undefined;
     height: number | undefined;
+    collapse: DiagramOptions['collapse'];
     customColors: DiagramOptions['customColors'];
     iconResolver: DiagramOptions['iconResolver'];
     nodeOverrides: DiagramOptions['nodeOverrides'];
@@ -49,6 +51,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     edgeStyle: 'curved',
     catchHandling: 'show',
     catchLabelStyle: 'error-type',
+    collapse: undefined,
     stylePreset: 'aws-standard',
 
     // Icon options
