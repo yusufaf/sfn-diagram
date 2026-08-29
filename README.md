@@ -120,6 +120,7 @@ Working with an AI coding agent? The docs are published as [llms.txt](https://sf
 |---|---|
 | **[Playground](https://sfn.yusufaf.dev/playground/)** | Interactive browser editor for ASL definitions and execution overlays |
 | **[VS Code extension](https://sfn.yusufaf.dev/ecosystem/vscode/)** | Preview diagrams in VS Code, Cursor, Windsurf, VSCodium, and Theia |
+| **[`<sfn-diagram>` web component](https://sfn.yusufaf.dev/ecosystem/web-component/)** | Framework-agnostic custom element — Vue, Svelte, Solid, Angular, Astro, Hono, vanilla HTML |
 | **[React component](https://sfn.yusufaf.dev/ecosystem/react/)** | `sfn-diagram-react` — render diagrams in any React renderer |
 | **[GitHub Action](https://sfn.yusufaf.dev/ecosystem/github-action/)** | Comment a diagram and diff on every PR that touches an ASL file |
 

@@ -72,6 +72,13 @@ export function resolveViewerTheme(params: ResolveViewerThemeParams): ViewerThem
 
 /** Parameters for {@link buildViewerStyles}. */
 export interface BuildViewerStylesParams {
+    /**
+     * `'document'` (default) includes the `html, body { height: 100% }` reset the
+     * standalone HTML viewer needs to fill the page. `'element'` omits it - a
+     * `<sfn-diagram interactive>` embedded in a larger page must not reach past
+     * itself and resize the host document's `<body>`.
+     */
+    scope?: 'document' | 'element';
     /** Chrome theme. Defaults to `'light'`. */
     theme?: ViewerTheme;
 }
@@ -126,53 +133,62 @@ const DARK_PALETTE: ChromePalette = {
  * ```
  */
 export function buildViewerStyles(params: BuildViewerStylesParams = {}): string {
-    const { theme = 'light' } = params;
+    const { scope = 'document', theme = 'light' } = params;
     const palette = theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE;
 
+    const documentReset =
+        scope === 'document'
+            ? `html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: ${palette.text}; }\n`
+            : '';
+
+    // Selectors key off [data-sfn="..."] rather than #sfn-... ids: markup may carry
+    // matching ids too (the standalone viewer document does, for back-compat), but
+    // attribute selectors are what let more than one viewer share a page without
+    // id collisions - see viewerController.ts.
     return `
-  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: ${palette.text}; }
-  #sfn-stage { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
+  ${documentReset}[data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
+  [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
   /* The panel precedes the stage in the markup, so it can shrink it rather than
      cover the diagram. Fit/centre maths reads clientWidth, so this stays correct. */
-  #sfn-panel.sfn-open ~ #sfn-stage { right: 360px; }
-  #sfn-stage.sfn-dragging { cursor: grabbing; }
-  #sfn-content { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-  #sfn-toolbar { position: absolute; top: 12px; left: 12px; z-index: 2; display: flex; gap: 4px; align-items: center;
+  [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 360px; }
+  [data-sfn="stage"].sfn-dragging { cursor: grabbing; }
+  [data-sfn="content"] { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  [data-sfn="toolbar"] { position: absolute; top: 12px; left: 12px; z-index: 2; display: flex; gap: 4px; align-items: center;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 8px; padding: 4px 8px;
     box-shadow: 0 1px 4px rgba(0,0,0,.12); }
-  #sfn-toolbar button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
+  [data-sfn="toolbar"] button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
     padding: 4px 8px; cursor: pointer; font-size: 14px; }
-  #sfn-toolbar button:hover { background: ${palette.surfaceHover}; }
-  #sfn-zoom-label { min-width: 44px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
-  #sfn-search { width: 160px; border: 1px solid ${palette.border}; background: ${palette.panelBackground};
+  [data-sfn="toolbar"] button:hover { background: ${palette.surfaceHover}; }
+  [data-sfn="zoom-label"] { min-width: 44px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
+  [data-sfn="search"] { width: 160px; border: 1px solid ${palette.border}; background: ${palette.panelBackground};
     color: ${palette.text}; border-radius: 4px; padding: 4px 8px; font-size: 13px; font-family: inherit; }
-  #sfn-search:focus { outline: 2px solid ${palette.accent}; outline-offset: -1px; }
-  #sfn-search-count { min-width: 52px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
+  [data-sfn="search"]:focus { outline: 2px solid ${palette.accent}; outline-offset: -1px; }
+  [data-sfn="search-count"] { min-width: 52px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
   .sfn-divider { width: 1px; align-self: stretch; background: ${palette.border}; margin: 0 4px; }
   [data-state-id] { cursor: pointer; }
   .sfn-dim { opacity: .15; pointer-events: none; }
   .sfn-hit > :first-child { outline: 3px solid ${palette.accent}; }
-  #sfn-panel { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
+  [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
     box-shadow: -2px 0 8px rgba(0,0,0,.12); }
-  #sfn-panel.sfn-open { display: flex; }
-  #sfn-panel-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+  [data-sfn="panel"].sfn-open { display: flex; }
+  [data-sfn="panel-head"] { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
     border-bottom: 1px solid ${palette.border}; }
-  #sfn-panel-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; flex: 1; }
-  #sfn-panel-close { margin-left: auto; border: 0; background: ${palette.surface}; color: ${palette.text};
+  [data-sfn="panel-title"] { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; flex: 1; }
+  [data-sfn="panel-close"] { margin-left: auto; border: 0; background: ${palette.surface}; color: ${palette.text};
     border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 16px; line-height: 1.4; }
-  #sfn-panel-body { overflow: auto; padding: 12px 14px; }
+  [data-sfn="panel-body"] { overflow: auto; padding: 12px 14px; }
   .sfn-field { display: flex; gap: 8px; font-size: 12px; margin-bottom: 6px; }
   .sfn-field dt { color: ${palette.mutedText}; min-width: 76px; flex-shrink: 0; }
   .sfn-field dd { margin: 0; overflow-wrap: anywhere; }
-  #sfn-panel-json { margin: 12px 0 0; padding: 10px; background: ${palette.surface}; border-radius: 6px;
+  .sfn-panel-json { margin: 12px 0 0; padding: 10px; background: ${palette.surface}; border-radius: 6px;
     font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #sfn-minimap { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
+  [data-sfn="minimap"] { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 6px;
     box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden; }
-  #sfn-minimap.sfn-minimap-collapsed { display: none; }
-  #sfn-minimap-thumb { position: absolute; inset: 0; cursor: pointer; }
-  #sfn-minimap-thumb svg { display: block; }
-  #sfn-minimap-viewport { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
+  [data-sfn="minimap"].sfn-minimap-collapsed { display: none; }
+  [data-sfn="minimap-thumb"] { position: absolute; inset: 0; cursor: pointer; }
+  [data-sfn="minimap-thumb"] svg { display: block; }
+  [data-sfn="minimap-viewport"] { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
 `;
 }

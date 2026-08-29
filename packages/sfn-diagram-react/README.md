@@ -5,7 +5,7 @@
 
 React component for rendering [AWS Step Functions](https://aws.amazon.com/step-functions/) ASL definitions as diagrams, built on top of [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram).
 
-The core is DOM-free, so `<SfnDiagram>` renders the SVG (or Mermaid code) with no browser-only dependencies.
+The core is DOM-free, so `<SfnDiagram>` renders the SVG (or Mermaid code) with no browser-only dependencies. Not on React (or on React 18, which can't set object props on custom elements)? [`<sfn-diagram>`](https://sfn.yusufaf.dev/ecosystem/web-component/) is a framework-agnostic custom element shipped from `sfn-diagram/element` — no extra package.
 
 ## Installation
 

@@ -1,0 +1,115 @@
+---
+title: Web component
+description: <sfn-diagram> — a framework-agnostic custom element for Vue, Svelte, Solid, Angular, Astro, Hono, and vanilla HTML.
+---
+
+import { PackageManagers } from 'starlight-package-managers'
+
+`<sfn-diagram>` is a custom element shipped from the `sfn-diagram/element` subpath — no
+extra package. It works anywhere custom elements do: Vue, Svelte, Solid, Angular, Astro,
+Hono, plain HTML/htmx, and React 19+. It renders in **light DOM** (no shadow root), so
+page CSS reaches the SVG, and it degrades to plain server-rendered markup when there's
+no client-side JavaScript at all.
+
+<PackageManagers pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
+
+## Registering it
+
+Import `sfn-diagram/element/auto` for the zero-config default — it registers
+`<sfn-diagram>` as a side effect:
+
+```html
+<script type="module" src="sfn-diagram/element/auto"></script>
+
+<sfn-diagram interactive theme="dark"></sfn-diagram>
+
+<script type="module">
+  document.querySelector('sfn-diagram').definition = myAslDefinition;
+</script>
+```
+
+Import `sfn-diagram/element` directly (no `/auto`) and call `defineSfnDiagram` yourself
+for a different tag name — the custom element spec allows registering one class under
+only one tag name, ever, so only one of the two should run per page:
+
+```ts
+import { defineSfnDiagram } from 'sfn-diagram/element';
+
+defineSfnDiagram({ name: 'my-diagram' }); // <my-diagram> instead of <sfn-diagram>
+```
+
+## Attributes and properties
+
+| Attribute | Property | Type | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `definition` | `definition` | `AslDefinition \| string` | — (required) | Attribute accepts a JSON string; the property also accepts an object |
+| — | `history` | `ExecutionHistoryInput` | — | Property-only — objects don't survive an attribute round-trip. Renders an execution overlay when set |
+| `format` | `format` | `'svg' \| 'mermaid'` | `'svg'` | |
+| `layout` | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | |
+| `theme` | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | Attribute accepts `'light'`/`'dark'` only; set the property for a `CustomTheme` object |
+| `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the click-a-state detail panel |
+
+Failure to parse or validate `definition` dispatches a bubbling `sfn-error` event
+(`CustomEvent<Error>`) and renders nothing:
+
+```ts
+document.querySelector('sfn-diagram').addEventListener('sfn-error', (event) => {
+  console.error(event.detail); // Error
+});
+```
+
+## Framework usage
+
+Every framework in [Use with your framework](/guides/frameworks/) can set properties on
+a custom element directly — React 19+, Vue, Svelte, Solid, and Angular all pass
+[custom-elements-everywhere](https://custom-elements-everywhere.com/)'s full test suite,
+so `.definition = asl` (not the `definition` attribute) works the same way it would on
+any other DOM element:
+
+```tsx
+// React 19+ — no wrapper needed, unlike React 18 (use sfn-diagram-react there instead)
+<sfn-diagram ref={(el) => { if (el) el.definition = asl; }} interactive />
+```
+
+```vue
+<!-- Vue 3 -->
+<sfn-diagram :definition="asl" interactive />
+```
+
+```svelte
+<!-- Svelte 5 -->
+<sfn-diagram bind:this={el} interactive />
+```
+
+## Server-rendered, zero client JS
+
+Omit `definition` and give the element a pre-rendered `<svg>` child instead — from
+`generateSvg()` run at build or request time — and it's left untouched:
+
+```astro
+---
+import { generateSvg } from 'sfn-diagram';
+const { svg } = generateSvg({ aslDefinition: definition });
+---
+
+<sfn-diagram set:html={svg} />
+```
+
+Adding `interactive` on top of server-rendered markup still upgrades it with pan/zoom
+and search once the element's JavaScript loads — the detail panel is the one exception,
+since it needs the original ASL client-side; set `definition` alongside the pre-rendered
+SVG if you need it too.
+
+## Multiple diagrams on one page
+
+Every internal id the interactive viewer needs is scoped with `[data-sfn="..."]`
+attributes rather than global ids, and each element's own SVG marker defs are namespaced
+per instance — so two (or two hundred) `<sfn-diagram interactive>` elements on the same
+page don't collide.
+
+## Custom elements manifest
+
+A [`custom-elements.json`](https://github.com/webcomponents/custom-elements-manifest) is
+published alongside the package (`sfn-diagram`'s `customElements` field), for editor
+autocomplete, JSX types, and generated framework wrappers via tools like
+[wc-toolkit](https://wc-toolkit.com/).
