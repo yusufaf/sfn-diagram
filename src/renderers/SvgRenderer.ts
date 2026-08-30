@@ -1,5 +1,6 @@
 import { line, curveBasis } from 'd3-shape';
 import { getAssignedVariablesLabel, getContainerSubLabel } from '../constants/labels';
+import { isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
     StateNode,
@@ -164,8 +165,8 @@ export class SvgRenderer {
         const nodesGroup = svg.append('g').attr('class', 'nodes');
 
         // Separate container nodes from regular nodes
-        const containerNodes = layout.nodes.filter((node) => node.isContainer && !node.collapsed);
-        const regularNodes = layout.nodes.filter((node) => !node.isContainer || node.collapsed);
+        const containerNodes = layout.nodes.filter((node) => isOpenContainer(node));
+        const regularNodes = layout.nodes.filter((node) => !isOpenContainer(node));
 
         // Index nodes by id once so the edge loop below is O(E) instead of O(E*V)
         const nodesById = new Map(layout.nodes.map((node) => [node.id, node]));
