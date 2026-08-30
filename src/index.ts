@@ -24,7 +24,7 @@
  * ```
  */
 import { parseAsl } from './AslParser';
-import { applyCatchHandling, applyCollapse } from './graph';
+import { applyCatchHandling, applyCollapse, computeCollapsePlan } from './graph';
 import { DagreLayout } from './layout';
 import {
     SvgRenderer,
@@ -241,21 +241,45 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * so the document is not fully offline. Use {@link generateHtmlAsync} to inline
  * those icons as data URIs.
  */
+/**
+ * Render the expanded view, and — only when the collapse selection actually
+ * removes something — the collapsed view, for {@link generateHtml} and
+ * {@link generateHtmlAsync}. `collapse: false` is treated the same as `collapse:
+ * []`: both mean "nothing to collapse", so neither should produce a toggle.
+ *
+ * Deciding via {@link computeCollapsePlan} first (a graph walk, no rendering)
+ * means a no-op selection — an unmatched name, `false`, `[]`, or a containerless
+ * diagram — never pays for a second `generateSvg` call just to discard it.
+ */
+function buildHtmlViews(params: {
+    aslObj: AslDefinition;
+    options: Omit<GenerateHtmlParams, 'aslDefinition'>;
+}): { collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
+    const { aslObj, options } = params;
+    const { edges, nodes } = parseAsl({ definition: aslObj, options });
+    const resolvedCollapse = options.collapse ?? true;
+
+    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
+
+    const { effectiveTargets } = computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes });
+    const collapsedSvgOutput =
+        effectiveTargets.size > 0
+            ? generateSvg({ aslDefinition: aslObj, ...options, collapse: resolvedCollapse })
+            : undefined;
+
+    return { collapsedSvgOutput, svgOutput };
+}
+
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
-    const { nodes } = parseAsl({ definition: aslObj, options });
-    const hasContainers = nodes.some((node) => node.isContainer);
 
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
-    const collapsedSvgOutput = hasContainers
-        ? generateSvg({ aslDefinition: aslObj, ...options, collapse: options.collapse || true })
-        : undefined;
-    // `hasContainers` only skips the second render for the common containerless case;
-    // the node count is the precise check. An explicit selection that collapses
-    // nothing (`collapse: []`, or names that match no container) would otherwise ship
-    // a second view identical to the first behind a toggle button that does nothing.
+    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options });
+    // The nodeCount comparison stays as a final guard: a requested target can
+    // resolve to an `effectiveTargets` entry whose own closure is still empty
+    // (a container with no descendants), which would otherwise ship a second
+    // view identical to the first behind a toggle button that does nothing.
     const collapsedSvg =
         collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
             ? collapsedSvgOutput.svg
@@ -264,6 +288,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
@@ -298,32 +323,22 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
-    const { nodes } = parseAsl({ definition: aslObj, options });
-    const hasContainers = nodes.some((node) => node.isContainer);
 
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
+    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
 
-    // `hasContainers` only skips the second render for the common containerless case;
-    // the node count is the precise check, applied before the icon embedding is paid
-    // for. An explicit selection that collapses nothing (`collapse: []`, or names that
-    // match no container) would otherwise ship a second view identical to the first
-    // behind a toggle button that does nothing.
+    // Same nodeCount guard as generateHtml, applied before paying for icon embedding.
     let embeddedCollapsedSvg: string | undefined;
-    if (hasContainers) {
-        const collapsedSvgOutput = generateSvg({
-            aslDefinition: aslObj,
-            ...options,
-            collapse: options.collapse || true,
-        });
-        if (collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount) {
-            embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
-        }
+    let collapsedNodeCount: number | undefined;
+    if (collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount) {
+        embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
+        collapsedNodeCount = collapsedSvgOutput.metadata.nodeCount;
     }
 
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
+            collapsedNodeCount,
             collapsedSvg: embeddedCollapsedSvg,
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),

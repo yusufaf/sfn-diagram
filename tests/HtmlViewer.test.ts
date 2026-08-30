@@ -250,7 +250,7 @@ describe('collapse toggle', () => {
         expect(result.html).toContain('data-sfn-view="collapsed"');
         expect(result.html).toContain('data-sfn-collapse-toggle');
         // Collapsed wrapper starts hidden; expanded is the default view.
-        expect(result.html).toMatch(/data-sfn-view="collapsed" hidden/);
+        expect(result.html).toMatch(/data-sfn-view="collapsed"[^>]* hidden/);
     });
 
     it('embeds only one view and no toggle when the diagram has no container', () => {
@@ -307,6 +307,14 @@ describe('collapse toggle', () => {
         // `collapse: []` resolves to nothing being collapsed, so a second render would
         // be byte-identical to the expanded one and the toggle button would do nothing.
         const result = generateHtml({ aslDefinition: parallelAsl, collapse: [] });
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+        expect(result.html).not.toContain('data-sfn-collapse-toggle');
+    });
+
+    it('treats an explicit collapse: false the same as collapse: []', () => {
+        // Previously `options.collapse || true` turned an explicit `false` into a full
+        // collapse, unlike `[]` (semantically the same "nothing to collapse" intent).
+        const result = generateHtml({ aslDefinition: parallelAsl, collapse: false });
         expect(result.html).not.toMatch(/<div data-sfn-view=/);
         expect(result.html).not.toContain('data-sfn-collapse-toggle');
     });
