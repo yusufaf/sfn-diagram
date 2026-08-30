@@ -10,7 +10,7 @@ import type {
 } from './types';
 import { generateSvg } from './index';
 import { parseAsl } from './AslParser';
-import { computeCollapsePlan } from './graph';
+import { applyCatchHandling, computeCollapsePlan } from './graph';
 import { MermaidRenderer } from './renderers';
 
 /** Colors applied to diff nodes as nodeOverrides */
@@ -118,11 +118,11 @@ function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
 export interface ComputeContainerChangeAnnotationsParams {
     /** Names classified added/modified/removed by {@link computeStateDiff}. */
     changedNames: Set<string>;
+    /** Containers that get their own placeholder — from {@link computeCollapsePlan}. */
+    effectiveTargets: Set<string>;
     /** The `nodeOverrides` built so far — checked so a container's own more specific
      *  added/removed status is never overwritten with the generic "modified" one. */
     existingOverrides: Record<string, Partial<NodeStyle>>;
-    /** Containers that get their own placeholder — from {@link computeCollapsePlan}. */
-    effectiveTargets: Set<string>;
     /** Each effective target's hidden descendant ids — from {@link computeCollapsePlan}. */
     hiddenIdsByTarget: Map<string, Set<string>>;
 }
@@ -193,7 +193,17 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     // otherwise carry no visible trace of the change. Flag the placeholder itself.
     let containerAnnotations: Record<string, string> = {};
     if (options.collapse) {
-        const { edges, nodes } = parseAsl({ definition: mergedAsl, options });
+        const parsed = parseAsl({ definition: mergedAsl, options });
+        // Mirror generateSvg's own pipeline (catch handling before collapse) so the
+        // hidden-descendant closure here matches what the rendered diagram actually
+        // hides — otherwise a catch-hidden node could be double-counted as "hidden
+        // inside" a placeholder when it was really stripped from the diagram entirely.
+        const { edges, nodes } = applyCatchHandling({
+            edges: parsed.edges,
+            mode: options.catchHandling ?? 'show',
+            nodes: parsed.nodes,
+            startStateId: mergedAsl.StartAt,
+        });
         const { effectiveTargets, hiddenIdsByTarget } = computeCollapsePlan({
             collapse: options.collapse,
             edges,
