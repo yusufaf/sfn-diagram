@@ -388,6 +388,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // (further down) can rebuild the thumbnail without knowing whether one exists.
     let rebuildMinimapThumbnail: () => void = () => {};
 
+    // Reassigned below when the minimap is present, so the collapse/expand toggle can
+    // re-apply the now-active view's auto-visibility rule without knowing whether a
+    // minimap exists. A no-op once the viewer has toggled the minimap by hand — see
+    // `minimapUserToggled` below.
+    let applyMinimapAutoVisibility: (autoHidden: boolean) => void = () => {};
+
     // --- minimap --------------------------------------------------------------
     //
     // Scaled overview of the whole diagram with a draggable viewport rectangle. Built
@@ -457,8 +463,19 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             apply();
         };
 
+        // Set once the viewer toggles the minimap themselves, so the collapse/expand
+        // toggle's auto-visibility rule (below) stops overriding their choice.
+        let minimapUserToggled = false;
+
         const toggleMinimap = (): void => {
+            minimapUserToggled = true;
             minimap.classList.toggle('sfn-minimap-collapsed');
+            updateMinimapViewport();
+        };
+
+        applyMinimapAutoVisibility = (autoHidden: boolean): void => {
+            if (minimapUserToggled) return;
+            minimap.classList.toggle('sfn-minimap-collapsed', autoHidden);
             updateMinimapViewport();
         };
 
@@ -519,6 +536,8 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             clearSearch();
             searchables = computeSearchables();
             rebuildMinimapThumbnail();
+            const activeView = collapsedView.hidden ? expandedView : collapsedView;
+            applyMinimapAutoVisibility(activeView.dataset.sfnMinimapAuto === '1');
             fit();
         });
     }
