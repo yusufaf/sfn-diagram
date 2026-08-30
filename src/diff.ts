@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { generateSvg } from './index';
 import { parseAsl } from './AslParser';
+import { computeCollapsePlan } from './graph';
 import { MermaidRenderer } from './renderers';
 
 /** Colors applied to diff nodes as nodeOverrides */
@@ -113,6 +114,49 @@ function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
     return statusByState;
 }
 
+/** Parameters for {@link computeContainerChangeAnnotations}. */
+export interface ComputeContainerChangeAnnotationsParams {
+    /** Names classified added/modified/removed by {@link computeStateDiff}. */
+    changedNames: Set<string>;
+    /** The `nodeOverrides` built so far — checked so a container's own more specific
+     *  added/removed status is never overwritten with the generic "modified" one. */
+    existingOverrides: Record<string, Partial<NodeStyle>>;
+    /** Containers that get their own placeholder — from {@link computeCollapsePlan}. */
+    effectiveTargets: Set<string>;
+    /** Each effective target's hidden descendant ids — from {@link computeCollapsePlan}. */
+    hiddenIdsByTarget: Map<string, Set<string>>;
+}
+
+/**
+ * For each collapsed container, count how many of its hidden descendants carry a
+ * diff status, and build the amber override / `"<n> changed inside"` annotation for
+ * the ones that do. Isolated from {@link generateDiff} so the counting/precedence
+ * logic can be unit tested directly against synthetic sets — the current diff
+ * granularity (top-level ASL state names only, see {@link computeStateDiff}) makes a
+ * live ASL definition that actually triggers a nonzero count hard to construct, but
+ * the logic itself needs to be right for whenever one does (e.g. a future nested-diff
+ * granularity, or a state name reused at two different nesting levels).
+ */
+export function computeContainerChangeAnnotations(
+    params: ComputeContainerChangeAnnotationsParams,
+): { nodeAnnotations: Record<string, string>; nodeOverrides: Record<string, Partial<NodeStyle>> } {
+    const { changedNames, effectiveTargets, existingOverrides, hiddenIdsByTarget } = params;
+    const nodeAnnotations: Record<string, string> = {};
+    const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
+
+    for (const containerId of effectiveTargets) {
+        const hiddenIds = hiddenIdsByTarget.get(containerId) ?? new Set<string>();
+        const hiddenChangeCount = [...hiddenIds].filter((id) => changedNames.has(id)).length;
+        if (hiddenChangeCount === 0) continue;
+        if (!(containerId in existingOverrides)) {
+            nodeOverrides[containerId] = DIFF_COLORS.modified;
+        }
+        nodeAnnotations[containerId] = `${hiddenChangeCount} changed inside`;
+    }
+
+    return { nodeAnnotations, nodeOverrides };
+}
+
 /**
  * Generate an SVG diff diagram comparing two AWS Step Functions ASL definitions.
  *
@@ -123,10 +167,18 @@ function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
  * @param params.after  - The new (head) ASL definition
  * @param params        - Any additional {@link DiagramOptions} passed through to generateSvg
  *
+ * @remarks
+ * With `collapse` set, a changed state that ends up inside a collapsed container's
+ * placeholder would otherwise vanish from the diagram along with its diff color. The
+ * placeholder is flagged instead: an amber (modified) outline, plus a `"<n> changed
+ * inside"` annotation (unless the container itself already carries a more specific
+ * added/removed status, which wins).
+ *
  * @returns {@link DiffOutput} with SVG markup and a per-category state summary
  */
 export function generateDiff(params: GenerateDiffParams): DiffOutput {
-    const { after: afterArg, before: beforeArg, ...options } = params;
+    const { after: afterArg, before: beforeArg, nodeAnnotations: callerAnnotations, ...options } =
+        params;
 
     const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
@@ -137,7 +189,36 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     for (const name of modified) nodeOverrides[name] = DIFF_COLORS.modified;
     for (const name of removed) nodeOverrides[name] = DIFF_COLORS.removed;
 
-    const svgOutput = generateSvg({ aslDefinition: mergedAsl, nodeOverrides, ...options });
+    // A changed state hidden inside a collapsed container's placeholder would
+    // otherwise carry no visible trace of the change. Flag the placeholder itself.
+    let containerAnnotations: Record<string, string> = {};
+    if (options.collapse) {
+        const { edges, nodes } = parseAsl({ definition: mergedAsl, options });
+        const { effectiveTargets, hiddenIdsByTarget } = computeCollapsePlan({
+            collapse: options.collapse,
+            edges,
+            nodes,
+        });
+        const changed = computeContainerChangeAnnotations({
+            changedNames: new Set([...added, ...modified, ...removed]),
+            effectiveTargets,
+            existingOverrides: nodeOverrides,
+            hiddenIdsByTarget,
+        });
+        containerAnnotations = changed.nodeAnnotations;
+        Object.assign(nodeOverrides, changed.nodeOverrides);
+    }
+
+    // A caller-supplied nodeAnnotations entry for the same container wins over ours,
+    // same as an explicit diff status on the container wins over the placeholder color.
+    const nodeAnnotations = { ...containerAnnotations, ...callerAnnotations };
+
+    const svgOutput = generateSvg({
+        aslDefinition: mergedAsl,
+        nodeAnnotations,
+        nodeOverrides,
+        ...options,
+    });
 
     return {
         height: svgOutput.height,
