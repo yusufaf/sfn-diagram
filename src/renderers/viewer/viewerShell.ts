@@ -9,6 +9,13 @@ const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
 /** Parameters for {@link buildViewerBody}. */
 export interface BuildViewerBodyParams {
     /**
+     * Whether the minimap should start hidden when the collapsed view (below) is the
+     * active one. Only meaningful alongside `collapsedSvg`; defaults to `minimapCollapsed`
+     * when omitted. The collapse toggle (in `viewerController.ts`) re-reads this on every
+     * switch, so the minimap's auto-visibility tracks whichever view is showing.
+     */
+    collapsedMinimapCollapsed?: boolean;
+    /**
      * A second, fully-collapsed rendering of the same diagram. When provided, both
      * `svg` and this are embedded (as two `data-sfn-view` wrapper divs, `svg` shown
      * first) and the toolbar gains a toggle button that switches between them. Omit
@@ -64,7 +71,14 @@ function namespaceMarkerIds(svg: string, prefix: string): string {
  * @returns HTML fragment: toolbar, optional panel, and stage - no `<html>`/`<body>`
  */
 export function buildViewerBody(params: BuildViewerBodyParams): string {
-    const { collapsedSvg, legacyIds = false, minimapCollapsed, panel, svg } = params;
+    const {
+        collapsedMinimapCollapsed = params.minimapCollapsed,
+        collapsedSvg,
+        legacyIds = false,
+        minimapCollapsed,
+        panel,
+        svg,
+    } = params;
     const id = (name: string): string => (legacyIds ? ` id="sfn-${name}"` : '');
     const hasCollapse = collapsedSvg !== undefined;
 
@@ -83,7 +97,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
     // the content node holds the SVG directly, exactly as before. The collapsed view's
     // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
     const contentInner = hasCollapse
-        ? `<div data-sfn-view="expanded">${svg}</div><div data-sfn-view="collapsed" hidden>${namespaceMarkerIds(collapsedSvg, 'collapsed')}</div>`
+        ? `<div data-sfn-view="expanded" data-sfn-minimap-auto="${minimapCollapsed ? '1' : '0'}">${svg}</div><div data-sfn-view="collapsed" data-sfn-minimap-auto="${collapsedMinimapCollapsed ? '1' : '0'}" hidden>${namespaceMarkerIds(collapsedSvg, 'collapsed')}</div>`
         : svg;
 
     const collapseToggleMarkup = hasCollapse
@@ -108,6 +122,13 @@ ${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn=
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
 export interface WrapSvgInInteractiveHtmlParams {
     /**
+     * Node count of `collapsedSvg`'s rendering, from its own metadata. Decides the
+     * minimap's auto-visibility while the collapsed view is active, same rule as
+     * `nodeCount` below. Ignored without `collapsedSvg`; defaults to `nodeCount`'s
+     * outcome when omitted.
+     */
+    collapsedNodeCount?: number;
+    /**
      * A second, fully-collapsed rendering of the same diagram. When provided, both
      * `svg` and this are embedded (as two `data-sfn-view` wrapper divs, `svg` shown
      * first) and the toolbar gains a toggle button that switches between them. Omit
@@ -117,7 +138,9 @@ export interface WrapSvgInInteractiveHtmlParams {
     /**
      * Node count from the rendered diagram's metadata. Decides the minimap's initial
      * visibility: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD} nodes,
-     * open above it (still toggleable either way via the toolbar button or `m`).
+     * open above it (still toggleable either way via the toolbar button or `m`). The
+     * collapse toggle re-applies this rule (against `collapsedNodeCount` instead) on
+     * every switch, unless the minimap has since been toggled by hand.
      * Omit it (or when unknown) to start collapsed.
      */
     nodeCount?: number;
@@ -164,15 +187,20 @@ export interface WrapSvgInInteractiveHtmlParams {
  * ```
  */
 export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams): string {
-    const { collapsedSvg, nodeCount, stateData, svg, theme = 'light' } = params;
+    const { collapsedNodeCount, collapsedSvg, nodeCount, stateData, svg, theme = 'light' } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const minimapCollapsed = nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
+    const collapsedMinimapCollapsed =
+        collapsedNodeCount === undefined
+            ? minimapCollapsed
+            : collapsedNodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
 
     const stateDataScript = hasStateData
         ? `<script type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
         : '';
 
     const body = buildViewerBody({
+        collapsedMinimapCollapsed,
         collapsedSvg,
         legacyIds: true,
         minimapCollapsed,

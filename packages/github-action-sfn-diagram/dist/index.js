@@ -62981,18 +62981,15 @@ function extractNestedEdges(params) {
   }
 }
 var SYNTHETIC_MARKER_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
-function applyCollapse(params) {
+function computeCollapsePlan(params) {
   const { collapse, edges, nodes } = params;
-  if (!collapse) return {
-    edges,
-    nodes
-  };
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
-  const requestedTargets = collapse === true ? containerIds : new Set(collapse.filter((name) => containerIds.has(name)));
+  const requestedTargets = !collapse ? /* @__PURE__ */ new Set() : collapse === true ? containerIds : new Set(collapse.filter((name) => containerIds.has(name)));
   if (requestedTargets.size === 0) return {
-    edges,
-    nodes
+    effectiveTargets: requestedTargets,
+    hiddenIdsByTarget: /* @__PURE__ */ new Map(),
+    removedIds: /* @__PURE__ */ new Set()
   };
   const closureFor = (containerId) => {
     const closure = /* @__PURE__ */ new Set();
@@ -63006,11 +63003,11 @@ function applyCollapse(params) {
     }
     return closure;
   };
-  const closuresByTarget = /* @__PURE__ */ new Map();
+  const hiddenIdsByTarget = /* @__PURE__ */ new Map();
   const removedIds = /* @__PURE__ */ new Set();
   for (const targetId of requestedTargets) {
     const closure = closureFor(targetId);
-    closuresByTarget.set(targetId, closure);
+    hiddenIdsByTarget.set(targetId, closure);
     for (const id of closure) removedIds.add(id);
   }
   for (const edge of edges) {
@@ -63019,10 +63016,31 @@ function applyCollapse(params) {
     if (fromNode && MAP_IO_NODE_TYPES.has(fromNode.type) && removedIds.has(edge.to)) removedIds.add(edge.from);
     if (toNode && MAP_IO_NODE_TYPES.has(toNode.type) && removedIds.has(edge.from)) removedIds.add(edge.to);
   }
-  const effectiveTargets = new Set([...requestedTargets].filter((targetId) => !removedIds.has(targetId)));
+  return {
+    effectiveTargets: new Set([...requestedTargets].filter((targetId) => !removedIds.has(targetId))),
+    hiddenIdsByTarget,
+    removedIds
+  };
+}
+function applyCollapse(params) {
+  const { collapse, edges, nodes } = params;
+  if (!collapse) return {
+    edges,
+    nodes
+  };
+  const { effectiveTargets, hiddenIdsByTarget, removedIds } = computeCollapsePlan({
+    collapse,
+    edges,
+    nodes
+  });
+  if (effectiveTargets.size === 0) return {
+    edges,
+    nodes
+  };
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const resultNodes = nodes.filter((node) => !removedIds.has(node.id)).map((node) => {
     if (!effectiveTargets.has(node.id)) return node;
-    const closure = closuresByTarget.get(node.id);
+    const closure = hiddenIdsByTarget.get(node.id);
     let collapsedCount = 0;
     for (const id of closure) {
       const descendant = nodesById.get(id);

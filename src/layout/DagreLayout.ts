@@ -1,4 +1,5 @@
 import dagre from '@dagrejs/dagre';
+import { isOpenContainer } from '../graph';
 import type { StateNode, GraphEdge, DiagramOptions } from '../types';
 
 export interface LayoutResult {
@@ -44,11 +45,11 @@ export class DagreLayout {
         // child states (the targets of the container's visual-only child edges) so that
         // predecessors are ranked above the container's contents.
         const containerIds = new Set(
-            nodes.filter((node) => node.isContainer && !node.collapsed).map((node) => node.id),
+            nodes.filter((node) => isOpenContainer(node)).map((node) => node.id),
         );
         const containerChildren = new Map<string, Set<string>>(
             nodes
-                .filter((node) => node.isContainer && !node.collapsed)
+                .filter((node) => isOpenContainer(node))
                 .map((node) => [node.id, new Set(node.children || [])]),
         );
         const entryChildrenByContainer = new Map<string, string[]>();
@@ -65,7 +66,7 @@ export class DagreLayout {
 
         // Add only non-container nodes with dimensions
         // Container nodes will get bounding boxes calculated post-layout
-        const layoutNodes = nodes.filter((node) => !node.isContainer || node.collapsed);
+        const layoutNodes = nodes.filter((node) => !isOpenContainer(node));
 
         layoutNodes.forEach((node) => {
             const dimensions = this.getNodeDimensions(node);
@@ -137,7 +138,7 @@ export class DagreLayout {
             positionedNodes.map((node) => [node.id, node]),
         );
         const containerNodes = this.calculateContainerBounds({
-            containers: nodes.filter((node) => node.isContainer && !node.collapsed),
+            containers: nodes.filter((node) => isOpenContainer(node)),
             positionedNodeIndex,
         });
 
@@ -154,8 +155,7 @@ export class DagreLayout {
             const fromNode = positionedNodesById.get(edge.from);
             const toNode = positionedNodesById.get(edge.to);
             const touchesContainer = Boolean(
-                (fromNode?.isContainer && !fromNode.collapsed) ||
-                    (toNode?.isContainer && !toNode.collapsed),
+                (fromNode && isOpenContainer(fromNode)) || (toNode && isOpenContainer(toNode)),
             );
 
             // Visual-only edges and any edge touching a container are not in the dagre

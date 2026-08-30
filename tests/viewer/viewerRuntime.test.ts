@@ -374,3 +374,65 @@ describe('collapse toggle runtime', () => {
         expect(buttonLabel).toBe('Collapse');
     });
 });
+
+describe('minimap auto-visibility across the collapse toggle', () => {
+    let togglePage: Page;
+
+    // Enough branches that the expanded view is well above the auto-visible
+    // threshold (25 nodes), while the collapsed view (FanOut placeholder + Done)
+    // is well under it — so the two views disagree on the minimap's default state.
+    const manyBranchesDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: Array.from({ length: 15 }, (_unused, index) => ({
+                    StartAt: `Branch${index}`,
+                    States: {
+                        [`Branch${index}`]: { Type: 'Task', Resource: `arn:b${index}`, End: true },
+                    },
+                })),
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        togglePage = await browser.newPage();
+        await togglePage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: manyBranchesDefinition });
+        await togglePage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await togglePage.close();
+    });
+
+    const minimapCollapsed = (): Promise<boolean> =>
+        togglePage.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+
+    it('starts open for the large expanded view', async () => {
+        expect(await minimapCollapsed()).toBe(false);
+    });
+
+    it('auto-hides on switching to the small collapsed view, and reopens switching back', async () => {
+        await togglePage.click('[data-sfn-collapse-toggle]');
+        expect(await minimapCollapsed()).toBe(true);
+
+        await togglePage.click('[data-sfn-collapse-toggle]');
+        expect(await minimapCollapsed()).toBe(false);
+    });
+
+    it('leaves a manually-opened minimap open even on a later switch that would normally auto-hide it', async () => {
+        await togglePage.click('[data-sfn-collapse-toggle]'); // -> collapsed view, minimap auto-hidden
+        expect(await minimapCollapsed()).toBe(true);
+
+        await togglePage.click('[data-sfn-minimap-toggle]'); // manual override: force it open
+        expect(await minimapCollapsed()).toBe(false);
+
+        await togglePage.click('[data-sfn-collapse-toggle]'); // -> expanded view (auto rule: open anyway)
+        await togglePage.click('[data-sfn-collapse-toggle]'); // -> collapsed view again (auto rule wants hidden)
+        expect(await minimapCollapsed()).toBe(false); // the user's manual choice still wins
+    });
+});
