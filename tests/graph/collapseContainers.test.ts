@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseAsl } from '../../src/AslParser';
-import { applyCollapse } from '../../src/graph';
+import { applyCollapse, computeCollapsePlan } from '../../src/graph';
 import type { AslDefinition } from '../../src/types';
 
 const parallelAsl: AslDefinition = {
@@ -187,5 +187,52 @@ describe('applyCollapse', () => {
         const result = applyCollapse({ collapse: true, edges, nodes });
         expect(result.nodes.length).toBe(nodes.length);
         expect(result.edges.length).toBe(edges.length);
+    });
+});
+
+describe('computeCollapsePlan', () => {
+    it('returns an empty plan for undefined, false, [], and unmatched names', () => {
+        const { nodes, edges } = parseAsl({ definition: parallelAsl });
+        for (const collapse of [undefined, false, [], ['NotAContainer']] as const) {
+            const plan = computeCollapsePlan({ collapse, edges, nodes });
+            expect(plan.effectiveTargets.size).toBe(0);
+            expect(plan.hiddenIdsByTarget.size).toBe(0);
+            expect(plan.removedIds.size).toBe(0);
+        }
+    });
+
+    it('returns an empty plan for a containerless graph even when collapse: true', () => {
+        const flatAsl: AslDefinition = {
+            StartAt: 'A',
+            States: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } },
+        };
+        const { nodes, edges } = parseAsl({ definition: flatAsl });
+        const plan = computeCollapsePlan({ collapse: true, edges, nodes });
+        expect(plan.effectiveTargets.size).toBe(0);
+    });
+
+    it('excludes a nested target swallowed by an ancestor from effectiveTargets, but keeps it in the ancestor\'s hidden set', () => {
+        const { nodes, edges } = parseAsl({ definition: nestedAsl });
+        const plan = computeCollapsePlan({ collapse: ['FanOut', 'ProcessBatch'], edges, nodes });
+
+        expect(plan.effectiveTargets.has('FanOut')).toBe(true);
+        expect(plan.effectiveTargets.has('ProcessBatch')).toBe(false);
+        expect(plan.hiddenIdsByTarget.get('FanOut')?.has('ProcessBatch')).toBe(true);
+        expect(plan.hiddenIdsByTarget.get('FanOut')?.has('HandleRecord')).toBe(true);
+        // hiddenIdsByTarget is keyed by every *requested* target, including one
+        // swallowed out of effectiveTargets — it just has no placeholder of its own
+        // to attach that entry to.
+        expect(plan.hiddenIdsByTarget.has('ProcessBatch')).toBe(true);
+    });
+
+    it('matches applyCollapse\'s removedIds for an equivalent selection', () => {
+        const { nodes, edges } = parseAsl({ definition: nestedDistributedAsl });
+        const plan = computeCollapsePlan({ collapse: ['FanOut'], edges, nodes });
+        const applied = applyCollapse({ collapse: ['FanOut'], edges, nodes });
+        const survivingIds = new Set(applied.nodes.map((node) => node.id));
+
+        for (const id of plan.removedIds) {
+            expect(survivingIds.has(id)).toBe(false);
+        }
     });
 });
