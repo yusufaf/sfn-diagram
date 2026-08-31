@@ -283,4 +283,41 @@ describe('Self-loop edges', () => {
         expect(selfLoop!.points).toBeDefined();
         expect(selfLoop!.points!.length).toBeGreaterThanOrEqual(2);
     });
+
+    it('routes the loop off the top edge under LR/RL instead of always the right edge', () => {
+        const asl = loadFixture('self-loop');
+        const { nodes, edges } = parseAsl({ definition: asl });
+
+        for (const rankdir of ['LR', 'RL'] as const) {
+            const layout = new DagreLayout({ layout: rankdir });
+            const result = layout.calculate(nodes, edges);
+            const node = result.nodes.find((candidate) => candidate.id === 'CheckStatus')!;
+            const selfLoop = result.edges.find((edge) => edge.from === edge.to)!;
+            const [entry, apex, exit] = selfLoop.points!;
+
+            // The loop should bulge upward off the node's top edge (y decreases),
+            // not out to the right (x increases) - it must stay perpendicular to
+            // the horizontal flow direction so it never crosses the outgoing edge.
+            expect(apex.y).toBeLessThan(node.y as number);
+            expect(apex.x).toBeCloseTo(node.x as number, 5);
+            expect(entry.y).toBeCloseTo(exit.y as number, 5);
+        }
+    });
+
+    it('still routes the loop off the right edge under TB/BT', () => {
+        const asl = loadFixture('self-loop');
+        const { nodes, edges } = parseAsl({ definition: asl });
+
+        for (const rankdir of ['TB', 'BT'] as const) {
+            const layout = new DagreLayout({ layout: rankdir });
+            const result = layout.calculate(nodes, edges);
+            const node = result.nodes.find((candidate) => candidate.id === 'CheckStatus')!;
+            const selfLoop = result.edges.find((edge) => edge.from === edge.to)!;
+            const [entry, apex, exit] = selfLoop.points!;
+
+            expect(apex.x).toBeGreaterThan(node.x as number);
+            expect(apex.y).toBeCloseTo(node.y as number, 5);
+            expect(entry.x).toBeCloseTo(exit.x as number, 5);
+        }
+    });
 });

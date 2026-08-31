@@ -199,8 +199,13 @@ export function parseExecutionHistory(params: {
             ensure(name);
             openStack.push({ failures: 0, name, enteredMs: toMillis(event.timestamp) });
 
+            // `from === name` is a genuine self-transition (e.g. a Choice polling
+            // itself), not a Task retry re-entry: findFromState only resolves a name
+            // after walking back to a StateExited event, and a retry attempt never
+            // re-emits StateEntered for the same state. So it belongs in takenEdges
+            // just like any other transition.
             const from = findFromState(event);
-            if (from && from !== name) {
+            if (from) {
                 const key = `${from}->${name}`;
                 if (!takenSet.has(key)) {
                     takenSet.add(key);

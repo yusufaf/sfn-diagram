@@ -63484,7 +63484,7 @@ function parseExecutionHistory(params) {
         enteredMs: toMillis(event.timestamp)
       });
       const from = findFromState(event);
-      if (from && from !== name) {
+      if (from) {
         const key = `${from}->${name}`;
         if (!takenSet.has(key)) {
           takenSet.add(key);

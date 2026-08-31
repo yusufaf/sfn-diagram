@@ -273,13 +273,29 @@ export class DagreLayout {
             return [];
         }
 
-        // Self-loop (e.g. a Retry edge): route as a small loop off the node's right edge.
-        // Points are [entry, apex, exit]; the renderer draws a curve bulging to the apex.
+        // Self-loop (e.g. a Retry edge): route as a small loop bulging off the node,
+        // perpendicular to the graph's flow direction so it never runs across the
+        // outgoing edge to the next rank. Points are [entry, apex, exit]; the renderer
+        // draws a curve bulging to the apex.
         if (edge.from === edge.to) {
-            const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
-            const centerY = fromNode.y || 0;
+            const rankdir = this.options.layout || 'TB';
             const loopReach = 40;
             const loopSpread = 12;
+
+            if (rankdir === 'LR' || rankdir === 'RL') {
+                // Flow is horizontal, so same-rank neighbors sit above/below the node -
+                // loop off the top edge instead of the right edge.
+                const topY = (fromNode.y || 0) - (fromNode.height || 0) / 2;
+                const centerX = fromNode.x || 0;
+                return [
+                    { x: centerX - loopSpread, y: topY },
+                    { x: centerX, y: topY - loopReach },
+                    { x: centerX + loopSpread, y: topY },
+                ];
+            }
+
+            const rightX = (fromNode.x || 0) + (fromNode.width || 0) / 2;
+            const centerY = fromNode.y || 0;
             return [
                 { x: rightX, y: centerY - loopSpread },
                 { x: rightX + loopReach, y: centerY },

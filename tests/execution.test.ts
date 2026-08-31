@@ -54,6 +54,15 @@ describe('parseExecutionHistory', () => {
         expect(froms).not.toContain('CheckValue->LowValue');
     });
 
+    it('records a genuine self-transition as a taken edge, not a retry re-entry', () => {
+        const overlay = parseExecutionHistory({ events: loadEvents('execution-self-loop') });
+
+        expect(overlay.states.CheckStatus.status).toBe('succeeded');
+        const froms = overlay.takenEdges.map((edge) => `${edge.from}->${edge.to}`);
+        expect(froms).toContain('CheckStatus->CheckStatus');
+        expect(froms).toContain('CheckStatus->Done');
+    });
+
     it('marks a terminally failing task as failed with its error', () => {
         const overlay = parseExecutionHistory({ events: loadEvents('execution-failed') });
 
@@ -171,6 +180,22 @@ describe('generateExecution (SVG overlay)', () => {
             expect.arrayContaining(['LowValue', 'DefaultPath']),
         );
         expect(result.metadata.executionStatus).toBe('succeeded');
+    });
+
+    it('draws a genuine self-transition at full opacity, not dimmed as untaken', () => {
+        const result = generateExecution({
+            aslDefinition: loadAsl('self-loop'),
+            history: loadHistoryJson('execution-self-loop'),
+        });
+
+        // self-loop.asl.json has exactly two edges - the Choice self-loop and the
+        // Default branch to Done - and both fired in execution-self-loop.json, so
+        // nothing in this diagram should be dimmed as untaken. Before the fix the
+        // self-loop was unconditionally excluded from takenEdges and rendered dimmed.
+        expect(result.svg).not.toContain('stroke-opacity="0.2"');
+        expect(result.metadata.succeeded).toEqual(
+            expect.arrayContaining(['CheckStatus', 'Done']),
+        );
     });
 
     it('renders a failed state in red and annotates retries', () => {

@@ -5,7 +5,8 @@ import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, GraphEdge, StateNode } from '../src/types';
+import type { LayoutResult } from '../src/layout/DagreLayout';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -170,6 +171,88 @@ describe('SvgRenderer', () => {
             // repeats a control point). Confirms the edge actually reached the renderer
             // instead of being silently dropped for having zero points.
             expect(result.svg).toMatch(/C ([\d.-]+),([\d.-]+) \1,\2 /);
+        });
+    });
+
+    describe('Self-loop label placement', () => {
+        // Hand-built layout matching the geometry reported in the issue: a self-looping
+        // node with a same-rank neighbour close enough that the default label position
+        // (loop apex + gap + half label width) lands on top of it.
+        const pollNode = (): StateNode => ({
+            id: 'Poll',
+            label: 'Poll',
+            type: 'Choice',
+            style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' },
+            x: 80,
+            y: 160,
+            width: 120,
+            height: 60,
+        });
+
+        const selfLoopEdge = (): GraphEdge & { points: Array<{ x: number; y: number }> } => ({
+            from: 'Poll',
+            to: 'Poll',
+            type: 'choice',
+            label: "$.status == 'PENDING'",
+            // Matches DagreLayout.calculateVisualEdgePoints' TB self-loop formula for
+            // a node at x=80,y=160,width=120 (rightX=140, loopReach=40, loopSpread=12).
+            points: [
+                { x: 140, y: 148 },
+                { x: 180, y: 160 },
+                { x: 140, y: 172 },
+            ],
+        });
+
+        const extractLabelRect = (svg: string): { x: number; y: number; width: number; height: number } => {
+            const rectMatch = svg.match(/<rect ([^>]*stroke-width="0\.5"[^>]*)>/);
+            expect(rectMatch).not.toBeNull();
+            const attrs = rectMatch![1];
+            const attr = (name: string): number =>
+                Number(attrs.match(new RegExp(`${name}="([\\d.-]+)"`))![1]);
+            return { x: attr('x'), y: attr('y'), width: attr('width'), height: attr('height') };
+        };
+
+        const rectsOverlap = (
+            a: { x: number; y: number; width: number; height: number },
+            b: { x: number; y: number; width: number; height: number },
+        ): boolean => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+        it('places the label beside the loop when nothing is in the way', () => {
+            const layout: LayoutResult = {
+                nodes: [pollNode()],
+                edges: [selfLoopEdge()],
+                graph: { height: 400, width: 800 },
+            };
+
+            const result = new SvgRenderer({}).render(layout);
+            const labelRect = extractLabelRect(result.svg);
+
+            // Default placement: to the right of the loop, past the apex.
+            expect(labelRect.x).toBeGreaterThan(140);
+        });
+
+        it('does not draw the label on top of a same-rank neighbour', () => {
+            const neighbor: StateNode = {
+                id: 'Cee',
+                label: 'Cee',
+                type: 'Pass',
+                style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' },
+                x: 250,
+                y: 160,
+                width: 120,
+                height: 60,
+            };
+            const layout: LayoutResult = {
+                nodes: [pollNode(), neighbor],
+                edges: [selfLoopEdge()],
+                graph: { height: 400, width: 800 },
+            };
+
+            const result = new SvgRenderer({}).render(layout);
+            const labelRect = extractLabelRect(result.svg);
+            const neighborBox = { x: 190, y: 130, width: 120, height: 60 };
+
+            expect(rectsOverlap(labelRect, neighborBox)).toBe(false);
         });
     });
 
