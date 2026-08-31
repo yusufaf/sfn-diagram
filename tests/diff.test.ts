@@ -107,6 +107,20 @@ describe('generateDiff', () => {
         expect(result.metadata.modified).toHaveLength(0)
         expect(result.metadata.unchanged).toHaveLength(3)
     })
+
+    it('merges a caller-supplied nodeOverrides instead of discarding diff coloring', () => {
+        const result = generateDiff({
+            after: modifiedAsl,
+            before: baseAsl,
+            nodeOverrides: { StepA: { fill: '#123456' } },
+        })
+        // Caller's override for the unrelated, unchanged StepA node is applied...
+        expect(result.svg).toContain('#123456')
+        // ...without wiping out the diff coloring for the nodes generateDiff itself colors.
+        expect(result.svg).toContain('#fff9c4') // StepB, modified
+        expect(result.svg).toContain('#c8e6c9') // NewStep, added
+        expect(result.svg).toContain('#ffcdd2') // StepC, removed
+    })
 })
 
 describe('computeContainerChangeAnnotations', () => {

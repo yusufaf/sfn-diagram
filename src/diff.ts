@@ -177,8 +177,13 @@ export function computeContainerChangeAnnotations(
  * @returns {@link DiffOutput} with SVG markup and a per-category state summary
  */
 export function generateDiff(params: GenerateDiffParams): DiffOutput {
-    const { after: afterArg, before: beforeArg, nodeAnnotations: callerAnnotations, ...options } =
-        params;
+    const {
+        after: afterArg,
+        before: beforeArg,
+        nodeAnnotations: callerAnnotations,
+        nodeOverrides: callerOverrides,
+        ...options
+    } = params;
 
     const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
@@ -222,11 +227,14 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     // A caller-supplied nodeAnnotations entry for the same container wins over ours,
     // same as an explicit diff status on the container wins over the placeholder color.
     const nodeAnnotations = { ...containerAnnotations, ...callerAnnotations };
+    // Same precedence for nodeOverrides: a caller override for one node must not
+    // discard the diff coloring computed for every other node (issue #76).
+    const mergedNodeOverrides = { ...nodeOverrides, ...callerOverrides };
 
     const svgOutput = generateSvg({
         aslDefinition: mergedAsl,
         nodeAnnotations,
-        nodeOverrides,
+        nodeOverrides: mergedNodeOverrides,
         ...options,
     });
 
