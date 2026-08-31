@@ -177,17 +177,18 @@ Commit types that increment the version:
 - `fix` / `perf` → PATCH bump
 - `feat!` or `BREAKING CHANGE:` footer → MAJOR bump
 
-**Three packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
+**Four packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
 - `.` — the `sfn-diagram` npm package. Merging the release PR publishes to npm.
 - `packages/github-action-sfn-diagram` — the GitHub Action (versioned independently, `private`, not on npm). Commits under that path — including a rebuilt `dist/` bundle from a core change — attribute to it. Merging the release PR runs the `mirror-sync` job, which syncs `scripts/sync-action-mirror.sh` to the Marketplace mirror repo (`yusufaf/sfn-diagram-action`), tags it, and publishes the Release automatically. No manual version bump or `sync:action` run is needed.
 - `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job.
+- `packages/vscode-sfn-diagram` — the VS Code extension (versioned independently). Merging the release PR runs the `openvsx-publish` job, which auto-publishes to Open VSX. The Microsoft Marketplace is **not** automated yet — `vsce publish` needs a workload-identity setup, tracked in #40.
 
-release-please emits **one combined release PR** covering all three. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
+release-please emits **one combined release PR** covering all four. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
 
 ### Keeping subpackage work out of the core changelog
 
 The root `.` component would otherwise claim every commit in the repo, so it declares
-`exclude-paths` for both subpackages. release-please skips a commit for `.` only when
+`exclude-paths` for all three subpackages. release-please skips a commit for `.` only when
 **every** file it touches falls under an excluded path — a commit spanning both a
 subpackage and root files still bumps core.
 
@@ -198,6 +199,18 @@ must be titled `ci:`, `chore:`, or `docs:` — never `feat:` — or it silently
 minor-bumps `sfn-diagram` with a changelog entry describing subpackage work. Splitting
 the work into per-path commits is not enough on its own; the merge commit still spans
 both.
+
+### Milestones
+
+- One GitHub milestone per package release, titled to match the tag: `sfn-diagram v1.4.1`, `sfn-diagram-react v0.4.0`, `vscode-sfn-diagram v0.2.0`.
+- Milestones = "which release". Labels (`bug`, `enhancement`, ...) = "what kind". Don't use milestones as a kanban/status board.
+- Only put issues in a milestone once they're actually committed to that release — an untargeted issue (an open-ended explore/audit item) stays milestone-less until it's scoped down into something a release can carry.
+- The version in the title is a prediction, not a guarantee — release-please derives the real bump from commits. If it lands on a different number, rename the milestone (issue links survive a rename) rather than recreating it.
+- Close a milestone once its tag is cut.
+
+### Issue hygiene
+
+- Merged PRs often reference an issue number in the title/commit (e.g. `(#32)`) without an actual `Closes #32` — this does **not** auto-close the issue. Check `gh issue view <n> --json state,closedAt` or the issue's linked PRs before assuming an issue tracks *unshipped* work.
 
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
