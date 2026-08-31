@@ -1,6 +1,6 @@
 {
     "name": "sfn-diagram-react",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "React component for AWS Step Functions ASL diagrams",
     "type": "module",
     "sideEffects": false,
