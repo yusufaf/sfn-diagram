@@ -158,9 +158,9 @@ export class DagreLayout {
                 (fromNode && isOpenContainer(fromNode)) || (toNode && isOpenContainer(toNode)),
             );
 
-            // Visual-only edges and any edge touching a container are not in the dagre
-            // graph, so they are routed manually.
-            if (edge.visualOnly || touchesContainer) {
+            // Visual-only edges, any edge touching a container, and self-loops (never
+            // added to the dagre graph — see the edge filter above) are routed manually.
+            if (edge.visualOnly || touchesContainer || edge.from === edge.to) {
                 return {
                     ...edge,
                     points: this.calculateVisualEdgePoints({
