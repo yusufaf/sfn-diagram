@@ -1,0 +1,12 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z" },
+    { "id": 2, "previousEventId": 1, "type": "ChoiceStateEntered", "timestamp": "2024-01-01T00:00:00.100Z", "stateEnteredEventDetails": { "name": "CheckStatus" } },
+    { "id": 3, "previousEventId": 2, "type": "ChoiceStateExited", "timestamp": "2024-01-01T00:00:00.120Z", "stateExitedEventDetails": { "name": "CheckStatus" } },
+    { "id": 4, "previousEventId": 3, "type": "ChoiceStateEntered", "timestamp": "2024-01-01T00:00:00.150Z", "stateEnteredEventDetails": { "name": "CheckStatus" } },
+    { "id": 5, "previousEventId": 4, "type": "ChoiceStateExited", "timestamp": "2024-01-01T00:00:00.170Z", "stateExitedEventDetails": { "name": "CheckStatus" } },
+    { "id": 6, "previousEventId": 5, "type": "SucceedStateEntered", "timestamp": "2024-01-01T00:00:00.200Z", "stateEnteredEventDetails": { "name": "Done" } },
+    { "id": 7, "previousEventId": 6, "type": "SucceedStateExited", "timestamp": "2024-01-01T00:00:00.210Z", "stateExitedEventDetails": { "name": "Done" } },
+    { "id": 8, "previousEventId": 7, "type": "ExecutionSucceeded", "timestamp": "2024-01-01T00:00:00.220Z" }
+  ]
+}

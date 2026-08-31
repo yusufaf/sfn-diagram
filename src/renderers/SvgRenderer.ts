@@ -28,6 +28,7 @@ interface RenderNodeParams {
 interface RenderEdgeParams {
     edge: GraphEdge & { points?: Array<{ x: number; y: number }> };
     group: SvgElement;
+    nodes: StateNode[];
 }
 
 interface CalculateLabelPositionParams {
@@ -182,7 +183,7 @@ export class SvgRenderer {
                 return;
             }
 
-            this.renderEdge({ edge, group: edgesGroup });
+            this.renderEdge({ edge, group: edgesGroup, nodes: layout.nodes });
         });
 
         // Render container nodes (bounding boxes)
@@ -247,7 +248,7 @@ export class SvgRenderer {
 
             // Include edge label bounds
             if (edge.label && edge.points && edge.points.length > 0) {
-                const midpoint = this.edgeLabelCenter(edge);
+                const midpoint = this.edgeLabelCenter(edge, layout.nodes);
                 const labelDimensions = this.calculateLabelDimensions(edge.label);
                 const labelMinX = midpoint.x - labelDimensions.width / 2;
                 const labelMaxX = midpoint.x + labelDimensions.width / 2;
@@ -618,7 +619,7 @@ export class SvgRenderer {
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
-        const { edge, group } = params;
+        const { edge, group, nodes } = params;
         if (!edge.points || edge.points.length < 2) {
             return;
         }
@@ -663,7 +664,7 @@ export class SvgRenderer {
 
         // Add edge label if present
         if (edge.label) {
-            const midpoint = this.edgeLabelCenter(edge);
+            const midpoint = this.edgeLabelCenter(edge, nodes);
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
             group
@@ -709,20 +710,89 @@ export class SvgRenderer {
 
     /**
      * Compute where an edge's label should be centered. Normal edges center on the
-     * path midpoint; self-loops (Retry) shift the label to the right of the loop apex
-     * so a long policy label never overlaps the node it belongs to.
+     * path midpoint; self-loops anchor off the loop's apex instead, falling back to a
+     * spot clear of neighbouring nodes if the default placement would land on one.
      */
     private edgeLabelCenter(
         edge: GraphEdge & { points?: Array<{ x: number; y: number }> },
+        nodes: StateNode[] = [],
     ): { x: number; y: number } {
         const points = edge.points ?? [];
-        const midpoint = this.getPathMidpoint(points);
-        if (edge.from === edge.to && edge.label) {
-            const gap = 8;
-            const labelWidth = this.calculateLabelDimensions(edge.label).width;
-            return { x: midpoint.x + gap + labelWidth / 2, y: midpoint.y };
+        if (edge.from === edge.to && edge.label && points.length >= 3) {
+            return this.selfLoopLabelCenter({ edge, nodes, points });
         }
-        return midpoint;
+        return this.getPathMidpoint(points);
+    }
+
+    /**
+     * Self-loop labels can't use the path midpoint the way normal edges do: for a
+     * 3-point self-loop path the midpoint *is* the apex, but the apex is a Bezier
+     * *control* point that `buildSelfLoopPath` never actually draws through. The
+     * default placement is offset from the real curve peak instead, perpendicular to
+     * whichever axis the loop bulges along (see DagreLayout.calculateVisualEdgePoints).
+     * If that would overlap another node - a tight nodesep can leave less room than
+     * the loop needs - the label is stacked on the loop's other axis instead, staying
+     * over the looping node's own footprint rather than reaching toward a neighbour.
+     */
+    private selfLoopLabelCenter(params: {
+        edge: GraphEdge;
+        nodes: StateNode[];
+        points: Array<{ x: number; y: number }>;
+    }): { x: number; y: number } {
+        const { edge, nodes, points } = params;
+        const [entry, apex, exit] = points;
+        const gap = 8;
+        const { width: labelWidth, height: labelHeight } = this.calculateLabelDimensions(
+            edge.label ?? '',
+        );
+
+        // Point actually on the drawn curve at t=0.5. Both Bezier control points are
+        // `apex` (see buildSelfLoopPath), so B(0.5) = 0.125*entry + 0.75*apex + 0.125*exit.
+        const peak = {
+            x: entry.x * 0.125 + apex.x * 0.75 + exit.x * 0.125,
+            y: entry.y * 0.125 + apex.y * 0.75 + exit.y * 0.125,
+        };
+
+        // The loop bulges along whichever axis has the larger apex offset - horizontal
+        // for the default right-hand loop (TB/BT), vertical for the top loop (LR/RL).
+        const bulgesHorizontally = Math.abs(apex.x - entry.x) >= Math.abs(apex.y - entry.y);
+
+        const primary = bulgesHorizontally
+            ? { x: peak.x + gap + labelWidth / 2, y: peak.y }
+            : { x: peak.x, y: peak.y - gap - labelHeight / 2 };
+
+        const otherNodes = nodes.filter((node) => node.id !== edge.from);
+        if (!this.rectOverlapsAnyNode({ height: labelHeight, width: labelWidth, ...primary }, otherNodes)) {
+            return primary;
+        }
+
+        const loopingNode = nodes.find((node) => node.id === edge.from);
+        if (bulgesHorizontally) {
+            // Stack below the node itself instead of reaching to the right.
+            const centerX = loopingNode?.x ?? peak.x;
+            const bottomY = (loopingNode?.y ?? peak.y) + (loopingNode?.height || 0) / 2;
+            return { x: centerX, y: bottomY + gap + labelHeight / 2 };
+        }
+        // Vertical loop: fall back to the side instead of reaching further upward.
+        return { x: peak.x + gap + labelWidth / 2, y: peak.y };
+    }
+
+    /** Axis-aligned rect-vs-node-box overlap test used for self-loop label placement. */
+    private rectOverlapsAnyNode(
+        rect: { height: number; width: number; x: number; y: number },
+        nodes: StateNode[],
+    ): boolean {
+        const left = rect.x - rect.width / 2;
+        const right = rect.x + rect.width / 2;
+        const top = rect.y - rect.height / 2;
+        const bottom = rect.y + rect.height / 2;
+        return nodes.some((node) => {
+            const nodeLeft = (node.x || 0) - (node.width || 0) / 2;
+            const nodeRight = (node.x || 0) + (node.width || 0) / 2;
+            const nodeTop = (node.y || 0) - (node.height || 0) / 2;
+            const nodeBottom = (node.y || 0) + (node.height || 0) / 2;
+            return left < nodeRight && right > nodeLeft && top < nodeBottom && bottom > nodeTop;
+        });
     }
 
     /**
