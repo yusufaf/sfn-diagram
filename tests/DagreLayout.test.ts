@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { DagreLayout } from '../src/layout';
 import type { StateNode, GraphEdge, AslDefinition } from '../src/types';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
+
+const loadFixture = (name: string): AslDefinition => {
+    const path = join(__dirname, 'fixtures', `${name}.asl.json`);
+    return JSON.parse(readFileSync(path, 'utf-8'));
+};
 
 describe('DagreLayout', () => {
     const createTestNodes = (): StateNode[] => [
@@ -261,5 +268,19 @@ describe('DagreLayout with collapsed containers', () => {
                 positionsById.get(rankOrder[index - 1]) as number,
             );
         }
+    });
+});
+
+describe('Self-loop edges', () => {
+    it('routes a non-visualOnly self-loop instead of dropping it', () => {
+        const asl = loadFixture('self-loop');
+        const { nodes, edges } = parseAsl({ definition: asl });
+        const layout = new DagreLayout({});
+        const result = layout.calculate(nodes, edges);
+
+        const selfLoop = result.edges.find((edge) => edge.from === edge.to);
+        expect(selfLoop).toBeDefined();
+        expect(selfLoop!.points).toBeDefined();
+        expect(selfLoop!.points!.length).toBeGreaterThanOrEqual(2);
     });
 });

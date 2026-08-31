@@ -1,0 +1,19 @@
+{
+    "StartAt": "CheckStatus",
+    "States": {
+        "CheckStatus": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.status",
+                    "StringEquals": "PENDING",
+                    "Next": "CheckStatus"
+                }
+            ],
+            "Default": "Done"
+        },
+        "Done": {
+            "Type": "Succeed"
+        }
+    }
+}

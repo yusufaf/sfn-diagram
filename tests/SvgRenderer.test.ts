@@ -155,6 +155,22 @@ describe('SvgRenderer', () => {
             expect(Number.isFinite(result.height)).toBe(true);
             expect(result.svg).not.toContain('NaN');
         });
+
+        it('renders a Choice self-loop instead of dropping it', () => {
+            const asl = loadFixture('self-loop');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const result = renderer.render(positioned);
+
+            // buildSelfLoopPath emits "M x,y C ax,ay ax,ay ex,ey" — the apex control
+            // point repeated is the self-loop's signature (a normal d3 curve never
+            // repeats a control point). Confirms the edge actually reached the renderer
+            // instead of being silently dropped for having zero points.
+            expect(result.svg).toMatch(/C ([\d.-]+),([\d.-]+) \1,\2 /);
+        });
     });
 
     describe('Theming', () => {
