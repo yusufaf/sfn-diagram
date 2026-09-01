@@ -205,7 +205,7 @@ both.
 - One GitHub milestone per package release, titled to match the tag: `sfn-diagram v1.4.1`, `sfn-diagram-react v0.4.0`, `vscode-sfn-diagram v0.2.0`.
 - Milestones = "which release". Labels (`bug`, `enhancement`, ...) = "what kind". Don't use milestones as a kanban/status board.
 - Only put issues in a milestone once they're actually committed to that release — an untargeted issue (an open-ended explore/audit item) stays milestone-less until it's scoped down into something a release can carry.
-- The version in the title is a prediction, not a guarantee — release-please derives the real bump from commits. If it lands on a different number, rename the milestone (issue links survive a rename) rather than recreating it.
+- The version in the title is a prediction, not a guarantee — release-please derives the real bump from commits, and any `fix`/`feat` merged to main claims the next version number whether or not it belongs to a milestone. An unrelated hotfix landing while a milestone is still open can consume the very version that milestone's title predicted. So don't just rename on drift when it's noticed — re-check an open milestone's title against the latest tag right before merging *that milestone's* release PR, and rename first (issue links survive a rename) if something else already took the number.
 - Close a milestone once its tag is cut.
 
 ### Issue hygiene
