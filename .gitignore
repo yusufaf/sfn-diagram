@@ -21,6 +21,7 @@ packages/github-action-sfn-diagram/action.yml
 # Generated type declarations (keep only custom module declarations)
 src/**/*.d.ts
 !src/dagre.d.ts
+!src/dom-globals.d.ts
 
 # Examples output directory (generated files)
 examples/outputs/
