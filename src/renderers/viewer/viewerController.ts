@@ -1,4 +1,3 @@
-/// <reference lib="dom" />
 import type { AslState } from '../../types';
 
 /**

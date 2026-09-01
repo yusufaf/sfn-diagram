@@ -1,4 +1,3 @@
-/// <reference lib="dom" />
 import { collectStateData } from '../renderers/viewer/stateData';
 import { attachViewer, type ViewerHandle } from '../renderers/viewer/viewerController';
 import { buildViewerBody } from '../renderers/viewer/viewerShell';
