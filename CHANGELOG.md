@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.3.0...sfn-diagram-v1.4.0) (2026-08-31)
+
+
+### Features
+
+* add the &lt;sfn-diagram&gt; framework-agnostic custom element ([#69](https://github.com/yusufaf/sfn-diagram/issues/69)) ([92b08fd](https://github.com/yusufaf/sfn-diagram/commit/92b08fd3685d8bd09690b7b5fedca1ae75097a56))
+* collapse Parallel/Map containers into placeholder nodes before layout ([#70](https://github.com/yusufaf/sfn-diagram/issues/70)) ([945df70](https://github.com/yusufaf/sfn-diagram/commit/945df70e7adc312b8b09b9cdfaf00051d8359946))
+* **playground:** serve at custom domain root instead of /sfn-diagram/ ([7313ee9](https://github.com/yusufaf/sfn-diagram/commit/7313ee948cf166021c781a5d40cd25ca5152dc12))
+* **viewer:** add a minimap for navigating large diagrams ([#66](https://github.com/yusufaf/sfn-diagram/issues/66)) ([9a82e83](https://github.com/yusufaf/sfn-diagram/commit/9a82e83472e7e9b765e6223ae1c6357f494b91f7))
+* **viewer:** add state search and click-a-state detail panel ([#56](https://github.com/yusufaf/sfn-diagram/issues/56)) ([446b52f](https://github.com/yusufaf/sfn-diagram/commit/446b52f54aaba042cf731783fbf3fc77e03b8b5f))
+
+
+### Bug Fixes
+
+* address issue [#72](https://github.com/yusufaf/sfn-diagram/issues/72) follow-ups from collapse review ([#74](https://github.com/yusufaf/sfn-diagram/issues/74)) ([0cf56ce](https://github.com/yusufaf/sfn-diagram/commit/0cf56ceb62ec10702899740ed2918523567592b5))
+* **playground:** align toolbar dropdowns ([#64](https://github.com/yusufaf/sfn-diagram/issues/64)) ([861eeee](https://github.com/yusufaf/sfn-diagram/commit/861eeeec888b3800a72ce7285e604a469b02b942))
+* **test:** isolate perf tests from the puppeteer suite ([#65](https://github.com/yusufaf/sfn-diagram/issues/65)) ([b2ffe4e](https://github.com/yusufaf/sfn-diagram/commit/b2ffe4e04db3aa15460fde6d40631fb4e959a1d2)), closes [#50](https://github.com/yusufaf/sfn-diagram/issues/50)
+* three self-loop rendering bugs surfaced by [#75](https://github.com/yusufaf/sfn-diagram/issues/75) (v1.4.0 milestone) ([#86](https://github.com/yusufaf/sfn-diagram/issues/86)) ([ce23a99](https://github.com/yusufaf/sfn-diagram/commit/ce23a998bf52a84d45e9c6972225ec0740c46c0b))
+* two v1.4.1 milestone bugs (self-loop routing, diff nodeOverrides merge) ([#80](https://github.com/yusufaf/sfn-diagram/issues/80)) ([ef5fd90](https://github.com/yusufaf/sfn-diagram/commit/ef5fd908913cd146548e8bd2aca0c40d601f9d3f)), closes [#76](https://github.com/yusufaf/sfn-diagram/issues/76)
+
 ## [1.3.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.2.0...sfn-diagram-v1.3.0) (2026-08-02)
 
 

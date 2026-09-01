@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.3.0...github-action-sfn-diagram-v1.3.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* address issue [#72](https://github.com/yusufaf/sfn-diagram/issues/72) follow-ups from collapse review ([#74](https://github.com/yusufaf/sfn-diagram/issues/74)) ([0cf56ce](https://github.com/yusufaf/sfn-diagram/commit/0cf56ceb62ec10702899740ed2918523567592b5))
+* three self-loop rendering bugs surfaced by [#75](https://github.com/yusufaf/sfn-diagram/issues/75) (v1.4.0 milestone) ([#86](https://github.com/yusufaf/sfn-diagram/issues/86)) ([ce23a99](https://github.com/yusufaf/sfn-diagram/commit/ce23a998bf52a84d45e9c6972225ec0740c46c0b))
+
 ## [1.3.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.2.1...github-action-sfn-diagram-v1.3.0) (2026-08-02)
 
 

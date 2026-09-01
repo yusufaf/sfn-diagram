@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.2.0...sfn-diagram-react-v0.3.0) (2026-08-31)
+
+
+### Features
+
+* add the &lt;sfn-diagram&gt; framework-agnostic custom element ([#69](https://github.com/yusufaf/sfn-diagram/issues/69)) ([92b08fd](https://github.com/yusufaf/sfn-diagram/commit/92b08fd3685d8bd09690b7b5fedca1ae75097a56))
+
 ## [0.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.1.0...sfn-diagram-react-v0.2.0) (2026-08-01)
 
 
