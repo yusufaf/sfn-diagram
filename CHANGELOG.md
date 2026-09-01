@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.4.0...sfn-diagram-v1.4.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **jsr:** move DOM lib triple-slash directive out of published sources ([#88](https://github.com/yusufaf/sfn-diagram/issues/88)) ([36d3f2e](https://github.com/yusufaf/sfn-diagram/commit/36d3f2e5ee17a9ea9867724762579bdcb5e8b1af))
+
 ## [1.4.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.3.0...sfn-diagram-v1.4.0) (2026-08-31)
 
 
