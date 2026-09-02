@@ -469,6 +469,24 @@ describe('SvgRenderer', () => {
             expect(svg.match(/stroke="#00ff00"/g) ?? []).toHaveLength(1);
         });
     });
+
+    describe('data-edge-id', () => {
+        it('stamps each edge path with the id that addresses it in edgeOverrides', () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+
+            const svg = new SvgRenderer({}).render(positioned).svg;
+            // The `->` in an edge id is escaped in the serialized attribute; an XML/DOM
+            // parser hands the original id back, which is what this asserts on.
+            const renderedIds = [...svg.matchAll(/<path [^>]*data-edge-id="([^"]+)"/g)].map(
+                (match) => match[1].replace(/&gt;/g, '>'),
+            );
+
+            expect(renderedIds).toContain('Route->Work#choice#0');
+            expect(renderedIds).toContain('Route->Work#choice#1');
+            expect(new Set(renderedIds).size).toBe(renderedIds.length);
+        });
+    });
 });
 
 describe('collapsed containers', () => {

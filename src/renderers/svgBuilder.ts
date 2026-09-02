@@ -18,14 +18,19 @@ export type SvgAttrValue = number | string;
 /**
  * Escape a string for use as a double-quoted HTML attribute value.
  *
- * Matches the HTML serialization algorithm: only `&`, U+00A0, and `"` are escaped
- * (`<` and `>` are intentionally left untouched inside attribute values).
+ * Goes one step further than the HTML serialization algorithm, which leaves `<` and
+ * `>` untouched inside attribute values. An edge id is `${from}->${to}#...`, so a raw
+ * `>` would put a tag-looking character inside every edge's `data-edge-id` and break
+ * the `<path[^>]*>` style scans callers run over the serialized SVG. The escaping is
+ * transparent to any XML/DOM parser, which hands back the original string.
  */
 function escapeAttribute(value: string): string {
     return value
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&nbsp;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 /**
