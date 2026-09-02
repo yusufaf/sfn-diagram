@@ -272,7 +272,7 @@ describe('caller-supplied override maps', () => {
 });
 
 describe('retry self-loops in the overlay', () => {
-    it('dims a Retry loop while highlighting a genuine self-transition', () => {
+    it('assigns a Retry loop and a genuine self-transition distinct qualified ids', () => {
         const { edges } = parseAsl({ definition: loadAsl('parallel-edges') });
 
         const retryEdge = edges.find((edge) => edge.type === 'retry');
@@ -282,6 +282,28 @@ describe('retry self-loops in the overlay', () => {
 
         expect(retryEdge?.id).toBe('Work->Work#retry#0');
         expect(selfTransition?.id).toBe('Work->Work#normal#0');
+    });
+
+    it('dims a Retry loop in the rendered SVG even when the pair is genuinely taken', () => {
+        // parallel-edges.asl.json's Work state has a Retry self-loop, a Catch
+        // self-loop, and a genuine `Next: Work` self-transition, all sharing the
+        // `Work->Work` pair. execution-parallel-edges.json runs Work, fails once
+        // (a real retry), succeeds, then genuinely transitions back into Work via
+        // Next before finally reaching Done - so `Work->Work` legitimately lands in
+        // takenEdges. That must not paint the Retry loop itself as taken.
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('parallel-edges'),
+            history: loadHistoryJson('execution-parallel-edges'),
+        });
+
+        const retryPath = svg.match(/<path[^>]*marker-end="url\(#arrowhead-retry\)"[^>]*>/)?.[0];
+        expect(retryPath).toBeDefined();
+
+        // UNTAKEN_EDGE_STYLE in src/execution.ts is `{ strokeOpacity: 0.2 }`.
+        expect(retryPath).toContain('stroke-opacity="0.2"');
+        // TAKEN_EDGE_STYLE in src/execution.ts is `{ stroke: '#2e7d32', strokeWidth: 3 }`.
+        expect(retryPath).not.toContain('#2e7d32');
+        expect(retryPath).not.toContain('stroke-width="3"');
     });
 });
 
