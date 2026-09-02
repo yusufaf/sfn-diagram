@@ -76,6 +76,59 @@ describe('Integration Tests', () => {
             );
         });
 
+        it('should not overlap nested self-loop labels in an LR layout', () => {
+            // LR self-loops bulge off the node's top edge, so their labels fan out along
+            // x - the axis whose extent varies per label. A short inner label must not
+            // land inside a long outer one's background rect.
+            const aslDefinition: AslDefinition = {
+                StartAt: 'Poll',
+                States: {
+                    Poll: {
+                        Type: 'Choice',
+                        Choices: [
+                            {
+                                Variable: '$.detailedStatusDescription',
+                                StringEquals: 'STILL_PENDING_DOWNSTREAM_APPROVAL',
+                                Next: 'Poll',
+                            },
+                            { Variable: '$.n', NumericEquals: 1, Next: 'Poll' },
+                        ],
+                        Default: 'Done',
+                    },
+                    Done: { Type: 'Succeed' },
+                },
+            };
+
+            const result = generateSvg({ aslDefinition, layout: 'LR' });
+            const labelRects = [
+                ...result.svg.matchAll(/<rect ([^>]*stroke-width="0\.5"[^>]*)>/g),
+            ].map((rectMatch) => {
+                const attrs = rectMatch[1];
+                const attr = (name: string): number =>
+                    Number(attrs.match(new RegExp(`${name}="([\\d.-]+)"`))![1]);
+                return {
+                    x: attr('x'),
+                    y: attr('y'),
+                    width: attr('width'),
+                    height: attr('height'),
+                };
+            });
+
+            expect(labelRects.length).toBeGreaterThanOrEqual(2);
+            for (let first = 0; first < labelRects.length; first++) {
+                for (let second = first + 1; second < labelRects.length; second++) {
+                    const outer = labelRects[first];
+                    const inner = labelRects[second];
+                    const overlaps =
+                        outer.x < inner.x + inner.width &&
+                        outer.x + outer.width > inner.x &&
+                        outer.y < inner.y + inner.height &&
+                        outer.y + outer.height > inner.y;
+                    expect(overlaps).toBe(false);
+                }
+            }
+        });
+
         it('should handle complex state machines', () => {
             const aslDefinition = loadFixture('choice');
             const result = generateSvg({ aslDefinition });

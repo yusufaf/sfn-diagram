@@ -29,6 +29,21 @@ interface RenderEdgeParams {
     edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
     group: SvgElement;
     nodes: StateNode[];
+    /** Widest self-loop label per node id — see {@link SvgRenderer.selfLoopLabelCenter}. */
+    selfLoopLabelWidths: Map<string, number>;
+}
+
+interface CalculateBoundsParams {
+    layout: LayoutResult;
+    /** Widest self-loop label per node id — see {@link SvgRenderer.selfLoopLabelCenter}. */
+    selfLoopLabelWidths: Map<string, number>;
+}
+
+interface EdgeLabelCenterParams {
+    edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
+    nodes: StateNode[];
+    /** Widest self-loop label per node id — see {@link SvgRenderer.selfLoopLabelCenter}. */
+    selfLoopLabelWidths: Map<string, number>;
 }
 
 interface CalculateLabelPositionParams {
@@ -73,8 +88,13 @@ export class SvgRenderer {
      * Render the diagram to SVG string
      */
     render(layout: LayoutResult): SvgOutput {
+        // Nested self-loop labels stagger along a shared axis, so every loop on a node
+        // has to step by the same amount - see selfLoopLabelCenter. Measured once here
+        // so bounds and rendering agree on where each label lands.
+        const selfLoopLabelWidths = this.calculateSelfLoopLabelWidths(layout.edges);
+
         // Calculate actual bounds including edge curves
-        const bounds = this.calculateBounds(layout);
+        const bounds = this.calculateBounds({ layout, selfLoopLabelWidths });
 
         // Build the SVG tree with a DOM-free string builder so this runs in Node,
         // browsers, and edge runtimes without a DOM implementation.
@@ -183,7 +203,12 @@ export class SvgRenderer {
                 return;
             }
 
-            this.renderEdge({ edge, group: edgesGroup, nodes: layout.nodes });
+            this.renderEdge({
+                edge,
+                group: edgesGroup,
+                nodes: layout.nodes,
+                selfLoopLabelWidths,
+            });
         });
 
         // Render container nodes (bounding boxes)
@@ -210,12 +235,13 @@ export class SvgRenderer {
     /**
      * Calculate bounding box including all nodes and edge points
      */
-    private calculateBounds(layout: LayoutResult): {
+    private calculateBounds(params: CalculateBoundsParams): {
         height: number;
         minX: number;
         minY: number;
         width: number;
     } {
+        const { layout, selfLoopLabelWidths } = params;
         let minX = Infinity;
         let minY = Infinity;
         let maxX = -Infinity;
@@ -248,7 +274,11 @@ export class SvgRenderer {
 
             // Include edge label bounds
             if (edge.label && edge.points && edge.points.length > 0) {
-                const midpoint = this.edgeLabelCenter(edge, layout.nodes);
+                const midpoint = this.edgeLabelCenter({
+                    edge,
+                    nodes: layout.nodes,
+                    selfLoopLabelWidths,
+                });
                 const labelDimensions = this.calculateLabelDimensions(edge.label);
                 const labelMinX = midpoint.x - labelDimensions.width / 2;
                 const labelMaxX = midpoint.x + labelDimensions.width / 2;
@@ -619,7 +649,7 @@ export class SvgRenderer {
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
-        const { edge, group, nodes } = params;
+        const { edge, group, nodes, selfLoopLabelWidths } = params;
         if (!edge.points || edge.points.length < 2) {
             return;
         }
@@ -672,7 +702,7 @@ export class SvgRenderer {
 
         // Add edge label if present
         if (edge.label) {
-            const midpoint = this.edgeLabelCenter(edge, nodes);
+            const midpoint = this.edgeLabelCenter({ edge, nodes, selfLoopLabelWidths });
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
             group
@@ -721,15 +751,38 @@ export class SvgRenderer {
      * path midpoint; self-loops anchor off the loop's apex instead, falling back to a
      * spot clear of neighbouring nodes if the default placement would land on one.
      */
-    private edgeLabelCenter(
-        edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> },
-        nodes: StateNode[] = [],
-    ): { x: number; y: number } {
+    private edgeLabelCenter(params: EdgeLabelCenterParams): { x: number; y: number } {
+        const { edge, nodes, selfLoopLabelWidths } = params;
         const points = edge.points ?? [];
         if (edge.from === edge.to && edge.label && points.length >= 3) {
-            return this.selfLoopLabelCenter({ edge, nodes, points });
+            return this.selfLoopLabelCenter({ edge, nodes, points, selfLoopLabelWidths });
         }
         return this.getPathMidpoint(points);
+    }
+
+    /**
+     * Measure the widest self-loop label on each node, keyed by the looping node's id.
+     *
+     * `selfLoopLabelCenter` staggers nested self-loop labels by one step per loop index,
+     * and a step only guarantees separation if it is at least as large as the labels it
+     * is separating. Label *height* is fixed by the font size, so the horizontal-bulge
+     * arm can step by its own label's height safely; label *width* is per-edge, so the
+     * vertical-bulge arm has to step by the widest label on the node instead of its own.
+     *
+     * @param edges - Every routed edge in the layout
+     * @returns Widest measured label width per looping node id; nodes with no labelled
+     *   self-loop are absent
+     */
+    private calculateSelfLoopLabelWidths(edges: LayoutResult['edges']): Map<string, number> {
+        const widths = new Map<string, number>();
+        for (const edge of edges) {
+            if (edge.from !== edge.to || !edge.label) {
+                continue;
+            }
+            const { width } = this.calculateLabelDimensions(edge.label);
+            widths.set(edge.from, Math.max(widths.get(edge.from) ?? 0, width));
+        }
+        return widths;
     }
 
     /**
@@ -749,19 +802,29 @@ export class SvgRenderer {
      * *perpendicular* to the bulge, so nested loops fan their labels apart the same way
      * they fan their arcs. Index 0 gets a zero offset, so a node with exactly one loop
      * renders in exactly the same place as before loopIndex existed.
+     *
+     * The step has to be a quantity shared by every loop on the node, not each edge's
+     * own label size, or a short inner label can land inside a long outer one's rect and
+     * occlude it. Height is shared already (fixed font size); width is not, so the
+     * vertical-bulge arm steps by the node's widest self-loop label
+     * (`selfLoopLabelWidths`) rather than by this edge's width.
      */
     private selfLoopLabelCenter(params: {
         edge: GraphEdge & { loopIndex?: number };
         nodes: StateNode[];
         points: Array<{ x: number; y: number }>;
+        selfLoopLabelWidths: Map<string, number>;
     }): { x: number; y: number } {
-        const { edge, nodes, points } = params;
+        const { edge, nodes, points, selfLoopLabelWidths } = params;
         const [entry, apex, exit] = points;
         const gap = 8;
         const { width: labelWidth, height: labelHeight } = this.calculateLabelDimensions(
             edge.label ?? '',
         );
         const loopIndex = edge.loopIndex ?? 0;
+        // Falls back to this edge's own width for callers that render an edge without a
+        // measured sibling set - a single loop staggers by zero either way.
+        const widthStep = (selfLoopLabelWidths.get(edge.from) ?? labelWidth) + gap;
 
         // Point actually on the drawn curve at t=0.5. Both Bezier control points are
         // `apex` (see buildSelfLoopPath), so B(0.5) = 0.125*entry + 0.75*apex + 0.125*exit.
@@ -776,7 +839,7 @@ export class SvgRenderer {
 
         const primary = bulgesHorizontally
             ? { x: peak.x + gap + labelWidth / 2, y: peak.y + loopIndex * (labelHeight + gap) }
-            : { x: peak.x + loopIndex * (labelWidth + gap), y: peak.y - gap - labelHeight / 2 };
+            : { x: peak.x + loopIndex * widthStep, y: peak.y - gap - labelHeight / 2 };
 
         const otherNodes = nodes.filter((node) => node.id !== edge.from);
         if (!this.rectOverlapsAnyNode({ height: labelHeight, width: labelWidth, ...primary }, otherNodes)) {
@@ -796,7 +859,7 @@ export class SvgRenderer {
         }
         // Vertical loop: fall back to the side instead of reaching further upward.
         return {
-            x: peak.x + gap + labelWidth / 2 + loopIndex * (labelWidth + gap),
+            x: peak.x + gap + labelWidth / 2 + loopIndex * widthStep,
             y: peak.y,
         };
     }
