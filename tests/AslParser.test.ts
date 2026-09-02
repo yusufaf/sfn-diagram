@@ -3,6 +3,7 @@ import { parseAsl, validateAsl, AslValidationError } from '../src/AslParser';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
+import { applyCollapse } from '../src/graph';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -546,6 +547,62 @@ describe('AslParser', () => {
                 const result = parseAsl({ definition: valid });
                 expect(result.nodes).toHaveLength(1);
             });
+        });
+    });
+
+    describe('edge identity', () => {
+        it('gives every edge in a colliding graph a unique id', () => {
+            const { edges } = parseAsl({ definition: loadFixture('parallel-edges') });
+
+            const ids = edges.map((edge) => edge.id);
+            expect(new Set(ids).size).toBe(ids.length);
+        });
+
+        it('distinguishes two Choice rules that share a Next', () => {
+            const { edges } = parseAsl({ definition: loadFixture('parallel-edges') });
+
+            const routeToWork = edges.filter(
+                (edge) => edge.from === 'Route' && edge.to === 'Work',
+            );
+
+            expect(routeToWork).toHaveLength(2);
+            expect(routeToWork.map((edge) => edge.id)).toEqual([
+                'Route->Work#choice#0',
+                'Route->Work#choice#1',
+            ]);
+            expect(routeToWork[0].label).not.toBe(routeToWork[1].label);
+        });
+
+        it('distinguishes the three self-loops on one state', () => {
+            const { edges } = parseAsl({ definition: loadFixture('parallel-edges') });
+
+            const selfLoops = edges.filter(
+                (edge) => edge.from === 'Work' && edge.to === 'Work',
+            );
+
+            expect(selfLoops.map((edge) => edge.id).sort()).toEqual([
+                'Work->Work#error#0',
+                'Work->Work#normal#0',
+                'Work->Work#retry#0',
+            ]);
+        });
+
+        it('keeps ids unchanged when applyCollapse removes edges', () => {
+            const parsed = parseAsl({ definition: loadFixture('parallel') });
+            const idsBefore = new Set(parsed.edges.map((edge) => edge.id));
+
+            const collapsed = applyCollapse({
+                collapse: true,
+                edges: parsed.edges,
+                nodes: parsed.nodes,
+            });
+
+            // applyCollapse only filters — every surviving edge must still carry the exact id
+            // parseAsl gave it, never a renumbered one.
+            expect(collapsed.edges.length).toBeLessThan(parsed.edges.length);
+            for (const edge of collapsed.edges) {
+                expect(idsBefore.has(edge.id)).toBe(true);
+            }
         });
     });
 });

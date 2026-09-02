@@ -6,10 +6,10 @@ declare module '@dagrejs/dagre' {
             setGraph(options: any): void;
             setDefaultEdgeLabel(fn: () => any): void;
             setNode(id: string, value: any): void;
-            setEdge(from: string, to: string, value?: any): void;
+            setEdge(from: string, to: string, value?: any, name?: string): void;
             setParent(childId: string, parentId: string): void;
             node(id: string): any;
-            edge(from: string, to: string): any;
+            edge(from: string, to: string, name?: string): any;
             graph(): any;
         }
     }

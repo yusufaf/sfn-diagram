@@ -62505,6 +62505,141 @@ function detectServiceFromResource(params) {
     serviceName
   };
 }
+var SYNTHETIC_MARKER_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
+function computeCollapsePlan(params) {
+  const { collapse, edges, nodes } = params;
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
+  const requestedTargets = !collapse ? /* @__PURE__ */ new Set() : collapse === true ? containerIds : new Set(collapse.filter((name) => containerIds.has(name)));
+  if (requestedTargets.size === 0) return {
+    effectiveTargets: requestedTargets,
+    hiddenIdsByTarget: /* @__PURE__ */ new Map(),
+    removedIds: /* @__PURE__ */ new Set()
+  };
+  const closureFor = (containerId) => {
+    const closure = /* @__PURE__ */ new Set();
+    const queue = [...nodesById.get(containerId)?.children ?? []];
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      if (closure.has(currentId)) continue;
+      closure.add(currentId);
+      const current = nodesById.get(currentId);
+      if (current?.isContainer) queue.push(...current.children ?? []);
+    }
+    return closure;
+  };
+  const hiddenIdsByTarget = /* @__PURE__ */ new Map();
+  const removedIds = /* @__PURE__ */ new Set();
+  for (const targetId of requestedTargets) {
+    const closure = closureFor(targetId);
+    hiddenIdsByTarget.set(targetId, closure);
+    for (const id of closure) removedIds.add(id);
+  }
+  for (const edge of edges) {
+    const fromNode = nodesById.get(edge.from);
+    const toNode = nodesById.get(edge.to);
+    if (fromNode && MAP_IO_NODE_TYPES.has(fromNode.type) && removedIds.has(edge.to)) removedIds.add(edge.from);
+    if (toNode && MAP_IO_NODE_TYPES.has(toNode.type) && removedIds.has(edge.from)) removedIds.add(edge.to);
+  }
+  return {
+    effectiveTargets: new Set([...requestedTargets].filter((targetId) => !removedIds.has(targetId))),
+    hiddenIdsByTarget,
+    removedIds
+  };
+}
+function applyCollapse(params) {
+  const { collapse, edges, nodes } = params;
+  if (!collapse) return {
+    edges,
+    nodes
+  };
+  const { effectiveTargets, hiddenIdsByTarget, removedIds } = computeCollapsePlan({
+    collapse,
+    edges,
+    nodes
+  });
+  if (effectiveTargets.size === 0) return {
+    edges,
+    nodes
+  };
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const resultNodes = nodes.filter((node) => !removedIds.has(node.id)).map((node) => {
+    if (!effectiveTargets.has(node.id)) return node;
+    const closure = hiddenIdsByTarget.get(node.id);
+    let collapsedCount = 0;
+    for (const id of closure) {
+      const descendant = nodesById.get(id);
+      if (descendant && !SYNTHETIC_MARKER_TYPES.has(descendant.type)) collapsedCount += 1;
+    }
+    return {
+      ...node,
+      children: [],
+      collapsed: true,
+      collapsedCount
+    };
+  });
+  return {
+    edges: edges.filter((edge) => !removedIds.has(edge.from) && !removedIds.has(edge.to)),
+    nodes: resultNodes
+  };
+}
+function applyCatchHandling(params) {
+  const { edges, mode, nodes, startStateId } = params;
+  if (mode === "show") return {
+    edges,
+    nodes
+  };
+  const keptEdges = edges.filter((edge) => edge.type !== "error");
+  let reachableIds;
+  if (startStateId !== void 0) {
+    const adjacency = /* @__PURE__ */ new Map();
+    for (const edge of keptEdges) {
+      const targets = adjacency.get(edge.from);
+      if (targets) targets.push(edge.to);
+      else adjacency.set(edge.from, [edge.to]);
+    }
+    reachableIds = /* @__PURE__ */ new Set([startStateId]);
+    const queue = [startStateId];
+    while (queue.length > 0) {
+      const currentId = queue.shift();
+      for (const targetId of adjacency.get(currentId) ?? []) if (!reachableIds.has(targetId)) {
+        reachableIds.add(targetId);
+        queue.push(targetId);
+      }
+    }
+  } else {
+    reachableIds = /* @__PURE__ */ new Set();
+    for (const edge of keptEdges) {
+      reachableIds.add(edge.from);
+      reachableIds.add(edge.to);
+    }
+  }
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  for (const edge of keptEdges) {
+    const source = nodesById.get(edge.from);
+    if (source && MAP_IO_NODE_TYPES.has(source.type) && reachableIds.has(edge.to)) reachableIds.add(edge.from);
+  }
+  const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
+  const survivingIds = new Set(survivingNodes.map((node) => node.id));
+  return {
+    edges: keptEdges.filter((edge) => survivingIds.has(edge.from) && survivingIds.has(edge.to)),
+    nodes: survivingNodes
+  };
+}
+function assignEdgeIds(params) {
+  const { edges } = params;
+  const ordinals = /* @__PURE__ */ new Map();
+  return edges.map((edge) => {
+    const type = edge.type ?? "normal";
+    const pairKey = `${edge.from}->${edge.to}#${type}`;
+    const ordinal = ordinals.get(pairKey) ?? 0;
+    ordinals.set(pairKey, ordinal + 1);
+    return {
+      ...edge,
+      id: `${pairKey}#${ordinal}`
+    };
+  });
+}
 var AslValidationError = class extends Error {
   constructor(message) {
     super(message);
@@ -62598,7 +62733,7 @@ function parseAsl(params) {
     options
   });
   return {
-    edges,
+    edges: assignEdgeIds({ edges }),
     nodes
   };
 }
@@ -62979,127 +63114,6 @@ function extractNestedEdges(params) {
       });
     }
   }
-}
-var SYNTHETIC_MARKER_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
-function computeCollapsePlan(params) {
-  const { collapse, edges, nodes } = params;
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const containerIds = new Set(nodes.filter((node) => node.isContainer).map((node) => node.id));
-  const requestedTargets = !collapse ? /* @__PURE__ */ new Set() : collapse === true ? containerIds : new Set(collapse.filter((name) => containerIds.has(name)));
-  if (requestedTargets.size === 0) return {
-    effectiveTargets: requestedTargets,
-    hiddenIdsByTarget: /* @__PURE__ */ new Map(),
-    removedIds: /* @__PURE__ */ new Set()
-  };
-  const closureFor = (containerId) => {
-    const closure = /* @__PURE__ */ new Set();
-    const queue = [...nodesById.get(containerId)?.children ?? []];
-    while (queue.length > 0) {
-      const currentId = queue.shift();
-      if (closure.has(currentId)) continue;
-      closure.add(currentId);
-      const current = nodesById.get(currentId);
-      if (current?.isContainer) queue.push(...current.children ?? []);
-    }
-    return closure;
-  };
-  const hiddenIdsByTarget = /* @__PURE__ */ new Map();
-  const removedIds = /* @__PURE__ */ new Set();
-  for (const targetId of requestedTargets) {
-    const closure = closureFor(targetId);
-    hiddenIdsByTarget.set(targetId, closure);
-    for (const id of closure) removedIds.add(id);
-  }
-  for (const edge of edges) {
-    const fromNode = nodesById.get(edge.from);
-    const toNode = nodesById.get(edge.to);
-    if (fromNode && MAP_IO_NODE_TYPES.has(fromNode.type) && removedIds.has(edge.to)) removedIds.add(edge.from);
-    if (toNode && MAP_IO_NODE_TYPES.has(toNode.type) && removedIds.has(edge.from)) removedIds.add(edge.to);
-  }
-  return {
-    effectiveTargets: new Set([...requestedTargets].filter((targetId) => !removedIds.has(targetId))),
-    hiddenIdsByTarget,
-    removedIds
-  };
-}
-function applyCollapse(params) {
-  const { collapse, edges, nodes } = params;
-  if (!collapse) return {
-    edges,
-    nodes
-  };
-  const { effectiveTargets, hiddenIdsByTarget, removedIds } = computeCollapsePlan({
-    collapse,
-    edges,
-    nodes
-  });
-  if (effectiveTargets.size === 0) return {
-    edges,
-    nodes
-  };
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  const resultNodes = nodes.filter((node) => !removedIds.has(node.id)).map((node) => {
-    if (!effectiveTargets.has(node.id)) return node;
-    const closure = hiddenIdsByTarget.get(node.id);
-    let collapsedCount = 0;
-    for (const id of closure) {
-      const descendant = nodesById.get(id);
-      if (descendant && !SYNTHETIC_MARKER_TYPES.has(descendant.type)) collapsedCount += 1;
-    }
-    return {
-      ...node,
-      children: [],
-      collapsed: true,
-      collapsedCount
-    };
-  });
-  return {
-    edges: edges.filter((edge) => !removedIds.has(edge.from) && !removedIds.has(edge.to)),
-    nodes: resultNodes
-  };
-}
-function applyCatchHandling(params) {
-  const { edges, mode, nodes, startStateId } = params;
-  if (mode === "show") return {
-    edges,
-    nodes
-  };
-  const keptEdges = edges.filter((edge) => edge.type !== "error");
-  let reachableIds;
-  if (startStateId !== void 0) {
-    const adjacency = /* @__PURE__ */ new Map();
-    for (const edge of keptEdges) {
-      const targets = adjacency.get(edge.from);
-      if (targets) targets.push(edge.to);
-      else adjacency.set(edge.from, [edge.to]);
-    }
-    reachableIds = /* @__PURE__ */ new Set([startStateId]);
-    const queue = [startStateId];
-    while (queue.length > 0) {
-      const currentId = queue.shift();
-      for (const targetId of adjacency.get(currentId) ?? []) if (!reachableIds.has(targetId)) {
-        reachableIds.add(targetId);
-        queue.push(targetId);
-      }
-    }
-  } else {
-    reachableIds = /* @__PURE__ */ new Set();
-    for (const edge of keptEdges) {
-      reachableIds.add(edge.from);
-      reachableIds.add(edge.to);
-    }
-  }
-  const nodesById = new Map(nodes.map((node) => [node.id, node]));
-  for (const edge of keptEdges) {
-    const source = nodesById.get(edge.from);
-    if (source && MAP_IO_NODE_TYPES.has(source.type) && reachableIds.has(edge.to)) reachableIds.add(edge.from);
-  }
-  const survivingNodes = nodes.filter((node) => reachableIds.has(node.id));
-  const survivingIds = new Set(survivingNodes.map((node) => node.id));
-  return {
-    edges: keptEdges.filter((edge) => survivingIds.has(edge.from) && survivingIds.has(edge.to)),
-    nodes: survivingNodes
-  };
 }
 var NARROW = 0.3;
 var MEDIUM_NARROW = 0.4;

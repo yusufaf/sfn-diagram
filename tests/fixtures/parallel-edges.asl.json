@@ -1,0 +1,42 @@
+{
+    "Comment": "Edge shapes that collide on ${from}->${to}",
+    "StartAt": "Route",
+    "States": {
+        "Route": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.value",
+                    "NumericGreaterThan": 5,
+                    "Next": "Work"
+                },
+                {
+                    "Variable": "$.value",
+                    "NumericLessThan": 0,
+                    "Next": "Work"
+                }
+            ],
+            "Default": "Done"
+        },
+        "Work": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Retry": [
+                {
+                    "ErrorEquals": ["States.TaskFailed"],
+                    "MaxAttempts": 3
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Next": "Work"
+                }
+            ],
+            "Next": "Work"
+        },
+        "Done": {
+            "Type": "Succeed"
+        }
+    }
+}

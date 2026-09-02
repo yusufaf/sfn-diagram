@@ -7,6 +7,7 @@ import {
     generateMermaidExecution,
     parseExecutionHistory,
 } from '../src/index';
+import { parseAsl } from '../src/AslParser';
 import type { AslDefinition } from '../src/types';
 
 const loadAsl = (name: string): AslDefinition =>
@@ -212,6 +213,99 @@ describe('generateExecution (SVG overlay)', () => {
         });
         // Retry annotation appears on the node.
         expect(retried.svg).toContain('×3');
+    });
+});
+
+describe('caller-supplied override maps', () => {
+    it('keeps a caller nodeOverrides entry', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            nodeOverrides: { Start: { fill: '#123456' } },
+        });
+
+        expect(svg).toContain('#123456');
+    });
+
+    it('keeps a caller nodeAnnotations entry', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            nodeAnnotations: { Start: 'caller annotation' },
+        });
+
+        expect(svg).toContain('caller annotation');
+    });
+
+    it('keeps a caller edgeOverrides entry under a qualified key', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process#normal#0': { stroke: '#abcdef' } },
+        });
+
+        expect(svg).toContain('#abcdef');
+    });
+
+    it('keeps a caller edgeOverrides entry under a legacy bare key', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process': { stroke: '#abcdef' } },
+        });
+
+        expect(svg).toContain('#abcdef');
+    });
+
+    it('still styles the edges the caller did not name', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process': { stroke: '#abcdef' } },
+        });
+
+        // Process->End is untouched by the caller, so the overlay's taken styling
+        // must still be there. Inlined from TAKEN_EDGE_STYLE.stroke in src/execution.ts,
+        // which is module-private and not exported.
+        expect(svg).toContain('#2e7d32');
+    });
+});
+
+describe('retry self-loops in the overlay', () => {
+    it('assigns a Retry loop and a genuine self-transition distinct qualified ids', () => {
+        const { edges } = parseAsl({ definition: loadAsl('parallel-edges') });
+
+        const retryEdge = edges.find((edge) => edge.type === 'retry');
+        const selfTransition = edges.find(
+            (edge) => edge.from === 'Work' && edge.to === 'Work' && edge.type === 'normal',
+        );
+
+        expect(retryEdge?.id).toBe('Work->Work#retry#0');
+        expect(selfTransition?.id).toBe('Work->Work#normal#0');
+    });
+
+    it('dims a Retry loop in the rendered SVG even when the pair is genuinely taken', () => {
+        // parallel-edges.asl.json's Work state has a Retry self-loop, a Catch
+        // self-loop, and a genuine `Next: Work` self-transition, all sharing the
+        // `Work->Work` pair. Work's only real successors are itself (Next) and
+        // itself again (Catch) - there is no path out to Done - so
+        // execution-parallel-edges.json is a still-running execution: Work fails
+        // once (a real retry), succeeds, then genuinely re-enters itself via Next
+        // and is still open when the history ends. `Work->Work` legitimately lands
+        // in takenEdges. That must not paint the Retry loop itself as taken.
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('parallel-edges'),
+            history: loadHistoryJson('execution-parallel-edges'),
+        });
+
+        const retryPath = svg.match(/<path[^>]*marker-end="url\(#arrowhead-retry\)"[^>]*>/)?.[0];
+        expect(retryPath).toBeDefined();
+
+        // UNTAKEN_EDGE_STYLE in src/execution.ts is `{ strokeOpacity: 0.2 }`.
+        expect(retryPath).toContain('stroke-opacity="0.2"');
+        // TAKEN_EDGE_STYLE in src/execution.ts is `{ stroke: '#2e7d32', strokeWidth: 3 }`.
+        expect(retryPath).not.toContain('#2e7d32');
+        expect(retryPath).not.toContain('stroke-width="3"');
     });
 });
 

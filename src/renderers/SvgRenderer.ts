@@ -26,7 +26,7 @@ interface RenderNodeParams {
 }
 
 interface RenderEdgeParams {
-    edge: GraphEdge & { points?: Array<{ x: number; y: number }> };
+    edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
     group: SvgElement;
     nodes: StateNode[];
 }
@@ -634,9 +634,17 @@ export class SvgRenderer {
             ? this.buildSelfLoopPath(edge.points)
             : this.pathGenerator(edge.points) ?? '';
 
-        // Per-edge override (used by the execution overlay to emphasize the taken
-        // path and dim untaken transitions), keyed by `${from}->${to}`.
-        const override = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        // Per-edge override (used by the execution overlay to emphasize the taken path
+        // and dim untaken transitions). Two key shapes are accepted: the qualified
+        // `edge.id`, and the legacy bare `${from}->${to}`, which broad-matches every
+        // edge of that pair. The qualified key is merged on top, field by field, so a
+        // caller can set a pair-wide width and still restyle one branch's stroke.
+        const broadOverride = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        const exactOverride = this.options.edgeOverrides?.[edge.id];
+        const override =
+            broadOverride || exactOverride
+                ? { ...broadOverride, ...exactOverride }
+                : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
 
@@ -714,7 +722,7 @@ export class SvgRenderer {
      * spot clear of neighbouring nodes if the default placement would land on one.
      */
     private edgeLabelCenter(
-        edge: GraphEdge & { points?: Array<{ x: number; y: number }> },
+        edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> },
         nodes: StateNode[] = [],
     ): { x: number; y: number } {
         const points = edge.points ?? [];
@@ -733,9 +741,17 @@ export class SvgRenderer {
      * If that would overlap another node - a tight nodesep can leave less room than
      * the loop needs - the label is stacked on the loop's other axis instead, staying
      * over the looping node's own footprint rather than reaching toward a neighbour.
+     *
+     * Nested loops on the same node all bulge along the same axis and land on the same
+     * peak coordinate along that axis, so without further adjustment their labels would
+     * sit exactly on top of one another. `edge.loopIndex` (stamped by DagreLayout for
+     * self-loops) staggers each loop's label one step further along the axis
+     * *perpendicular* to the bulge, so nested loops fan their labels apart the same way
+     * they fan their arcs. Index 0 gets a zero offset, so a node with exactly one loop
+     * renders in exactly the same place as before loopIndex existed.
      */
     private selfLoopLabelCenter(params: {
-        edge: GraphEdge;
+        edge: GraphEdge & { loopIndex?: number };
         nodes: StateNode[];
         points: Array<{ x: number; y: number }>;
     }): { x: number; y: number } {
@@ -745,6 +761,7 @@ export class SvgRenderer {
         const { width: labelWidth, height: labelHeight } = this.calculateLabelDimensions(
             edge.label ?? '',
         );
+        const loopIndex = edge.loopIndex ?? 0;
 
         // Point actually on the drawn curve at t=0.5. Both Bezier control points are
         // `apex` (see buildSelfLoopPath), so B(0.5) = 0.125*entry + 0.75*apex + 0.125*exit.
@@ -758,8 +775,8 @@ export class SvgRenderer {
         const bulgesHorizontally = Math.abs(apex.x - entry.x) >= Math.abs(apex.y - entry.y);
 
         const primary = bulgesHorizontally
-            ? { x: peak.x + gap + labelWidth / 2, y: peak.y }
-            : { x: peak.x, y: peak.y - gap - labelHeight / 2 };
+            ? { x: peak.x + gap + labelWidth / 2, y: peak.y + loopIndex * (labelHeight + gap) }
+            : { x: peak.x + loopIndex * (labelWidth + gap), y: peak.y - gap - labelHeight / 2 };
 
         const otherNodes = nodes.filter((node) => node.id !== edge.from);
         if (!this.rectOverlapsAnyNode({ height: labelHeight, width: labelWidth, ...primary }, otherNodes)) {
@@ -768,13 +785,20 @@ export class SvgRenderer {
 
         const loopingNode = nodes.find((node) => node.id === edge.from);
         if (bulgesHorizontally) {
-            // Stack below the node itself instead of reaching to the right.
+            // Stack below the node itself instead of reaching to the right, staggering
+            // outward per loopIndex the same way the primary placement does.
             const centerX = loopingNode?.x ?? peak.x;
             const bottomY = (loopingNode?.y ?? peak.y) + (loopingNode?.height || 0) / 2;
-            return { x: centerX, y: bottomY + gap + labelHeight / 2 };
+            return {
+                x: centerX,
+                y: bottomY + gap + labelHeight / 2 + loopIndex * (labelHeight + gap),
+            };
         }
         // Vertical loop: fall back to the side instead of reaching further upward.
-        return { x: peak.x + gap + labelWidth / 2, y: peak.y };
+        return {
+            x: peak.x + gap + labelWidth / 2 + loopIndex * (labelWidth + gap),
+            y: peak.y,
+        };
     }
 
     /** Axis-aligned rect-vs-node-box overlap test used for self-loop label placement. */

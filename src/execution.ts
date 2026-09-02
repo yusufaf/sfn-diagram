@@ -357,6 +357,16 @@ function computeOverlay(history: ExecutionHistoryInput): ExecutionOverlay {
  * @param params - Any additional {@link DiagramOptions}
  * @returns {@link ExecutionOutput} with SVG markup and a per-status summary
  *
+ * @remarks
+ * A caller-supplied `edgeOverrides` / `nodeAnnotations` / `nodeOverrides` entry wins
+ * over the overlay's computed value for that same key; every key the caller does not
+ * name keeps the overlay's styling. A legacy bare `${from}->${to}` edge key claims
+ * every edge between that pair, suppressing the overlay's own styling for all of them.
+ *
+ * Execution history records transitions as `{ from, to }` only, so two Choice rules
+ * sharing a `Next` are both highlighted when either fires. `Retry` self-loops are
+ * never highlighted — retries emit no transition event.
+ *
  * @example
  * ```typescript
  * import { generateExecution } from 'sfn-diagram';
@@ -364,7 +374,14 @@ function computeOverlay(history: ExecutionHistoryInput): ExecutionOverlay {
  * ```
  */
 export function generateExecution(params: GenerateExecutionParams): ExecutionOutput {
-    const { aslDefinition, history, ...options } = params;
+    const {
+        aslDefinition,
+        edgeOverrides: callerEdgeOverrides,
+        history,
+        nodeAnnotations: callerNodeAnnotations,
+        nodeOverrides: callerNodeOverrides,
+        ...options
+    } = params;
     const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
     const overlay = computeOverlay(history);
     const mergedOptions = mergeOptions(options);
@@ -384,15 +401,45 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
         }
     }
 
-    // Edge emphasis: taken transitions highlighted, the rest dimmed.
+    // Edge emphasis: taken transitions highlighted, the rest dimmed. Keyed by
+    // `edge.id` so two edges sharing a from/to pair can be styled apart.
+    //
+    // Taken-ness is matched on the pair, because execution history records only
+    // `{ from, to }` — it never says which Choice rule fired. `retry` edges are
+    // excluded outright: a Retry attempt emits no transition event, so a highlighted
+    // retry loop could only ever be a genuine self-transition bleeding across.
+    // Retry activity is surfaced through the per-state attempt count instead.
+    //
+    // A caller who supplied a legacy bare `${from}->${to}` key owns that whole pair:
+    // the renderer merges a qualified key on top of a bare one, so emitting our own
+    // qualified entry for those edges would silently outrank the caller. A key is
+    // "bare" here by membership in the graph's actual pair keys, not by the mere
+    // absence of `#` - a state name containing `#` would otherwise defeat a
+    // structural `!key.includes('#')` check, silently reintroducing #79 for callers
+    // whose state names happen to contain that character.
+    const pairKeys = new Set(edges.map((edge) => `${edge.from}->${edge.to}`));
+    const callerBarePairs = new Set(
+        Object.keys(callerEdgeOverrides ?? {}).filter((key) => pairKeys.has(key)),
+    );
     const takenKeys = new Set(overlay.takenEdges.map((edge) => `${edge.from}->${edge.to}`));
     const edgeOverrides: Record<string, EdgeStyleOverride> = {};
     for (const edge of edges) {
-        const key = `${edge.from}->${edge.to}`;
-        edgeOverrides[key] = takenKeys.has(key) ? TAKEN_EDGE_STYLE : UNTAKEN_EDGE_STYLE;
+        const pairKey = `${edge.from}->${edge.to}`;
+        if (callerBarePairs.has(pairKey)) {
+            continue;
+        }
+        const isTaken = edge.type !== 'retry' && takenKeys.has(pairKey);
+        edgeOverrides[edge.id] = isTaken ? TAKEN_EDGE_STYLE : UNTAKEN_EDGE_STYLE;
     }
 
-    const renderOptions = { ...mergedOptions, edgeOverrides, nodeAnnotations, nodeOverrides };
+    // Caller-supplied entries win per key, matching generateDiff. Merging rather than
+    // replacing keeps the overlay's styling for every key the caller did not name.
+    const renderOptions = {
+        ...mergedOptions,
+        edgeOverrides: { ...edgeOverrides, ...callerEdgeOverrides },
+        nodeAnnotations: { ...nodeAnnotations, ...callerNodeAnnotations },
+        nodeOverrides: { ...nodeOverrides, ...callerNodeOverrides },
+    };
     const layout = new DagreLayout(renderOptions);
     const positioned = layout.calculate(nodes, edges);
     const svgOutput = new SvgRenderer(renderOptions).render(positioned);
