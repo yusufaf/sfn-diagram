@@ -634,9 +634,17 @@ export class SvgRenderer {
             ? this.buildSelfLoopPath(edge.points)
             : this.pathGenerator(edge.points) ?? '';
 
-        // Per-edge override (used by the execution overlay to emphasize the taken
-        // path and dim untaken transitions), keyed by `${from}->${to}`.
-        const override = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        // Per-edge override (used by the execution overlay to emphasize the taken path
+        // and dim untaken transitions). Two key shapes are accepted: the qualified
+        // `edge.id`, and the legacy bare `${from}->${to}`, which broad-matches every
+        // edge of that pair. The qualified key is merged on top, field by field, so a
+        // caller can set a pair-wide width and still restyle one branch's stroke.
+        const broadOverride = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        const exactOverride = this.options.edgeOverrides?.[edge.id];
+        const override =
+            broadOverride || exactOverride
+                ? { ...broadOverride, ...exactOverride }
+                : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
 

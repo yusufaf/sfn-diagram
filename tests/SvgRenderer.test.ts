@@ -5,7 +5,7 @@ import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition, GraphEdge, StateNode } from '../src/types';
+import type { AslDefinition, EdgeStyleOverride, GraphEdge, StateNode } from '../src/types';
 import type { LayoutResult } from '../src/layout/DagreLayout';
 
 const loadFixture = (name: string): AslDefinition => {
@@ -369,6 +369,43 @@ describe('SvgRenderer', () => {
             const result = renderer.render(positioned);
 
             expect(result.metadata.edgeCount).toBe(2);
+        });
+    });
+
+    describe('edgeOverrides key resolution', () => {
+        const renderFixture = (edgeOverrides: Record<string, EdgeStyleOverride>): string => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            return new SvgRenderer({ edgeOverrides }).render(positioned).svg;
+        };
+
+        it('applies a qualified key to one edge only', () => {
+            const svg = renderFixture({
+                'Route->Work#choice#0': { stroke: '#ff0000' },
+            });
+
+            expect(svg.match(/stroke="#ff0000"/g) ?? []).toHaveLength(1);
+        });
+
+        it('applies a bare legacy key to every edge of the pair', () => {
+            const svg = renderFixture({
+                'Route->Work': { stroke: '#00ff00' },
+            });
+
+            expect(svg.match(/stroke="#00ff00"/g) ?? []).toHaveLength(2);
+        });
+
+        it('lets a qualified key win over a bare key, merging field-wise', () => {
+            const svg = renderFixture({
+                'Route->Work': { stroke: '#00ff00', strokeWidth: 7 },
+                'Route->Work#choice#1': { stroke: '#0000ff' },
+            });
+
+            // The qualified key overrides only `stroke`; `strokeWidth` still comes
+            // from the bare key.
+            expect(svg).toContain('stroke="#0000ff"');
+            expect(svg.match(/stroke-width="7"/g) ?? []).toHaveLength(2);
+            expect(svg.match(/stroke="#00ff00"/g) ?? []).toHaveLength(1);
         });
     });
 });

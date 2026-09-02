@@ -401,9 +401,25 @@ export interface DiagramOptions {
     nodeOverrides?: Record<string, Partial<NodeStyle>>;
 
     /**
-     * Per-edge style overrides keyed by `${from}->${to}`.
-     * Merged on top of the edge's computed style — only specified fields are overridden.
-     * Used by the execution overlay to highlight taken transitions and dim untaken ones.
+     * Per-edge style overrides. Merged on top of the edge's computed style — only
+     * specified fields are overridden. Used by the execution overlay to highlight
+     * taken transitions and dim untaken ones.
+     *
+     * Two key shapes are accepted:
+     * - `GraphEdge.id` — `${from}->${to}#${type}#${ordinal}`, e.g. `Route->Work#choice#1`.
+     *   Targets exactly one edge. Prefer this.
+     * - `${from}->${to}` — legacy, broad-matches *every* edge between that pair. Kept
+     *   for backwards compatibility through 1.x; removal is deferred to 2.0.
+     *
+     * When both match an edge, the qualified key is merged on top of the bare one.
+     *
+     * @example
+     * ```typescript
+     * {
+     *     'Route->Work': { strokeWidth: 2 },            // both branches
+     *     'Route->Work#choice#1': { stroke: '#d13212' }, // only the second rule
+     * }
+     * ```
      */
     edgeOverrides?: Record<string, EdgeStyleOverride>;
 
