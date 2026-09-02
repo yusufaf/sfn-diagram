@@ -7,6 +7,7 @@ import {
     generateMermaidExecution,
     parseExecutionHistory,
 } from '../src/index';
+import { parseAsl } from '../src/AslParser';
 import type { AslDefinition } from '../src/types';
 
 const loadAsl = (name: string): AslDefinition =>
@@ -212,6 +213,75 @@ describe('generateExecution (SVG overlay)', () => {
         });
         // Retry annotation appears on the node.
         expect(retried.svg).toContain('×3');
+    });
+});
+
+describe('caller-supplied override maps', () => {
+    it('keeps a caller nodeOverrides entry', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            nodeOverrides: { Start: { fill: '#123456' } },
+        });
+
+        expect(svg).toContain('#123456');
+    });
+
+    it('keeps a caller nodeAnnotations entry', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            nodeAnnotations: { Start: 'caller annotation' },
+        });
+
+        expect(svg).toContain('caller annotation');
+    });
+
+    it('keeps a caller edgeOverrides entry under a qualified key', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process#normal#0': { stroke: '#abcdef' } },
+        });
+
+        expect(svg).toContain('#abcdef');
+    });
+
+    it('keeps a caller edgeOverrides entry under a legacy bare key', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process': { stroke: '#abcdef' } },
+        });
+
+        expect(svg).toContain('#abcdef');
+    });
+
+    it('still styles the edges the caller did not name', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: loadHistoryJson('execution-success'),
+            edgeOverrides: { 'Start->Process': { stroke: '#abcdef' } },
+        });
+
+        // Process->End is untouched by the caller, so the overlay's taken styling
+        // must still be there. Inlined from TAKEN_EDGE_STYLE.stroke in src/execution.ts,
+        // which is module-private and not exported.
+        expect(svg).toContain('#2e7d32');
+    });
+});
+
+describe('retry self-loops in the overlay', () => {
+    it('dims a Retry loop while highlighting a genuine self-transition', () => {
+        const { edges } = parseAsl({ definition: loadAsl('parallel-edges') });
+
+        const retryEdge = edges.find((edge) => edge.type === 'retry');
+        const selfTransition = edges.find(
+            (edge) => edge.from === 'Work' && edge.to === 'Work' && edge.type === 'normal',
+        );
+
+        expect(retryEdge?.id).toBe('Work->Work#retry#0');
+        expect(selfTransition?.id).toBe('Work->Work#normal#0');
     });
 });
 
