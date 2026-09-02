@@ -181,6 +181,11 @@ export interface GraphEdge {
      * `${from}->${to}#${type}#${ordinal}` — e.g. `Route->Work#choice#1`.
      * Assigned once by `parseAsl` and never renumbered, so it stays valid as a
      * `DiagramOptions.edgeOverrides` key even after a collapse removes sibling edges.
+     * That stability is against graph *transforms*, not against ASL *edits*: the
+     * `ordinal` segment is assigned in parser order, so inserting a new Choice rule
+     * ahead of an existing one that shares the same `Next` shifts the existing rule's
+     * ordinal — and therefore its id. A caller hand-writing `edgeOverrides` keys
+     * should expect them to need updating when the ASL's rule order changes.
      */
     id: string;
     label?: string;
