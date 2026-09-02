@@ -9,7 +9,9 @@ const LOOP_BASE_SPREAD = 12;
 const LOOP_SPREAD_STEP = 5;
 
 export interface LayoutResult {
-    edges: Array<GraphEdge & { points?: Array<{ x: number; y: number }> }>; // With points for routing
+    // With points for routing; loopIndex is set only for self-loops, so the renderer
+    // can stagger nested loops' labels apart without inverting layout geometry.
+    edges: Array<GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> }>;
     nodes: StateNode[]; // With x, y, width, height populated
     graph: {
         height: number;
@@ -186,9 +188,11 @@ export class DagreLayout {
 
             // Visual-only edges, any edge touching a container, and self-loops (never
             // added to the dagre graph — see the edge filter above) are routed manually.
-            if (edge.visualOnly || touchesContainer || edge.from === edge.to) {
+            const isSelfLoop = edge.from === edge.to;
+            if (edge.visualOnly || touchesContainer || isSelfLoop) {
                 return {
                     ...edge,
+                    ...(isSelfLoop ? { loopIndex: loopIndexById.get(edge.id) ?? 0 } : {}),
                     points: this.calculateVisualEdgePoints({
                         edge,
                         loopIndex: loopIndexById.get(edge.id) ?? 0,

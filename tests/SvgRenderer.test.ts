@@ -211,13 +211,45 @@ describe('SvgRenderer', () => {
             ],
         });
 
+        const extractLabelRects = (
+            svg: string,
+        ): Array<{ x: number; y: number; width: number; height: number }> =>
+            [...svg.matchAll(/<rect ([^>]*stroke-width="0\.5"[^>]*)>/g)].map((rectMatch) => {
+                const attrs = rectMatch[1];
+                const attr = (name: string): number =>
+                    Number(attrs.match(new RegExp(`${name}="([\\d.-]+)"`))![1]);
+                return { x: attr('x'), y: attr('y'), width: attr('width'), height: attr('height') };
+            });
+
         const extractLabelRect = (svg: string): { x: number; y: number; width: number; height: number } => {
-            const rectMatch = svg.match(/<rect ([^>]*stroke-width="0\.5"[^>]*)>/);
-            expect(rectMatch).not.toBeNull();
-            const attrs = rectMatch![1];
-            const attr = (name: string): number =>
-                Number(attrs.match(new RegExp(`${name}="([\\d.-]+)"`))![1]);
-            return { x: attr('x'), y: attr('y'), width: attr('width'), height: attr('height') };
+            const rects = extractLabelRects(svg);
+            expect(rects.length).toBeGreaterThan(0);
+            return rects[0];
+        };
+
+        // Nested self-loops on the same node, matching DagreLayout's loop geometry
+        // formula (calculateVisualEdgePoints) for loopIndex 0, 1, 2 on a node at
+        // x=80,y=160,width=120 (rightX=140).
+        const nestedSelfLoopEdge = (params: {
+            label: string;
+            loopIndex: number;
+        }): GraphEdge & { loopIndex: number; points: Array<{ x: number; y: number }> } => {
+            const { label, loopIndex } = params;
+            const loopReach = 40 + loopIndex * 22;
+            const loopSpread = 12 + loopIndex * 5;
+            return {
+                from: 'Poll',
+                id: `Poll->Poll#choice#${loopIndex}`,
+                to: 'Poll',
+                type: 'choice',
+                label,
+                loopIndex,
+                points: [
+                    { x: 140, y: 160 - loopSpread },
+                    { x: 140 + loopReach, y: 160 },
+                    { x: 140, y: 160 + loopSpread },
+                ],
+            };
         };
 
         const rectsOverlap = (
@@ -261,6 +293,28 @@ describe('SvgRenderer', () => {
             const neighborBox = { x: 190, y: 130, width: 120, height: 60 };
 
             expect(rectsOverlap(labelRect, neighborBox)).toBe(false);
+        });
+
+        it('staggers nested self-loop labels so they do not overlap one another', () => {
+            const layout: LayoutResult = {
+                nodes: [pollNode()],
+                edges: [
+                    nestedSelfLoopEdge({ label: 'loop zero', loopIndex: 0 }),
+                    nestedSelfLoopEdge({ label: 'a somewhat longer loop one label', loopIndex: 1 }),
+                    nestedSelfLoopEdge({ label: 'loop two', loopIndex: 2 }),
+                ],
+                graph: { height: 400, width: 800 },
+            };
+
+            const result = new SvgRenderer({}).render(layout);
+            const labelRects = extractLabelRects(result.svg);
+
+            expect(labelRects).toHaveLength(3);
+            for (let first = 0; first < labelRects.length; first++) {
+                for (let second = first + 1; second < labelRects.length; second++) {
+                    expect(rectsOverlap(labelRects[first], labelRects[second])).toBe(false);
+                }
+            }
         });
     });
 
