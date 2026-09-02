@@ -179,6 +179,25 @@ describe('DagreLayout', () => {
             // Nodes should be spaced according to nodeSeparation
         });
     });
+
+    describe('parallel edges', () => {
+        it('routes two edges sharing from/to along different paths', () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const layout = new DagreLayout({});
+
+            const result = layout.calculate(nodes, edges);
+
+            const routeToWork = result.edges.filter(
+                (edge) => edge.from === 'Route' && edge.to === 'Work',
+            );
+
+            expect(routeToWork).toHaveLength(2);
+            expect(routeToWork[0].points).not.toEqual(routeToWork[1].points);
+            for (const edge of routeToWork) {
+                expect(edge.points?.length ?? 0).toBeGreaterThan(0);
+            }
+        });
+    });
 });
 
 describe('DagreLayout with collapsed containers', () => {

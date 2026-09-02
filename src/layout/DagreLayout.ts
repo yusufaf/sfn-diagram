@@ -25,7 +25,7 @@ export class DagreLayout {
      * Calculate layout positions for nodes and edges
      */
     calculate(nodes: StateNode[], edges: GraphEdge[]): LayoutResult {
-        const graph = new dagre.graphlib.Graph();
+        const graph = new dagre.graphlib.Graph({ multigraph: true });
 
         // Configure graph layout
         graph.setGraph({
@@ -103,7 +103,12 @@ export class DagreLayout {
                     // source->container edge would make dagre create a dimensionless phantom
                     // node and emit NaN routing points, so redirect onto the entry children.
                     for (const child of entryChildrenByContainer.get(edge.to) ?? []) {
-                        graph.setEdge(edge.from, child, { label: edge.label, type: edge.type });
+                        graph.setEdge(
+                            edge.from,
+                            child,
+                            { label: edge.label, type: edge.type },
+                            `${edge.id}#entry#${child}`,
+                        );
                     }
                     return;
                 }
@@ -112,10 +117,12 @@ export class DagreLayout {
                     return;
                 }
 
-                graph.setEdge(edge.from, edge.to, {
-                    label: edge.label,
-                    type: edge.type,
-                });
+                graph.setEdge(
+                    edge.from,
+                    edge.to,
+                    { label: edge.label, type: edge.type },
+                    edge.id,
+                );
             });
 
         // Run layout algorithm
@@ -170,7 +177,7 @@ export class DagreLayout {
                 };
             }
 
-            const dagEdge = graph.edge(edge.from, edge.to);
+            const dagEdge = graph.edge(edge.from, edge.to, edge.id);
             return {
                 ...edge,
                 points: dagEdge?.points ?? [], // Array of {x, y} for routing
