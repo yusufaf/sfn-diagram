@@ -172,6 +172,13 @@ describe('SvgRenderer', () => {
             // instead of being silently dropped for having zero points.
             expect(result.svg).toMatch(/C ([\d.-]+),([\d.-]+) \1,\2 /);
         });
+
+        it('renders the parallel-edges fixture', () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+
+            expect(new SvgRenderer({}).render(positioned).svg).toMatchSnapshot();
+        });
     });
 
     describe('Self-loop label placement', () => {
