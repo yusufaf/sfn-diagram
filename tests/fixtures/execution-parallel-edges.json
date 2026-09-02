@@ -11,13 +11,6 @@
     { "id": 9, "previousEventId": 8, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.500Z" },
     { "id": 10, "previousEventId": 9, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:00.700Z" },
     { "id": 11, "previousEventId": 10, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:00.750Z", "stateExitedEventDetails": { "name": "Work" } },
-    { "id": 12, "previousEventId": 11, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.800Z", "stateEnteredEventDetails": { "name": "Work" } },
-    { "id": 13, "previousEventId": 12, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.810Z" },
-    { "id": 14, "previousEventId": 13, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.900Z" },
-    { "id": 15, "previousEventId": 14, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:01.000Z" },
-    { "id": 16, "previousEventId": 15, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:01.050Z", "stateExitedEventDetails": { "name": "Work" } },
-    { "id": 17, "previousEventId": 16, "type": "SucceedStateEntered", "timestamp": "2024-01-01T00:00:01.100Z", "stateEnteredEventDetails": { "name": "Done" } },
-    { "id": 18, "previousEventId": 17, "type": "SucceedStateExited", "timestamp": "2024-01-01T00:00:01.110Z", "stateExitedEventDetails": { "name": "Done" } },
-    { "id": 19, "previousEventId": 18, "type": "ExecutionSucceeded", "timestamp": "2024-01-01T00:00:01.120Z" }
+    { "id": 12, "previousEventId": 11, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.800Z", "stateEnteredEventDetails": { "name": "Work" } }
   ]
 }
