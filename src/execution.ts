@@ -412,9 +412,14 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
     //
     // A caller who supplied a legacy bare `${from}->${to}` key owns that whole pair:
     // the renderer merges a qualified key on top of a bare one, so emitting our own
-    // qualified entry for those edges would silently outrank the caller.
+    // qualified entry for those edges would silently outrank the caller. A key is
+    // "bare" here by membership in the graph's actual pair keys, not by the mere
+    // absence of `#` - a state name containing `#` would otherwise defeat a
+    // structural `!key.includes('#')` check, silently reintroducing #79 for callers
+    // whose state names happen to contain that character.
+    const pairKeys = new Set(edges.map((edge) => `${edge.from}->${edge.to}`));
     const callerBarePairs = new Set(
-        Object.keys(callerEdgeOverrides ?? {}).filter((key) => !key.includes('#')),
+        Object.keys(callerEdgeOverrides ?? {}).filter((key) => pairKeys.has(key)),
     );
     const takenKeys = new Set(overlay.takenEdges.map((edge) => `${edge.from}->${edge.to}`));
     const edgeOverrides: Record<string, EdgeStyleOverride> = {};
