@@ -67,6 +67,11 @@ export const VIEWER_CONTROLLER_BUNDLE = ${JSON.stringify(body)};
 
 const relativeOutputPath = path.relative(process.cwd(), outputPath);
 
+// Line endings are not part of what this check is about: git checks the committed LF
+// file out as CRLF wherever core.autocrlf is on, which would otherwise report a stale
+// bundle on every Windows clone even with the source untouched.
+const withoutCarriageReturns = (contents) => contents.replace(/\r\n/g, '\n');
+
 if (process.argv.includes('--check')) {
     let existing = '';
     try {
@@ -74,7 +79,7 @@ if (process.argv.includes('--check')) {
     } catch {
         // Falls through to the mismatch report below - a missing file fails the same way.
     }
-    if (existing !== fileContents) {
+    if (withoutCarriageReturns(existing) !== withoutCarriageReturns(fileContents)) {
         console.error(
             `build-viewer-script: ${relativeOutputPath} is stale - run ` +
                 '`pnpm run build:viewer-script` and commit the result.',
