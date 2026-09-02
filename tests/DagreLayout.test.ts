@@ -198,7 +198,7 @@ describe('DagreLayout', () => {
             }
         });
 
-        it('fans three self-loops on one node into distinct arcs', () => {
+        it('fans three self-loops on one node into distinct, monotonically nested arcs', () => {
             const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
             const layout = new DagreLayout({});
 
@@ -212,19 +212,39 @@ describe('DagreLayout', () => {
 
             const apexes = selfLoops.map((edge) => JSON.stringify(edge.points?.[1]));
             expect(new Set(apexes).size).toBe(3);
+
+            // Each additional loop must nest strictly further out (to the right, for the
+            // default right-hand loop), not merely land somewhere different - a
+            // non-monotonic loopIndex bug would still pass a bare distinctness check.
+            const workNode = result.nodes.find((node) => node.id === 'Work')!;
+            const rightX = (workNode.x || 0) + (workNode.width || 0) / 2;
+            const apexOffsets = selfLoops.map((edge) => (edge.points?.[1]?.x ?? 0) - rightX);
+            for (let index = 1; index < apexOffsets.length; index++) {
+                expect(apexOffsets[index]).toBeGreaterThan(apexOffsets[index - 1]);
+            }
         });
 
-        it('fans self-loops in the LR layout too', () => {
+        it('fans self-loops in the LR layout too, nesting monotonically outward', () => {
             const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
             const layout = new DagreLayout({ layout: 'LR' });
 
             const result = layout.calculate(nodes, edges);
 
-            const apexes = result.edges
-                .filter((edge) => edge.from === 'Work' && edge.to === 'Work')
-                .map((edge) => JSON.stringify(edge.points?.[1]));
+            const selfLoops = result.edges.filter(
+                (edge) => edge.from === 'Work' && edge.to === 'Work',
+            );
 
+            const apexes = selfLoops.map((edge) => JSON.stringify(edge.points?.[1]));
             expect(new Set(apexes).size).toBe(3);
+
+            // The LR loop bulges off the top of the node, so nesting further out means a
+            // strictly growing distance above the node - i.e. a strictly decreasing apex y.
+            const workNode = result.nodes.find((node) => node.id === 'Work')!;
+            const topY = (workNode.y || 0) - (workNode.height || 0) / 2;
+            const apexOffsets = selfLoops.map((edge) => topY - (edge.points?.[1]?.y ?? 0));
+            for (let index = 1; index < apexOffsets.length; index++) {
+                expect(apexOffsets[index]).toBeGreaterThan(apexOffsets[index - 1]);
+            }
         });
     });
 });
