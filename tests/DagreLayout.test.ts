@@ -34,8 +34,8 @@ describe('DagreLayout', () => {
     ];
 
     const createTestEdges = (): GraphEdge[] => [
-        { from: 'Start', to: 'Process', type: 'normal' },
-        { from: 'Process', to: 'End', type: 'normal' },
+        { from: 'Start', id: 'Start->Process#normal#0', to: 'Process', type: 'normal' },
+        { from: 'Process', id: 'Process->End#normal#0', to: 'End', type: 'normal' },
     ];
 
     describe('Layout calculation', () => {

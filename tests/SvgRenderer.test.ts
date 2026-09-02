@@ -191,6 +191,7 @@ describe('SvgRenderer', () => {
 
         const selfLoopEdge = (): GraphEdge & { points: Array<{ x: number; y: number }> } => ({
             from: 'Poll',
+            id: 'Poll->Poll#choice#0',
             to: 'Poll',
             type: 'choice',
             label: "$.status == 'PENDING'",

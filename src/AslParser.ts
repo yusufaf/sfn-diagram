@@ -2,6 +2,8 @@ import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBl
 import { getNodeStyle } from './styles/NodeStyles';
 import { EDGE_LABELS, getCatchLabel, getRetryLabel } from './constants';
 import { detectService, detectServiceFromResource } from './services';
+import { assignEdgeIds } from './graph';
+import type { RawEdge } from './graph';
 
 /**
  * Error thrown when ASL validation fails
@@ -226,7 +228,7 @@ interface ParseAslParams {
 export function parseAsl(params: ParseAslParams): ParseResult {
     const { definition, options } = params;
     const nodes: StateNode[] = [];
-    const edges: GraphEdge[] = [];
+    const edges: RawEdge[] = [];
 
     // Validate ASL definition before parsing
     validateAsl({ definition });
@@ -251,7 +253,7 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     // Extract edges from nested states (Parallel branches, Map iterators)
     extractNestedEdges({ definition, edges, options });
 
-    return { edges, nodes };
+    return { edges: assignEdgeIds({ edges }), nodes };
 }
 
 function createStateNode(params: CreateStateNodeParams): StateNode {
@@ -313,9 +315,9 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     return baseNode;
 }
 
-function extractEdgesFromState(params: ExtractEdgesFromStateParams): GraphEdge[] {
+function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
     const { catchLabelStyle, state, stateName } = params;
-    const edges: GraphEdge[] = [];
+    const edges: RawEdge[] = [];
 
     // Connect Distributed Map I/O satellites: the ItemReader feeds the Map, and
     // the Map feeds the ResultWriter.
@@ -742,7 +744,7 @@ interface ExtractNestedEdgesParams {
     /** ASL definition to extract nested edges from */
     definition: AslDefinition;
     /** Array to accumulate extracted edges into */
-    edges: GraphEdge[];
+    edges: RawEdge[];
     /** Diagram generation options */
     options?: DiagramOptions;
 }

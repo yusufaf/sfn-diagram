@@ -176,6 +176,13 @@ export type DiffStatus = 'added' | 'modified' | 'removed';
 export interface GraphEdge {
     condition?: string;
     from: string;
+    /**
+     * Stable identity for this edge, unique across the whole graph:
+     * `${from}->${to}#${type}#${ordinal}` — e.g. `Route->Work#choice#1`.
+     * Assigned once by `parseAsl` and never renumbered, so it stays valid as a
+     * `DiagramOptions.edgeOverrides` key even after a collapse removes sibling edges.
+     */
+    id: string;
     label?: string;
     to: string;
     type?: EdgeType;
