@@ -197,6 +197,35 @@ describe('DagreLayout', () => {
                 expect(edge.points?.length ?? 0).toBeGreaterThan(0);
             }
         });
+
+        it('fans three self-loops on one node into distinct arcs', () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const layout = new DagreLayout({});
+
+            const result = layout.calculate(nodes, edges);
+
+            const selfLoops = result.edges.filter(
+                (edge) => edge.from === 'Work' && edge.to === 'Work',
+            );
+
+            expect(selfLoops).toHaveLength(3);
+
+            const apexes = selfLoops.map((edge) => JSON.stringify(edge.points?.[1]));
+            expect(new Set(apexes).size).toBe(3);
+        });
+
+        it('fans self-loops in the LR layout too', () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('parallel-edges') });
+            const layout = new DagreLayout({ layout: 'LR' });
+
+            const result = layout.calculate(nodes, edges);
+
+            const apexes = result.edges
+                .filter((edge) => edge.from === 'Work' && edge.to === 'Work')
+                .map((edge) => JSON.stringify(edge.points?.[1]));
+
+            expect(new Set(apexes).size).toBe(3);
+        });
     });
 });
 

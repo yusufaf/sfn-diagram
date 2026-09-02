@@ -2,6 +2,12 @@ import dagre from '@dagrejs/dagre';
 import { isOpenContainer } from '../graph';
 import type { StateNode, GraphEdge, DiagramOptions } from '../types';
 
+/** Self-loop arc geometry. Each additional loop on a node nests one step further out. */
+const LOOP_BASE_REACH = 40;
+const LOOP_REACH_STEP = 22;
+const LOOP_BASE_SPREAD = 12;
+const LOOP_SPREAD_STEP = 5;
+
 export interface LayoutResult {
     edges: Array<GraphEdge & { points?: Array<{ x: number; y: number }> }>; // With points for routing
     nodes: StateNode[]; // With x, y, width, height populated
@@ -157,6 +163,19 @@ export class DagreLayout {
             allPositionedNodes.map((node) => [node.id, node]),
         );
 
+        // Self-loops are routed manually from the node's own geometry, so without a
+        // per-node index N loops on one state would draw N identical stacked arcs.
+        const loopIndexById = new Map<string, number>();
+        const loopCountByNode = new Map<string, number>();
+        for (const edge of edges) {
+            if (edge.from !== edge.to) {
+                continue;
+            }
+            const loopIndex = loopCountByNode.get(edge.from) ?? 0;
+            loopIndexById.set(edge.id, loopIndex);
+            loopCountByNode.set(edge.from, loopIndex + 1);
+        }
+
         // Extract edge routing points
         const routedEdges = edges.map((edge) => {
             const fromNode = positionedNodesById.get(edge.from);
@@ -172,6 +191,7 @@ export class DagreLayout {
                     ...edge,
                     points: this.calculateVisualEdgePoints({
                         edge,
+                        loopIndex: loopIndexById.get(edge.id) ?? 0,
                         positionedNodesById,
                     }),
                 };
@@ -269,9 +289,10 @@ export class DagreLayout {
      */
     private calculateVisualEdgePoints(params: {
         edge: GraphEdge;
+        loopIndex: number;
         positionedNodesById: Map<string, StateNode>;
     }): Array<{ x: number; y: number }> {
-        const { edge, positionedNodesById } = params;
+        const { edge, loopIndex, positionedNodesById } = params;
 
         const fromNode = positionedNodesById.get(edge.from);
         const toNode = positionedNodesById.get(edge.to);
@@ -286,8 +307,8 @@ export class DagreLayout {
         // draws a curve bulging to the apex.
         if (edge.from === edge.to) {
             const rankdir = this.options.layout || 'TB';
-            const loopReach = 40;
-            const loopSpread = 12;
+            const loopReach = LOOP_BASE_REACH + loopIndex * LOOP_REACH_STEP;
+            const loopSpread = LOOP_BASE_SPREAD + loopIndex * LOOP_SPREAD_STEP;
 
             if (rankdir === 'LR' || rankdir === 'RL') {
                 // Flow is horizontal, so same-rank neighbors sit above/below the node -
