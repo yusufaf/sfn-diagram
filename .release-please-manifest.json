@@ -1,5 +1,5 @@
 {
-  ".": "1.5.0",
+  ".": "1.5.1",
   "packages/github-action-sfn-diagram": "1.3.2",
   "packages/sfn-diagram-react": "0.4.0",
   "packages/vscode-sfn-diagram": "0.1.0"
