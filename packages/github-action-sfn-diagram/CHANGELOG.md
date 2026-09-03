@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.2](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.3.1...github-action-sfn-diagram-v1.3.2) (2026-09-03)
+
+
+### Bug Fixes
+
+* **action:** rebuild bundle with edge identity fixes ([424ed5c](https://github.com/yusufaf/sfn-diagram/commit/424ed5c532b12dcd8618e7c75c66c6bd0738bf79))
+* give graph edges a stable identity and stop the execution overlay discarding caller overrides ([796fd14](https://github.com/yusufaf/sfn-diagram/commit/796fd149ec595a18e7ab05667fb8ace5bd2fc362))
+* merge record-valued options in setOptions ([541b4cf](https://github.com/yusufaf/sfn-diagram/commit/541b4cf9b0d72d914394626322e4a29e9fa4dace))
+
 ## [1.3.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.3.0...github-action-sfn-diagram-v1.3.1) (2026-08-31)
 
 
