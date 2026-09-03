@@ -316,6 +316,54 @@ describe('SvgRenderer', () => {
                 }
             }
         });
+
+        // The LR/RL counterpart: the loop bulges off the node's *top* edge instead of
+        // its right edge, so the labels stagger along x, where label width varies per
+        // edge. Matches calculateVisualEdgePoints' LR branch for the same node
+        // (topY = 130, centerX = 80).
+        const nestedLrSelfLoopEdge = (params: {
+            label: string;
+            loopIndex: number;
+        }): GraphEdge & { loopIndex: number; points: Array<{ x: number; y: number }> } => {
+            const { label, loopIndex } = params;
+            const loopReach = 40 + loopIndex * 22;
+            const loopSpread = 12 + loopIndex * 5;
+            return {
+                from: 'Poll',
+                id: `Poll->Poll#choice#${loopIndex}`,
+                to: 'Poll',
+                type: 'choice',
+                label,
+                loopIndex,
+                points: [
+                    { x: 80 - loopSpread, y: 130 },
+                    { x: 80, y: 130 - loopReach },
+                    { x: 80 + loopSpread, y: 130 },
+                ],
+            };
+        };
+
+        it('staggers nested LR self-loop labels when an inner label is wider than the outer one', () => {
+            // Stepping by each edge's own label width lets a short inner label land
+            // entirely inside a long outer one's rect.
+            const layout: LayoutResult = {
+                nodes: [pollNode()],
+                edges: [
+                    nestedLrSelfLoopEdge({
+                        label: 'a very considerably longer loop zero label indeed',
+                        loopIndex: 0,
+                    }),
+                    nestedLrSelfLoopEdge({ label: 'x', loopIndex: 1 }),
+                ],
+                graph: { height: 400, width: 800 },
+            };
+
+            const result = new SvgRenderer({ layout: 'LR' }).render(layout);
+            const labelRects = extractLabelRects(result.svg);
+
+            expect(labelRects).toHaveLength(2);
+            expect(rectsOverlap(labelRects[0], labelRects[1])).toBe(false);
+        });
     });
 
     describe('Theming', () => {
