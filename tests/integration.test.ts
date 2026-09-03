@@ -300,6 +300,19 @@ describe('Integration Tests', () => {
             expect(result).toBe(generator); // Should return this for chaining
         });
 
+        it('should merge nodeOverrides across setOptions calls instead of replacing them', () => {
+            const generator = new SfnDiagramGenerator();
+            const aslDefinition = loadFixture('simple');
+
+            generator
+                .setOptions({ nodeOverrides: { Start: { fill: '#111111' } } })
+                .setOptions({ nodeOverrides: { Process: { fill: '#222222' } } });
+            const result = generator.generateSvg({ aslDefinition });
+
+            expect(result.svg).toContain('#111111');
+            expect(result.svg).toContain('#222222');
+        });
+
         it('should apply updated options', () => {
             const generator = new SfnDiagramGenerator({ theme: 'light' });
             const aslDefinition = loadFixture('simple');
