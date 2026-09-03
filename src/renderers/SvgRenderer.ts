@@ -678,10 +678,13 @@ export class SvgRenderer {
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
 
-        // Render path
+        // Render path. The edge id is emitted alongside it so callers can read the key
+        // that addresses this edge in `edgeOverrides` straight off a rendered diagram,
+        // rather than deriving `${from}->${to}#${type}#${ordinal}` by hand.
         const pathElement = group
             .append('path')
             .attr('d', pathData)
+            .attr('data-edge-id', edge.id)
             .attr('fill', 'none')
             .attr('stroke', strokeColor)
             .attr('stroke-width', strokeWidth)

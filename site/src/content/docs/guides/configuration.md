@@ -56,6 +56,90 @@ generateSvg({ aslDefinition: asl, theme: customTheme });
 - `'straight'` - Direct straight lines
 - `'orthogonal'` - Right-angled paths
 
+## Per-node and per-edge overrides
+
+Three options restyle individual states and transitions on top of the theme. Each is
+merged field by field over the computed style, so an override only has to name the
+fields it changes. The execution overlay is built on the same three options.
+
+- `nodeOverrides` — `Partial<NodeStyle>` (`fill`, `stroke`, `strokeWidth`, `shape`)
+  keyed by state name.
+- `nodeAnnotations` — extra text rendered under a node's label, keyed by state name.
+- `edgeOverrides` — `stroke`, `strokeOpacity`, and `strokeWidth`, keyed by edge.
+
+```typescript
+generateSvg({
+  aslDefinition: asl,
+  nodeOverrides: {
+    ChargeCard: { stroke: '#d13212', strokeWidth: 3 },
+  },
+  nodeAnnotations: {
+    ChargeCard: '2 retries · 1.4s',
+  },
+});
+```
+
+### Addressing an edge
+
+`edgeOverrides` accepts two key shapes:
+
+| Key | Matches |
+| --- | --- |
+| `Route->Work#choice#1` | Exactly one edge — the qualified `GraphEdge.id`. Prefer this. |
+| `Route->Work` | Every edge from `Route` to `Work`, whatever its type. Legacy. |
+
+The bare `${from}->${to}` form is supported throughout 1.x; removal is deferred to 2.0.
+It cannot distinguish edges that share a state pair — two `Choice` rules with the same
+`Next`, or a `Retry` self-loop beside a genuine self-transition — so it restyles all of
+them together.
+
+An edge id is `${from}->${to}#${type}#${ordinal}`, where `type` is one of `normal`,
+`choice`, `default`, `error`, or `retry`, and `ordinal` counts from `0` across the edges
+that share the same from/to/type triple.
+
+When both shapes match the same edge, the qualified key is merged on top of the bare one,
+field by field — so a pair-wide width and a single-branch colour compose:
+
+```typescript
+generateSvg({
+  aslDefinition: asl,
+  edgeOverrides: {
+    // Both branches out of Route get the thicker stroke...
+    'Route->Work': { strokeWidth: 2 },
+    // ...and only the second Choice rule is recoloured.
+    'Route->Work#choice#1': { stroke: '#d13212' },
+  },
+});
+```
+
+### Finding an edge's id
+
+Every edge path in a rendered SVG carries its id as `data-edge-id`, so the ids can be
+read straight off a diagram rather than derived by hand:
+
+```typescript
+const { svg } = generateSvg({ aslDefinition: asl });
+
+const ids = [...svg.matchAll(/data-edge-id="([^"]+)"/g)].map(
+  (match) => match[1].replace(/&gt;/g, '>'),
+);
+// ['Route->Work#choice#0', 'Route->Work#choice#1', ...]
+```
+
+In the browser, `document.querySelectorAll('path[data-edge-id]')` gives the same ids
+already unescaped, which is also how the interactive viewer addresses single edges.
+
+### Id stability
+
+Ids survive the graph transforms the library applies after parsing — `collapse`, catch
+handling — because those only ever drop edges, never renumber the survivors. Gaps in the
+ordinal sequence are expected and deliberate.
+
+They are **not** stable against edits to the ASL itself. Ordinals are assigned in parser
+order, so inserting a `Choice` rule ahead of an existing one that shares the same `Next`
+shifts the existing rule's ordinal, and a hand-written `edgeOverrides` key then points at
+a different edge. Re-read the ids after changing a state machine's transitions.
+
 ## Large diagrams
 
 Big, branchy state machines are hard to read as a static image. A few options help:
