@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.4.1...sfn-diagram-v1.5.0) (2026-09-03)
+
+
+### Features
+
+* **svg-renderer:** emit data-edge-id on edge paths ([84d0b61](https://github.com/yusufaf/sfn-diagram/commit/84d0b61cf41a7d59e3b1bd55d80843098ea03c63))
+* **svg-renderer:** emit data-edge-id on rendered edge paths ([4042b47](https://github.com/yusufaf/sfn-diagram/commit/4042b47c93734277292d242a71fdad4fa56e7de3)), closes [#93](https://github.com/yusufaf/sfn-diagram/issues/93)
+
+
+### Bug Fixes
+
+* **execution:** match caller bare edge-override keys structurally-safely ([91ad4bd](https://github.com/yusufaf/sfn-diagram/commit/91ad4bd8c30f61ce398f2e2bc5b1fe5231b1a01b))
+* **execution:** merge caller override maps instead of replacing them ([4410dc2](https://github.com/yusufaf/sfn-diagram/commit/4410dc2b78707cdf7ee2798b20859843ee93d56d))
+* give graph edges a stable identity and stop the execution overlay discarding caller overrides ([796fd14](https://github.com/yusufaf/sfn-diagram/commit/796fd149ec595a18e7ab05667fb8ace5bd2fc362))
+* **index:** merge record-valued options in setOptions ([fc03cd9](https://github.com/yusufaf/sfn-diagram/commit/fc03cd99e18b132585010662d6e13c10ec6e16c0)), closes [#84](https://github.com/yusufaf/sfn-diagram/issues/84)
+* **layout:** fan stacked self-loops into nested arcs ([242471b](https://github.com/yusufaf/sfn-diagram/commit/242471b8dc3a0606c28b4143b6bff6b6d2ad2493))
+* **layout:** route parallel edges as distinct dagre edges ([7188069](https://github.com/yusufaf/sfn-diagram/commit/71880698c787ff0ce2a4319fb5a740a83613a15b))
+* merge record-valued options in setOptions ([541b4cf](https://github.com/yusufaf/sfn-diagram/commit/541b4cf9b0d72d914394626322e4a29e9fa4dace))
+* **parser:** give every graph edge a stable unique id ([9045b12](https://github.com/yusufaf/sfn-diagram/commit/9045b124a9f3784e7c97096f7527dd67471edb42))
+* **svg-renderer:** key edge overrides by edge id with legacy fallback ([848ba62](https://github.com/yusufaf/sfn-diagram/commit/848ba62f0160a620f675d5016afb2e29cce3750b))
+* **svg-renderer:** stagger LR self-loop labels by max sibling width ([6db9e6d](https://github.com/yusufaf/sfn-diagram/commit/6db9e6ded972b13413e2615315523713b2b6c1f9))
+* **svg-renderer:** stagger LR self-loop labels by max sibling width ([7a9528a](https://github.com/yusufaf/sfn-diagram/commit/7a9528a0f7cfc28fd12da3fb854e5379d144830b)), closes [#92](https://github.com/yusufaf/sfn-diagram/issues/92)
+* **svg-renderer:** stagger nested self-loop labels by loop index ([68cc059](https://github.com/yusufaf/sfn-diagram/commit/68cc059317e729657ff3f7585b0cc4500be332eb))
+
 ## [1.4.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.4.0...sfn-diagram-v1.4.1) (2026-09-01)
 
 
