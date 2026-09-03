@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { generateSvg } from './index';
 import { parseAsl } from './AslParser';
+import { mergeRecordOptions } from './config';
 import { applyCatchHandling, computeCollapsePlan } from './graph';
 import { MermaidRenderer } from './renderers';
 
@@ -226,10 +227,10 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
 
     // A caller-supplied nodeAnnotations entry for the same container wins over ours,
     // same as an explicit diff status on the container wins over the placeholder color.
-    const nodeAnnotations = { ...containerAnnotations, ...callerAnnotations };
+    const nodeAnnotations = mergeRecordOptions(containerAnnotations, callerAnnotations);
     // Same precedence for nodeOverrides: a caller override for one node must not
     // discard the diff coloring computed for every other node (issue #76).
-    const mergedNodeOverrides = { ...nodeOverrides, ...callerOverrides };
+    const mergedNodeOverrides = mergeRecordOptions(nodeOverrides, callerOverrides);
 
     const svgOutput = generateSvg({
         aslDefinition: mergedAsl,

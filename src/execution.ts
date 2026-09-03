@@ -16,7 +16,7 @@ import type {
 import { parseAsl } from './AslParser';
 import { DagreLayout } from './layout';
 import { SvgRenderer, MermaidRenderer } from './renderers';
-import { mergeOptions } from './config';
+import { mergeOptions, mergeRecordOptions } from './config';
 
 /** Node fill/stroke applied per execution status, mirroring diff's DIFF_COLORS. */
 const EXECUTION_COLORS: Record<ExecutionStateStatus, Partial<NodeStyle>> = {
@@ -436,9 +436,9 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
     // replacing keeps the overlay's styling for every key the caller did not name.
     const renderOptions = {
         ...mergedOptions,
-        edgeOverrides: { ...edgeOverrides, ...callerEdgeOverrides },
-        nodeAnnotations: { ...nodeAnnotations, ...callerNodeAnnotations },
-        nodeOverrides: { ...nodeOverrides, ...callerNodeOverrides },
+        edgeOverrides: mergeRecordOptions(edgeOverrides, callerEdgeOverrides),
+        nodeAnnotations: mergeRecordOptions(nodeAnnotations, callerNodeAnnotations),
+        nodeOverrides: mergeRecordOptions(nodeOverrides, callerNodeOverrides),
     };
     const layout = new DagreLayout(renderOptions);
     const positioned = layout.calculate(nodes, edges);
