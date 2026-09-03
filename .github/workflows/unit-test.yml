@@ -71,3 +71,27 @@ jobs:
 
       - name: Test
         run: pnpm turbo run test
+
+  # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
+  # release time - a broken build stage (the missing `scripts/` COPY that broke
+  # every image from v1.4.0 through v1.5.0) went unnoticed for three releases
+  # because nothing built it until then. Build - never push - on every PR so
+  # Dockerfile/build-script drift fails here instead of at release time.
+  docker-build-check:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build image
+        run: docker build -t sfn-diagram-ci-check .
+
+      - name: Smoke test the built image
+        run: |
+          docker run --rm sfn-diagram-ci-check --version
+          docker run --rm -i sfn-diagram-ci-check - --format svg \
+            < tests/fixtures/simple.asl.json | grep -q '<svg' || {
+            echo "::error::Docker image did not render a valid SVG from stdin"
+            exit 1
+          }

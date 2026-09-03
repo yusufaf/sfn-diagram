@@ -103,6 +103,27 @@ jobs:
       - name: Publish to npm
         run: npm publish --provenance --access public
 
+      # A successful `npm publish` only means the registry accepted the
+      # tarball - it says nothing about whether the package actually installs
+      # and runs. The registry can also lag a minute or so before a fresh
+      # publish is visible. Poll for it, then actually run the published CLI.
+      - name: Verify the published version on npm
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          FOUND=""
+          for i in $(seq 1 20); do
+            if [ "$(npm view sfn-diagram@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+              FOUND=1
+              break
+            fi
+            sleep 15
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::npm registry never showed sfn-diagram@$VERSION after publish"
+            exit 1
+          fi
+          npx --yes sfn-diagram@"$VERSION" --version
+
   # Publish to JSR (jsr.io) alongside npm. JSR reads TypeScript source directly,
   # so no build/browser install is needed. Tokenless OIDC — id-token: write, no
   # secret. Requires the JSR package to be linked to this GitHub repo (one-time,
@@ -138,6 +159,25 @@ jobs:
 
       - name: Publish to JSR
         run: npx jsr publish
+
+      # `jsr publish` exiting 0 doesn't guarantee jsr.io serves the new version
+      # yet. Poll its own metadata endpoint rather than trusting the exit code.
+      - name: Verify the published version on JSR
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          FOUND=""
+          for i in $(seq 1 20); do
+            ACTUAL="$(curl -fsSL https://jsr.io/@yusufaf/sfn-diagram/meta.json | jq -r .latest 2>/dev/null || true)"
+            if [ "$ACTUAL" = "$VERSION" ]; then
+              FOUND=1
+              break
+            fi
+            sleep 15
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::JSR never showed @yusufaf/sfn-diagram@$VERSION after publish (last seen: $ACTUAL)"
+            exit 1
+          fi
 
   # Publish the React wrapper to npm when release-please cut a release for it.
   # Versioned independently of the core package, so it gets its own tag and its
@@ -208,6 +248,22 @@ jobs:
         working-directory: packages/sfn-diagram-react
         run: npm publish --provenance --access public
 
+      - name: Verify the published version on npm
+        run: |
+          VERSION="$(node -p "require('./packages/sfn-diagram-react/package.json').version")"
+          FOUND=""
+          for i in $(seq 1 20); do
+            if [ "$(npm view sfn-diagram-react@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+              FOUND=1
+              break
+            fi
+            sleep 15
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::npm registry never showed sfn-diagram-react@$VERSION after publish"
+            exit 1
+          fi
+
   # Publish the VS Code extension to Open VSX when release-please cut a release
   # for it. Open VSX is the default registry for Cursor, Windsurf, VSCodium,
   # Gitpod and Eclipse Theia.
@@ -267,6 +323,23 @@ jobs:
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
+      - name: Verify the published version on Open VSX
+        run: |
+          VERSION="$(node -p "require('./packages/vscode-sfn-diagram/package.json').version")"
+          FOUND=""
+          for i in $(seq 1 20); do
+            ACTUAL="$(curl -fsSL https://open-vsx.org/api/yusufaf/vscode-sfn-diagram | jq -r .version 2>/dev/null || true)"
+            if [ "$ACTUAL" = "$VERSION" ]; then
+              FOUND=1
+              break
+            fi
+            sleep 15
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::Open VSX never showed yusufaf.vscode-sfn-diagram@$VERSION after publish (last seen: $ACTUAL)"
+            exit 1
+          fi
+
   # Sync the bundled action to its Marketplace mirror repo when release-please
   # cut a new action release. Mirrors the npm-publish flow, but pushes to the
   # standalone yusufaf/sfn-diagram-action repo instead of npm.
@@ -315,3 +388,52 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.mirror-token.outputs.token }}
         run: bash scripts/sync-action-mirror.sh
+
+      - name: Verify the mirror release
+        env:
+          GH_TOKEN: ${{ steps.mirror-token.outputs.token }}
+        run: |
+          VERSION="$(node -p "require('./packages/github-action-sfn-diagram/package.json').version")"
+          gh release view "v$VERSION" --repo yusufaf/sfn-diagram-action >/dev/null || {
+            echo "::error::Mirror release v$VERSION not found on yusufaf/sfn-diagram-action"
+            exit 1
+          }
+
+  # None of the publish jobs above are triggered by a human clicking something -
+  # a failure has no "actor" to notify. File an issue so a broken publish to any
+  # registry can't silently sit in the Actions tab unnoticed the way the Docker
+  # image did for three releases before this was added.
+  report-publish-failure:
+    name: Report publish failure
+    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync]
+    if: |
+      always() &&
+      (needs.npm-publish.result == 'failure' ||
+       needs.jsr-publish.result == 'failure' ||
+       needs.react-npm-publish.result == 'failure' ||
+       needs.openvsx-publish.result == 'failure' ||
+       needs.mirror-sync.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: File an issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Release publish failure: ${{ needs.release-please.outputs.tag_name || github.event.inputs.publish_tag }}" \
+            --label bug \
+            --body "One or more publish jobs failed (or their post-publish verification did).
+
+          | Job | Result |
+          |---|---|
+          | npm-publish | ${{ needs.npm-publish.result }} |
+          | jsr-publish | ${{ needs.jsr-publish.result }} |
+          | react-npm-publish | ${{ needs.react-npm-publish.result }} |
+          | openvsx-publish | ${{ needs.openvsx-publish.result }} |
+          | mirror-sync | ${{ needs.mirror-sync.result }} |
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
