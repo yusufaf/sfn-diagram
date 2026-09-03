@@ -1,6 +1,6 @@
 {
   "name": "sfn-diagram",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, or live AWS state machines",
   "type": "module",
   "packageManager": "pnpm@9.15.9",

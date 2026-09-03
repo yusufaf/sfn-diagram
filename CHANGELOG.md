@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.5.0...sfn-diagram-v1.5.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **docker:** copy scripts/ into the build stage ([0ef1e9d](https://github.com/yusufaf/sfn-diagram/commit/0ef1e9d9c92d23fcb4551c184c6093d2762f14dd))
+* **docker:** copy scripts/ into the build stage ([c2ec329](https://github.com/yusufaf/sfn-diagram/commit/c2ec32912518b4acf8556f4779ca1b0a04dcd7e9))
+
 ## [1.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.4.1...sfn-diagram-v1.5.0) (2026-09-03)
 
 
