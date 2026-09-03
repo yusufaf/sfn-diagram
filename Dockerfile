@@ -9,6 +9,7 @@ RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsdown.config.ts ./
+COPY scripts ./scripts
 COPY src ./src
 RUN pnpm run build
 
