@@ -8,7 +8,7 @@
     "galleryBanner": { "color": "#232f3e", "theme": "dark" },
     "engines": { "vscode": "^1.85.0" },
     "categories": ["Visualization", "Other"],
-    "keywords": ["aws", "step-functions", "asl", "diagram", "state-machine"],
+    "keywords": ["aws", "step-functions", "stepfunctions", "diagram", "state-machine"],
     "activationEvents": [],
     "main": "./out/extension.js",
     "contributes": {

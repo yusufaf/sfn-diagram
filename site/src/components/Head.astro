@@ -1,6 +1,45 @@
 ---
 import Default from '@astrojs/starlight/components/Head.astro'
+
+const SITE = 'https://sfn.yusufaf.dev'
+const ogImage = `${SITE}/og.png`
+
+// TypeDoc's per-symbol pages are thin, auto-generated API listings — kept out
+// of Google's index (and stripped from the sitemap in astro.config.mjs) so
+// they don't dilute a brand-new small site with hundreds of near-duplicate
+// leaf pages. `/reference/` itself is the hand-written landing page and stays
+// indexed.
+const isThinReferencePage =
+    /\/reference\/[^/]+\/(?:classes|interfaces|functions|type-aliases|variables)\//.test(
+        Astro.url.pathname
+    )
+const isHomePage = Astro.url.pathname === '/'
 ---
 
 <Default><slot /></Default>
 <link href="/llms.txt" rel="alternate" type="text/plain" title="llms.txt" />
+<meta property="og:image" content={ogImage} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:image" content={ogImage} />
+{isThinReferencePage && <meta name="robots" content="noindex, follow" />}
+{
+    isHomePage && (
+        <script
+            type="application/ld+json"
+            set:html={JSON.stringify({
+                '@context': 'https://schema.org',
+                '@type': 'SoftwareSourceCode',
+                applicationCategory: 'DeveloperApplication',
+                codeRepository: 'https://github.com/yusufaf/sfn-diagram',
+                description:
+                    'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/SAM/CDK templates, or live AWS state machines.',
+                license: 'https://opensource.org/licenses/MIT',
+                name: 'sfn-diagram',
+                operatingSystem: 'Cross-platform',
+                programmingLanguage: 'TypeScript',
+                url: SITE,
+            })}
+        />
+    )
+}

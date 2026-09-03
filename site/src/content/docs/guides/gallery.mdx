@@ -1,0 +1,77 @@
+---
+title: Gallery
+description: "Every ASL pattern sfn-diagram renders — Choice, Parallel, Map, Distributed Map, error handling, retries, and AWS service icons — as SVG."
+---
+
+Each of these renders straight from an ASL fixture with `generateSvg` — no manual layout, no
+hand-drawn boxes. Click a fixture name to see the exact ASL behind it in the
+[state types guide](/guides/state-types/).
+
+<div class="gallery-grid">
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/simple-dark.svg" />
+      <img src="/gallery/simple-light.svg" alt="A minimal two-state Pass to Succeed workflow" />
+    </picture>
+    <figcaption>**Simple** — a minimal two-state workflow.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/choice-dark.svg" />
+      <img src="/gallery/choice-light.svg" alt="A Choice state branching into two paths" />
+    </picture>
+    <figcaption>**Choice** — branching logic based on input.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/parallel-dark.svg" />
+      <img src="/gallery/parallel-light.svg" alt="A Parallel state running two branches concurrently" />
+    </picture>
+    <figcaption>**Parallel** — concurrent branches, one container.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/map-dark.svg" />
+      <img src="/gallery/map-light.svg" alt="A Map state iterating over an array of items" />
+    </picture>
+    <figcaption>**Map** — iterating over an array of items.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/distributed-map-dark.svg" />
+      <img src="/gallery/distributed-map-light.svg" alt="A Distributed Map with ItemReader and ResultWriter" />
+    </picture>
+    <figcaption>**Distributed Map** — `ItemReader` source and `ResultWriter` sink shown distinctly from an inline Map.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/error-handling-dark.svg" />
+      <img src="/gallery/error-handling-light.svg" alt="Catch blocks rendered as dashed error edges" />
+    </picture>
+    <figcaption>**Error handling** — `Catch` blocks as dashed red edges.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/retry-dark.svg" />
+      <img src="/gallery/retry-light.svg" alt="A Retry policy rendered as a labelled self-loop" />
+    </picture>
+    <figcaption>**Retry** — a retry policy as a labelled self-loop.</figcaption>
+  </figure>
+  <figure>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="/gallery/services-dark.svg" />
+      <img src="/gallery/services-light.svg" alt="AWS service integrations shown with service icons on Task states" />
+    </picture>
+    <figcaption>**Service icons** — `--show-icons` draws the AWS service behind each Task.</figcaption>
+  </figure>
+</div>
+
+Two more patterns are easier to show live than as a static image:
+
+- **[Visual diffing](/guides/cli/)** — `--diff <baseline>` highlights added, modified, and
+  removed states between two revisions. It's what drives the [GitHub Action](/ecosystem/github-action/)'s
+  PR comments.
+- **[Execution overlays](/guides/cli/)** — `--execution <history.json>` paints a real run's
+  path, status, and per-state duration onto the diagram.
+
+Want to try your own definition? Paste it into the **[playground](/playground/)** — no install required.

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://sfn.yusufaf.dev/sitemap-index.xml

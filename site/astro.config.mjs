@@ -1,7 +1,7 @@
 // @ts-check
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import react from '@astrojs/react'
 import starlight from '@astrojs/starlight'
-import { rm } from 'node:fs/promises'
 import { defineConfig } from 'astro/config'
 import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightPageActions from 'starlight-page-actions'
@@ -9,19 +9,28 @@ import starlightTypeDoc, { typeDocSidebarGroup } from 'starlight-typedoc'
 
 const SITE = 'https://sfn.yusufaf.dev'
 
+// TypeDoc's per-symbol pages (interfaces/classes/functions/type-aliases/variables
+// under /reference/{index,png,aws,cfn}/...) are thin, auto-generated content —
+// noindex'd in Head.astro and stripped from the sitemap below. `/reference/` and
+// `/reference/readme/` are excluded from this so the hand-written landing page
+// stays indexed and the orphan overview page (removed below) stays out.
+const THIN_REFERENCE_PATH =
+    /\/reference\/[^/]+\/(?:classes|interfaces|functions|type-aliases|variables)\//
+
 /**
- * Drop the package-overview page TypeDoc emits for a multi-entry-point project.
+ * Clean up the TypeDoc-generated reference pages after the build.
  *
  * With four entry points TypeDoc writes a root `README.md` whose body is empty
  * and whose links all point at per-module readme pages it never emits (the
- * plugin defaults to `readme: 'none'`). The hand-written reference landing page
- * at `/reference/` replaces it, so this removes the orphan rather than leaving
- * four broken links in the sitemap and search index.
+ * plugin defaults to `readme: 'none'`) — this deletes that orphan page. It also
+ * rewrites the sitemap Starlight already wrote to drop that same orphan plus
+ * every thin per-symbol page, so nothing noindex'd in Head.astro is left in the
+ * sitemap contradicting that signal.
  *
- * @returns {import('astro').AstroIntegration} An Astro integration that deletes
- *   the page after the build.
+ * @returns {import('astro').AstroIntegration} An Astro integration that runs
+ *   after Starlight (and its bundled sitemap generation) on build completion.
  */
-function removeTypeDocOverviewPage() {
+function cleanUpTypeDocPages() {
     return {
         hooks: {
             'astro:build:done': async ({ dir }) => {
@@ -29,9 +38,27 @@ function removeTypeDocOverviewPage() {
                     force: true,
                     recursive: true,
                 })
+
+                const sitemapUrl = new URL('sitemap-0.xml', dir)
+                let xml
+                try {
+                    xml = await readFile(sitemapUrl, 'utf8')
+                } catch {
+                    return
+                }
+                const cleaned = xml.replace(
+                    /<url><loc>([^<]*)<\/loc><\/url>/g,
+                    (entry, loc) =>
+                        loc.endsWith('/reference/readme/') || THIN_REFERENCE_PATH.test(loc)
+                            ? ''
+                            : entry,
+                )
+                if (cleaned !== xml) {
+                    await writeFile(sitemapUrl, cleaned)
+                }
             },
         },
-        name: 'remove-typedoc-overview-page',
+        name: 'clean-up-typedoc-pages',
     }
 }
 
@@ -39,7 +66,6 @@ export default defineConfig({
     base: '/',
     integrations: [
         react(),
-        removeTypeDocOverviewPage(),
         starlight({
             components: {
                 Head: './src/components/Head.astro',
@@ -104,7 +130,7 @@ export default defineConfig({
                     // TypeDoc reference out of the abridged set leaves it as
                     // usable prose for small context windows.
                     exclude: ['reference/**'],
-                    promote: ['introduction', 'installation', 'quick-start', 'guides/**'],
+                    promote: ['introduction', 'comparison', 'installation', 'quick-start', 'guides/**'],
                     optionalLinks: [
                         {
                             description: 'Interactive editor — paste ASL, see the diagram.',
@@ -124,6 +150,7 @@ export default defineConfig({
                 {
                     items: [
                         { label: 'Introduction', slug: 'introduction' },
+                        { label: 'Comparison', slug: 'comparison' },
                         { label: 'Installation', slug: 'installation' },
                         { label: 'Quick start', slug: 'quick-start' },
                     ],
@@ -148,6 +175,7 @@ export default defineConfig({
             ],
             title: 'sfn-diagram',
         }),
+        cleanUpTypeDocPages(),
     ],
     site: SITE,
 })
