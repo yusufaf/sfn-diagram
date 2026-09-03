@@ -1,5 +1,6 @@
 ---
 import Default from '@astrojs/starlight/components/Head.astro'
+import { THIN_REFERENCE_PATH } from '../thinReferencePath.mjs'
 
 const SITE = 'https://sfn.yusufaf.dev'
 const ogImage = `${SITE}/og.png`
@@ -9,10 +10,7 @@ const ogImage = `${SITE}/og.png`
 // they don't dilute a brand-new small site with hundreds of near-duplicate
 // leaf pages. `/reference/` itself is the hand-written landing page and stays
 // indexed.
-const isThinReferencePage =
-    /\/reference\/[^/]+\/(?:classes|interfaces|functions|type-aliases|variables)\//.test(
-        Astro.url.pathname
-    )
+const isThinReferencePage = THIN_REFERENCE_PATH.test(Astro.url.pathname)
 const isHomePage = Astro.url.pathname === '/'
 ---
 

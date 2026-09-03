@@ -8,12 +8,12 @@
  *
  * Usage: pnpm run gallery:images
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { generateSvg } from '../dist/index.js';
+import { readAslFixture, repoRootFrom } from './lib/repo-paths.mjs';
 
-const repoRoot = resolve(fileURLToPath(import.meta.url), '..', '..');
+const repoRoot = repoRootFrom(import.meta.url);
 const outputDirs = [
     join(repoRoot, 'docs', 'images', 'gallery'),
     join(repoRoot, 'site', 'public', 'gallery'),
@@ -63,8 +63,7 @@ for (const dir of outputDirs) mkdirSync(dir, { recursive: true });
 const manifest = [];
 
 for (const { caption, fixture, layout, showIcons, slug } of GALLERY_ITEMS) {
-    const fixturePath = join(repoRoot, 'tests', 'fixtures', `${fixture}.asl.json`);
-    const aslDefinition = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+    const aslDefinition = readAslFixture(repoRoot, fixture);
 
     for (const theme of /** @type {const} */ (['light', 'dark'])) {
         const { svg } = generateSvg({ aslDefinition, layout, showIcons, theme });

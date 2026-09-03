@@ -9,12 +9,12 @@
  *
  * Usage: pnpm run docs:images
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { generateSvg } from '../dist/index.js';
+import { readAslFixture, repoRootFrom } from './lib/repo-paths.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = repoRootFrom(import.meta.url);
 const outputDir = join(repoRoot, 'docs', 'images');
 
 /** Each documentation image: which fixture renders it, and with which options. */
@@ -26,8 +26,7 @@ const DOC_IMAGES = [
 mkdirSync(outputDir, { recursive: true });
 
 for (const { fixture, name, theme } of DOC_IMAGES) {
-    const fixturePath = join(repoRoot, 'tests', 'fixtures', `${fixture}.asl.json`);
-    const aslDefinition = JSON.parse(readFileSync(fixturePath, 'utf-8'));
+    const aslDefinition = readAslFixture(repoRoot, fixture);
 
     const { svg, width, height } = generateSvg({ aslDefinition, layout: 'TB', theme });
 

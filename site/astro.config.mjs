@@ -6,16 +6,9 @@ import { defineConfig } from 'astro/config'
 import starlightLlmsTxt from 'starlight-llms-txt'
 import starlightPageActions from 'starlight-page-actions'
 import starlightTypeDoc, { typeDocSidebarGroup } from 'starlight-typedoc'
+import { THIN_REFERENCE_PATH } from './src/thinReferencePath.mjs'
 
 const SITE = 'https://sfn.yusufaf.dev'
-
-// TypeDoc's per-symbol pages (interfaces/classes/functions/type-aliases/variables
-// under /reference/{index,png,aws,cfn}/...) are thin, auto-generated content —
-// noindex'd in Head.astro and stripped from the sitemap below. `/reference/` and
-// `/reference/readme/` are excluded from this so the hand-written landing page
-// stays indexed and the orphan overview page (removed below) stays out.
-const THIN_REFERENCE_PATH =
-    /\/reference\/[^/]+\/(?:classes|interfaces|functions|type-aliases|variables)\//
 
 /**
  * Clean up the TypeDoc-generated reference pages after the build.
@@ -46,13 +39,15 @@ function cleanUpTypeDocPages() {
                 } catch {
                     return
                 }
-                const cleaned = xml.replace(
-                    /<url><loc>([^<]*)<\/loc><\/url>/g,
-                    (entry, loc) =>
-                        loc.endsWith('/reference/readme/') || THIN_REFERENCE_PATH.test(loc)
-                            ? ''
-                            : entry,
-                )
+                // Matched non-greedily on the whole `<url>...</url>` block (rather than
+                // assuming `<loc>` is its only child) so this keeps working if
+                // @astrojs/sitemap ever starts emitting siblings like `<lastmod>`.
+                const cleaned = xml.replace(/<url>[\s\S]*?<\/url>/g, (entry) => {
+                    const loc = entry.match(/<loc>([^<]*)<\/loc>/)?.[1] ?? ''
+                    return loc.endsWith('/reference/readme/') || THIN_REFERENCE_PATH.test(loc)
+                        ? ''
+                        : entry
+                })
                 if (cleaned !== xml) {
                     await writeFile(sitemapUrl, cleaned)
                 }

@@ -8,12 +8,12 @@
  * Usage: pnpm run og:image
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import nodeHtmlToImage from 'node-html-to-image';
 import { generateSvg } from '../dist/index.js';
+import { repoRootFrom } from './lib/repo-paths.mjs';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = repoRootFrom(import.meta.url);
 const WIDTH = 1200;
 const HEIGHT = 630;
 
