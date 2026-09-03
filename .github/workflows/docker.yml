@@ -62,3 +62,49 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # A successful push only means the registry accepted the layers - it does
+      # not mean the image runs. Pull it back from ghcr.io (not the local build
+      # cache) and actually run it, the way `docker.yml` silently failing to
+      # build at all went unnoticed for three releases (v1.4.0 - v1.5.0).
+      - name: Verify the published image
+        run: |
+          IMAGE="ghcr.io/yusufaf/sfn-diagram:${{ steps.meta.outputs.version }}"
+          docker pull "$IMAGE"
+
+          ACTUAL_VERSION="$(docker run --rm "$IMAGE" --version)"
+          if [ "$ACTUAL_VERSION" != "${{ steps.meta.outputs.version }}" ]; then
+            echo "::error::Published image reports version '$ACTUAL_VERSION', expected '${{ steps.meta.outputs.version }}'"
+            exit 1
+          fi
+
+          docker run --rm -i "$IMAGE" - --format svg \
+            < tests/fixtures/simple.asl.json | grep -q '<svg' || {
+            echo "::error::Published image did not render a valid SVG from stdin"
+            exit 1
+          }
+
+  # `docker` failing (or its verification step catching a broken image) has no
+  # human "actor" to notify - it's triggered by a release event, not a click.
+  # File an issue so a broken image can't silently sit unnoticed the way it did
+  # for three releases in a row.
+  report-failure:
+    name: Report Docker publish failure
+    needs: docker
+    if: always() && needs.docker.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: File an issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "Docker publish failed for ${{ github.event.release.tag_name || inputs.tag }}" \
+            --label bug \
+            --body "The \`docker\` job (build, push, or the post-push verification) failed for \`${{ github.event.release.tag_name || inputs.tag }}\`.
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
