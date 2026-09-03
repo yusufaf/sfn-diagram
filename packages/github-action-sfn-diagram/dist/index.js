@@ -62263,6 +62263,42 @@ var Si = v((mo, Dt) => {
 var dagre_esm_default = Si();
 
 // ../../dist/index.js
+var DEFAULT_DIAGRAM_OPTIONS = {
+  format: "svg",
+  theme: "light",
+  customColors: void 0,
+  layout: "TB",
+  rankSeparation: 50,
+  nodeSeparation: 50,
+  width: void 0,
+  height: void 0,
+  nodeWidth: 120,
+  nodeHeight: 60,
+  padding: 20,
+  includeComments: true,
+  showStateTypes: false,
+  showVariables: true,
+  edgeStyle: "curved",
+  catchHandling: "show",
+  catchLabelStyle: "error-type",
+  collapse: void 0,
+  stylePreset: "aws-standard",
+  iconPosition: "left",
+  iconResolver: void 0,
+  iconSize: 24,
+  showIcons: false,
+  pngQuality: 90,
+  backgroundColor: "transparent",
+  nodeOverrides: void 0,
+  edgeOverrides: void 0,
+  nodeAnnotations: void 0
+};
+function mergeOptions(options = {}) {
+  return {
+    ...DEFAULT_DIAGRAM_OPTIONS,
+    ...options
+  };
+}
 var AWS_LIGHT_THEME = {
   background: "#ffffff",
   nodeColors: {
@@ -63289,42 +63325,6 @@ var MermaidRenderer = class {
     return nodes.find((node) => !targetNodes.has(node.id))?.id || nodes[0]?.id || null;
   }
 };
-var DEFAULT_DIAGRAM_OPTIONS = {
-  format: "svg",
-  theme: "light",
-  customColors: void 0,
-  layout: "TB",
-  rankSeparation: 50,
-  nodeSeparation: 50,
-  width: void 0,
-  height: void 0,
-  nodeWidth: 120,
-  nodeHeight: 60,
-  padding: 20,
-  includeComments: true,
-  showStateTypes: false,
-  showVariables: true,
-  edgeStyle: "curved",
-  catchHandling: "show",
-  catchLabelStyle: "error-type",
-  collapse: void 0,
-  stylePreset: "aws-standard",
-  iconPosition: "left",
-  iconResolver: void 0,
-  iconSize: 24,
-  showIcons: false,
-  pngQuality: 90,
-  backgroundColor: "transparent",
-  nodeOverrides: void 0,
-  edgeOverrides: void 0,
-  nodeAnnotations: void 0
-};
-function mergeOptions(options = {}) {
-  return {
-    ...DEFAULT_DIAGRAM_OPTIONS,
-    ...options
-  };
-}
 function parseAslArg(value) {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
