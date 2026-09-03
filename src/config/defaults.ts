@@ -79,3 +79,64 @@ export function mergeOptions(options: DiagramOptions = {}): typeof DEFAULT_DIAGR
         ...options,
     };
 }
+
+/**
+ * Merge two record-valued option maps per key, with `override` winning on any key
+ * present in both. Unlike a plain object spread of the maps themselves, an `undefined`
+ * side is treated as "no entries" rather than wiping the other side's keys.
+ *
+ * @param base - The map to merge into, e.g. a previously-computed set of overrides
+ * @param override - The map whose keys take precedence over `base`'s
+ * @returns The merged map, or `undefined` when both inputs are `undefined`
+ *
+ * @example
+ * ```typescript
+ * mergeRecordOptions({ A: 1, C: 3 }, { A: 10, B: 2 }); // { A: 10, B: 2, C: 3 }
+ * ```
+ */
+export function mergeRecordOptions<Key extends string, Value>(
+    base: Record<Key, Value> | undefined,
+    override: Record<Key, Value> | undefined
+): Record<Key, Value> | undefined;
+export function mergeRecordOptions<Key extends string, Value>(
+    base: Record<Key, Value>,
+    override: Partial<Record<Key, Value>> | undefined
+): Record<Key, Value>;
+export function mergeRecordOptions<Key extends string, Value>(
+    base: Partial<Record<Key, Value>> | undefined,
+    override: Partial<Record<Key, Value>> | undefined
+): Partial<Record<Key, Value>> | undefined;
+export function mergeRecordOptions<Key extends string, Value>(
+    base: Partial<Record<Key, Value>> | undefined,
+    override: Partial<Record<Key, Value>> | undefined
+): Partial<Record<Key, Value>> | undefined {
+    if (!base && !override) return undefined;
+    return { ...base, ...override };
+}
+
+/**
+ * Merge two sets of diagram options, combining the four record-valued options
+ * (`customColors`, `edgeOverrides`, `nodeAnnotations`, `nodeOverrides`) per key instead
+ * of letting `override` replace each map wholesale. Every other option is a plain
+ * override, same as a shallow spread.
+ *
+ * @param base - The options to merge into, e.g. a generator's current options
+ * @param override - The options whose values (and per-key record entries) take precedence
+ * @returns The merged options
+ *
+ * @example
+ * ```typescript
+ * mergeDiagramOptions({ nodeOverrides: { A: styleA } }, { nodeOverrides: { B: styleB } });
+ * // { nodeOverrides: { A: styleA, B: styleB } }
+ * ```
+ */
+export function mergeDiagramOptions(base: DiagramOptions, override: DiagramOptions): DiagramOptions {
+    return {
+        ...base,
+        ...override,
+        customColors: mergeRecordOptions(base.customColors, override.customColors),
+        edgeOverrides: mergeRecordOptions(base.edgeOverrides, override.edgeOverrides),
+        nodeAnnotations: mergeRecordOptions(base.nodeAnnotations, override.nodeAnnotations),
+        nodeOverrides: mergeRecordOptions(base.nodeOverrides, override.nodeOverrides),
+    };
+}

@@ -1,4 +1,5 @@
 import type { CustomTheme, StateType } from '../types';
+import { mergeRecordOptions } from './defaults';
 
 /**
  * AWS Light Theme - matches the AWS Step Functions console light mode
@@ -75,10 +76,7 @@ export function getTheme(
     if (customColors) {
         return {
             ...baseTheme,
-            nodeColors: {
-                ...baseTheme.nodeColors,
-                ...customColors,
-            },
+            nodeColors: mergeRecordOptions(baseTheme.nodeColors, customColors),
         };
     }
 

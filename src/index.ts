@@ -33,7 +33,7 @@ import {
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
 } from './renderers';
-import { mergeOptions } from './config';
+import { mergeDiagramOptions, mergeOptions } from './config';
 import { embedIcons } from './utils/iconEmbedder';
 import type {
     GenerateSvgParams,
@@ -561,7 +561,7 @@ export class SfnDiagramGenerator {
      * ```
      */
     setOptions(options: Partial<DiagramOptions>): this {
-        this.options = mergeOptions({ ...this.options, ...options });
+        this.options = mergeOptions(mergeDiagramOptions(this.options, options));
         return this;
     }
 }
