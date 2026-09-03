@@ -57,7 +57,7 @@ Type-only imports (`AslDefinition`, `DiagramOptions`, `CustomTheme`,
 ## CLI
 
 ```bash
-npx sfn-diagram diagram my-workflow.asl.json --format svg --out diagram.svg
+npx sfn-diagram my-workflow.asl.json --format svg -o diagram.svg
 ```
 
 Supports diffs between two revisions and execution overlays from a run's

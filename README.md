@@ -50,7 +50,7 @@ Mermaid instead of SVG? Swap in `generateMermaid`. Rendering a live state machin
 Prefer the command line:
 
 ```bash
-npx sfn-diagram diagram my-workflow.asl.json --format svg --out diagram.svg
+npx sfn-diagram my-workflow.asl.json --format svg -o diagram.svg
 ```
 
 ## Why sfn-diagram

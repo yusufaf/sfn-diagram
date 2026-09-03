@@ -9,3 +9,53 @@
     --sl-color-accent: #24714b;
     --sl-color-accent-high: #123825;
 }
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.gallery-grid figure {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-bg-nav);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.gallery-grid img {
+    width: 100%;
+    max-height: 16rem;
+    object-fit: contain;
+}
+
+.gallery-grid figcaption {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+}
+
+/*
+ * Gallery images swap on Starlight's *resolved* theme (the `data-theme`
+ * attribute Starlight's inline head script sets on `<html>` before first
+ * paint, covering the manual toggle and "auto"/system mode alike) rather
+ * than a `prefers-color-scheme` media query — the toggle changes
+ * `data-theme` independently of the OS setting, and a media query alone
+ * would miss that.
+ */
+.gallery-grid .theme-light {
+    display: none;
+}
+.gallery-grid .theme-dark {
+    display: block;
+}
+:root[data-theme='light'] .gallery-grid .theme-light {
+    display: block;
+}
+:root[data-theme='light'] .gallery-grid .theme-dark {
+    display: none;
+}

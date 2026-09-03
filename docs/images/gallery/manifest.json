@@ -1,0 +1,34 @@
+[
+  {
+    "caption": "A minimal two-state workflow.",
+    "slug": "simple"
+  },
+  {
+    "caption": "Branching logic with a Choice state.",
+    "slug": "choice"
+  },
+  {
+    "caption": "Concurrent branches with a Parallel state.",
+    "slug": "parallel"
+  },
+  {
+    "caption": "Iterating over items with a Map state.",
+    "slug": "map"
+  },
+  {
+    "caption": "Large-scale iteration with a Distributed Map.",
+    "slug": "distributed-map"
+  },
+  {
+    "caption": "Catch blocks rendered as dashed error edges.",
+    "slug": "error-handling"
+  },
+  {
+    "caption": "A Retry policy rendered as a labelled self-loop.",
+    "slug": "retry"
+  },
+  {
+    "caption": "AWS service integrations shown with service icons.",
+    "slug": "services"
+  }
+]

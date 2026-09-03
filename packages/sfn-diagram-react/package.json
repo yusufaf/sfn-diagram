@@ -39,13 +39,17 @@
     "keywords": [
         "aws",
         "step-functions",
+        "stepfunctions",
         "react",
+        "component",
         "diagram",
         "asl",
         "state-machine",
         "visualization",
         "svg",
-        "mermaid"
+        "mermaid",
+        "html",
+        "typescript"
     ],
     "author": "Yusuf Afzal",
     "license": "MIT",
@@ -57,7 +61,7 @@
     "bugs": {
         "url": "https://github.com/yusufaf/sfn-diagram/issues"
     },
-    "homepage": "https://github.com/yusufaf/sfn-diagram/tree/main/packages/sfn-diagram-react#readme",
+    "homepage": "https://sfn.yusufaf.dev/ecosystem/react/",
     "peerDependencies": {
         "react": "^18.0.0 || ^19.0.0",
         "sfn-diagram": "^1.1.1"
