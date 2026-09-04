@@ -24,14 +24,25 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - name: Resolve version from tag input
+      # Resolves the exact version plus its major and major.minor prefixes from
+      # the tag, for both trigger types — so `docker/metadata-action` below can
+      # emit all four tags the docs promise (latest, <major>, <major>.<minor>,
+      # <major>.<minor>.<patch>), not just the exact version and `latest`.
+      - name: Resolve version and derived tags
         id: version
-        if: github.event_name == 'workflow_dispatch'
         run: |
-          TAG="${{ inputs.tag }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
           VERSION="${TAG#sfn-diagram-v}"
           VERSION="${VERSION#v}"
+          MAJOR="${VERSION%%.*}"
+          MINOR="${VERSION%.*}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -46,13 +57,12 @@ jobs:
         with:
           images: ghcr.io/yusufaf/sfn-diagram
           tags: |
-            # release-please tags: sfn-diagram-v0.5.0 → 0.5.0 (anchored so it
-            # doesn't also match github-action-sfn-diagram-v* release tags)
-            type=match,pattern=^sfn-diagram-v(\d+\.\d+\.\d+)$,group=1
-            # legacy tags: v0.4.1 → 0.4.1
-            type=match,pattern=^v(\d+\.\d+\.\d+)$,group=1
-            # manual dispatch: use stripped version from input
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            # Exact version first (docker/metadata-action's `version` output —
+            # used below to verify the published image — resolves to the
+            # first-listed tag among equal-priority `type=raw` entries).
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major }}
+            type=raw,value=${{ steps.version.outputs.minor }}
             type=raw,value=latest
 
       - name: Build and push

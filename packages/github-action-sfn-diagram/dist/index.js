@@ -54447,7 +54447,7 @@ var require_dist_cjs53 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig2, regionConfigResolver.resolveAwsRegionExtensionConfiguration(extensionConfiguration), smithyClient.resolveDefaultRuntimeConfig(extensionConfiguration), protocolHttp.resolveHttpHandlerRuntimeConfig(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
     };
-    var SFNClient2 = class extends smithyClient.Client {
+    var SFNClient = class extends smithyClient.Client {
       config;
       constructor(...[configuration]) {
         const _config_0 = runtimeConfig.getRuntimeConfig(configuration || {});
@@ -54545,7 +54545,7 @@ var require_dist_cjs53 = __commonJS({
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ListActivities", {}).n("SFNClient", "ListActivitiesCommand").sc(schemas_0.ListActivities$).build() {
     };
-    var ListExecutionsCommand2 = class extends smithyClient.Command.classBuilder().ep(commonParams5).m(function(Command, cs, config, o5) {
+    var ListExecutionsCommand = class extends smithyClient.Command.classBuilder().ep(commonParams5).m(function(Command, cs, config, o5) {
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ListExecutions", {}).n("SFNClient", "ListExecutionsCommand").sc(schemas_0.ListExecutions$).build() {
     };
@@ -54629,11 +54629,11 @@ var require_dist_cjs53 = __commonJS({
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ValidateStateMachineDefinition", {}).n("SFNClient", "ValidateStateMachineDefinitionCommand").sc(schemas_0.ValidateStateMachineDefinition$).build() {
     };
-    var paginateGetExecutionHistory = core3.createPaginator(SFNClient2, GetExecutionHistoryCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateListActivities = core3.createPaginator(SFNClient2, ListActivitiesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListExecutions = core3.createPaginator(SFNClient2, ListExecutionsCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateListMapRuns = core3.createPaginator(SFNClient2, ListMapRunsCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListStateMachines = core3.createPaginator(SFNClient2, ListStateMachinesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetExecutionHistory = core3.createPaginator(SFNClient, GetExecutionHistoryCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateListActivities = core3.createPaginator(SFNClient, ListActivitiesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListExecutions = core3.createPaginator(SFNClient, ListExecutionsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListMapRuns = core3.createPaginator(SFNClient, ListMapRunsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListStateMachines = core3.createPaginator(SFNClient, ListStateMachinesCommand, "nextToken", "nextToken", "maxResults");
     var commands5 = {
       CreateActivityCommand,
       CreateStateMachineCommand,
@@ -54651,7 +54651,7 @@ var require_dist_cjs53 = __commonJS({
       GetActivityTaskCommand,
       GetExecutionHistoryCommand: GetExecutionHistoryCommand2,
       ListActivitiesCommand,
-      ListExecutionsCommand: ListExecutionsCommand2,
+      ListExecutionsCommand,
       ListMapRunsCommand,
       ListStateMachineAliasesCommand,
       ListStateMachinesCommand,
@@ -54680,7 +54680,7 @@ var require_dist_cjs53 = __commonJS({
       paginateListMapRuns,
       paginateListStateMachines
     };
-    var SFN = class extends SFNClient2 {
+    var SFN = class extends SFNClient {
     };
     smithyClient.createAggregatedClient(commands5, SFN, { paginators });
     var EncryptionType = {
@@ -54861,7 +54861,7 @@ var require_dist_cjs53 = __commonJS({
     exports2.InspectionLevel = InspectionLevel;
     exports2.KmsKeyState = KmsKeyState;
     exports2.ListActivitiesCommand = ListActivitiesCommand;
-    exports2.ListExecutionsCommand = ListExecutionsCommand2;
+    exports2.ListExecutionsCommand = ListExecutionsCommand;
     exports2.ListMapRunsCommand = ListMapRunsCommand;
     exports2.ListStateMachineAliasesCommand = ListStateMachineAliasesCommand;
     exports2.ListStateMachineVersionsCommand = ListStateMachineVersionsCommand;
@@ -54873,7 +54873,7 @@ var require_dist_cjs53 = __commonJS({
     exports2.PublishStateMachineVersionCommand = PublishStateMachineVersionCommand;
     exports2.RedriveExecutionCommand = RedriveExecutionCommand;
     exports2.SFN = SFN;
-    exports2.SFNClient = SFNClient2;
+    exports2.SFNClient = SFNClient;
     exports2.SendTaskFailureCommand = SendTaskFailureCommand;
     exports2.SendTaskHeartbeatCommand = SendTaskHeartbeatCommand;
     exports2.SendTaskSuccessCommand = SendTaskSuccessCommand;
@@ -54913,6 +54913,34 @@ var require_dist_cjs53 = __commonJS({
     Object.keys(errors).forEach(function(k5) {
       if (k5 !== "default" && !Object.prototype.hasOwnProperty.call(exports2, k5)) exports2[k5] = errors[k5];
     });
+  }
+});
+
+// ../../dist/aws.js
+var aws_exports = {};
+__export(aws_exports, {
+  fetchExecutionHistory: () => fetchExecutionHistory
+});
+async function fetchExecutionHistory(params) {
+  const { client, executionArn, maxResults = 1e3 } = params;
+  const events = [];
+  let nextToken;
+  do {
+    const page = await client.send(new import_client_sfn.GetExecutionHistoryCommand({
+      executionArn,
+      maxResults,
+      nextToken
+    }));
+    events.push(...page.events ?? []);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return events;
+}
+var import_client_sfn;
+var init_aws = __esm({
+  "../../dist/aws.js"() {
+    "use strict";
+    import_client_sfn = __toESM(require_dist_cjs53(), 1);
   }
 });
 
@@ -62262,7 +62290,7 @@ var Si = v((mo, Dt) => {
 });
 var dagre_esm_default = Si();
 
-// ../../dist/index.js
+// ../../dist/ci.js
 var DEFAULT_DIAGRAM_OPTIONS = {
   format: "svg",
   theme: "light",
@@ -63656,73 +63684,13 @@ function generateMermaid(params) {
     showVariables: mergedOptions.showVariables
   });
 }
-
-// src/sfn.ts
-var import_client_sfn2 = __toESM(require_dist_cjs53());
-
-// ../../dist/aws.js
-var import_client_sfn = __toESM(require_dist_cjs53(), 1);
-async function fetchExecutionHistory(params) {
-  const { client, executionArn, maxResults = 1e3 } = params;
-  const events = [];
-  let nextToken;
-  do {
-    const page = await client.send(new import_client_sfn.GetExecutionHistoryCommand({
-      executionArn,
-      maxResults,
-      nextToken
-    }));
-    events.push(...page.events ?? []);
-    nextToken = page.nextToken;
-  } while (nextToken);
-  return events;
-}
-
-// src/sfn.ts
-async function fetchExecutionForOverlay(params) {
-  const { mode, region, stateMachineArn } = params;
-  const client = new import_client_sfn2.SFNClient(region ? { region } : {});
-  const list2 = await client.send(
-    new import_client_sfn2.ListExecutionsCommand({
-      maxResults: 1,
-      stateMachineArn,
-      statusFilter: mode === "latest-failed" ? "FAILED" : void 0
-    })
-  );
-  const newest = list2.executions?.[0];
-  if (!newest?.executionArn) {
-    return void 0;
-  }
-  const events = await fetchExecutionHistory({ client, executionArn: newest.executionArn });
-  return {
-    events,
-    executionArn: newest.executionArn,
-    startDate: newest.startDate,
-    status: newest.status
-  };
-}
-
-// src/run.ts
-var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
-var EXECUTION_MODES = ["off", "latest", "latest-failed"];
 function isAslDefinition(obj) {
   return typeof obj === "object" && obj !== null && "StartAt" in obj && "States" in obj && typeof obj.StartAt === "string";
 }
-function parseAsl2(content) {
+function parseAslJson(content) {
   try {
     const parsed = JSON.parse(content);
     return isAslDefinition(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-async function getFileAtRef(params) {
-  const { octokit, owner, path: path2, ref, repo } = params;
-  try {
-    const response = await octokit.rest.repos.getContent({ owner, path: path2, ref, repo });
-    const data2 = response.data;
-    if (Array.isArray(data2) || data2.type !== "file") return null;
-    return Buffer.from(data2.content, "base64").toString("utf-8");
   } catch {
     return null;
   }
@@ -63733,33 +63701,124 @@ function matchesPatterns(filepath, patterns) {
 function formatStateList(names) {
   return names.map((name) => `\`${name}\``).join(", ");
 }
+function buildAslFileSection(change, options = {}) {
+  const { afterAsl, beforeAsl, filename } = change;
+  if (!afterAsl && !beforeAsl) return null;
+  if (!afterAsl && beforeAsl) {
+    const { code } = generateMermaid({
+      aslDefinition: beforeAsl,
+      ...options
+    });
+    return {
+      afterAsl: null,
+      filename,
+      header: `### \`${filename}\`
+
+> \u26A0\uFE0F **File deleted**
+
+`,
+      mermaidCode: code,
+      mermaidLabel: "\u{1F4CA} Before diagram",
+      mermaidOpenByDefault: false
+    };
+  }
+  if (afterAsl && !beforeAsl) {
+    const { code } = generateMermaid({
+      aslDefinition: afterAsl,
+      ...options
+    });
+    return {
+      afterAsl,
+      filename,
+      header: `### \`${filename}\`
+
+> \u2728 **New file**
+
+`,
+      mermaidCode: code,
+      mermaidLabel: "\u{1F4CA} Diagram",
+      mermaidOpenByDefault: false
+    };
+  }
+  const diff = generateMermaidDiff({
+    after: afterAsl,
+    before: beforeAsl
+  });
+  const { added, modified, removed, unchanged } = diff.metadata;
+  const rows = [];
+  if (added.length > 0) rows.push(`| \u2795 Added | ${formatStateList(added)} |`);
+  if (modified.length > 0) rows.push(`| \u270F\uFE0F Modified | ${formatStateList(modified)} |`);
+  if (removed.length > 0) rows.push(`| \u274C Removed | ${formatStateList(removed)} |`);
+  if (rows.length === 0) rows.push(`| \u2705 No changes | ${unchanged.length} state${unchanged.length !== 1 ? "s" : ""} unchanged |`);
+  return {
+    afterAsl,
+    filename,
+    header: `### \`${filename}\`
+
+| | States |
+|---|---|
+${rows.join("\n")}
+
+`,
+    mermaidCode: diff.code,
+    mermaidLabel: "\u{1F4CA} Diagram (changes highlighted)",
+    mermaidOpenByDefault: true
+  };
+}
+function renderAslFileSection(section, options = { includeDiagram: true }) {
+  if (!options.includeDiagram) return `${section.header}> \u{1F4CE} Diagram omitted \u2014 see the diagram artifact attached to this pipeline
+`;
+  const openAttribute = section.mermaidOpenByDefault ? " open" : "";
+  return `${section.header}<details${openAttribute}>
+<summary>${section.mermaidLabel}</summary>
+
+\`\`\`mermaid
+${section.mermaidCode}
+\`\`\`
+
+</details>
+`;
+}
 async function buildExecutionOverlaySection(params) {
-  const { candidates, mode, region, stateMachineArn } = params;
-  if (candidates.length === 0) {
-    core.info("Execution overlay: no added/modified ASL definition to overlay \u2014 skipping");
-    return null;
-  }
-  if (candidates.length > 1) {
-    core.warning(
-      "Execution overlay: multiple ASL files changed; a single state-machine-arn cannot be mapped to them \u2014 skipping. Limit the PR to one state machine or unset execution-mode."
-    );
-    return null;
-  }
+  const { candidates, fetchExecution, mode, region, stateMachineArn } = params;
+  if (candidates.length === 0) return {
+    log: {
+      level: "info",
+      message: "Execution overlay: no added/modified ASL definition to overlay \u2014 skipping"
+    },
+    section: null
+  };
+  if (candidates.length > 1) return {
+    log: {
+      level: "warning",
+      message: "Execution overlay: multiple ASL files changed; a single state-machine-arn cannot be mapped to them \u2014 skipping. Limit the change to one state machine or unset execution-mode."
+    },
+    section: null
+  };
   const [candidate] = candidates;
   let execution;
   try {
-    execution = await fetchExecutionForOverlay({ mode, region, stateMachineArn });
+    execution = await fetchExecution({
+      mode,
+      region,
+      stateMachineArn
+    });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    core.warning(`Execution overlay: failed to fetch execution history \u2014 ${message}`);
-    return null;
+    return {
+      log: {
+        level: "warning",
+        message: `Execution overlay: failed to fetch execution history \u2014 ${err instanceof Error ? err.message : String(err)}`
+      },
+      section: null
+    };
   }
-  if (!execution) {
-    core.info(
-      `Execution overlay: no ${mode === "latest-failed" ? "failed " : ""}execution found for ${stateMachineArn}`
-    );
-    return null;
-  }
+  if (!execution) return {
+    log: {
+      level: "info",
+      message: `Execution overlay: no ${mode === "latest-failed" ? "failed " : ""}execution found for ${stateMachineArn}`
+    },
+    section: null
+  };
   const { code, metadata } = generateMermaidExecution({
     aslDefinition: candidate.afterAsl,
     history: execution.events
@@ -63770,24 +63829,92 @@ async function buildExecutionOverlaySection(params) {
     `\u{1F7E0} ${metadata.caught.length}`,
     `\u26AA ${metadata.notReached.length}`
   ].join(" \xB7 ");
-  let section = `### \u{1F3AC} Execution overlay \u2014 \`${candidate.filename}\`
+  let header = `### \u{1F3AC} Execution overlay \u2014 \`${candidate.filename}\`
 
 `;
-  section += `> Most recent${mode === "latest-failed" ? " **failed**" : ""} execution: \`${execution.executionArn}\`
+  header += `> Most recent${mode === "latest-failed" ? " **failed**" : ""} execution: \`${execution.executionArn}\`
 `;
-  section += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary} (succeeded \xB7 failed \xB7 caught \xB7 not reached)
+  header += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary} (succeeded \xB7 failed \xB7 caught \xB7 not reached)
 
 `;
-  section += `<details open>
-<summary>\u{1F4CA} Execution diagram</summary>
+  return { section: {
+    header,
+    mermaidCode: code,
+    mermaidLabel: "\u{1F4CA} Execution diagram"
+  } };
+}
+function renderExecutionOverlaySection(section, options = { includeDiagram: true }) {
+  if (!options.includeDiagram) return `${section.header}> \u{1F4CE} Execution diagram omitted \u2014 GitLab's diagram budget was already used by the changed-file diagrams above
+`;
+  return `${section.header}<details open>
+<summary>${section.mermaidLabel}</summary>
 
 \`\`\`mermaid
-${code}
+${section.mermaidCode}
 \`\`\`
 
 </details>
 `;
-  return section;
+}
+var DEFAULT_REPORT_HEADING = "## \u{1F500} Step Functions Diagram Changes";
+var DEFAULT_REPORT_FOOTER = "*Diagrams by [sfn-diagram](https://sfn.yusufaf.dev) \u2014 [try the playground](https://sfn.yusufaf.dev/playground/) \xB7 [source](https://github.com/yusufaf/sfn-diagram)*";
+function assembleCommentBody(params) {
+  const { footer = DEFAULT_REPORT_FOOTER, heading = DEFAULT_REPORT_HEADING, marker, sections } = params;
+  return [
+    marker,
+    heading,
+    "",
+    sections.join("\n---\n\n"),
+    "",
+    footer
+  ].join("\n");
+}
+async function loadAwsSfn() {
+  try {
+    const [clientSfn, aws] = await Promise.all([Promise.resolve().then(() => __toESM(require_dist_cjs53(), 1)), Promise.resolve().then(() => (init_aws(), aws_exports))]);
+    return {
+      ListExecutionsCommand: clientSfn.ListExecutionsCommand,
+      SFNClient: clientSfn.SFNClient,
+      fetchExecutionHistory: aws.fetchExecutionHistory
+    };
+  } catch {
+    throw new Error("Execution overlays require the optional peer dependency '@aws-sdk/client-sfn'. Install it with: npm install @aws-sdk/client-sfn");
+  }
+}
+async function fetchExecutionForOverlay(params) {
+  const { mode, region, stateMachineArn } = params;
+  const { ListExecutionsCommand, SFNClient, fetchExecutionHistory: fetchExecutionHistory2 } = await loadAwsSfn();
+  const client = new SFNClient(region ? { region } : {});
+  const newest = (await client.send(new ListExecutionsCommand({
+    maxResults: 1,
+    stateMachineArn,
+    statusFilter: mode === "latest-failed" ? "FAILED" : void 0
+  }))).executions?.[0];
+  if (!newest?.executionArn) return;
+  return {
+    events: await fetchExecutionHistory2({
+      client,
+      executionArn: newest.executionArn
+    }),
+    executionArn: newest.executionArn,
+    startDate: newest.startDate,
+    status: newest.status
+  };
+}
+
+// src/run.ts
+var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
+var EXECUTION_MODES = ["off", "latest", "latest-failed"];
+async function getFileAtRef(params) {
+  const { octokit, owner, path: path2, ref, repo } = params;
+  try {
+    const response = await octokit.rest.repos.getContent({ owner, path: path2, ref, repo });
+    const data2 = response.data;
+    if (Array.isArray(data2) || data2.type !== "file") return null;
+    return Buffer.from(data2.content, "base64").toString("utf-8");
+  } catch {
+    return null;
+  }
 }
 async function run() {
   const token = core.getInput("github-token", { required: true });
@@ -63837,8 +63964,8 @@ async function run() {
     const { filename, status } = file;
     const beforeContent = status === "added" ? null : await getFileAtRef({ octokit, owner, path: filename, ref: baseSha, repo });
     const afterContent = status === "removed" ? null : await getFileAtRef({ octokit, owner, path: filename, ref: headSha, repo });
-    const beforeAsl = beforeContent ? parseAsl2(beforeContent) : null;
-    const afterAsl = afterContent ? parseAsl2(afterContent) : null;
+    const beforeAsl = beforeContent ? parseAslJson(beforeContent) : null;
+    const afterAsl = afterContent ? parseAslJson(afterContent) : null;
     if (!beforeAsl && !afterAsl) {
       core.info(`Skipping ${filename}: not a valid ASL definition`);
       continue;
@@ -63846,84 +63973,32 @@ async function run() {
     if (afterAsl) {
       overlayCandidates.push({ afterAsl, filename });
     }
-    let section = `### \`${filename}\`
-
-`;
-    if (!afterAsl && beforeAsl) {
-      section += "> \u26A0\uFE0F **File deleted**\n\n";
-      const { code } = generateMermaid({ aslDefinition: beforeAsl });
-      section += `<details>
-<summary>\u{1F4CA} Before diagram</summary>
-
-\`\`\`mermaid
-${code}
-\`\`\`
-
-</details>
-`;
-    } else if (afterAsl && !beforeAsl) {
-      section += "> \u2728 **New file**\n\n";
-      const { code } = generateMermaid({ aslDefinition: afterAsl });
-      section += `<details>
-<summary>\u{1F4CA} Diagram</summary>
-
-\`\`\`mermaid
-${code}
-\`\`\`
-
-</details>
-`;
-    } else if (afterAsl && beforeAsl) {
-      const diff = generateMermaidDiff({ after: afterAsl, before: beforeAsl });
-      const { added, modified, removed, unchanged } = diff.metadata;
-      const rows = [];
-      if (added.length > 0) rows.push(`| \u2795 Added | ${formatStateList(added)} |`);
-      if (modified.length > 0) rows.push(`| \u270F\uFE0F Modified | ${formatStateList(modified)} |`);
-      if (removed.length > 0) rows.push(`| \u274C Removed | ${formatStateList(removed)} |`);
-      if (rows.length === 0) {
-        rows.push(`| \u2705 No changes | ${unchanged.length} state${unchanged.length !== 1 ? "s" : ""} unchanged |`);
-      }
-      section += `| | States |
-|---|---|
-${rows.join("\n")}
-
-`;
-      section += `<details open>
-<summary>\u{1F4CA} Diagram (changes highlighted)</summary>
-
-\`\`\`mermaid
-${diff.code}
-\`\`\`
-
-</details>
-`;
-    }
-    sections.push(section);
+    const section = buildAslFileSection({ afterAsl, beforeAsl, filename });
+    if (section) sections.push(section);
   }
+  const bodySections = sections.map((section) => renderAslFileSection(section));
   if (executionMode !== "off") {
-    const overlaySection = await buildExecutionOverlaySection({
+    const overlay = await buildExecutionOverlaySection({
       candidates: overlayCandidates,
+      fetchExecution: fetchExecutionForOverlay,
       mode: executionMode,
       region: awsRegion,
       stateMachineArn
     });
-    if (overlaySection) {
-      sections.push(overlaySection);
+    if (overlay.log) {
+      const logFn = overlay.log.level === "warning" ? core.warning : core.info;
+      logFn(overlay.log.message);
+    }
+    if (overlay.section) {
+      bodySections.push(renderExecutionOverlaySection(overlay.section));
     }
   }
-  if (sections.length === 0) {
+  if (bodySections.length === 0) {
     core.info("No valid ASL definitions found in changed files");
     return;
   }
   const marker = `${COMMENT_PREFIX}${commentTag}-->`;
-  const body = [
-    marker,
-    "## \u{1F500} Step Functions Diagram Changes",
-    "",
-    sections.join("\n---\n\n"),
-    "",
-    "*Diagrams by [sfn-diagram](https://sfn.yusufaf.dev) \u2014 [try the playground](https://sfn.yusufaf.dev/playground/) \xB7 [source](https://github.com/yusufaf/sfn-diagram)*"
-  ].join("\n");
+  const body = assembleCommentBody({ marker, sections: bodySections });
   const { data: existingComments } = await octokit.rest.issues.listComments({
     issue_number: pullNumber,
     owner,

@@ -55,6 +55,16 @@
         "default": "./dist/cfn.cjs"
       }
     },
+    "./ci": {
+      "import": {
+        "types": "./dist/ci.d.ts",
+        "default": "./dist/ci.js"
+      },
+      "require": {
+        "types": "./dist/ci.d.cts",
+        "default": "./dist/ci.cjs"
+      }
+    },
     "./element": {
       "import": {
         "types": "./dist/element.d.ts",
@@ -86,6 +96,9 @@
       ],
       "cfn": [
         "./dist/cfn.d.ts"
+      ],
+      "ci": [
+        "./dist/ci.d.ts"
       ],
       "element": [
         "./dist/element.d.ts"
@@ -186,6 +199,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^2.0.0",
     "d3-shape": "^3.2.0",
+    "minimatch": "^10.0.1",
     "yaml": "^2.9.0"
   },
   "peerDependencies": {

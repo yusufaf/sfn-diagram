@@ -61,7 +61,7 @@ There's no shortage of ways to look at a state machine — this is where sfn-dia
 |---|---|---|---|
 | Input | ASL, CloudFormation/SAM/CDK templates, live AWS state machines | Deployed state machine only | Manual Mermaid you write by hand |
 | Output | SVG, Mermaid, PNG, interactive HTML | Static graph in-browser | Mermaid diagram only |
-| CI / PR integration | [GitHub Action](https://sfn.yusufaf.dev/ecosystem/github-action/) posts a diff overlay on every PR that touches ASL | None | None |
+| CI / PR integration | [GitHub Action](https://sfn.yusufaf.dev/ecosystem/github-action/) or [GitLab CI](https://sfn.yusufaf.dev/ecosystem/gitlab/) posts a diff overlay on every PR/MR that touches ASL | None | None |
 | Execution overlays | Paints a real run's path/status/duration onto the diagram | Basic per-execution highlighting, console-only | Not applicable |
 | Runs where | CLI, Node, browser, edge runtimes | AWS Console only | Web app only |
 | Automation | Full programmatic API (`generateSvg`, `generateMermaid`, etc.) | None — UI only | None — UI only |
@@ -124,6 +124,7 @@ Working with an AI coding agent? The docs are published as [llms.txt](https://sf
 | **[`<sfn-diagram>` web component](https://sfn.yusufaf.dev/ecosystem/web-component/)** | Framework-agnostic custom element — Vue, Svelte, Solid, Angular, Astro, Hono, vanilla HTML |
 | **[React component](https://sfn.yusufaf.dev/ecosystem/react/)** | `sfn-diagram-react` — render diagrams in any React renderer |
 | **[GitHub Action](https://sfn.yusufaf.dev/ecosystem/github-action/)** | Comment a diagram and diff on every PR that touches an ASL file |
+| **[GitLab CI](https://sfn.yusufaf.dev/ecosystem/gitlab/)** | Same, via `sfn-diagram comment gitlab` from a plain CI job — no marketplace listing needed |
 
 ## Runtime support
 
