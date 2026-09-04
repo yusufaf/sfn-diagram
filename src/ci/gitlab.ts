@@ -21,8 +21,9 @@ import {
     buildExecutionOverlaySection,
     parseAslJson,
     renderAslFileSection,
+    renderExecutionOverlaySection,
 } from './buildReport';
-import type { AslFileSection, OverlayCandidate } from './buildReport';
+import type { AslFileSection, ExecutionOverlaySection, OverlayCandidate } from './buildReport';
 import {
     getChangedAslFiles,
     readFileAtGitRef,
@@ -46,6 +47,13 @@ export interface GitlabMergeRequestContext {
  * branch pipeline instead gets `CI_OPEN_MERGE_REQUESTS`
  * (`group/project!iid[,...]`), whose first entry's IID is used as a fallback.
  * Returns `null` when the context can't be determined.
+ *
+ * `runGitlabComment` never actually reaches the branch-pipeline fallback: it
+ * already requires `CI_MERGE_REQUEST_DIFF_BASE_SHA` to diff at all, which
+ * (like `CI_MERGE_REQUEST_IID`) GitLab only sets on merge request pipelines —
+ * so by the time this runs there, the direct `CI_MERGE_REQUEST_IID` path has
+ * always already matched. The fallback exists for a caller that determines
+ * its own base ref some other way and calls this function directly.
  */
 export function detectGitlabMergeRequestContext(
     env: NodeJS.ProcessEnv = process.env,
@@ -94,6 +102,45 @@ export interface UpsertMergeRequestNoteResult {
     noteId: number;
 }
 
+/** Bounds worst-case pagination to 500 notes — a marker-tagged note's `created_at` never changes on update, so on a very long-lived, heavily-discussed MR it can in principle age off the scanned window. */
+const MAX_NOTE_LIST_PAGES = 5;
+
+/**
+ * Scans a merge request's notes, newest first, for one whose body starts
+ * with `marker` — paginating rather than checking only the first page, since
+ * a marker note's `created_at` is set once (at creation) and never bumped by
+ * a later `PUT` update, so it can drop off page 1 as an MR accumulates other
+ * discussion.
+ */
+async function findNoteByMarker(params: {
+    fetchImpl: typeof fetch;
+    marker: string;
+    notesUrl: string;
+    token: string;
+}): Promise<{ body?: string; id: number } | undefined> {
+    const { fetchImpl, marker, notesUrl, token } = params;
+
+    for (let page = 1; page <= MAX_NOTE_LIST_PAGES; page++) {
+        const response = await fetchImpl(
+            `${notesUrl}?order_by=created_at&page=${page}&per_page=100&sort=desc`,
+            { headers: { 'PRIVATE-TOKEN': token } }
+        );
+        if (!response.ok) {
+            throw new Error(
+                `Failed to list merge request notes: ${response.status} ${response.statusText}`
+            );
+        }
+        const notes = (await response.json()) as { body?: string; id: number }[];
+        const found = notes.find((note) => note.body?.startsWith(marker));
+        if (found) return found;
+
+        const nextPage = response.headers.get('x-next-page');
+        if (!nextPage || notes.length < 100) break;
+    }
+
+    return undefined;
+}
+
 /**
  * Creates a merge request note, or updates one from a previous run — found by
  * an HTML-comment marker prefixing its body — so re-runs update the same
@@ -112,23 +159,7 @@ export async function upsertMergeRequestNote(
         token,
     } = params;
     const notesUrl = `${apiUrl}/projects/${encodeURIComponent(projectId)}/merge_requests/${mergeRequestIid}/notes`;
-
-    const listResponse = await fetchImpl(
-        `${notesUrl}?per_page=100&order_by=created_at&sort=desc`,
-        {
-            headers: { 'PRIVATE-TOKEN': token },
-        },
-    );
-    if (!listResponse.ok) {
-        throw new Error(
-            `Failed to list merge request notes: ${listResponse.status} ${listResponse.statusText}`,
-        );
-    }
-    const notes = (await listResponse.json()) as {
-        body?: string;
-        id: number;
-    }[];
-    const existing = notes.find((note) => note.body?.startsWith(marker));
+    const existing = await findNoteByMarker({ fetchImpl, marker, notesUrl, token });
 
     if (existing) {
         const response = await fetchImpl(`${notesUrl}/${existing.id}`, {
@@ -293,15 +324,43 @@ export async function runGitlabComment(
         return { exitCode: 0, logs };
     }
 
-    const totalMermaidChars = sections.reduce(
-        (sum, section) => sum + section.mermaidCode.length,
-        0,
-    );
+    // Fetch the execution overlay (if any) BEFORE deciding whether the report
+    // fits GitLab's inline budget, so its diagram counts toward that budget
+    // too — otherwise a large overlay diagram could push a comment over the
+    // limit even when the changed-file diagrams alone would have fit.
+    let overlaySection: ExecutionOverlaySection | null = null;
+    if (executionMode !== 'off') {
+        if (!stateMachineArn) {
+            log(
+                'warning',
+                'execution-mode is set but state-machine-arn is empty; skipping the execution overlay.',
+            );
+        } else {
+            const overlay = await buildExecutionOverlaySection({
+                candidates: overlayCandidates,
+                fetchExecution: fetchExecutionForOverlay,
+                mode: executionMode,
+                region: awsRegion,
+                stateMachineArn,
+            });
+            if (overlay.log) log(overlay.log.level, overlay.log.message);
+            overlaySection = overlay.section;
+        }
+    }
+
+    const totalMermaidChars =
+        sections.reduce((sum, section) => sum + section.mermaidCode.length, 0) +
+        (overlaySection?.mermaidCode.length ?? 0);
     const includeDiagrams = totalMermaidChars <= MAX_INLINE_MERMAID_CHARS;
 
     const bodySections = sections.map((section) =>
         renderAslFileSection(section, { includeDiagram: includeDiagrams }),
     );
+    if (overlaySection) {
+        bodySections.push(
+            renderExecutionOverlaySection(overlaySection, { includeDiagram: includeDiagrams }),
+        );
+    }
 
     if (!includeDiagrams) {
         mkdirSync(outputDir, { recursive: true });
@@ -324,25 +383,6 @@ export async function runGitlabComment(
                 `(${totalMermaidChars} chars) — wrote SVG fallbacks to ${outputDir}/. ` +
                 `Expose them with "artifacts: expose_as" in the job so they show up on the merge request widget.`,
         );
-    }
-
-    if (executionMode !== 'off') {
-        if (!stateMachineArn) {
-            log(
-                'warning',
-                'execution-mode is set but state-machine-arn is empty; skipping the execution overlay.',
-            );
-        } else {
-            const overlay = await buildExecutionOverlaySection({
-                candidates: overlayCandidates,
-                fetchExecution: fetchExecutionForOverlay,
-                mode: executionMode,
-                region: awsRegion,
-                stateMachineArn,
-            });
-            if (overlay.log) log(overlay.log.level, overlay.log.message);
-            if (overlay.section) bodySections.push(overlay.section);
-        }
     }
 
     const marker = `<!-- sfn-diagram:${commentTag}-->`;

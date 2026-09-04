@@ -17,6 +17,15 @@ import {
 } from '../../src/ci/gitlab';
 import { git } from './gitTestHelper';
 
+const { fetchExecutionForOverlayMock } = vi.hoisted(() => ({
+    fetchExecutionForOverlayMock: vi.fn(),
+}));
+
+vi.mock('../../src/ci/execution', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../src/ci/execution')>()),
+    fetchExecutionForOverlay: fetchExecutionForOverlayMock,
+}));
+
 describe('detectGitlabMergeRequestContext', () => {
     it('returns null when CI_API_V4_URL is missing', () => {
         expect(detectGitlabMergeRequestContext({})).toBeNull();
@@ -144,6 +153,42 @@ describe('upsertMergeRequestNote', () => {
             ),
         ).toBe(true);
         expect(calls.some((call) => call.init?.method === 'POST')).toBe(false);
+    });
+
+    it('finds the marker note on a later page instead of giving up after page 1', async () => {
+        const page1Notes = Array.from({ length: 100 }, (_, index) => ({
+            body: `unrelated note ${index}`,
+            id: index,
+        }));
+        const page2Notes = [{ body: '<!-- marker -->\nold', id: 999 }];
+
+        const calls: { init?: RequestInit; url: string }[] = [];
+        const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+            calls.push({ init, url });
+            if (!init || init.method === undefined) {
+                const page = new URL(url).searchParams.get('page');
+                if (page === '2') {
+                    return new Response(JSON.stringify(page2Notes), { status: 200 });
+                }
+                return new Response(JSON.stringify(page1Notes), {
+                    headers: { 'x-next-page': '2' },
+                    status: 200,
+                });
+            }
+            if (init.method === 'PUT') {
+                const idMatch = url.match(/\/notes\/(\d+)$/);
+                return new Response(JSON.stringify({ id: Number(idMatch?.[1]) }), { status: 200 });
+            }
+            throw new Error(`Unhandled method in stub: ${init.method}`);
+        });
+
+        const result = await upsertMergeRequestNote({
+            ...baseParams,
+            fetchImpl: fetchImpl as unknown as typeof fetch,
+        });
+
+        expect(result).toEqual({ action: 'updated', noteId: 999 });
+        expect(calls.filter((call) => !call.init || call.init.method === undefined)).toHaveLength(2);
     });
 
     it('throws when the list request fails', async () => {
@@ -411,6 +456,50 @@ describe('runGitlabComment (integration, real git repo)', () => {
         expect(existsSync(join(outputDir, 'big.asl.json.svg'))).toBe(true);
         const svgContent = readdirSync(outputDir);
         expect(svgContent).toContain('big.asl.json.svg');
+    });
+
+    it('omits the execution overlay diagram too once the combined report exceeds the char budget', async () => {
+        git(repo, 'commit', '-q', '--allow-empty', '-m', 'base');
+        const baseSha = git(repo, 'rev-parse', 'HEAD').trim();
+        writeFileSync(join(repo, 'big.asl.json'), oversizedAsl());
+        git(repo, 'add', '.');
+        git(repo, 'commit', '-q', '-m', 'head');
+
+        fetchExecutionForOverlayMock.mockResolvedValue({
+            events: [],
+            executionArn: 'arn:aws:states:us-east-1:1:execution:x:run-1',
+            status: 'SUCCEEDED',
+        });
+
+        const { calls: fetchCalls, fetchImpl } = makeFetchStub([]);
+        const result = await runGitlabComment({
+            ...baseParams,
+            cwd: repo,
+            env: {
+                CI_API_V4_URL: 'https://gitlab.example.com/api/v4',
+                CI_MERGE_REQUEST_DIFF_BASE_SHA: baseSha,
+                CI_MERGE_REQUEST_IID: '7',
+                CI_MERGE_REQUEST_PROJECT_ID: '42',
+                GITLAB_TOKEN: 'tok',
+            },
+            executionMode: 'latest',
+            fetchImpl,
+            outputDir,
+            stateMachineArn: 'arn:aws:states:us-east-1:1:stateMachine:x',
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(fetchExecutionForOverlayMock).toHaveBeenCalled();
+        const postCall = fetchCalls.find((call) => call.init?.method === 'POST');
+        expect(postCall).toBeDefined();
+        const posted = JSON.parse(postCall!.init!.body as string) as { body: string };
+        // The overlay section still appears (with its header/status line), but
+        // without its own fenced Mermaid block — the fix under test: an
+        // oversized overlay diagram no longer bypasses the budget that already
+        // pushed the changed-file diagrams to SVG fallback.
+        expect(posted.body).toContain('Execution overlay');
+        expect(posted.body).toContain('Execution diagram omitted');
+        expect(posted.body.match(/```mermaid/g)).toBeNull();
     });
 
     it("MAX_INLINE_MERMAID_CHARS leaves headroom under GitLab's shared 2000-char page budget", () => {

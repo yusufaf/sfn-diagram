@@ -26,7 +26,7 @@ Options: `--asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`),
 
 ## The Mermaid size limit
 
-GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--output-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `--collapse`/`--hide-catch` (on `sfn-diagram` itself) can shrink a diagram back under the limit for a plain added/deleted file — they have no effect on a diff diagram, which the underlying library renders without size-affecting options.
+GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--output-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `comment gitlab`'s own `--hide-catch` can shrink a plain added/deleted file's diagram back under the limit; it has no effect on a diff diagram, which the underlying library renders without size-affecting options. (The plain `sfn-diagram` CLI also has a `--collapse` flag, but `comment gitlab` doesn't expose it.)
 
 ## Posting the comment
 

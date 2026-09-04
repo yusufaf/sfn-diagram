@@ -184,10 +184,23 @@ export interface BuildExecutionOverlaySectionParams {
     stateMachineArn: string;
 }
 
+/**
+ * The execution-overlay section, split the same way `AslFileSection` is —
+ * `header` (filename, execution ARN/status, never counts against a
+ * diagram-size budget) separate from the Mermaid diagram itself — so a
+ * caller can drop the diagram in favor of a placeholder once a budget is
+ * exceeded, the same as `renderAslFileSection` does for a changed file.
+ */
+export interface ExecutionOverlaySection {
+    header: string;
+    mermaidCode: string;
+    mermaidLabel: string;
+}
+
 export interface BuildExecutionOverlaySectionResult {
     /** A message the caller may want to surface (e.g. via `core.info`/`core.warning` or stderr). */
     log?: { level: 'info' | 'warning'; message: string };
-    section: string | null;
+    section: ExecutionOverlaySection | null;
 }
 
 /**
@@ -261,12 +274,32 @@ export async function buildExecutionOverlaySection(
         `⚪ ${metadata.notReached.length}`,
     ].join(' · ');
 
-    let section = `### 🎬 Execution overlay — \`${candidate.filename}\`\n\n`;
-    section += `> Most recent${mode === 'latest-failed' ? ' **failed**' : ''} execution: \`${execution.executionArn}\`\n`;
-    section += `> Status: **${execution.status ?? metadata.executionStatus}** — ${summary} (succeeded · failed · caught · not reached)\n\n`;
-    section += `<details open>\n<summary>📊 Execution diagram</summary>\n\n\`\`\`mermaid\n${code}\n\`\`\`\n\n</details>\n`;
+    let header = `### 🎬 Execution overlay — \`${candidate.filename}\`\n\n`;
+    header += `> Most recent${mode === 'latest-failed' ? ' **failed**' : ''} execution: \`${execution.executionArn}\`\n`;
+    header += `> Status: **${execution.status ?? metadata.executionStatus}** — ${summary} (succeeded · failed · caught · not reached)\n\n`;
 
-    return { section };
+    return {
+        section: { header, mermaidCode: code, mermaidLabel: '📊 Execution diagram' },
+    };
+}
+
+/**
+ * Renders an execution-overlay section to Markdown. Pass `includeDiagram:
+ * false` to drop the fenced Mermaid block once a report has crossed a
+ * platform's diagram-size budget — mirrors `renderAslFileSection`.
+ */
+export function renderExecutionOverlaySection(
+    section: ExecutionOverlaySection,
+    options: { includeDiagram: boolean } = { includeDiagram: true }
+): string {
+    if (!options.includeDiagram) {
+        return `${section.header}> 📎 Execution diagram omitted — GitLab's diagram budget was already used by the changed-file diagrams above\n`;
+    }
+
+    return (
+        `${section.header}<details open>\n<summary>${section.mermaidLabel}</summary>\n\n` +
+        `\`\`\`mermaid\n${section.mermaidCode}\n\`\`\`\n\n</details>\n`
+    );
 }
 
 export const DEFAULT_REPORT_HEADING: string =
@@ -278,12 +311,12 @@ export const DEFAULT_REPORT_FOOTER: string =
     '[source](https://github.com/yusufaf/sfn-diagram)*';
 
 export interface AssembleCommentBodyParams {
+    footer?: string;
+    heading?: string;
     /** An HTML-comment marker prefixing the body, used to find/update the comment on later runs. */
     marker: string;
     /** Already-rendered per-file section Markdown, in the order they should appear. */
     sections: string[];
-    footer?: string;
-    heading?: string;
 }
 
 /** Joins a marker, heading, per-file sections, and footer into one comment body. */

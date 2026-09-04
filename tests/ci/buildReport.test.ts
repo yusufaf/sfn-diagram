@@ -9,6 +9,7 @@ import {
     matchesPatterns,
     parseAslJson,
     renderAslFileSection,
+    renderExecutionOverlaySection,
 } from '../../src/ci/buildReport';
 
 const beforeAsl: AslDefinition = {
@@ -316,9 +317,26 @@ describe('buildExecutionOverlaySection', () => {
             mode: 'latest',
             stateMachineArn: 'arn:aws:states:us-east-1:1:stateMachine:x',
         });
-        expect(result.section).toContain('Execution overlay');
-        expect(result.section).toContain('run-1');
-        expect(result.section).toContain('```mermaid');
+        expect(result.section?.header).toContain('Execution overlay');
+        expect(result.section?.header).toContain('run-1');
+        expect(renderExecutionOverlaySection(result.section!)).toContain('```mermaid');
+    });
+
+    it('renders an execution overlay section with the diagram omitted when includeDiagram is false', async () => {
+        const result = await buildExecutionOverlaySection({
+            candidates: [{ afterAsl, filename: 'a.asl.json' }],
+            fetchExecution: vi.fn().mockResolvedValue({
+                events: [],
+                executionArn: 'arn:aws:states:us-east-1:1:execution:x:run-1',
+                status: 'SUCCEEDED',
+            }),
+            mode: 'latest',
+            stateMachineArn: 'arn:aws:states:us-east-1:1:stateMachine:x',
+        });
+        const markdown = renderExecutionOverlaySection(result.section!, { includeDiagram: false });
+        expect(markdown).not.toContain('```mermaid');
+        expect(markdown).toContain('Execution diagram omitted');
+        expect(markdown).toContain('Execution overlay');
     });
 });
 

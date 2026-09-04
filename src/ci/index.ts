@@ -37,6 +37,7 @@ export {
     matchesPatterns,
     parseAslJson,
     renderAslFileSection,
+    renderExecutionOverlaySection,
 } from './buildReport';
 export type {
     AslFileChange,
@@ -44,6 +45,7 @@ export type {
     AssembleCommentBodyParams,
     BuildExecutionOverlaySectionParams,
     BuildExecutionOverlaySectionResult,
+    ExecutionOverlaySection,
     OverlayCandidate,
 } from './buildReport';
 

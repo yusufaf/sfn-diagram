@@ -54447,7 +54447,7 @@ var require_dist_cjs53 = __commonJS({
       extensions.forEach((extension) => extension.configure(extensionConfiguration));
       return Object.assign(runtimeConfig2, regionConfigResolver.resolveAwsRegionExtensionConfiguration(extensionConfiguration), smithyClient.resolveDefaultRuntimeConfig(extensionConfiguration), protocolHttp.resolveHttpHandlerRuntimeConfig(extensionConfiguration), resolveHttpAuthRuntimeConfig5(extensionConfiguration));
     };
-    var SFNClient2 = class extends smithyClient.Client {
+    var SFNClient = class extends smithyClient.Client {
       config;
       constructor(...[configuration]) {
         const _config_0 = runtimeConfig.getRuntimeConfig(configuration || {});
@@ -54545,7 +54545,7 @@ var require_dist_cjs53 = __commonJS({
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ListActivities", {}).n("SFNClient", "ListActivitiesCommand").sc(schemas_0.ListActivities$).build() {
     };
-    var ListExecutionsCommand2 = class extends smithyClient.Command.classBuilder().ep(commonParams5).m(function(Command, cs, config, o5) {
+    var ListExecutionsCommand = class extends smithyClient.Command.classBuilder().ep(commonParams5).m(function(Command, cs, config, o5) {
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ListExecutions", {}).n("SFNClient", "ListExecutionsCommand").sc(schemas_0.ListExecutions$).build() {
     };
@@ -54629,11 +54629,11 @@ var require_dist_cjs53 = __commonJS({
       return [middlewareEndpoint.getEndpointPlugin(config, Command.getEndpointParameterInstructions())];
     }).s("AWSStepFunctions", "ValidateStateMachineDefinition", {}).n("SFNClient", "ValidateStateMachineDefinitionCommand").sc(schemas_0.ValidateStateMachineDefinition$).build() {
     };
-    var paginateGetExecutionHistory = core3.createPaginator(SFNClient2, GetExecutionHistoryCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateListActivities = core3.createPaginator(SFNClient2, ListActivitiesCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListExecutions = core3.createPaginator(SFNClient2, ListExecutionsCommand2, "nextToken", "nextToken", "maxResults");
-    var paginateListMapRuns = core3.createPaginator(SFNClient2, ListMapRunsCommand, "nextToken", "nextToken", "maxResults");
-    var paginateListStateMachines = core3.createPaginator(SFNClient2, ListStateMachinesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateGetExecutionHistory = core3.createPaginator(SFNClient, GetExecutionHistoryCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateListActivities = core3.createPaginator(SFNClient, ListActivitiesCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListExecutions = core3.createPaginator(SFNClient, ListExecutionsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListMapRuns = core3.createPaginator(SFNClient, ListMapRunsCommand, "nextToken", "nextToken", "maxResults");
+    var paginateListStateMachines = core3.createPaginator(SFNClient, ListStateMachinesCommand, "nextToken", "nextToken", "maxResults");
     var commands5 = {
       CreateActivityCommand,
       CreateStateMachineCommand,
@@ -54651,7 +54651,7 @@ var require_dist_cjs53 = __commonJS({
       GetActivityTaskCommand,
       GetExecutionHistoryCommand: GetExecutionHistoryCommand2,
       ListActivitiesCommand,
-      ListExecutionsCommand: ListExecutionsCommand2,
+      ListExecutionsCommand,
       ListMapRunsCommand,
       ListStateMachineAliasesCommand,
       ListStateMachinesCommand,
@@ -54680,7 +54680,7 @@ var require_dist_cjs53 = __commonJS({
       paginateListMapRuns,
       paginateListStateMachines
     };
-    var SFN = class extends SFNClient2 {
+    var SFN = class extends SFNClient {
     };
     smithyClient.createAggregatedClient(commands5, SFN, { paginators });
     var EncryptionType = {
@@ -54861,7 +54861,7 @@ var require_dist_cjs53 = __commonJS({
     exports2.InspectionLevel = InspectionLevel;
     exports2.KmsKeyState = KmsKeyState;
     exports2.ListActivitiesCommand = ListActivitiesCommand;
-    exports2.ListExecutionsCommand = ListExecutionsCommand2;
+    exports2.ListExecutionsCommand = ListExecutionsCommand;
     exports2.ListMapRunsCommand = ListMapRunsCommand;
     exports2.ListStateMachineAliasesCommand = ListStateMachineAliasesCommand;
     exports2.ListStateMachineVersionsCommand = ListStateMachineVersionsCommand;
@@ -54873,7 +54873,7 @@ var require_dist_cjs53 = __commonJS({
     exports2.PublishStateMachineVersionCommand = PublishStateMachineVersionCommand;
     exports2.RedriveExecutionCommand = RedriveExecutionCommand;
     exports2.SFN = SFN;
-    exports2.SFNClient = SFNClient2;
+    exports2.SFNClient = SFNClient;
     exports2.SendTaskFailureCommand = SendTaskFailureCommand;
     exports2.SendTaskHeartbeatCommand = SendTaskHeartbeatCommand;
     exports2.SendTaskSuccessCommand = SendTaskSuccessCommand;
@@ -54913,6 +54913,34 @@ var require_dist_cjs53 = __commonJS({
     Object.keys(errors).forEach(function(k5) {
       if (k5 !== "default" && !Object.prototype.hasOwnProperty.call(exports2, k5)) exports2[k5] = errors[k5];
     });
+  }
+});
+
+// ../../dist/aws.js
+var aws_exports = {};
+__export(aws_exports, {
+  fetchExecutionHistory: () => fetchExecutionHistory
+});
+async function fetchExecutionHistory(params) {
+  const { client, executionArn, maxResults = 1e3 } = params;
+  const events = [];
+  let nextToken;
+  do {
+    const page = await client.send(new import_client_sfn.GetExecutionHistoryCommand({
+      executionArn,
+      maxResults,
+      nextToken
+    }));
+    events.push(...page.events ?? []);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return events;
+}
+var import_client_sfn;
+var init_aws = __esm({
+  "../../dist/aws.js"() {
+    "use strict";
+    import_client_sfn = __toESM(require_dist_cjs53(), 1);
   }
 });
 
@@ -62263,7 +62291,6 @@ var Si = v((mo, Dt) => {
 var dagre_esm_default = Si();
 
 // ../../dist/ci.js
-var import_client_sfn = __toESM(require_dist_cjs53(), 1);
 var DEFAULT_DIAGRAM_OPTIONS = {
   format: "svg",
   theme: "light",
@@ -63802,24 +63829,32 @@ async function buildExecutionOverlaySection(params) {
     `\u{1F7E0} ${metadata.caught.length}`,
     `\u26AA ${metadata.notReached.length}`
   ].join(" \xB7 ");
-  let section = `### \u{1F3AC} Execution overlay \u2014 \`${candidate.filename}\`
+  let header = `### \u{1F3AC} Execution overlay \u2014 \`${candidate.filename}\`
 
 `;
-  section += `> Most recent${mode === "latest-failed" ? " **failed**" : ""} execution: \`${execution.executionArn}\`
+  header += `> Most recent${mode === "latest-failed" ? " **failed**" : ""} execution: \`${execution.executionArn}\`
 `;
-  section += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary} (succeeded \xB7 failed \xB7 caught \xB7 not reached)
+  header += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary} (succeeded \xB7 failed \xB7 caught \xB7 not reached)
 
 `;
-  section += `<details open>
-<summary>\u{1F4CA} Execution diagram</summary>
+  return { section: {
+    header,
+    mermaidCode: code,
+    mermaidLabel: "\u{1F4CA} Execution diagram"
+  } };
+}
+function renderExecutionOverlaySection(section, options = { includeDiagram: true }) {
+  if (!options.includeDiagram) return `${section.header}> \u{1F4CE} Execution diagram omitted \u2014 GitLab's diagram budget was already used by the changed-file diagrams above
+`;
+  return `${section.header}<details open>
+<summary>${section.mermaidLabel}</summary>
 
 \`\`\`mermaid
-${code}
+${section.mermaidCode}
 \`\`\`
 
 </details>
 `;
-  return { section };
 }
 var DEFAULT_REPORT_HEADING = "## \u{1F500} Step Functions Diagram Changes";
 var DEFAULT_REPORT_FOOTER = "*Diagrams by [sfn-diagram](https://sfn.yusufaf.dev) \u2014 [try the playground](https://sfn.yusufaf.dev/playground/) \xB7 [source](https://github.com/yusufaf/sfn-diagram)*";
@@ -63834,32 +63869,30 @@ function assembleCommentBody(params) {
     footer
   ].join("\n");
 }
-async function fetchExecutionHistory(params) {
-  const { client, executionArn, maxResults = 1e3 } = params;
-  const events = [];
-  let nextToken;
-  do {
-    const page = await client.send(new import_client_sfn.GetExecutionHistoryCommand({
-      executionArn,
-      maxResults,
-      nextToken
-    }));
-    events.push(...page.events ?? []);
-    nextToken = page.nextToken;
-  } while (nextToken);
-  return events;
+async function loadAwsSfn() {
+  try {
+    const [clientSfn, aws] = await Promise.all([Promise.resolve().then(() => __toESM(require_dist_cjs53(), 1)), Promise.resolve().then(() => (init_aws(), aws_exports))]);
+    return {
+      ListExecutionsCommand: clientSfn.ListExecutionsCommand,
+      SFNClient: clientSfn.SFNClient,
+      fetchExecutionHistory: aws.fetchExecutionHistory
+    };
+  } catch {
+    throw new Error("Execution overlays require the optional peer dependency '@aws-sdk/client-sfn'. Install it with: npm install @aws-sdk/client-sfn");
+  }
 }
 async function fetchExecutionForOverlay(params) {
   const { mode, region, stateMachineArn } = params;
-  const client = new import_client_sfn.SFNClient(region ? { region } : {});
-  const newest = (await client.send(new import_client_sfn.ListExecutionsCommand({
+  const { ListExecutionsCommand, SFNClient, fetchExecutionHistory: fetchExecutionHistory2 } = await loadAwsSfn();
+  const client = new SFNClient(region ? { region } : {});
+  const newest = (await client.send(new ListExecutionsCommand({
     maxResults: 1,
     stateMachineArn,
     statusFilter: mode === "latest-failed" ? "FAILED" : void 0
   }))).executions?.[0];
   if (!newest?.executionArn) return;
   return {
-    events: await fetchExecutionHistory({
+    events: await fetchExecutionHistory2({
       client,
       executionArn: newest.executionArn
     }),
@@ -63957,7 +63990,7 @@ async function run() {
       logFn(overlay.log.message);
     }
     if (overlay.section) {
-      bodySections.push(overlay.section);
+      bodySections.push(renderExecutionOverlaySection(overlay.section));
     }
   }
   if (bodySections.length === 0) {

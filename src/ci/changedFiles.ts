@@ -29,7 +29,13 @@ const GIT_ENV_VARS_TO_STRIP = [
     'GIT_WORK_TREE',
 ];
 
-function gitEnv(): NodeJS.ProcessEnv {
+/**
+ * An env object safe to pass to a spawned `git` command — a copy of
+ * `process.env` with any inherited GIT_DIR/GIT_WORK_TREE (and friends)
+ * stripped. Exported so tests building their own throwaway git fixtures can
+ * reuse the exact same list rather than keeping a second copy in sync.
+ */
+export function gitEnv(): NodeJS.ProcessEnv {
     const env = { ...process.env };
     for (const key of GIT_ENV_VARS_TO_STRIP) delete env[key];
     return env;

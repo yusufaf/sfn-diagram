@@ -9,6 +9,7 @@ import {
     matchesPatterns,
     parseAslJson,
     renderAslFileSection,
+    renderExecutionOverlaySection,
 } from 'sfn-diagram/ci'
 import type { AslFileSection, OverlayCandidate } from 'sfn-diagram/ci'
 import type { AslDefinition } from 'sfn-diagram'
@@ -145,7 +146,7 @@ export async function run(): Promise<void> {
             logFn(overlay.log.message)
         }
         if (overlay.section) {
-            bodySections.push(overlay.section)
+            bodySections.push(renderExecutionOverlaySection(overlay.section))
         }
     }
 

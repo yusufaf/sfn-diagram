@@ -2,10 +2,17 @@
  * Fetches the execution to overlay onto a CI-generated diagram. Node-only —
  * lives under the `sfn-diagram/ci` subpath, never the core entry, so
  * `@aws-sdk/client-sfn` stays out of `sfn-diagram`'s dependency graph.
+ *
+ * `@aws-sdk/client-sfn` is loaded lazily (dynamic `import()`, mirroring
+ * PngExporter's optional-peer pattern) rather than as a static top-level
+ * import: `sfn-diagram/ci`'s barrel is imported unconditionally by the CLI
+ * for `comment gitlab`, and a static import would make every `sfn-diagram`
+ * command — including plain SVG/Mermaid generation, with no AWS or GitLab
+ * involved — fail at startup for anyone who hasn't installed the optional
+ * peer.
  */
-import { ListExecutionsCommand, SFNClient } from '@aws-sdk/client-sfn';
-import type { HistoryEvent } from '@aws-sdk/client-sfn';
-import { fetchExecutionHistory } from '../aws';
+import type { HistoryEvent, ListExecutionsCommand as ListExecutionsCommandType, SFNClient as SFNClientType } from '@aws-sdk/client-sfn';
+import type { FetchExecutionHistoryParams } from '../aws';
 
 /** How a CI integration selects which execution to overlay. `off` disables the feature. */
 export type ExecutionMode = 'off' | 'latest' | 'latest-failed';
@@ -25,6 +32,26 @@ export interface OverlayExecution {
     status?: string;
 }
 
+async function loadAwsSfn(): Promise<{
+    ListExecutionsCommand: typeof ListExecutionsCommandType;
+    SFNClient: typeof SFNClientType;
+    fetchExecutionHistory: (params: FetchExecutionHistoryParams) => Promise<HistoryEvent[]>;
+}> {
+    try {
+        const [clientSfn, aws] = await Promise.all([import('@aws-sdk/client-sfn'), import('../aws')]);
+        return {
+            ListExecutionsCommand: clientSfn.ListExecutionsCommand,
+            SFNClient: clientSfn.SFNClient,
+            fetchExecutionHistory: aws.fetchExecutionHistory,
+        };
+    } catch {
+        throw new Error(
+            "Execution overlays require the optional peer dependency '@aws-sdk/client-sfn'. " +
+                'Install it with: npm install @aws-sdk/client-sfn'
+        );
+    }
+}
+
 /**
  * Resolves the execution to overlay for a state machine: lists the newest
  * execution (optionally filtered to FAILED) and paginates its full history via
@@ -33,9 +60,11 @@ export interface OverlayExecution {
  * the most recent.
  */
 export async function fetchExecutionForOverlay(
-    params: FetchExecutionForOverlayParams,
+    params: FetchExecutionForOverlayParams
 ): Promise<OverlayExecution | undefined> {
     const { mode, region, stateMachineArn } = params;
+
+    const { ListExecutionsCommand, SFNClient, fetchExecutionHistory } = await loadAwsSfn();
 
     const client = new SFNClient(region ? { region } : {});
     const list = await client.send(
@@ -43,7 +72,7 @@ export async function fetchExecutionForOverlay(
             maxResults: 1,
             stateMachineArn,
             statusFilter: mode === 'latest-failed' ? 'FAILED' : undefined,
-        }),
+        })
     );
 
     const newest = list.executions?.[0];
