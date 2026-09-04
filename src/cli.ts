@@ -146,12 +146,28 @@ function parseCollapseNames(value: string): string[] {
         .filter((name) => name.length > 0);
 }
 
+/**
+ * Placeholder inline value for a bare `--collapse`, distinguishable from a genuinely
+ * empty `--collapse=` (which means "collapse nothing", i.e. an empty name list —
+ * see the `collapse` mapping below). Not a character a real flag value would contain.
+ */
+const BARE_COLLAPSE_SENTINEL = '\u0000';
+
 export function parseArgs(argv: string[]): CliArgs {
     // A bare `--collapse` declared as a string option would otherwise swallow the
     // next token — including the input path — as its value. Rewriting it to an
-    // explicit empty inline value keeps it non-greedy; an empty value means
-    // "collapse all" (see the `collapse` mapping below).
-    const normalizedArgv = argv.map((arg) => (arg === '--collapse' ? '--collapse=' : arg));
+    // explicit sentinel inline value keeps it non-greedy without colliding with an
+    // explicit `--collapse=` (empty string) meaning something different.
+    //
+    // Skip this rewrite for any `--collapse` occurring after a literal `--`
+    // terminator, where it's a positional value (e.g. a file named `--collapse`),
+    // not a flag.
+    const terminatorIndex = argv.indexOf('--');
+    const normalizedArgv = argv.map((arg, index) =>
+        arg === '--collapse' && (terminatorIndex === -1 || index < terminatorIndex)
+            ? `--collapse=${BARE_COLLAPSE_SENTINEL}`
+            : arg
+    );
 
     let values: Partial<Record<keyof typeof OPTION_SPEC, string | boolean>>;
     let positionals: string[];
@@ -187,7 +203,7 @@ export function parseArgs(argv: string[]): CliArgs {
         collapse:
             collapseValue === undefined
                 ? null
-                : collapseValue === ''
+                : collapseValue === BARE_COLLAPSE_SENTINEL
                   ? true
                   : parseCollapseNames(collapseValue),
         diff: (values.diff as string | undefined) ?? null,
@@ -248,6 +264,9 @@ function remapParseArgsError(error: unknown): CliError {
     }
     if (error.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE') {
         const flag = /Option '(?:-\w, )?(--[\w-]+)/.exec(error.message)?.[1] ?? error.message;
+        if (/does not take an argument/.test(error.message)) {
+            return new CliError(`Flag ${flag} does not take a value`, 2);
+        }
         return new CliError(`Flag ${flag} requires a value`, 2);
     }
     throw error;

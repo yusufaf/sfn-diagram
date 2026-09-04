@@ -184,6 +184,22 @@ describe('parseArgs', () => {
         expect(args.format).toBe('svg');
         expect(args.input).toBe('x.json');
     });
+
+    it('treats an explicit --collapse= (empty) as collapsing nothing', () => {
+        expect(parseArgs(['in.json', '--collapse=']).collapse).toEqual([]);
+    });
+
+    it('treats a literal --collapse positional after -- as a filename, not a flag', () => {
+        const args = parseArgs(['--', '--collapse']);
+        expect(args.collapse).toBeNull();
+        expect(args.input).toBe('--collapse');
+    });
+
+    it('rejects a value on a boolean flag with a clear message', () => {
+        expect(() => parseArgs(['in.json', '--hide-catch=true'])).toThrowError(
+            /does not take a value/
+        );
+    });
 });
 
 describe('run', () => {
