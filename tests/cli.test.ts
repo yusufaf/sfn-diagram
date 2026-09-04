@@ -163,6 +163,27 @@ describe('parseArgs', () => {
     it('defaults --collapse to null (not passed)', () => {
         expect(parseArgs(['in.json']).collapse).toBeNull();
     });
+
+    it('accepts an inline --format=value', () => {
+        expect(parseArgs(['in.json', '--format=svg']).format).toBe('svg');
+    });
+
+    it('treats everything after -- as positional', () => {
+        expect(parseArgs(['--', '-weird.json']).input).toBe('-weird.json');
+    });
+
+    it('accepts grouped short flags', () => {
+        const args = parseArgs(['-hv']);
+        expect(args.showHelp).toBe(true);
+        expect(args.showVersion).toBe(true);
+    });
+
+    it('does not let --collapse swallow a following flag value', () => {
+        const args = parseArgs(['--collapse', '--format', 'svg', 'x.json']);
+        expect(args.collapse).toBe(true);
+        expect(args.format).toBe('svg');
+        expect(args.input).toBe('x.json');
+    });
 });
 
 describe('run', () => {

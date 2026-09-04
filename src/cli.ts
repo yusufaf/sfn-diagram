@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
@@ -97,160 +98,159 @@ Examples:
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
 `;
 
+/** `node:util.parseArgs` option spec backing {@link parseArgs}. */
+const OPTION_SPEC = {
+    collapse: { type: 'string' },
+    diff: { type: 'string' },
+    execution: { type: 'string' },
+    format: { type: 'string' },
+    help: { short: 'h', type: 'boolean' },
+    'hide-catch': { type: 'boolean' },
+    'hide-variables': { type: 'boolean' },
+    'icon-position': { type: 'string' },
+    'icon-size': { type: 'string' },
+    layout: { type: 'string' },
+    output: { short: 'o', type: 'string' },
+    'resolve-cfn': { type: 'boolean' },
+    resource: { type: 'string' },
+    'show-icons': { type: 'boolean' },
+    theme: { type: 'string' },
+    version: { short: 'v', type: 'boolean' },
+} as const;
+
+const VALID_FORMATS: readonly DiagramFormat[] = ['svg', 'mermaid', 'png', 'html'];
+const VALID_ICON_POSITIONS: readonly IconPosition[] = ['left', 'top', 'right'];
+const VALID_LAYOUTS: readonly LayoutDirection[] = ['TB', 'LR', 'RL', 'BT'];
+const VALID_THEMES = ['light', 'dark'] as const;
+
+interface ExpectEnumParams<Value extends string> {
+    allowed: readonly Value[];
+    flag: string;
+    value: string;
+}
+
+/** Validate a flag's value against a fixed set of choices, or throw a `CliError`. */
+function expectEnum<Value extends string>(params: ExpectEnumParams<Value>): Value {
+    const { allowed, flag, value } = params;
+    if (!allowed.includes(value as Value)) {
+        throw new CliError(`Invalid ${flag}: ${value}. Expected one of: ${allowed.join(', ')}`, 2);
+    }
+    return value as Value;
+}
+
+/** Split a `--collapse=Name1,Name2` value into trimmed, non-empty state names. */
+function parseCollapseNames(value: string): string[] {
+    return value
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0);
+}
+
 export function parseArgs(argv: string[]): CliArgs {
-    const args: CliArgs = {
-        collapse: null,
-        diff: null,
-        execution: null,
-        format: 'svg',
-        hideCatch: false,
-        hideVariables: false,
-        iconPosition: null,
-        iconSize: null,
-        input: null,
-        layout: 'TB',
-        output: null,
-        resolveCfn: false,
-        resource: null,
-        showHelp: false,
-        showIcons: false,
-        showVersion: false,
-        theme: 'light',
-    };
+    // A bare `--collapse` declared as a string option would otherwise swallow the
+    // next token — including the input path — as its value. Rewriting it to an
+    // explicit empty inline value keeps it non-greedy; an empty value means
+    // "collapse all" (see the `collapse` mapping below).
+    const normalizedArgv = argv.map((arg) => (arg === '--collapse' ? '--collapse=' : arg));
 
-    const validFormats: DiagramFormat[] = ['svg', 'mermaid', 'png', 'html'];
-    const validIconPositions: IconPosition[] = ['left', 'top', 'right'];
-    const validLayouts: LayoutDirection[] = ['TB', 'LR', 'RL', 'BT'];
-    const validThemes = ['light', 'dark'] as const;
-
-    const expectValue = (flag: string, value: string | undefined): string => {
-        if (value === undefined) {
-            throw new CliError(`Flag ${flag} requires a value`, 2);
-        }
-        return value;
-    };
-
-    for (let index = 0; index < argv.length; index++) {
-        const arg = argv[index];
-
-        if (arg === '-h' || arg === '--help') {
-            args.showHelp = true;
-            continue;
-        }
-        if (arg === '-v' || arg === '--version') {
-            args.showVersion = true;
-            continue;
-        }
-        if (arg === '--format') {
-            const value = expectValue(arg, argv[++index]);
-            if (!validFormats.includes(value as DiagramFormat)) {
-                throw new CliError(
-                    `Invalid --format: ${value}. Expected one of: ${validFormats.join(', ')}`,
-                    2
-                );
-            }
-            args.format = value as DiagramFormat;
-            continue;
-        }
-        if (arg === '-o' || arg === '--output') {
-            args.output = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--theme') {
-            const value = expectValue(arg, argv[++index]);
-            if (!validThemes.includes(value as 'light' | 'dark')) {
-                throw new CliError(
-                    `Invalid --theme: ${value}. Expected one of: ${validThemes.join(', ')}`,
-                    2
-                );
-            }
-            args.theme = value as ThemeOption;
-            continue;
-        }
-        if (arg === '--layout') {
-            const value = expectValue(arg, argv[++index]);
-            if (!validLayouts.includes(value as LayoutDirection)) {
-                throw new CliError(
-                    `Invalid --layout: ${value}. Expected one of: ${validLayouts.join(', ')}`,
-                    2
-                );
-            }
-            args.layout = value as LayoutDirection;
-            continue;
-        }
-        if (arg === '--hide-catch') {
-            args.hideCatch = true;
-            continue;
-        }
-        if (arg === '--collapse' || arg.startsWith('--collapse=')) {
-            if (arg === '--collapse') {
-                args.collapse = true;
-            } else {
-                args.collapse = arg
-                    .slice('--collapse='.length)
-                    .split(',')
-                    .map((name) => name.trim())
-                    .filter((name) => name.length > 0);
-            }
-            continue;
-        }
-        if (arg === '--hide-variables') {
-            args.hideVariables = true;
-            continue;
-        }
-        if (arg === '--show-icons') {
-            args.showIcons = true;
-            continue;
-        }
-        if (arg === '--icon-position') {
-            const value = expectValue(arg, argv[++index]);
-            if (!validIconPositions.includes(value as IconPosition)) {
-                throw new CliError(
-                    `Invalid --icon-position: ${value}. Expected one of: ${validIconPositions.join(', ')}`,
-                    2
-                );
-            }
-            args.iconPosition = value as IconPosition;
-            continue;
-        }
-        if (arg === '--icon-size') {
-            const value = expectValue(arg, argv[++index]);
-            const size = Number(value);
-            if (!Number.isFinite(size) || size <= 0) {
-                throw new CliError(
-                    `Invalid --icon-size: ${value}. Expected a positive number of pixels`,
-                    2
-                );
-            }
-            args.iconSize = size;
-            continue;
-        }
-        if (arg === '--diff') {
-            args.diff = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--execution') {
-            args.execution = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--resolve-cfn') {
-            args.resolveCfn = true;
-            continue;
-        }
-        if (arg === '--resource') {
-            args.resource = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg.startsWith('--') || (arg.startsWith('-') && arg !== '-')) {
-            throw new CliError(`Unknown flag: ${arg}`, 2);
-        }
-        if (args.input !== null) {
-            throw new CliError(`Unexpected positional argument: ${arg}`, 2);
-        }
-        args.input = arg;
+    let values: Partial<Record<keyof typeof OPTION_SPEC, string | boolean>>;
+    let positionals: string[];
+    try {
+        ({ positionals, values } = parseArgsFromNode({
+            allowPositionals: true,
+            args: normalizedArgv,
+            options: OPTION_SPEC,
+            strict: true,
+        }));
+    } catch (error) {
+        throw remapParseArgsError(error);
     }
 
-    return args;
+    if (positionals.length > 1) {
+        throw new CliError(`Unexpected positional argument: ${positionals[1]}`, 2);
+    }
+
+    const collapseValue = values.collapse as string | undefined;
+    const iconSizeValue = values['icon-size'] as string | undefined;
+    let iconSize: number | null = null;
+    if (iconSizeValue !== undefined) {
+        iconSize = Number(iconSizeValue);
+        if (!Number.isFinite(iconSize) || iconSize <= 0) {
+            throw new CliError(
+                `Invalid --icon-size: ${iconSizeValue}. Expected a positive number of pixels`,
+                2
+            );
+        }
+    }
+
+    return {
+        collapse:
+            collapseValue === undefined
+                ? null
+                : collapseValue === ''
+                  ? true
+                  : parseCollapseNames(collapseValue),
+        diff: (values.diff as string | undefined) ?? null,
+        execution: (values.execution as string | undefined) ?? null,
+        format:
+            values.format === undefined
+                ? 'svg'
+                : expectEnum({
+                      allowed: VALID_FORMATS,
+                      flag: '--format',
+                      value: values.format as string,
+                  }),
+        hideCatch: values['hide-catch'] === true,
+        hideVariables: values['hide-variables'] === true,
+        iconPosition:
+            values['icon-position'] === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_ICON_POSITIONS,
+                      flag: '--icon-position',
+                      value: values['icon-position'] as string,
+                  }),
+        iconSize,
+        input: positionals[0] ?? null,
+        layout:
+            values.layout === undefined
+                ? 'TB'
+                : expectEnum({
+                      allowed: VALID_LAYOUTS,
+                      flag: '--layout',
+                      value: values.layout as string,
+                  }),
+        output: (values.output as string | undefined) ?? null,
+        resolveCfn: values['resolve-cfn'] === true,
+        resource: (values.resource as string | undefined) ?? null,
+        showHelp: values.help === true,
+        showIcons: values['show-icons'] === true,
+        showVersion: values.version === true,
+        theme:
+            values.theme === undefined
+                ? 'light'
+                : expectEnum({ allowed: VALID_THEMES, flag: '--theme', value: values.theme as string }),
+    };
+}
+
+/**
+ * Translate `node:util.parseArgs`'s errors (thrown for an unrecognized flag or a
+ * string flag with no value) into the `CliError` shape/wording this CLI has always
+ * used, so `run()`'s error output and its tests don't need to know the parser changed.
+ */
+function remapParseArgsError(error: unknown): CliError {
+    if (error instanceof CliError) return error;
+    if (!(error instanceof Error) || !('code' in error)) throw error;
+
+    if (error.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+        const flag = /Unknown option '(.+?)'/.exec(error.message)?.[1] ?? error.message;
+        return new CliError(`Unknown flag: ${flag}`, 2);
+    }
+    if (error.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE') {
+        const flag = /Option '(?:-\w, )?(--[\w-]+)/.exec(error.message)?.[1] ?? error.message;
+        return new CliError(`Flag ${flag} requires a value`, 2);
+    }
+    throw error;
 }
 
 export class CliError extends Error {
