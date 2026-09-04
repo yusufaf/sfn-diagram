@@ -97,6 +97,9 @@
       "cfn": [
         "./dist/cfn.d.ts"
       ],
+      "ci": [
+        "./dist/ci.d.ts"
+      ],
       "element": [
         "./dist/element.d.ts"
       ],
