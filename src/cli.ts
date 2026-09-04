@@ -3,11 +3,17 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { extractAslFromTemplate } from './cfn';
+import { runGitlabComment } from './ci/gitlab';
+import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
-import { collectStateData, resolveViewerTheme, wrapSvgInInteractiveHtml } from './renderers';
+import {
+    collectStateData,
+    resolveViewerTheme,
+    wrapSvgInInteractiveHtml,
+} from './renderers';
 import { embedIcons } from './utils/iconEmbedder';
 import type {
     AslDefinition,
@@ -49,6 +55,8 @@ const HELP_TEXT = `sfn-diagram — generate diagrams from AWS Step Functions ASL
 Usage:
   sfn-diagram <input> [options]
   sfn-diagram - [options]            (read ASL from stdin)
+  sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
+                                          request from CI — see --help there)
 
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
@@ -95,6 +103,56 @@ Examples:
   sfn-diagram state.asl.json --execution history.json -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+`;
+
+const COMMENT_GITLAB_HELP_TEXT = `sfn-diagram comment gitlab — post a Step Functions diagram/diff to a GitLab merge request
+
+Run from a GitLab CI job on a merge request pipeline. Reads GitLab's predefined
+CI/CD variables, diffs the ASL files changed since the merge request's base
+commit via git (no API token needed for that), and — when GITLAB_TOKEN or
+SFN_DIAGRAM_GITLAB_TOKEN is set — posts (or updates) one merge request note.
+With no token, it still renders and writes artifacts, then exits 0; set one of
+those CI/CD variables (masked, scope "api") to enable commenting.
+
+Requires "GIT_DEPTH: 0" (or a sufficiently deep clone) in the job, so the
+merge request's base commit is reachable.
+
+GitLab renders Mermaid natively, but caps it at roughly 2000 characters shared
+across the whole page. Once the combined diagrams exceed that budget, this
+command drops the inline Mermaid and writes SVG files to --output-dir instead
+— expose them with "artifacts: expose_as" in the job so they show up on the
+merge request widget.
+
+Options:
+  --asl-glob <patterns>             Comma-separated globs matching ASL files
+                                     (default: **/*.asl.json,**/*.asl)
+  --comment-tag <tag>                Marker used to find/update this run's note
+                                     on later pushes (default: sfn-diagram-preview)
+  --theme <light|dark>               Theme for the SVG fallback artifacts (default: light)
+  --hide-catch                       Drop error-handler (Catch) branches from added/deleted
+                                     diagrams (a diff diagram is unaffected — see the docs)
+  --output-dir <path>                Where SVG fallback artifacts are written
+                                     (default: sfn-diagram-artifacts)
+  --execution-mode <off|latest|latest-failed>
+                                     Optionally overlay a real execution (default: off)
+  --state-machine-arn <arn>          Required when --execution-mode is not off
+  --aws-region <region>              AWS region for the Step Functions client
+  -h, --help                         Show this help and exit
+
+Example .gitlab-ci.yml:
+  sfn-preview:
+    stage: test
+    image: ghcr.io/yusufaf/sfn-diagram:1
+    variables:
+      GIT_DEPTH: 0
+    rules:
+      - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    script:
+      - sfn-diagram comment gitlab
+    artifacts:
+      expose_as: 'Step Functions diagram'
+      paths: [sfn-diagram-artifacts/]
+      when: on_success
 `;
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -146,7 +204,7 @@ export function parseArgs(argv: string[]): CliArgs {
             if (!validFormats.includes(value as DiagramFormat)) {
                 throw new CliError(
                     `Invalid --format: ${value}. Expected one of: ${validFormats.join(', ')}`,
-                    2
+                    2,
                 );
             }
             args.format = value as DiagramFormat;
@@ -161,7 +219,7 @@ export function parseArgs(argv: string[]): CliArgs {
             if (!validThemes.includes(value as 'light' | 'dark')) {
                 throw new CliError(
                     `Invalid --theme: ${value}. Expected one of: ${validThemes.join(', ')}`,
-                    2
+                    2,
                 );
             }
             args.theme = value as ThemeOption;
@@ -172,7 +230,7 @@ export function parseArgs(argv: string[]): CliArgs {
             if (!validLayouts.includes(value as LayoutDirection)) {
                 throw new CliError(
                     `Invalid --layout: ${value}. Expected one of: ${validLayouts.join(', ')}`,
-                    2
+                    2,
                 );
             }
             args.layout = value as LayoutDirection;
@@ -207,7 +265,7 @@ export function parseArgs(argv: string[]): CliArgs {
             if (!validIconPositions.includes(value as IconPosition)) {
                 throw new CliError(
                     `Invalid --icon-position: ${value}. Expected one of: ${validIconPositions.join(', ')}`,
-                    2
+                    2,
                 );
             }
             args.iconPosition = value as IconPosition;
@@ -219,7 +277,7 @@ export function parseArgs(argv: string[]): CliArgs {
             if (!Number.isFinite(size) || size <= 0) {
                 throw new CliError(
                     `Invalid --icon-size: ${value}. Expected a positive number of pixels`,
-                    2
+                    2,
                 );
             }
             args.iconSize = size;
@@ -256,7 +314,7 @@ export function parseArgs(argv: string[]): CliArgs {
 export class CliError extends Error {
     constructor(
         message: string,
-        public exitCode: number
+        public exitCode: number,
     ) {
         super(message);
     }
@@ -273,7 +331,9 @@ async function readStdin(): Promise<string> {
 function readPackageVersion(): string {
     try {
         const url = new URL('../package.json', import.meta.url);
-        const packageJson = JSON.parse(readFileSync(url, 'utf-8')) as { version: string };
+        const packageJson = JSON.parse(readFileSync(url, 'utf-8')) as {
+            version: string;
+        };
         return packageJson.version;
     } catch {
         return 'unknown';
@@ -282,13 +342,16 @@ function readPackageVersion(): string {
 
 function isCfnTemplate(source: string): boolean {
     try {
-        const parsed = JSON.parse(source) as { Resources?: Record<string, unknown> };
+        const parsed = JSON.parse(source) as {
+            Resources?: Record<string, unknown>;
+        };
         const resources = parsed?.Resources;
         return (
             !!resources &&
             Object.values(resources).some(
                 (resource) =>
-                    (resource as { Type?: string })?.Type === 'AWS::StepFunctions::StateMachine'
+                    (resource as { Type?: string })?.Type ===
+                    'AWS::StepFunctions::StateMachine',
             )
         );
     } catch {
@@ -316,7 +379,9 @@ interface ResolveDefinitionSourceParams {
  * template is unwrapped to its ASL definition, anything else is passed through as-is.
  * Extraction warnings go to stderr so stdout stays a clean diagram stream.
  */
-function resolveDefinitionSource(params: ResolveDefinitionSourceParams): AslDefinition | string {
+function resolveDefinitionSource(
+    params: ResolveDefinitionSourceParams,
+): AslDefinition | string {
     const { resolveCfn, resource, source } = params;
     if (!resolveCfn && !isCfnTemplate(source)) {
         return source;
@@ -347,14 +412,18 @@ const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
 ];
 
 /** Print the added/modified/removed breakdown of a `--diff` run to stderr. */
-function writeDiffSummary(metadata: DiffOutput['metadata'] | MermaidDiffOutput['metadata']): void {
+function writeDiffSummary(
+    metadata: DiffOutput['metadata'] | MermaidDiffOutput['metadata'],
+): void {
     const { added, modified, removed, unchanged } = metadata;
     const lines: string[] = [];
     if (added.length > 0) lines.push(`  Added:     ${added.join(', ')}`);
     if (modified.length > 0) lines.push(`  Modified:  ${modified.join(', ')}`);
     if (removed.length > 0) lines.push(`  Removed:   ${removed.join(', ')}`);
     if (lines.length === 0) {
-        lines.push(`  No changes (${unchanged.length} state${unchanged.length === 1 ? '' : 's'})`);
+        lines.push(
+            `  No changes (${unchanged.length} state${unchanged.length === 1 ? '' : 's'})`,
+        );
     } else {
         lines.push(`  Unchanged: ${unchanged.length}`);
     }
@@ -363,7 +432,7 @@ function writeDiffSummary(metadata: DiffOutput['metadata'] | MermaidDiffOutput['
 
 /** Print the per-status state breakdown of an `--execution` run to stderr. */
 function writeExecutionSummary(
-    metadata: ExecutionOutput['metadata'] | MermaidExecutionOutput['metadata']
+    metadata: ExecutionOutput['metadata'] | MermaidExecutionOutput['metadata'],
 ): void {
     const lines: string[] = [];
     for (const status of EXECUTION_STATUS_ORDER) {
@@ -371,11 +440,154 @@ function writeExecutionSummary(
         if (names.length > 0) lines.push(`  ${status}: ${names.join(', ')}`);
     }
     process.stderr.write(
-        `Execution summary (execution ${metadata.executionStatus}):\n${lines.join('\n')}\n`
+        `Execution summary (execution ${metadata.executionStatus}):\n${lines.join('\n')}\n`,
     );
 }
 
+export interface CommentGitlabArgs {
+    aslGlob: string;
+    awsRegion?: string;
+    commentTag: string;
+    executionMode: ExecutionMode;
+    hideCatch: boolean;
+    outputDir: string;
+    showHelp: boolean;
+    stateMachineArn: string;
+    theme: ThemeOption;
+}
+
+const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed'];
+
+export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
+    const args: CommentGitlabArgs = {
+        aslGlob: '**/*.asl.json,**/*.asl',
+        commentTag: 'sfn-diagram-preview',
+        executionMode: 'off',
+        hideCatch: false,
+        outputDir: 'sfn-diagram-artifacts',
+        showHelp: false,
+        stateMachineArn: '',
+        theme: 'light',
+    };
+
+    const expectValue = (flag: string, value: string | undefined): string => {
+        if (value === undefined) {
+            throw new CliError(`Flag ${flag} requires a value`, 2);
+        }
+        return value;
+    };
+
+    for (let index = 0; index < argv.length; index++) {
+        const arg = argv[index];
+
+        if (arg === '-h' || arg === '--help') {
+            args.showHelp = true;
+            continue;
+        }
+        if (arg === '--asl-glob') {
+            args.aslGlob = expectValue(arg, argv[++index]);
+            continue;
+        }
+        if (arg === '--comment-tag') {
+            args.commentTag = expectValue(arg, argv[++index]);
+            continue;
+        }
+        if (arg === '--theme') {
+            const value = expectValue(arg, argv[++index]);
+            if (value !== 'light' && value !== 'dark') {
+                throw new CliError(
+                    `Invalid --theme: ${value} (expected light or dark)`,
+                    2,
+                );
+            }
+            args.theme = value;
+            continue;
+        }
+        if (arg === '--hide-catch') {
+            args.hideCatch = true;
+            continue;
+        }
+        if (arg === '--output-dir') {
+            args.outputDir = expectValue(arg, argv[++index]);
+            continue;
+        }
+        if (arg === '--execution-mode') {
+            const value = expectValue(arg, argv[++index]);
+            if (!EXECUTION_MODES.includes(value as ExecutionMode)) {
+                throw new CliError(
+                    `Invalid --execution-mode: ${value} (expected ${EXECUTION_MODES.join(', ')})`,
+                    2,
+                );
+            }
+            args.executionMode = value as ExecutionMode;
+            continue;
+        }
+        if (arg === '--state-machine-arn') {
+            args.stateMachineArn = expectValue(arg, argv[++index]);
+            continue;
+        }
+        if (arg === '--aws-region') {
+            args.awsRegion = expectValue(arg, argv[++index]);
+            continue;
+        }
+
+        throw new CliError(`Unknown flag: ${arg}`, 2);
+    }
+
+    return args;
+}
+
+async function runCommentGitlab(argv: string[]): Promise<number> {
+    let args: CommentGitlabArgs;
+    try {
+        args = parseCommentGitlabArgs(argv);
+    } catch (error) {
+        if (error instanceof CliError) {
+            process.stderr.write(
+                `${error.message}\n\n${COMMENT_GITLAB_HELP_TEXT}`,
+            );
+            return error.exitCode;
+        }
+        throw error;
+    }
+
+    if (args.showHelp) {
+        process.stdout.write(COMMENT_GITLAB_HELP_TEXT);
+        return 0;
+    }
+
+    if (args.executionMode !== 'off' && !args.stateMachineArn) {
+        process.stderr.write(
+            '--state-machine-arn is required when --execution-mode is not off\n',
+        );
+        return 2;
+    }
+
+    const { exitCode, logs } = await runGitlabComment({
+        aslGlob: args.aslGlob,
+        awsRegion: args.awsRegion,
+        catchHandling: args.hideCatch ? 'hide' : undefined,
+        commentTag: args.commentTag,
+        executionMode: args.executionMode,
+        outputDir: args.outputDir,
+        stateMachineArn: args.stateMachineArn,
+        theme: args.theme,
+    });
+
+    for (const entry of logs) {
+        const stream =
+            entry.level === 'error' ? process.stderr : process.stdout;
+        stream.write(`${entry.message}\n`);
+    }
+
+    return exitCode;
+}
+
 export async function run(argv: string[]): Promise<number> {
+    if (argv[0] === 'comment' && argv[1] === 'gitlab') {
+        return runCommentGitlab(argv.slice(2));
+    }
+
     let args: CliArgs;
     try {
         args = parseArgs(argv);
@@ -398,7 +610,7 @@ export async function run(argv: string[]): Promise<number> {
 
     if (args.diff !== null && args.execution !== null) {
         process.stderr.write(
-            '--diff and --execution cannot be combined; pick one overlay per run\n'
+            '--diff and --execution cannot be combined; pick one overlay per run\n',
         );
         return 1;
     }
@@ -433,8 +645,11 @@ export async function run(argv: string[]): Promise<number> {
         try {
             baselineSource = readFileSync(resolve(args.diff), 'utf-8');
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            process.stderr.write(`Failed to read --diff baseline: ${message}\n`);
+            const message =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Failed to read --diff baseline: ${message}\n`,
+            );
             return 1;
         }
     }
@@ -444,8 +659,11 @@ export async function run(argv: string[]): Promise<number> {
         try {
             historySource = readFileSync(resolve(args.execution), 'utf-8');
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            process.stderr.write(`Failed to read --execution history: ${message}\n`);
+            const message =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Failed to read --execution history: ${message}\n`,
+            );
             return 1;
         }
     }
@@ -481,7 +699,9 @@ export async function run(argv: string[]): Promise<number> {
         layout: args.layout,
         theme: args.theme,
         ...(args.showIcons ? { showIcons: true } : {}),
-        ...(args.iconPosition !== null ? { iconPosition: args.iconPosition } : {}),
+        ...(args.iconPosition !== null
+            ? { iconPosition: args.iconPosition }
+            : {}),
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
     };
 
@@ -491,7 +711,10 @@ export async function run(argv: string[]): Promise<number> {
      * silently falling back to raw SVG. Icons are inlined so the document stays
      * offline, matching the plain `--format html` path.
      */
-    const toInteractiveHtml = async (svg: string, nodeCount: number): Promise<string> =>
+    const toInteractiveHtml = async (
+        svg: string,
+        nodeCount: number,
+    ): Promise<string> =>
         wrapSvgInInteractiveHtml({
             nodeCount,
             stateData: collectStateData({
@@ -524,7 +747,10 @@ export async function run(argv: string[]): Promise<number> {
             writeDiffSummary(result.metadata);
             writeOutput(
                 args.format === 'html'
-                    ? await toInteractiveHtml(result.svg, result.metadata.nodeCount)
+                    ? await toInteractiveHtml(
+                          result.svg,
+                          result.metadata.nodeCount,
+                      )
                     : result.svg,
                 args.output,
             );
@@ -550,7 +776,10 @@ export async function run(argv: string[]): Promise<number> {
             writeExecutionSummary(result.metadata);
             writeOutput(
                 args.format === 'html'
-                    ? await toInteractiveHtml(result.svg, result.metadata.nodeCount)
+                    ? await toInteractiveHtml(
+                          result.svg,
+                          result.metadata.nodeCount,
+                      )
                     : result.svg,
                 args.output,
             );

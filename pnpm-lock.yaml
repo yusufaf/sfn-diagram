@@ -41,6 +41,9 @@ importers:
       d3-shape:
         specifier: ^3.2.0
         version: 3.2.0
+      minimatch:
+        specifier: '>=9.0.7'
+        version: 10.2.5
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
@@ -135,9 +138,6 @@ importers:
       '@aws-sdk/client-sfn':
         specifier: ^3.879.0
         version: 3.1024.0
-      minimatch:
-        specifier: '>=9.0.7'
-        version: 10.2.5
       sfn-diagram:
         specifier: workspace:*
         version: link:../..

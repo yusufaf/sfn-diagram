@@ -32,6 +32,15 @@ describe('Module Format Compatibility', () => {
             expect(typeof fetchExecutionHistory).toBe('function');
         }, 15000);
 
+        it('should import runGitlabComment from ci sub-path', async () => {
+            const { runGitlabComment, buildAslFileSection } = await import('../src/ci');
+
+            expect(runGitlabComment).toBeDefined();
+            expect(typeof runGitlabComment).toBe('function');
+            expect(buildAslFileSection).toBeDefined();
+            expect(typeof buildAslFileSection).toBe('function');
+        }, 15000);
+
         it('should work with ESM import for generating SVG', async () => {
             const { generateSvg } = await import('../src/index');
 
