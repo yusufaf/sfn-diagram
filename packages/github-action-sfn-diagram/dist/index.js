@@ -62417,9 +62417,6 @@ function getStrokeWidthForType(stateType) {
       return 2;
   }
 }
-function stripJsonataDelimiters(expression) {
-  return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
-}
 var EDGE_LABELS = {
   BRANCH_PREFIX: "Branch",
   CATCH_PREFIX: "Catch",
@@ -62450,48 +62447,13 @@ function getAssignedVariablesLabel(variableNames) {
   const remaining = variableNames.length - shown.length;
   return remaining > 0 ? `${label} +${remaining} more` : label;
 }
-var MAX_SUB_LABEL_EXPRESSION = 32;
-function elide(text) {
-  return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
-}
-function getWaitDurationLabel(state2) {
-  if (typeof state2.Seconds === "number") return `${state2.Seconds}s`;
-  if (typeof state2.Seconds === "string") return elide(stripJsonataDelimiters(state2.Seconds));
-  if (state2.SecondsPath !== void 0) return elide(state2.SecondsPath);
-  if (state2.Timestamp !== void 0) return elide(stripJsonataDelimiters(state2.Timestamp));
-  if (state2.TimestampPath !== void 0) return elide(state2.TimestampPath);
-  return "";
-}
-function getToleratedFailureLabel(state2) {
-  const parts = [];
-  if (state2.ToleratedFailureCount !== void 0) {
-    const count = state2.ToleratedFailureCount;
-    parts.push(`${count} failure${count === 1 ? "" : "s"}`);
-  }
-  if (state2.ToleratedFailurePercentage !== void 0) parts.push(`${state2.ToleratedFailurePercentage}%`);
-  return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
-}
-var BYTES_PER_KIB = 1024;
-function getItemBatchingLabel(state2) {
-  const batcher = state2.ItemBatcher;
-  if (!batcher) return "";
-  const parts = [];
-  const maxItems = batcher.MaxItemsPerBatch;
-  const maxBytes = batcher.MaxInputBytesPerBatch;
-  if (typeof maxItems === "number") parts.push(`of ${maxItems}`);
-  if (typeof maxBytes === "number") parts.push(`\u2264 ${Math.round(maxBytes / BYTES_PER_KIB)}KB`);
-  return parts.length > 0 ? `batches ${parts.join(", ")}` : "";
-}
-function getNodeSubLabel(params) {
+function getContainerSubLabel(params) {
   const { node, showStateType } = params;
   const parts = [];
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
-  if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
+  if (showStateType) parts.push(`${node.type} state`);
   if (node.isDistributedMap) parts.push("Distributed");
   if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
-  if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
-  if (node.itemBatching !== void 0) parts.push(node.itemBatching);
-  if (node.waitDuration !== void 0) parts.push(node.waitDuration);
   return parts.join(" \xB7 ");
 }
 function getCatchLabel(params) {
@@ -62759,56 +62721,88 @@ var VALID_STATE_TYPES = [
   "Parallel",
   "Map"
 ];
-function validateAsl(params) {
-  const { definition } = params;
-  if (!definition || typeof definition !== "object") throw new AslValidationError("ASL definition must be a non-null object");
+function validateScope(params) {
+  const { definition, scope } = params;
+  const isRoot = scope === "";
+  const subject = isRoot ? "ASL definition" : scope;
+  const qualify = (text) => isRoot ? text : `${scope}: ${text}`;
+  if (!definition || typeof definition !== "object") throw new AslValidationError(`${subject} must be a non-null object`);
   const asl = definition;
-  if (!("StartAt" in asl)) throw new AslValidationError("ASL definition missing required field: StartAt");
-  if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") throw new AslValidationError("StartAt must be a non-empty string");
-  if (!("States" in asl)) throw new AslValidationError("ASL definition missing required field: States");
-  if (!asl.States || typeof asl.States !== "object") throw new AslValidationError("States must be a non-null object");
+  if (!("StartAt" in asl)) throw new AslValidationError(`${subject} missing required field: StartAt`);
+  if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") throw new AslValidationError(qualify("StartAt must be a non-empty string"));
+  if (!("States" in asl)) throw new AslValidationError(`${subject} missing required field: States`);
+  if (!asl.States || typeof asl.States !== "object") throw new AslValidationError(qualify("States must be a non-null object"));
   const states = asl.States;
   const stateNames = Object.keys(states);
-  if (stateNames.length === 0) throw new AslValidationError("States object cannot be empty");
+  if (stateNames.length === 0) throw new AslValidationError(qualify("States object cannot be empty"));
   const stateNameSet = new Set(stateNames);
-  if (!stateNameSet.has(asl.StartAt)) throw new AslValidationError(`StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(", ")}`);
+  if (!stateNameSet.has(asl.StartAt)) throw new AslValidationError(qualify(`StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(", ")}`));
   for (const [stateName, stateValue] of Object.entries(states)) validateState({
+    scope,
     stateName,
     stateNames: stateNameSet,
     stateValue
   });
+  for (const [stateName, stateValue] of Object.entries(states)) {
+    const state2 = stateValue;
+    if (state2.Type === "Parallel" && state2.Branches !== void 0) {
+      if (!Array.isArray(state2.Branches)) throw new AslValidationError(qualify(`State "${stateName}": Branches must be an array`));
+      state2.Branches.forEach((branch, index) => {
+        validateScope({
+          definition: branch,
+          scope: `Parallel state "${stateName}" branch ${index + 1}`
+        });
+      });
+    }
+    if (state2.Type === "Map") {
+      const processor = getMapProcessor(state2);
+      if (processor !== void 0) validateScope({
+        definition: processor,
+        scope: `Map state "${stateName}" processor`
+      });
+    }
+  }
+}
+function validateAsl(params) {
+  validateScope({
+    definition: params.definition,
+    scope: ""
+  });
 }
 function validateState(params) {
-  const { stateName, stateNames, stateValue } = params;
-  if (!stateValue || typeof stateValue !== "object") throw new AslValidationError(`State "${stateName}" must be a non-null object`);
+  const { scope, stateName, stateNames, stateValue } = params;
+  const fail = (text) => {
+    throw new AslValidationError(scope === "" ? text : `${scope}: ${text}`);
+  };
+  if (!stateValue || typeof stateValue !== "object") fail(`State "${stateName}" must be a non-null object`);
   const state2 = stateValue;
-  if (!("Type" in state2)) throw new AslValidationError(`State "${stateName}" missing required field: Type`);
+  if (!("Type" in state2)) fail(`State "${stateName}" missing required field: Type`);
   const stateType = state2.Type;
-  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) throw new AslValidationError(`State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
+  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) fail(`State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
   if ("Next" in state2 && state2.Next !== void 0) {
-    if (typeof state2.Next !== "string") throw new AslValidationError(`State "${stateName}": Next must be a string`);
-    if (!stateNames.has(state2.Next)) throw new AslValidationError(`State "${stateName}": Next references non-existent state "${state2.Next}"`);
+    if (typeof state2.Next !== "string") fail(`State "${stateName}": Next must be a string`);
+    if (!stateNames.has(state2.Next)) fail(`State "${stateName}": Next references non-existent state "${state2.Next}"`);
   }
   if ("Default" in state2 && state2.Default !== void 0) {
-    if (typeof state2.Default !== "string") throw new AslValidationError(`State "${stateName}": Default must be a string`);
-    if (!stateNames.has(state2.Default)) throw new AslValidationError(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
+    if (typeof state2.Default !== "string") fail(`State "${stateName}": Default must be a string`);
+    if (!stateNames.has(state2.Default)) fail(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
   }
   if ("Choices" in state2 && Array.isArray(state2.Choices)) {
     for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
       const choiceNext = choice.Next;
-      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) throw new AslValidationError(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
+      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) fail(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
     }
   }
   if ("Catch" in state2 && Array.isArray(state2.Catch)) {
     for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
       const catchNext = catchBlock.Next;
-      if (typeof catchNext === "string" && !stateNames.has(catchNext)) throw new AslValidationError(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
+      if (typeof catchNext === "string" && !stateNames.has(catchNext)) fail(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
     }
   }
   if (!["Succeed", "Fail"].includes(stateType) && stateType !== "Choice") {
     const hasNext = "Next" in state2;
     const hasEnd = "End" in state2 && state2.End === true;
-    if (!hasNext && !hasEnd) throw new AslValidationError(`State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
+    if (!hasNext && !hasEnd) fail(`State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
   }
 }
 function parseAsl(params) {
@@ -62855,19 +62849,11 @@ function createStateNode(params) {
   };
   const assignedVariables = Object.keys(state2.Assign ?? {});
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
-  if (state2.Type === "Wait") {
-    const waitDuration = getWaitDurationLabel(state2);
-    if (waitDuration !== "") baseNode.waitDuration = waitDuration;
-  }
   if (isContainer) {
     baseNode.children = [];
     if (state2.Type === "Map") {
       if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
       if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
-      const toleratedFailure = getToleratedFailureLabel(state2);
-      if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
-      const itemBatching = getItemBatchingLabel(state2);
-      if (itemBatching !== "") baseNode.itemBatching = itemBatching;
     }
   }
   if (options?.showIcons && state2.Type === "Task") {
@@ -62974,6 +62960,9 @@ var IS_CHECKS = {
   IsString: "is string",
   IsTimestamp: "is timestamp"
 };
+function cleanJsonataExpression(expression) {
+  return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
+}
 function formatComparison(variable, operatorKey, value) {
   const isCheckPhrase = IS_CHECKS[operatorKey];
   if (isCheckPhrase) return value === false ? `${variable} ${isCheckPhrase.replace("is ", "is not ")}` : `${variable} ${isCheckPhrase}`;
@@ -62988,7 +62977,7 @@ function formatComparison(variable, operatorKey, value) {
   return `${variable} ${operator[1]} ${formattedValue}`;
 }
 function describeChoiceRule(rule) {
-  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? stripJsonataDelimiters(rule.Condition) : String(rule.Condition);
+  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? cleanJsonataExpression(rule.Condition) : String(rule.Condition);
   if (Array.isArray(rule.And)) {
     const parts = rule.And.map(describeChoiceRule).filter(Boolean);
     return parts.length > 0 ? parts.join(" AND ") : "";
@@ -63289,7 +63278,7 @@ var MermaidRenderer = class {
       if (stateDefinitions.has(id)) return;
       const suffixParts = [
         nodeAnnotations?.[node.id],
-        getNodeSubLabel({
+        getContainerSubLabel({
           node,
           showStateType: false
         }),
