@@ -29,6 +29,7 @@ import { DagreLayout } from './layout';
 import {
     SvgRenderer,
     MermaidRenderer,
+    collectEdgeData,
     collectStateData,
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
@@ -259,12 +260,23 @@ function buildHtmlViews(params: {
     const { edges, nodes } = parseAsl({ definition: aslObj, options });
     const resolvedCollapse = options.collapse ?? true;
 
-    const svgOutput = generateSvg({ aslDefinition: aslObj, ...options, collapse: undefined });
+    // Both views feed the interactive viewer, so both get clickable edges.
+    const svgOutput = generateSvg({
+        aslDefinition: aslObj,
+        ...options,
+        collapse: undefined,
+        edgeHitAreas: true,
+    });
 
     const { effectiveTargets } = computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes });
     const collapsedSvgOutput =
         effectiveTargets.size > 0
-            ? generateSvg({ aslDefinition: aslObj, ...options, collapse: resolvedCollapse })
+            ? generateSvg({
+                  aslDefinition: aslObj,
+                  ...options,
+                  collapse: resolvedCollapse,
+                  edgeHitAreas: true,
+              })
             : undefined;
 
     return { collapsedSvgOutput, svgOutput };
@@ -290,6 +302,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
+            edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
@@ -340,6 +353,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount,
             collapsedSvg: embeddedCollapsedSvg,
+            edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,

@@ -1,4 +1,5 @@
 import type { AslState } from '../../types';
+import { serializeEdgeData, type ViewerEdge } from './edgeData';
 import { serializeStateData } from './stateData';
 import { buildViewerScript } from './viewerScript';
 import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
@@ -136,6 +137,13 @@ export interface WrapSvgInInteractiveHtmlParams {
      */
     collapsedSvg?: string;
     /**
+     * Viewer-facing detail for each edge, keyed by edge id (as produced by
+     * `collectEdgeData`). Enables the click-an-edge detail panel; omit it to leave
+     * edges inert. Requires the embedded SVG to have been rendered with
+     * `edgeHitAreas`, or only the drawn stroke itself is clickable.
+     */
+    edgeData?: Record<string, ViewerEdge>;
+    /**
      * Node count from the rendered diagram's metadata. Decides the minimap's initial
      * visibility: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD} nodes,
      * open above it (still toggleable either way via the toolbar button or `m`). The
@@ -160,8 +168,9 @@ export interface WrapSvgInInteractiveHtmlParams {
 
 /**
  * Wrap rendered SVG in a self-contained HTML document with an inline viewer:
- * pan/zoom (drag to pan, wheel to zoom, fit/reset toolbar), state search, and —
- * when `stateData` is supplied — a click-a-state detail panel showing raw ASL.
+ * pan/zoom (drag to pan, wheel to zoom, fit/reset toolbar), state search, and — when
+ * `stateData` or `edgeData` is supplied — a detail panel showing a clicked state's raw
+ * ASL, or a clicked edge's id, endpoints, type, and Choice condition.
  *
  * No external references, so it works offline and from `file://`. Note that the
  * embedded SVG itself may reference CDN-hosted icons when generated with
@@ -169,6 +178,7 @@ export interface WrapSvgInInteractiveHtmlParams {
  * to keep the document fully offline.
  *
  * @param params - Wrapping parameters
+ * @param params.edgeData - Detail per edge id; enables the click-an-edge panel
  * @param params.nodeCount - Diagram node count; decides the minimap's initial visibility
  * @param params.stateData - Raw ASL per state; enables the detail panel
  * @param params.svg - Rendered SVG markup to embed
@@ -187,8 +197,17 @@ export interface WrapSvgInInteractiveHtmlParams {
  * ```
  */
 export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams): string {
-    const { collapsedNodeCount, collapsedSvg, nodeCount, stateData, svg, theme = 'light' } = params;
+    const {
+        collapsedNodeCount,
+        collapsedSvg,
+        edgeData,
+        nodeCount,
+        stateData,
+        svg,
+        theme = 'light',
+    } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
+    const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
     const minimapCollapsed = nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
     const collapsedMinimapCollapsed =
         collapsedNodeCount === undefined
@@ -198,13 +217,16 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
     const stateDataScript = hasStateData
         ? `<script type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
         : '';
+    const edgeDataScript = hasEdgeData
+        ? `<script type="application/json" id="sfn-edge-data">${serializeEdgeData({ edgeData })}</script>\n`
+        : '';
 
     const body = buildViewerBody({
         collapsedMinimapCollapsed,
         collapsedSvg,
         legacyIds: true,
         minimapCollapsed,
-        panel: hasStateData,
+        panel: hasStateData || hasEdgeData,
         svg,
     });
 
@@ -218,7 +240,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 </head>
 <body>
 ${body}
-${stateDataScript}<script>${buildViewerScript({ hasStateData })}</script>
+${stateDataScript}${edgeDataScript}<script>${buildViewerScript({ hasEdgeData, hasStateData })}</script>
 </body>
 </html>`;
 }

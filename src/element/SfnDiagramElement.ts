@@ -1,3 +1,4 @@
+import { collectEdgeData, type ViewerEdge } from '../renderers/viewer/edgeData';
 import { collectStateData } from '../renderers/viewer/stateData';
 import { attachViewer, type ViewerHandle } from '../renderers/viewer/viewerController';
 import { buildViewerBody } from '../renderers/viewer/viewerShell';
@@ -44,7 +45,8 @@ function namespaceMarkerIds(svg: string, instanceId: number): string {
 /**
  * `<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step
  * Functions ASL definition as an SVG or Mermaid diagram, with an optional
- * interactive viewer (pan/zoom, search, minimap, click-a-state detail panel).
+ * interactive viewer (pan/zoom, search, minimap, and a detail panel for a clicked
+ * state or edge).
  *
  * Renders in light DOM (no shadow root), so page CSS reaches the SVG and the
  * element degrades to plain server-rendered markup: give it a pre-rendered
@@ -144,7 +146,10 @@ export class SfnDiagramElement extends HTMLElement {
         }
     }
 
-    /** Enables pan/zoom, state search, the minimap, and the click-a-state detail panel. */
+    /**
+     * Enables pan/zoom, state search, the minimap, and the detail panel for a clicked
+     * state or edge.
+     */
     get interactive(): boolean {
         return this.hasAttribute('interactive');
     }
@@ -200,17 +205,25 @@ export class SfnDiagramElement extends HTMLElement {
         }
 
         let result;
+        let edgeData: Record<string, ViewerEdge> | undefined;
         let stateData: Record<string, AslState> | undefined;
         try {
             const aslObj = parseAsl(this.#definitionSource);
             result = renderDiagramString({
                 asl: aslObj,
+                edgeHitAreas: this.interactive,
                 format: this.format,
                 history: this.#history,
                 layout: this.layout,
                 theme,
             });
             if (this.interactive && result.type === 'svg') {
+                // Mirrors renderDiagramString's own generateSvg call, so a label in
+                // the panel matches the one drawn on the diagram.
+                edgeData = collectEdgeData({
+                    definition: aslObj,
+                    options: { layout: this.layout, theme },
+                });
                 stateData = collectStateData({ definition: aslObj });
             }
         } catch (error) {
@@ -242,14 +255,15 @@ export class SfnDiagramElement extends HTMLElement {
             return;
         }
 
+        const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
         const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
         ensureViewerStylesInjected(chromeTheme);
         this.innerHTML = buildViewerBody({
             minimapCollapsed: result.nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD,
-            panel: hasStateData,
+            panel: hasEdgeData || hasStateData,
             svg,
         });
-        this.#viewerHandle = attachViewer({ root: this, stateData });
+        this.#viewerHandle = attachViewer({ edgeData, root: this, stateData });
     }
 
     /**

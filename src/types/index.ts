@@ -296,6 +296,17 @@ export interface DiagramOptions {
     customColors?: Partial<Record<StateType, NodeStyle>>;
 
     /**
+     * Render an invisible, thicker hit area beneath every edge so pointer events land
+     * on a comfortable target rather than on the drawn stroke, which is 1.5–2px wide.
+     *
+     * Only useful for interactive output — `generateHtml` and the `sfn-diagram/element`
+     * custom element set it themselves so edges are clickable in the viewer. It stays
+     * off by default so static SVG and PNG export carry no extra paths.
+     * @default false
+     */
+    edgeHitAreas?: boolean;
+
+    /**
      * Style of edge paths: straight, curved, or orthogonal
      * @default 'curved'
      */

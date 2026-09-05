@@ -14,6 +14,13 @@ import type { LayoutResult } from '../layout/DagreLayout';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
+/**
+ * Stroke width of the invisible per-edge hit area emitted under `edgeHitAreas`. Wide
+ * enough to click without aiming, narrow enough that neighbouring edges in a dense
+ * layout don't overlap each other's targets.
+ */
+const EDGE_HIT_AREA_WIDTH = 12;
+
 interface RenderShapeParams {
     group: SvgElement;
     node: StateNode;
@@ -28,6 +35,12 @@ interface RenderNodeParams {
 interface RenderEdgeParams {
     edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
     group: SvgElement;
+    /**
+     * Group to put this edge's invisible hit area in, when `edgeHitAreas` is on. Kept
+     * separate from `group` so it can sit above the container rects in hit-test order
+     * - see the group ordering in {@link SvgRenderer.render}.
+     */
+    hitAreaGroup?: SvgElement;
     nodes: StateNode[];
     /** Widest self-loop label per node id — see {@link SvgRenderer.selfLoopLabelCenter}. */
     selfLoopLabelWidths: Map<string, number>;
@@ -180,9 +193,18 @@ export class SvgRenderer {
             .attr('points', '0 0, 10 3, 0 6')
             .attr('fill', this.resolveEdgeColor('retry'));
 
-        // Create groups for edges, container nodes, and regular nodes
+        // Create groups for edges, container nodes, and regular nodes.
+        //
+        // Under `edgeHitAreas` the invisible per-edge targets go in their own group
+        // placed *after* the containers: a container's background rect is filled, so it
+        // hit-tests above anything drawn before it and would otherwise swallow every
+        // click on an edge routed inside it. Nodes still come last, so a node keeps
+        // winning over an edge that passes beneath it.
         const edgesGroup = svg.append('g').attr('class', 'edges');
         const containersGroup = svg.append('g').attr('class', 'containers');
+        const edgeHitAreasGroup = this.options.edgeHitAreas
+            ? svg.append('g').attr('class', 'edge-hit-areas')
+            : undefined;
         const nodesGroup = svg.append('g').attr('class', 'nodes');
 
         // Separate container nodes from regular nodes
@@ -206,6 +228,7 @@ export class SvgRenderer {
             this.renderEdge({
                 edge,
                 group: edgesGroup,
+                hitAreaGroup: edgeHitAreasGroup,
                 nodes: layout.nodes,
                 selfLoopLabelWidths,
             });
@@ -649,7 +672,7 @@ export class SvgRenderer {
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
-        const { edge, group, nodes, selfLoopLabelWidths } = params;
+        const { edge, group, hitAreaGroup, nodes, selfLoopLabelWidths } = params;
         if (!edge.points || edge.points.length < 2) {
             return;
         }
@@ -677,6 +700,23 @@ export class SvgRenderer {
                 : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
+
+        // Invisible widened copy of the same path. A 1.5px stroke is a punishing click
+        // target; this gives the viewer a comfortable one without changing what the
+        // diagram looks like. It carries the same `data-edge-id`, so a
+        // `closest('[data-edge-id]')` lookup resolves either way. It goes in its own
+        // group rather than beside the visible path - see the group ordering in render().
+        if (hitAreaGroup) {
+            hitAreaGroup
+                .append('path')
+                .attr('d', pathData)
+                .attr('data-edge-id', edge.id)
+                .attr('data-edge-hit-area', '')
+                .attr('fill', 'none')
+                .attr('stroke', 'transparent')
+                .attr('stroke-width', EDGE_HIT_AREA_WIDTH)
+                .attr('pointer-events', 'stroke');
+        }
 
         // Render path. The edge id is emitted alongside it so callers can read the key
         // that addresses this edge in `edgeOverrides` straight off a rendered diagram,
@@ -708,7 +748,7 @@ export class SvgRenderer {
             const midpoint = this.edgeLabelCenter({ edge, nodes, selfLoopLabelWidths });
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
-            group
+            const labelRect = group
                 .append('rect')
                 .attr('x', midpoint.x - labelDimensions.width / 2)
                 .attr('y', midpoint.y - labelDimensions.height / 2)
@@ -719,7 +759,7 @@ export class SvgRenderer {
                 .attr('stroke-width', 0.5)
                 .attr('rx', 3);
 
-            group
+            const labelText = group
                 .append('text')
                 .attr('x', midpoint.x)
                 .attr('y', midpoint.y)
@@ -728,6 +768,15 @@ export class SvgRenderer {
                 .attr('fill', edgeColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .text(edge.label);
+
+            // The label is drawn over the midpoint of its own edge, exactly where a
+            // reader aims. Without the id it would swallow the click; with it, clicking
+            // the label selects the edge it labels. Attached only alongside the hit
+            // areas, so static export markup is untouched.
+            if (hitAreaGroup) {
+                labelRect.attr('data-edge-id', edge.id);
+                labelText.attr('data-edge-id', edge.id);
+            }
         }
     }
 

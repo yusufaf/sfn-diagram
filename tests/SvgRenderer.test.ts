@@ -535,6 +535,87 @@ describe('SvgRenderer', () => {
             expect(new Set(renderedIds).size).toBe(renderedIds.length);
         });
     });
+
+    describe('edgeHitAreas', () => {
+        const positionedChoice = () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('choice') });
+            return new DagreLayout({}).calculate(nodes, edges);
+        };
+
+        it('emits no hit-area paths by default, so static export is unchanged', () => {
+            const svg = new SvgRenderer({}).render(positionedChoice()).svg;
+
+            expect(svg).not.toContain('data-edge-hit-area');
+        });
+
+        it('emits one transparent hit area per edge when enabled', () => {
+            const positioned = positionedChoice();
+            const edgePaths = (svg: string) =>
+                (svg.match(/<path [^>]*data-edge-id=/g) ?? []).length;
+
+            const withoutHitAreas = new SvgRenderer({}).render(positioned).svg;
+            const withHitAreas = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            const drawnEdges = edgePaths(withoutHitAreas);
+            expect(drawnEdges).toBeGreaterThan(0);
+            expect((withHitAreas.match(/data-edge-hit-area/g) ?? []).length).toBe(drawnEdges);
+            expect(edgePaths(withHitAreas)).toBe(drawnEdges * 2);
+        });
+
+        it('tags an edge label with its edge id so the label does not swallow clicks', () => {
+            const positioned = positionedChoice();
+
+            const withoutHitAreas = new SvgRenderer({}).render(positioned).svg;
+            const withHitAreas = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            // The Choice fixture draws a label on each choice/default edge.
+            expect(withHitAreas).toMatch(/<text [^>]*data-edge-id="CheckValue-&gt;HighValue/);
+            expect(withHitAreas).toMatch(/<rect [^>]*data-edge-id="CheckValue-&gt;HighValue/);
+            expect(withoutHitAreas).not.toMatch(/<text [^>]*data-edge-id=/);
+            expect(withoutHitAreas).not.toMatch(/<rect [^>]*data-edge-id=/);
+        });
+
+        it('gives the hit area the same id as the edge it covers', () => {
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positionedChoice()).svg;
+
+            const hitAreaIds = [
+                ...svg.matchAll(/<path [^>]*data-edge-id="([^"]+)"[^>]*data-edge-hit-area/g),
+            ].map((match) => match[1].replace(/&gt;/g, '>'));
+
+            expect(hitAreaIds).toContain('CheckValue->HighValue#choice#0');
+        });
+
+        it('draws the hit area unpainted and wider than the stroke', () => {
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positionedChoice()).svg;
+
+            const hitArea = svg.match(/<path [^>]*data-edge-hit-area[^>]*>/)![0];
+            expect(hitArea).toContain('stroke="transparent"');
+            expect(hitArea).toContain('stroke-width="12"');
+            expect(hitArea).toContain('pointer-events="stroke"');
+        });
+
+        it('puts the hit areas after the containers so nested edges stay clickable', () => {
+            const parsed = parseAsl({ definition: loadFixture('parallel') });
+            const positioned = new DagreLayout({}).calculate(parsed.nodes, parsed.edges);
+
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            // A container's background rect is filled, so anything drawn before it
+            // hit-tests underneath it. Nodes still come last and keep winning.
+            expect(svg.indexOf('class="containers"')).toBeLessThan(
+                svg.indexOf('class="edge-hit-areas"'),
+            );
+            expect(svg.indexOf('class="edge-hit-areas"')).toBeLessThan(
+                svg.indexOf('class="nodes"'),
+            );
+        });
+
+        it('adds no hit-area group at all when disabled', () => {
+            const svg = new SvgRenderer({}).render(positionedChoice()).svg;
+
+            expect(svg).not.toContain('edge-hit-areas');
+        });
+    });
 });
 
 describe('collapsed containers', () => {

@@ -129,6 +129,9 @@ const ids = [...svg.matchAll(/data-edge-id="([^"]+)"/g)].map(
 In the browser, `document.querySelectorAll('path[data-edge-id]')` gives the same ids
 already unescaped, which is also how the interactive viewer addresses single edges.
 
+Easiest of all: open the diagram as `--format html` and click the edge. The panel title
+is the id, ready to paste into `edgeOverrides`.
+
 ### Id stability
 
 Ids survive the graph transforms the library applies after parsing — `collapse`, catch
@@ -156,11 +159,17 @@ Big, branchy state machines are hard to read as a static image. A few options he
   | Zoom | mouse wheel, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
   | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
   | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
+  | Inspect an edge | click any transition (or its label) — the same panel shows the edge's id, its endpoints, its kind (`normal`/`error`/`choice`/`default`/`retry`) and, for a Choice branch, the condition that produced it. The edge and both endpoints highlight while it's open |
   | Expand/Collapse | when the diagram has a Parallel or Map state, a toggle button switches between the expanded and fully-collapsed view |
   | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
 
   Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
-  target states from your own scripts or styles.
+  target states from your own scripts or styles. Edges carry `data-edge-id` the same
+  way. The HTML viewer additionally renders an invisible widened hit area under each
+  edge so it can be clicked without precise aim — that's the `edgeHitAreas` option,
+  which `generateHtml()`, `<sfn-diagram interactive>` and every `--format html` CLI
+  path (including `--diff` and `--execution`) set for themselves, and which stays off
+  for plain `generateSvg()`/PNG output.
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 
