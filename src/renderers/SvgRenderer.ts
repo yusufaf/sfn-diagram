@@ -15,6 +15,11 @@ import type {
     NodeStyle,
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
+import {
+    CONTAINER_HEADER_HEIGHT,
+    CONTAINER_NAME_BASELINE,
+    CONTAINER_SUB_LABEL_BASELINE,
+} from '../constants/layout';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
@@ -357,7 +362,7 @@ export class SvgRenderer {
 
         const width = node.width || 480;
         const height = node.height || 180;
-        const headerHeight = 50;
+        const headerHeight = CONTAINER_HEADER_HEIGHT;
 
         // Draw translucent bounding box
         containerGroup
@@ -384,18 +389,6 @@ export class SvgRenderer {
             .attr('stroke', node.style?.stroke || '#c2185b')
             .attr('stroke-width', 2);
 
-        // Add container label in header
-        containerGroup
-            .append('text')
-            .attr('x', 0)
-            .attr('y', -height / 2 + headerHeight / 2)
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', this.theme.fontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(node.label);
-
         // Sub-label under the container name. The Distributed marker and
         // MaxConcurrency are always shown when present — a Distributed Map runs a
         // child execution per batch rather than iterating inline, so it must not
@@ -408,11 +401,30 @@ export class SvgRenderer {
                 showStateType: this.options.showStateTypes === true,
             }),
         });
+        // Both lines live inside the header band. When there is no sub-label the name
+        // is centred in the band; when there is, the two share it — the band is only
+        // as tall as the gap the layout leaves above the children, so anything drawn
+        // past it lands under the first child row.
+        const headerTop = -height / 2;
+        containerGroup
+            .append('text')
+            .attr('x', 0)
+            .attr(
+                'y',
+                subLabel ? headerTop + CONTAINER_NAME_BASELINE : headerTop + headerHeight / 2,
+            )
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('fill', this.theme.textColor)
+            .attr('font-size', this.theme.fontSize)
+            .attr('font-family', this.theme.fontFamily)
+            .text(node.label);
+
         if (subLabel) {
             containerGroup
                 .append('text')
                 .attr('x', 0)
-                .attr('y', -height / 2 + headerHeight / 2 + 18)
+                .attr('y', headerTop + CONTAINER_SUB_LABEL_BASELINE)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
