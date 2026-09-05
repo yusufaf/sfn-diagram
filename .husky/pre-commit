@@ -1,2 +1,37 @@
+#!/bin/sh
+# Keep the committed GitHub Action bundle in step with the core code it vendors.
+#
+# The Action bundles the core package's *dist/*, not its src/, so core has to be
+# built first — a bundle built against a stale dist/ silently ships whatever was
+# last built, including another branch's code. CI enforces freshness ("Verify
+# GitHub Action bundle is up to date"), so without this the drift is only ever
+# caught after a push.
+#
+# Skipped entirely unless the commit touches something the bundle is built from,
+# which keeps docs- and test-only commits fast.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if echo "$staged" | grep -qE '^(src/|packages/github-action-sfn-diagram/src/|tsdown\.config\.ts$)'; then
+    # The rebuild reads the working tree, not the index. If those differ, a bundle
+    # staged here would not match what is being committed, so stop and let the
+    # author decide rather than committing output for code that is not in the commit.
+    if ! git diff --quiet -- src packages/github-action-sfn-diagram/src tsdown.config.ts; then
+        echo "pre-commit: unstaged changes under src/ — the Action bundle would be built"
+        echo "            from your working tree rather than from what you are committing."
+        echo "            Stage or set aside those changes, then commit again."
+        exit 1
+    fi
+
+    pnpm run build:action-bundle >/dev/null || exit 1
+
+    # Staged before comparing, not after: on a CRLF checkout the rebuilt file always
+    # differs from the working tree by line endings alone, and `git add` normalizes
+    # that away — so this reports real drift rather than the platform's noise.
+    git add packages/github-action-sfn-diagram/dist
+    if ! git diff --cached --quiet HEAD -- packages/github-action-sfn-diagram/dist; then
+        echo "pre-commit: Action bundle rebuilt and included in this commit."
+    fi
+fi
+
 pnpm test
 pnpm lint
