@@ -33,45 +33,63 @@ interface ValidateAslParams {
     definition: unknown;
 }
 
+interface ValidateScopeParams {
+    /** The definition for this scope: the machine root, a Parallel branch, or a Map processor. */
+    definition: unknown;
+    /**
+     * How to name this scope in an error message. Empty at the machine root, where
+     * messages read as they always have; otherwise something like
+     * `Parallel state "Fanout" branch 1`. Nested state names are only unique within
+     * their own States block, so an unqualified name is not enough to locate a fault.
+     */
+    scope: string;
+}
+
 /**
- * Validates an ASL definition and returns helpful error messages
+ * Validates one `States` block and every scope nested inside it.
  *
- * @param params - Validation parameters
- * @throws {AslValidationError} When the ASL definition is invalid
+ * Each scope is checked against its own set of state names, because ASL scopes
+ * transitions: a `Next` inside a Parallel branch may only target a state in that
+ * same branch. Validating nested scopes against the root's names would both miss
+ * real dangling transitions and reject valid ones.
  */
-export function validateAsl(params: ValidateAslParams): void {
-    const { definition } = params;
+function validateScope(params: ValidateScopeParams): void {
+    const { definition, scope } = params;
+    const isRoot = scope === '';
+    // Root messages are preserved verbatim; nested ones are qualified by their scope.
+    const subject = isRoot ? 'ASL definition' : scope;
+    const qualify = (text: string): string => (isRoot ? text : `${scope}: ${text}`);
 
     // Check basic structure
     if (!definition || typeof definition !== 'object') {
-        throw new AslValidationError('ASL definition must be a non-null object');
+        throw new AslValidationError(`${subject} must be a non-null object`);
     }
 
     const asl = definition as Record<string, unknown>;
 
     // Check for StartAt
     if (!('StartAt' in asl)) {
-        throw new AslValidationError('ASL definition missing required field: StartAt');
+        throw new AslValidationError(`${subject} missing required field: StartAt`);
     }
 
     if (typeof asl.StartAt !== 'string' || asl.StartAt.trim() === '') {
-        throw new AslValidationError('StartAt must be a non-empty string');
+        throw new AslValidationError(qualify('StartAt must be a non-empty string'));
     }
 
     // Check for States
     if (!('States' in asl)) {
-        throw new AslValidationError('ASL definition missing required field: States');
+        throw new AslValidationError(`${subject} missing required field: States`);
     }
 
     if (!asl.States || typeof asl.States !== 'object') {
-        throw new AslValidationError('States must be a non-null object');
+        throw new AslValidationError(qualify('States must be a non-null object'));
     }
 
     const states = asl.States as Record<string, unknown>;
     const stateNames = Object.keys(states);
 
     if (stateNames.length === 0) {
-        throw new AslValidationError('States object cannot be empty');
+        throw new AslValidationError(qualify('States object cannot be empty'));
     }
 
     // Set for O(1) reference checks. Every state validates its Next/Default/Choices/Catch
@@ -79,22 +97,71 @@ export function validateAsl(params: ValidateAslParams): void {
     const stateNameSet = new Set(stateNames);
 
     // Check that StartAt references an existing state
-    if (!stateNameSet.has(asl.StartAt as string)) {
+    if (!stateNameSet.has(asl.StartAt)) {
         throw new AslValidationError(
-            `StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(', ')}`
+            qualify(
+                `StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(', ')}`
+            )
         );
     }
 
     // Validate each state
     for (const [stateName, stateValue] of Object.entries(states)) {
-        validateState({ stateName, stateNames: stateNameSet, stateValue });
+        validateState({ scope, stateName, stateNames: stateNameSet, stateValue });
+    }
+
+    // Recurse into every nested scope. Doing this after the current scope is fully
+    // checked keeps the reported fault the outermost one, which is the useful one.
+    for (const [stateName, stateValue] of Object.entries(states)) {
+        const state = stateValue as AslState;
+
+        if (state.Type === 'Parallel' && state.Branches !== undefined) {
+            if (!Array.isArray(state.Branches)) {
+                throw new AslValidationError(
+                    qualify(`State "${stateName}": Branches must be an array`)
+                );
+            }
+            state.Branches.forEach((branch, index) => {
+                validateScope({
+                    definition: branch,
+                    scope: `Parallel state "${stateName}" branch ${index + 1}`,
+                });
+            });
+        }
+
+        if (state.Type === 'Map') {
+            const processor = getMapProcessor(state);
+            if (processor !== undefined) {
+                validateScope({
+                    definition: processor,
+                    scope: `Map state "${stateName}" processor`,
+                });
+            }
+        }
     }
 }
 
+/**
+ * Validates an ASL definition and returns helpful error messages
+ *
+ * Recurses into Parallel `Branches` and a Map's `ItemProcessor` (or the legacy
+ * `Iterator`), so a dangling transition or a malformed `States` block inside a
+ * branch is reported as an {@link AslValidationError} rather than surfacing later
+ * as a silently broken graph or a raw `TypeError` from the extractor.
+ *
+ * @param params - Validation parameters
+ * @throws {AslValidationError} When the ASL definition is invalid
+ */
+export function validateAsl(params: ValidateAslParams): void {
+    validateScope({ definition: params.definition, scope: '' });
+}
+
 interface ValidateStateParams {
+    /** Scope label for error messages; empty at the machine root. See {@link validateScope}. */
+    scope: string;
     /** Name of the state being validated */
     stateName: string;
-    /** All valid state names, as a set for O(1) reference checking */
+    /** All valid state names *in this scope*, as a set for O(1) reference checking */
     stateNames: ReadonlySet<string>;
     /** The state object to validate */
     stateValue: unknown;
@@ -104,22 +171,29 @@ interface ValidateStateParams {
  * Validates an individual state within an ASL definition
  */
 function validateState(params: ValidateStateParams): void {
-    const { stateName, stateNames, stateValue } = params;
+    const { scope, stateName, stateNames, stateValue } = params;
+    // Nested state names repeat across scopes, so an unqualified message cannot say
+    // which "Validate" is at fault. Root messages are left exactly as they were.
+    // Explicitly typed: TypeScript only treats a call as never-returning for
+    // control-flow narrowing when the const carries its own type annotation.
+    const fail: (text: string) => never = (text) => {
+        throw new AslValidationError(scope === '' ? text : `${scope}: ${text}`);
+    };
 
     if (!stateValue || typeof stateValue !== 'object') {
-        throw new AslValidationError(`State "${stateName}" must be a non-null object`);
+        fail(`State "${stateName}" must be a non-null object`);
     }
 
     const state = stateValue as Record<string, unknown>;
 
     // Check for Type
     if (!('Type' in state)) {
-        throw new AslValidationError(`State "${stateName}" missing required field: Type`);
+        fail(`State "${stateName}" missing required field: Type`);
     }
 
     const stateType = state.Type;
     if (typeof stateType !== 'string' || !VALID_STATE_TYPES.includes(stateType as typeof VALID_STATE_TYPES[number])) {
-        throw new AslValidationError(
+        fail(
             `State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(', ')}`
         );
     }
@@ -127,10 +201,10 @@ function validateState(params: ValidateStateParams): void {
     // Check Next references valid states (if present)
     if ('Next' in state && state.Next !== undefined) {
         if (typeof state.Next !== 'string') {
-            throw new AslValidationError(`State "${stateName}": Next must be a string`);
+            fail(`State "${stateName}": Next must be a string`);
         }
         if (!stateNames.has(state.Next)) {
-            throw new AslValidationError(
+            fail(
                 `State "${stateName}": Next references non-existent state "${state.Next}"`
             );
         }
@@ -139,10 +213,10 @@ function validateState(params: ValidateStateParams): void {
     // Check Default references valid state (for Choice)
     if ('Default' in state && state.Default !== undefined) {
         if (typeof state.Default !== 'string') {
-            throw new AslValidationError(`State "${stateName}": Default must be a string`);
+            fail(`State "${stateName}": Default must be a string`);
         }
         if (!stateNames.has(state.Default)) {
-            throw new AslValidationError(
+            fail(
                 `State "${stateName}": Default references non-existent state "${state.Default}"`
             );
         }
@@ -154,7 +228,7 @@ function validateState(params: ValidateStateParams): void {
             if (choice && typeof choice === 'object' && 'Next' in choice) {
                 const choiceNext = (choice as Record<string, unknown>).Next;
                 if (typeof choiceNext === 'string' && !stateNames.has(choiceNext)) {
-                    throw new AslValidationError(
+                    fail(
                         `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`
                     );
                 }
@@ -168,7 +242,7 @@ function validateState(params: ValidateStateParams): void {
             if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
                 const catchNext = (catchBlock as Record<string, unknown>).Next;
                 if (typeof catchNext === 'string' && !stateNames.has(catchNext)) {
-                    throw new AslValidationError(
+                    fail(
                         `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`
                     );
                 }
@@ -182,7 +256,7 @@ function validateState(params: ValidateStateParams): void {
         const hasNext = 'Next' in state;
         const hasEnd = 'End' in state && state.End === true;
         if (!hasNext && !hasEnd) {
-            throw new AslValidationError(
+            fail(
                 `State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`
             );
         }
