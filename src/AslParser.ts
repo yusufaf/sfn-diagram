@@ -1,9 +1,17 @@
 import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
-import { EDGE_LABELS, getCatchLabel, getRetryLabel } from './constants';
+import {
+    EDGE_LABELS,
+    getCatchLabel,
+    getItemBatchingLabel,
+    getRetryLabel,
+    getToleratedFailureLabel,
+    getWaitDurationLabel,
+} from './constants';
 import { detectService, detectServiceFromResource } from './services';
 import { assignEdgeIds } from './graph';
 import type { RawEdge } from './graph';
+import { stripJsonataDelimiters } from './utils/jsonata';
 
 /**
  * Error thrown when ASL validation fails
@@ -359,6 +367,16 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         baseNode.assignedVariables = assignedVariables;
     }
 
+    // A Wait state's duration is otherwise invisible: two Wait states render
+    // identically whether one pauses five seconds and the other until a timestamp
+    // resolved from the execution input.
+    if (state.Type === 'Wait') {
+        const waitDuration = getWaitDurationLabel(state);
+        if (waitDuration !== '') {
+            baseNode.waitDuration = waitDuration;
+        }
+    }
+
     // For container nodes, we'll populate children later
     if (isContainer) {
         baseNode.children = [];
@@ -374,6 +392,16 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
             }
             if (state.MaxConcurrency !== undefined) {
                 baseNode.maxConcurrency = state.MaxConcurrency;
+            }
+
+            const toleratedFailure = getToleratedFailureLabel(state);
+            if (toleratedFailure !== '') {
+                baseNode.toleratedFailure = toleratedFailure;
+            }
+
+            const itemBatching = getItemBatchingLabel(state);
+            if (itemBatching !== '') {
+                baseNode.itemBatching = itemBatching;
             }
         }
     }
@@ -524,11 +552,6 @@ const IS_CHECKS: Record<string, string> = {
     IsTimestamp: 'is timestamp',
 };
 
-/** Strip JSONata delimiters (`{% ... %}`) from a condition expression. */
-function cleanJsonataExpression(expression: string): string {
-    return expression.replace(/^\{%\s*/, '').replace(/\s*%\}$/, '').trim();
-}
-
 /**
  * Format a single comparison operator on a Choice rule into a readable label,
  * or return null if the key is not a recognized comparison operator.
@@ -569,7 +592,7 @@ function describeChoiceRule(rule: ChoiceRule): string {
     // usually a `{% ... %}` string, but may also be a boolean/number catch-all.
     if (rule.Condition !== undefined) {
         return typeof rule.Condition === 'string'
-            ? cleanJsonataExpression(rule.Condition)
+            ? stripJsonataDelimiters(rule.Condition)
             : String(rule.Condition);
     }
 

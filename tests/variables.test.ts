@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAsl } from '../src/AslParser';
 import { generateMermaid, generateSvg } from '../src/index';
-import { getAssignedVariablesLabel, getContainerSubLabel } from '../src/constants/labels';
+import { fitSubLabel, getAssignedVariablesLabel, getNodeSubLabel } from '../src/constants/labels';
 import type { AslDefinition, StateNode } from '../src/types';
 
 function loadFixture(name: string): AslDefinition {
@@ -115,7 +115,7 @@ describe('Distributed Map', () => {
 
     it('distinguishes the two in rendered Mermaid', () => {
         expect(generateMermaid({ aslDefinition: distributed }).code).toContain(
-            'ProcessItems: ProcessItems (Distributed · max 100)'
+            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50)'
         );
         expect(generateMermaid({ aslDefinition: inline }).code).not.toContain('Distributed');
     });
@@ -190,7 +190,41 @@ describe('Distributed Map', () => {
         });
     });
 
-    describe('getContainerSubLabel', () => {
+    describe('fitSubLabel', () => {
+        // One unit per character keeps the arithmetic in these cases obvious.
+        const measure = (text: string): number => text.length;
+
+        it('returns the label untouched when it already fits', () => {
+            expect(fitSubLabel({ availableWidth: 20, measure, text: 'max 100' })).toBe('max 100');
+        });
+
+        it('elides a label wider than the space available', () => {
+            const fitted = fitSubLabel({
+                availableWidth: 12,
+                measure,
+                text: 'Distributed · max 100 · tolerate 5%',
+            });
+
+            expect(fitted.endsWith('…')).toBe(true);
+            expect(measure(fitted)).toBeLessThanOrEqual(12);
+        });
+
+        it('does not leave a trailing space before the ellipsis', () => {
+            expect(fitSubLabel({ availableWidth: 8, measure, text: 'abcd efghij' })).not.toContain(
+                ' …',
+            );
+        });
+
+        it('drops the label entirely when not even a stub fits', () => {
+            expect(fitSubLabel({ availableWidth: 2, measure, text: 'Distributed' })).toBe('');
+        });
+
+        it('passes an empty label straight through', () => {
+            expect(fitSubLabel({ availableWidth: 0, measure, text: '' })).toBe('');
+        });
+    });
+
+    describe('getNodeSubLabel', () => {
         const node: StateNode = {
             id: 'ProcessItems',
             isContainer: true,
@@ -201,13 +235,13 @@ describe('Distributed Map', () => {
         };
 
         it('shows the distributed marker and concurrency without showStateType', () => {
-            expect(getContainerSubLabel({ node, showStateType: false })).toBe(
+            expect(getNodeSubLabel({ node, showStateType: false })).toBe(
                 'Distributed · max 100'
             );
         });
 
         it('prepends the state type when showStateType is enabled', () => {
-            expect(getContainerSubLabel({ node, showStateType: true })).toBe(
+            expect(getNodeSubLabel({ node, showStateType: true })).toBe(
                 'Map state · Distributed · max 100'
             );
         });
@@ -220,7 +254,33 @@ describe('Distributed Map', () => {
                 type: 'Parallel',
             };
 
-            expect(getContainerSubLabel({ node: plain, showStateType: false })).toBe('');
+            expect(getNodeSubLabel({ node: plain, showStateType: false })).toBe('');
+        });
+
+        it('appends Map tolerance and batching after concurrency', () => {
+            expect(
+                getNodeSubLabel({
+                    node: { ...node, itemBatching: 'batches of 50', toleratedFailure: 'tolerate 5%' },
+                    showStateType: false,
+                }),
+            ).toBe('Distributed · max 100 · tolerate 5% · batches of 50');
+        });
+
+        it('shows the duration of a Wait state', () => {
+            const wait: StateNode = {
+                id: 'Pause',
+                label: 'Pause',
+                type: 'Wait',
+                waitDuration: '5s',
+            };
+
+            expect(getNodeSubLabel({ node: wait, showStateType: false })).toBe('5s');
+        });
+
+        it('keeps the bare type on a non-container, as the second line always has', () => {
+            const task: StateNode = { id: 'Work', label: 'Work', type: 'Task' };
+
+            expect(getNodeSubLabel({ node: task, showStateType: true })).toBe('Task');
         });
     });
 });

@@ -758,6 +758,136 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Wait duration', () => {
+        const waitWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Pause',
+                States: { Pause: { Type: 'Wait', ...fields, End: true } },
+            }) as AslDefinition;
+
+        const durationOf = (definition: AslDefinition): string | undefined =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Pause')?.waitDuration;
+
+        it('renders a numeric Seconds with its unit', () => {
+            expect(durationOf(waitWith({ Seconds: 5 }))).toBe('5s');
+        });
+
+        it('unwraps a JSONata Seconds expression', () => {
+            expect(durationOf(waitWith({ Seconds: '{% $states.input.delaySeconds %}' }))).toBe(
+                '$states.input.delaySeconds',
+            );
+        });
+
+        it('falls back through SecondsPath, Timestamp, then TimestampPath', () => {
+            expect(durationOf(waitWith({ SecondsPath: '$.delay' }))).toBe('$.delay');
+            expect(durationOf(waitWith({ Timestamp: '2026-01-01T00:00:00Z' }))).toBe(
+                '2026-01-01T00:00:00Z',
+            );
+            expect(durationOf(waitWith({ TimestampPath: '$.readyAt' }))).toBe('$.readyAt');
+        });
+
+        it('prefers Seconds when more than one field is set', () => {
+            expect(durationOf(waitWith({ Seconds: 5, TimestampPath: '$.readyAt' }))).toBe('5s');
+        });
+
+        it('elides an expression too long for the node', () => {
+            const long = '$states.input.someVeryLongPropertyNameIndeed.delaySeconds';
+
+            const duration = durationOf(waitWith({ Seconds: `{% ${long} %}` }))!;
+
+            expect(duration.length).toBeLessThan(long.length);
+            expect(duration.endsWith('…')).toBe(true);
+        });
+
+        it('leaves waitDuration unset when the Wait carries no duration', () => {
+            expect(durationOf(waitWith({}))).toBeUndefined();
+        });
+
+        it('does not put a duration on a non-Wait state', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', Seconds: 5, End: true } as never },
+            };
+
+            expect(
+                parseAsl({ definition }).nodes.find((node) => node.id === 'Work')?.waitDuration,
+            ).toBeUndefined();
+        });
+    });
+
+    describe('Distributed Map tolerance and batching', () => {
+        const mapWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Each',
+                States: {
+                    Each: {
+                        Type: 'Map',
+                        ...fields,
+                        End: true,
+                        ItemProcessor: {
+                            ProcessorConfig: { Mode: 'DISTRIBUTED' },
+                            StartAt: 'Handle',
+                            States: { Handle: { Type: 'Pass', End: true } },
+                        },
+                    },
+                },
+            }) as AslDefinition;
+
+        const nodeFor = (definition: AslDefinition) =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Each')!;
+
+        it('reports a tolerated failure percentage', () => {
+            expect(nodeFor(mapWith({ ToleratedFailurePercentage: 5 })).toleratedFailure).toBe(
+                'tolerate 5%',
+            );
+        });
+
+        it('reports a tolerated failure count, pluralised', () => {
+            expect(nodeFor(mapWith({ ToleratedFailureCount: 100 })).toleratedFailure).toBe(
+                'tolerate 100 failures',
+            );
+            expect(nodeFor(mapWith({ ToleratedFailureCount: 1 })).toleratedFailure).toBe(
+                'tolerate 1 failure',
+            );
+        });
+
+        it('reports both thresholds when both are set', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: 100, ToleratedFailurePercentage: 5 }))
+                    .toleratedFailure,
+            ).toBe('tolerate 100 failures or 5%');
+        });
+
+        it('reports ItemBatcher sizing by items and by bytes', () => {
+            expect(nodeFor(mapWith({ ItemBatcher: { MaxItemsPerBatch: 50 } })).itemBatching).toBe(
+                'batches of 50',
+            );
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxInputBytesPerBatch: 262144 } })).itemBatching,
+            ).toBe('batches ≤ 256KB');
+            expect(
+                nodeFor(
+                    mapWith({
+                        ItemBatcher: { MaxInputBytesPerBatch: 262144, MaxItemsPerBatch: 50 },
+                    }),
+                ).itemBatching,
+            ).toBe('batches of 50, ≤ 256KB');
+        });
+
+        it('leaves both unset when the Map configures neither', () => {
+            const node = nodeFor(mapWith({}));
+
+            expect(node.toleratedFailure).toBeUndefined();
+            expect(node.itemBatching).toBeUndefined();
+        });
+
+        it('ignores an ItemBatcher carrying only BatchInput', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { BatchInput: { tenant: 'acme' } } })).itemBatching,
+            ).toBeUndefined();
+        });
+    });
+
     describe('edge identity', () => {
         it('gives every edge in a colliding graph a unique id', () => {
             const { edges } = parseAsl({ definition: loadFixture('parallel-edges') });

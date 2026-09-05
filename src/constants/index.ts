@@ -5,7 +5,11 @@ export {
     getBranchLabel,
     getCatchLabel,
     getChoiceLabel,
-    getContainerSubLabel,
+    fitSubLabel,
+    getItemBatchingLabel,
+    getNodeSubLabel,
+    getToleratedFailureLabel,
+    getWaitDurationLabel,
     getErrorLabel,
     getRetryLabel,
 } from './labels';
