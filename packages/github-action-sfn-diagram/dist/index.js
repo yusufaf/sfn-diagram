@@ -62307,6 +62307,7 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   showStateTypes: false,
   showVariables: true,
   edgeStyle: "curved",
+  edgeHitAreas: false,
   catchHandling: "show",
   catchLabelStyle: "error-type",
   collapse: void 0,
