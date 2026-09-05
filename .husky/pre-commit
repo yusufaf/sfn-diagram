@@ -1,37 +1,48 @@
 #!/bin/sh
+# Abort on the first failure. Without it a failing `pnpm test` followed by a passing
+# `pnpm lint` exits 0 and the commit goes through with failing tests.
+set -e
+
+pnpm test
+pnpm lint
+
 # Keep the committed GitHub Action bundle in step with the core code it vendors.
 #
-# The Action bundles the core package's *dist/*, not its src/, so core has to be
-# built first — a bundle built against a stale dist/ silently ships whatever was
-# last built, including another branch's code. CI enforces freshness ("Verify
-# GitHub Action bundle is up to date"), so without this the drift is only ever
-# caught after a push.
+# The Action bundles the core package's *dist/*, not its src/, so core has to be built
+# first — a bundle built against a stale dist/ silently ships whatever was last built,
+# including another branch's code. CI enforces freshness ("Verify GitHub Action bundle
+# is up to date"), so without this the drift is only ever caught after a push.
 #
-# Skipped entirely unless the commit touches something the bundle is built from,
-# which keeps docs- and test-only commits fast.
-staged=$(git diff --cached --name-only --diff-filter=ACMR)
+# Deliberately after the test and lint runs, for two reasons: a failed run must not
+# leave a rebuilt bundle staged for some later unrelated commit, and `pnpm test` starts
+# with `test:viewer-script --check`, so a stale viewerScript.generated.ts — which is
+# baked into dist/ and therefore into the bundle — stops the commit with its own clear
+# message before anything is built here.
+#
+# Skipped entirely unless the commit touches something the bundle is built from, which
+# keeps docs- and test-only commits fast.
+bundle_inputs='^(src/|packages/github-action-sfn-diagram/(src/|package\.json|esbuild\.mjs)|tsdown\.config\.ts$|package\.json$|pnpm-lock\.yaml$)'
 
-if echo "$staged" | grep -qE '^(src/|packages/github-action-sfn-diagram/src/|tsdown\.config\.ts$)'; then
-    # The rebuild reads the working tree, not the index. If those differ, a bundle
-    # staged here would not match what is being committed, so stop and let the
-    # author decide rather than committing output for code that is not in the commit.
-    if ! git diff --quiet -- src packages/github-action-sfn-diagram/src tsdown.config.ts; then
-        echo "pre-commit: unstaged changes under src/ — the Action bundle would be built"
-        echo "            from your working tree rather than from what you are committing."
-        echo "            Stage or set aside those changes, then commit again."
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE "$bundle_inputs"; then
+    # The rebuild reads the working tree, not the index. If they differ — unstaged edits,
+    # or an untracked file that is nonetheless imported — a bundle staged here would not
+    # match what is being committed, so stop and let the author decide. `--no-verify`
+    # bypasses this along with the rest of the hook.
+    if git status --porcelain -- src packages/github-action-sfn-diagram tsdown.config.ts |
+        grep -qE '^.[^ ]'; then
+        echo "pre-commit: unstaged or untracked changes under src/ — the Action bundle"
+        echo "            would be built from your working tree rather than from what"
+        echo "            you are committing. Stage or set aside those changes first."
         exit 1
     fi
 
-    pnpm run build:action-bundle >/dev/null || exit 1
+    pnpm run build:action-bundle >/dev/null
 
     # Staged before comparing, not after: on a CRLF checkout the rebuilt file always
     # differs from the working tree by line endings alone, and `git add` normalizes
-    # that away — so this reports real drift rather than the platform's noise.
+    # that — so this reports real drift rather than the platform's noise.
     git add packages/github-action-sfn-diagram/dist
     if ! git diff --cached --quiet HEAD -- packages/github-action-sfn-diagram/dist; then
         echo "pre-commit: Action bundle rebuilt and included in this commit."
     fi
 fi
-
-pnpm test
-pnpm lint
