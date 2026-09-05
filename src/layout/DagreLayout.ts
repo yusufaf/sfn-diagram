@@ -1,6 +1,6 @@
 import dagre from '@dagrejs/dagre';
 import { getNodeSubLabelParts } from '../constants/labels';
-import { CONTAINER_HEADER_HEIGHT, CONTAINER_PADDING } from '../constants/layout';
+import { CONTAINER_HEADER_HEIGHT, CONTAINER_PADDING } from '../constants';
 import { isOpenContainer } from '../graph';
 import type { StateNode, GraphEdge, DiagramOptions } from '../types';
 
@@ -348,16 +348,6 @@ export class DagreLayout {
             const toX = toNode.x || 0;
             const fromY = (fromNode.y || 0) - (fromNode.height || 0) / 2 + headerHeight;
             const toY = (toNode.y || 0) - (toNode.height || 0) / 2;
-
-            // The header band ends exactly where the children begin, so a child sitting
-            // directly under the container's centre leaves this connector with nowhere
-            // to go. Emit nothing rather than a zero-length path: `marker-end` on one
-            // has no defined orientation, so the arrowhead renders at an arbitrary
-            // angle, detached from the flow. A Parallel's branch starts are offset in x
-            // and still get their fan-out line.
-            if (fromX === toX && toY <= fromY) {
-                return [];
-            }
 
             // Create a path that goes from center of header down to the branch start
             return [
