@@ -1,6 +1,6 @@
 import { parseAsl } from '../../AslParser';
 import { serializeForScriptBlock } from './scriptJson';
-import type { AslDefinition, EdgeType } from '../../types';
+import type { AslDefinition, DiagramOptions, EdgeType } from '../../types';
 
 /**
  * The subset of a graph edge the viewer's detail panel shows, keyed by `edge.id`.
@@ -26,6 +26,12 @@ export interface ViewerEdge {
 export interface CollectEdgeDataParams {
     /** The ASL definition to parse, including nested Parallel branches and Map processors. */
     definition: AslDefinition;
+    /**
+     * The same options the diagram was rendered with. Pass them: `catchLabelStyle`
+     * decides an error edge's `label`, so omitting them makes the panel disagree with
+     * the label drawn on the diagram.
+     */
+    options?: DiagramOptions;
 }
 
 /** Parameters for {@link serializeEdgeData}. */
@@ -45,6 +51,7 @@ export interface SerializeEdgeDataParams {
  *
  * @param params - Parameters for edge collection
  * @param params.definition - ASL definition to parse
+ * @param params.options - The options the diagram was rendered with
  * @returns Record mapping each edge id to its viewer-facing detail
  *
  * @example
@@ -60,8 +67,8 @@ export interface SerializeEdgeDataParams {
  * synthesize them, so every id a collapsed view can render is present here.
  */
 export function collectEdgeData(params: CollectEdgeDataParams): Record<string, ViewerEdge> {
-    const { definition } = params;
-    const { edges } = parseAsl({ definition });
+    const { definition, options } = params;
+    const { edges } = parseAsl({ definition, options });
 
     const edgeData: Record<string, ViewerEdge> = {};
     for (const edge of edges) {

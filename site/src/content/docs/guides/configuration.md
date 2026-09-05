@@ -167,8 +167,9 @@ Big, branchy state machines are hard to read as a static image. A few options he
   target states from your own scripts or styles. Edges carry `data-edge-id` the same
   way. The HTML viewer additionally renders an invisible widened hit area under each
   edge so it can be clicked without precise aim — that's the `edgeHitAreas` option,
-  which `generateHtml()` and `<sfn-diagram interactive>` set for themselves and which
-  stays off for plain `generateSvg()`/PNG output.
+  which `generateHtml()`, `<sfn-diagram interactive>` and every `--format html` CLI
+  path (including `--diff` and `--execution`) set for themselves, and which stays off
+  for plain `generateSvg()`/PNG output.
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 

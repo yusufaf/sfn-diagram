@@ -269,7 +269,14 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
             openPanel = (stateId: string) => {
                 const state = stateData?.[stateId] as unknown as Record<string, unknown> | undefined;
-                if (!state) return;
+                // Virtual nodes (branch/iterator end markers, Distributed Map satellites)
+                // have no ASL of their own, so there is nothing to show. Close rather than
+                // return: leaving a previously-selected edge highlighted beside a panel
+                // describing something else reads as a stuck UI.
+                if (!state) {
+                    closePanel();
+                    return;
+                }
                 clearEdgeSelection();
 
                 const rows: HTMLElement[] = [];

@@ -570,6 +570,30 @@ describe('edge detail panel on a Choice diagram', () => {
         ).toContain('$.kind == "work"');
     });
 
+    it('leaves the label legible when its edge is selected', async () => {
+        const target = await pointOnChoiceEdge('Route->Work#choice#0');
+        await choicePage.mouse.move(target.x, target.y);
+        await choicePage.mouse.down();
+        await choicePage.mouse.up();
+
+        // The selection class lands on the label's rect/text too (they carry the same
+        // id), but only the drawn path may be restroked - a 3px stroke on ~10px glyphs
+        // is an unreadable blob.
+        const strokeWidths = await choicePage.$$eval('.sfn-edge-selected', (elements) =>
+            elements.map(
+                (element) => element.tagName + ':' + getComputedStyle(element).strokeWidth,
+            ),
+        );
+
+        expect(strokeWidths).toContain('path:3px');
+        expect(strokeWidths.filter((entry) => entry.startsWith('text:'))).not.toContain(
+            'text:3px',
+        );
+        expect(strokeWidths.filter((entry) => entry.startsWith('rect:'))).not.toContain(
+            'rect:3px',
+        );
+    });
+
     it('selects the edge when its own label is clicked', async () => {
         // The label box sits over the edge midpoint, exactly where a reader aims, so it
         // must not swallow the click.
@@ -588,5 +612,95 @@ describe('edge detail panel on a Choice diagram', () => {
         expect(
             await choicePage.$eval('#sfn-panel-title', (element) => element.textContent),
         ).toBe('Route->Skip#default#0');
+    });
+});
+
+describe('edge detail panel inside a Parallel container', () => {
+    let containerPage: Page;
+
+    const parallelDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    {
+                        StartAt: 'Branch1',
+                        States: {
+                            Branch1: { Type: 'Pass', Next: 'Branch1Done' },
+                            Branch1Done: { Type: 'Succeed' },
+                        },
+                    },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        containerPage = await browser.newPage();
+        await containerPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: parallelDefinition, collapse: false });
+        await containerPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await containerPage.close();
+    });
+
+    it('clicks through the container rect to an edge routed inside it', async () => {
+        // The container's background rect is filled and painted after the edges, so it
+        // hit-tests above them - the hit areas live in their own later group for exactly
+        // this case.
+        const hit = await containerPage.evaluate(() => {
+            const path = Array.from(
+                document.querySelectorAll('path[data-edge-id][data-edge-hit-area]'),
+            ).find(
+                (element) =>
+                    element.getAttribute('data-edge-id') === 'Branch1->Branch1Done#normal#0',
+            ) as SVGPathElement;
+            const point = path.getPointAtLength(path.getTotalLength() / 2);
+            const matrix = path.getScreenCTM()!;
+            const x = point.x * matrix.a + point.y * matrix.c + matrix.e;
+            const y = point.x * matrix.b + point.y * matrix.d + matrix.f;
+            const topmost = document.elementFromPoint(x, y)!;
+            return { tag: topmost.tagName, x, y };
+        });
+
+        expect(hit.tag).toBe('path');
+
+        await containerPage.mouse.move(hit.x, hit.y);
+        await containerPage.mouse.down();
+        await containerPage.mouse.up();
+
+        expect(
+            await containerPage.$eval('#sfn-panel-title', (element) => element.textContent),
+        ).toBe('Branch1->Branch1Done#normal#0');
+    });
+
+    it('closes the panel when a node with no ASL of its own is clicked', async () => {
+        // Branch-end markers are virtual - collectStateData has no entry for them. The
+        // panel must close rather than keep showing the previously-selected edge.
+        const target = await containerPage.evaluate(() => {
+            const marker = Array.from(document.querySelectorAll('[data-state-id]')).find(
+                (element) => (element.getAttribute('data-state-id') ?? '').includes('__branch'),
+            )!;
+            const rect = marker.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+
+        await containerPage.mouse.move(target.x, target.y);
+        await containerPage.mouse.down();
+        await containerPage.mouse.up();
+
+        expect(
+            await containerPage.$eval('#sfn-panel', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(false);
+        expect(
+            await containerPage.$$eval('.sfn-edge-selected', (elements) => elements.length),
+        ).toBe(0);
     });
 });

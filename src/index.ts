@@ -302,7 +302,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj }),
+            edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
@@ -353,7 +353,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount,
             collapsedSvg: embeddedCollapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj }),
+            edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,

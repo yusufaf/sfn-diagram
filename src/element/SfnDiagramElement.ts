@@ -218,7 +218,12 @@ export class SfnDiagramElement extends HTMLElement {
                 theme,
             });
             if (this.interactive && result.type === 'svg') {
-                edgeData = collectEdgeData({ definition: aslObj });
+                // Mirrors renderDiagramString's own generateSvg call, so a label in
+                // the panel matches the one drawn on the diagram.
+                edgeData = collectEdgeData({
+                    definition: aslObj,
+                    options: { layout: this.layout, theme },
+                });
                 stateData = collectStateData({ definition: aslObj });
             }
         } catch (error) {

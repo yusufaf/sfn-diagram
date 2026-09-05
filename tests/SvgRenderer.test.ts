@@ -585,17 +585,35 @@ describe('SvgRenderer', () => {
             expect(hitAreaIds).toContain('CheckValue->HighValue#choice#0');
         });
 
-        it('draws the hit area unpainted, wider than the stroke, and before its edge', () => {
+        it('draws the hit area unpainted and wider than the stroke', () => {
             const svg = new SvgRenderer({ edgeHitAreas: true }).render(positionedChoice()).svg;
 
             const hitArea = svg.match(/<path [^>]*data-edge-hit-area[^>]*>/)![0];
             expect(hitArea).toContain('stroke="transparent"');
             expect(hitArea).toContain('stroke-width="12"');
             expect(hitArea).toContain('pointer-events="stroke"');
-            // Beneath the visible path in paint order, so the drawn edge stays crisp.
-            expect(svg.indexOf('data-edge-hit-area')).toBeLessThan(
-                svg.indexOf('marker-end'),
+        });
+
+        it('puts the hit areas after the containers so nested edges stay clickable', () => {
+            const parsed = parseAsl({ definition: loadFixture('parallel') });
+            const positioned = new DagreLayout({}).calculate(parsed.nodes, parsed.edges);
+
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            // A container's background rect is filled, so anything drawn before it
+            // hit-tests underneath it. Nodes still come last and keep winning.
+            expect(svg.indexOf('class="containers"')).toBeLessThan(
+                svg.indexOf('class="edge-hit-areas"'),
             );
+            expect(svg.indexOf('class="edge-hit-areas"')).toBeLessThan(
+                svg.indexOf('class="nodes"'),
+            );
+        });
+
+        it('adds no hit-area group at all when disabled', () => {
+            const svg = new SvgRenderer({}).render(positionedChoice()).svg;
+
+            expect(svg).not.toContain('edge-hit-areas');
         });
     });
 });

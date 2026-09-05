@@ -67,6 +67,31 @@ describe('collectEdgeData', () => {
         );
     });
 
+    it('honours catchLabelStyle so the panel agrees with the drawn label', () => {
+        const definition: AslDefinition = {
+            StartAt: 'Work',
+            States: {
+                Work: {
+                    Type: 'Task',
+                    Resource: 'arn:aws:lambda:us-east-1:123456789012:function:work',
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Recover' }],
+                    End: true,
+                },
+                Recover: { Type: 'Succeed' },
+            },
+        };
+
+        const byErrorType = collectEdgeData({ definition });
+        const byCatchNumber = collectEdgeData({
+            definition,
+            options: { catchLabelStyle: 'catch-number' },
+        });
+
+        const edgeId = 'Work->Recover#error#0';
+        expect(byErrorType[edgeId].label).toBe('Error: States.ALL');
+        expect(byCatchNumber[edgeId].label).toBe('Catch #1');
+    });
+
     it('covers edges inside Parallel branches', () => {
         const definition: AslDefinition = {
             StartAt: 'Fork',

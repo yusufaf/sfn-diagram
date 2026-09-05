@@ -11,6 +11,7 @@ import { generateExecution, generateMermaidExecution } from './execution';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
 import {
+    collectEdgeData,
     collectStateData,
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
@@ -737,6 +738,9 @@ export async function run(argv: string[]): Promise<number> {
         ...sharedOptions,
         layout: args.layout,
         theme: args.theme,
+        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
+        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
+        ...(args.format === 'html' ? { edgeHitAreas: true } : {}),
         ...(args.showIcons ? { showIcons: true } : {}),
         ...(args.iconPosition !== null
             ? { iconPosition: args.iconPosition }
@@ -753,18 +757,19 @@ export async function run(argv: string[]): Promise<number> {
     const toInteractiveHtml = async (
         svg: string,
         nodeCount: number,
-    ): Promise<string> =>
-        wrapSvgInInteractiveHtml({
+    ): Promise<string> => {
+        const definition =
+            typeof definitionSource === 'string'
+                ? (JSON.parse(definitionSource) as AslDefinition)
+                : definitionSource;
+        return wrapSvgInInteractiveHtml({
+            edgeData: collectEdgeData({ definition, options: svgOptions }),
             nodeCount,
-            stateData: collectStateData({
-                definition:
-                    typeof definitionSource === 'string'
-                        ? (JSON.parse(definitionSource) as AslDefinition)
-                        : definitionSource,
-            }),
+            stateData: collectStateData({ definition }),
             svg: await embedIcons({ svg }),
             theme: resolveViewerTheme({ theme: args.theme }),
         });
+    };
 
     try {
         if (baselineDefinition !== null) {

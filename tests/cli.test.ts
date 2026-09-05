@@ -564,6 +564,40 @@ describe('diff, execution and icon flags', () => {
         expect(stderrData).toContain('succeeded');
     });
 
+    it('--diff and --execution with --format html get clickable edges too', async () => {
+        const diffCode = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+            '--format',
+            'html',
+        ]);
+        expect(diffCode).toBe(0);
+        expect(stdoutData).toContain('id="sfn-edge-data"');
+        expect(stdoutData).toContain('data-edge-hit-area');
+
+        stdoutData = '';
+        stderrData = '';
+
+        const executionCode = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+            '--format',
+            'html',
+        ]);
+        expect(executionCode).toBe(0);
+        expect(stdoutData).toContain('id="sfn-edge-data"');
+        expect(stdoutData).toContain('data-edge-hit-area');
+    });
+
+    it('--format svg keeps the interactive-only hit areas out', async () => {
+        const code = await run([simpleFixture, '--format', 'svg']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('data-edge-id');
+        expect(stdoutData).not.toContain('data-edge-hit-area');
+    });
+
     it('--format html embeds state data for the detail panel', async () => {
         const code = await run([simpleFixture, '--format', 'html']);
         expect(code).toBe(0);
