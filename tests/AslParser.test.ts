@@ -526,6 +526,214 @@ describe('AslParser', () => {
             });
         });
 
+        describe('Nested scope validation', () => {
+            const parallelWith = (branch: unknown): unknown => ({
+                StartAt: 'Fanout',
+                States: {
+                    Fanout: { Type: 'Parallel', Branches: [branch], End: true },
+                },
+            });
+
+            it('rejects a dangling Next inside a Parallel branch', () => {
+                const definition = parallelWith({
+                    StartAt: 'Work',
+                    States: { Work: { Type: 'Pass', Next: 'Nowhere' } },
+                });
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 1: State "Work": Next references non-existent state "Nowhere"',
+                );
+            });
+
+            it('rejects a dangling Next inside a Map processor', () => {
+                const definition = {
+                    StartAt: 'Each',
+                    States: {
+                        Each: {
+                            Type: 'Map',
+                            End: true,
+                            ItemProcessor: {
+                                StartAt: 'Handle',
+                                States: { Handle: { Type: 'Pass', Next: 'Gone' } },
+                            },
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Map state "Each" processor: State "Handle": Next references non-existent state "Gone"',
+                );
+            });
+
+            it('reports a branch with no States as a validation error, not a TypeError', () => {
+                const definition = parallelWith({ StartAt: 'Work' });
+
+                // Previously this slipped past validation and blew up inside
+                // extractStatesRecursively converting undefined to an object.
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('rejects a branch whose StartAt names no state in that branch', () => {
+                const definition = parallelWith({
+                    StartAt: 'Missing',
+                    States: { Work: { Type: 'Pass', End: true } },
+                });
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 1: StartAt references non-existent state: "Missing"',
+                );
+            });
+
+            it('names the offending branch by its index', () => {
+                const definition = {
+                    StartAt: 'Fanout',
+                    States: {
+                        Fanout: {
+                            Type: 'Parallel',
+                            End: true,
+                            Branches: [
+                                { StartAt: 'Ok', States: { Ok: { Type: 'Pass', End: true } } },
+                                {
+                                    StartAt: 'Bad',
+                                    States: { Bad: { Type: 'Pass', Next: 'Nowhere' } },
+                                },
+                            ],
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow('branch 2:');
+            });
+
+            it('rejects a non-array Branches instead of crashing on forEach', () => {
+                const definition = {
+                    StartAt: 'Fanout',
+                    States: { Fanout: { Type: 'Parallel', Branches: {}, End: true } },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Fanout": Branches must be an array',
+                );
+            });
+
+            it('scopes names per branch, so the same name in two branches is valid', () => {
+                // ASL only requires a name to be unique within its own States block.
+                const definition: AslDefinition = {
+                    StartAt: 'Fanout',
+                    States: {
+                        Fanout: {
+                            Type: 'Parallel',
+                            End: true,
+                            Branches: [
+                                {
+                                    StartAt: 'Validate',
+                                    States: { Validate: { Type: 'Pass', End: true } },
+                                },
+                                {
+                                    StartAt: 'Validate',
+                                    States: { Validate: { Type: 'Pass', End: true } },
+                                },
+                            ],
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).not.toThrow();
+            });
+
+            it('does not let a branch reach a state outside its own scope', () => {
+                // Cleanup exists at the root, but a branch's Next may not target it.
+                const definition = {
+                    StartAt: 'Fanout',
+                    States: {
+                        Fanout: {
+                            Type: 'Parallel',
+                            Next: 'Cleanup',
+                            Branches: [
+                                {
+                                    StartAt: 'Work',
+                                    States: { Work: { Type: 'Pass', Next: 'Cleanup' } },
+                                },
+                            ],
+                        },
+                        Cleanup: { Type: 'Succeed' },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 1: State "Work": Next references non-existent state "Cleanup"',
+                );
+            });
+
+            it('validates the legacy Iterator the same as ItemProcessor', () => {
+                const definition = {
+                    StartAt: 'Each',
+                    States: {
+                        Each: {
+                            Type: 'Map',
+                            End: true,
+                            Iterator: {
+                                StartAt: 'Handle',
+                                States: { Handle: { Type: 'Pass', Next: 'Gone' } },
+                            },
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+            });
+
+            it('composes scope labels so a fault two levels down is unambiguous', () => {
+                // The same Map name in two different branches: without composition both
+                // faults report 'Map state "Each" processor' and neither says which
+                // branch it is in.
+                const branch = (next: string): unknown => ({
+                    StartAt: 'Each',
+                    States: {
+                        Each: {
+                            Type: 'Map',
+                            End: true,
+                            ItemProcessor: {
+                                StartAt: 'Handle',
+                                States: { Handle: { Type: 'Pass', Next: next } },
+                            },
+                        },
+                    },
+                });
+
+                const definition = {
+                    StartAt: 'Fanout',
+                    States: {
+                        Fanout: {
+                            Type: 'Parallel',
+                            End: true,
+                            Branches: [branch('Handle'), branch('Nowhere')],
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 2 > Map state "Each" processor: ' +
+                        'State "Handle": Next references non-existent state "Nowhere"',
+                );
+            });
+
+            it('leaves root-level messages unqualified', () => {
+                const definition = {
+                    StartAt: 'Work',
+                    States: { Work: { Type: 'Pass', Next: 'Nowhere' } },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Work": Next references non-existent state "Nowhere"',
+                );
+            });
+        });
+
         describe('Integration with parseAsl', () => {
             it('should reject invalid ASL during parsing', () => {
                 const invalid = {

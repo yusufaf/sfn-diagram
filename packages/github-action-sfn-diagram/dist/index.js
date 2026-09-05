@@ -62721,56 +62721,89 @@ var VALID_STATE_TYPES = [
   "Parallel",
   "Map"
 ];
-function validateAsl(params) {
-  const { definition } = params;
-  if (!definition || typeof definition !== "object") throw new AslValidationError("ASL definition must be a non-null object");
+function validateScope(params) {
+  const { definition, scope } = params;
+  const isRoot = scope === "";
+  const subject = isRoot ? "ASL definition" : scope;
+  const qualify = (text) => isRoot ? text : `${scope}: ${text}`;
+  const nest = (label) => isRoot ? label : `${scope} > ${label}`;
+  if (!definition || typeof definition !== "object") throw new AslValidationError(`${subject} must be a non-null object`);
   const asl = definition;
-  if (!("StartAt" in asl)) throw new AslValidationError("ASL definition missing required field: StartAt");
-  if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") throw new AslValidationError("StartAt must be a non-empty string");
-  if (!("States" in asl)) throw new AslValidationError("ASL definition missing required field: States");
-  if (!asl.States || typeof asl.States !== "object") throw new AslValidationError("States must be a non-null object");
+  if (!("StartAt" in asl)) throw new AslValidationError(`${subject} missing required field: StartAt`);
+  if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") throw new AslValidationError(qualify("StartAt must be a non-empty string"));
+  if (!("States" in asl)) throw new AslValidationError(`${subject} missing required field: States`);
+  if (!asl.States || typeof asl.States !== "object") throw new AslValidationError(qualify("States must be a non-null object"));
   const states = asl.States;
   const stateNames = Object.keys(states);
-  if (stateNames.length === 0) throw new AslValidationError("States object cannot be empty");
+  if (stateNames.length === 0) throw new AslValidationError(qualify("States object cannot be empty"));
   const stateNameSet = new Set(stateNames);
-  if (!stateNameSet.has(asl.StartAt)) throw new AslValidationError(`StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(", ")}`);
+  if (!stateNameSet.has(asl.StartAt)) throw new AslValidationError(qualify(`StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(", ")}`));
   for (const [stateName, stateValue] of Object.entries(states)) validateState({
+    scope,
     stateName,
     stateNames: stateNameSet,
     stateValue
   });
+  for (const [stateName, stateValue] of Object.entries(states)) {
+    const state2 = stateValue;
+    if (state2.Type === "Parallel" && state2.Branches !== void 0) {
+      if (!Array.isArray(state2.Branches)) throw new AslValidationError(qualify(`State "${stateName}": Branches must be an array`));
+      state2.Branches.forEach((branch, index) => {
+        validateScope({
+          definition: branch,
+          scope: nest(`Parallel state "${stateName}" branch ${index + 1}`)
+        });
+      });
+    }
+    if (state2.Type === "Map") {
+      const processor = getMapProcessor(state2);
+      if (processor !== void 0) validateScope({
+        definition: processor,
+        scope: nest(`Map state "${stateName}" processor`)
+      });
+    }
+  }
+}
+function validateAsl(params) {
+  validateScope({
+    definition: params.definition,
+    scope: ""
+  });
 }
 function validateState(params) {
-  const { stateName, stateNames, stateValue } = params;
-  if (!stateValue || typeof stateValue !== "object") throw new AslValidationError(`State "${stateName}" must be a non-null object`);
+  const { scope, stateName, stateNames, stateValue } = params;
+  const fail = (text) => {
+    throw new AslValidationError(scope === "" ? text : `${scope}: ${text}`);
+  };
+  if (!stateValue || typeof stateValue !== "object") fail(`State "${stateName}" must be a non-null object`);
   const state2 = stateValue;
-  if (!("Type" in state2)) throw new AslValidationError(`State "${stateName}" missing required field: Type`);
+  if (!("Type" in state2)) fail(`State "${stateName}" missing required field: Type`);
   const stateType = state2.Type;
-  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) throw new AslValidationError(`State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
+  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) fail(`State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
   if ("Next" in state2 && state2.Next !== void 0) {
-    if (typeof state2.Next !== "string") throw new AslValidationError(`State "${stateName}": Next must be a string`);
-    if (!stateNames.has(state2.Next)) throw new AslValidationError(`State "${stateName}": Next references non-existent state "${state2.Next}"`);
+    if (typeof state2.Next !== "string") fail(`State "${stateName}": Next must be a string`);
+    if (!stateNames.has(state2.Next)) fail(`State "${stateName}": Next references non-existent state "${state2.Next}"`);
   }
   if ("Default" in state2 && state2.Default !== void 0) {
-    if (typeof state2.Default !== "string") throw new AslValidationError(`State "${stateName}": Default must be a string`);
-    if (!stateNames.has(state2.Default)) throw new AslValidationError(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
+    if (typeof state2.Default !== "string") fail(`State "${stateName}": Default must be a string`);
+    if (!stateNames.has(state2.Default)) fail(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
   }
   if ("Choices" in state2 && Array.isArray(state2.Choices)) {
     for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
       const choiceNext = choice.Next;
-      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) throw new AslValidationError(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
+      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) fail(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
     }
   }
   if ("Catch" in state2 && Array.isArray(state2.Catch)) {
     for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
       const catchNext = catchBlock.Next;
-      if (typeof catchNext === "string" && !stateNames.has(catchNext)) throw new AslValidationError(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
+      if (typeof catchNext === "string" && !stateNames.has(catchNext)) fail(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
     }
   }
   if (!["Succeed", "Fail"].includes(stateType) && stateType !== "Choice") {
     const hasNext = "Next" in state2;
     const hasEnd = "End" in state2 && state2.End === true;
-    if (!hasNext && !hasEnd) throw new AslValidationError(`State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
+    if (!hasNext && !hasEnd) fail(`State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
   }
 }
 function parseAsl(params) {
