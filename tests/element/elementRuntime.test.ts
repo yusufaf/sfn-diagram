@@ -282,6 +282,59 @@ describe('interactive mode', () => {
         expect(result.transform).toContain('scale(');
     });
 
+    it('opens the edge detail panel when an edge is clicked', async () => {
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            return new Promise<{
+                highlighted: number;
+                panelOpen: boolean;
+                rows: string[];
+                title: string;
+            }>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() => {
+                        const path = Array.from(
+                            el.querySelectorAll('path[data-edge-id]'),
+                        ).find(
+                            (element) =>
+                                element.getAttribute('data-edge-id') === 'Start->Process#normal#0',
+                        ) as SVGPathElement;
+                        // Dispatch straight at the path: the element shares the page with
+                        // other instances from neighbouring tests, so synthesising real
+                        // mouse coordinates would be ambiguous.
+                        const point = path.getPointAtLength(path.getTotalLength() / 2);
+                        const matrix = path.getScreenCTM()!;
+                        const clientX = point.x * matrix.a + point.y * matrix.c + matrix.e;
+                        const clientY = point.x * matrix.b + point.y * matrix.d + matrix.f;
+                        const options = { bubbles: true, clientX, clientY, pointerId: 1 };
+                        path.dispatchEvent(new PointerEvent('pointerdown', options));
+                        path.dispatchEvent(new PointerEvent('pointerup', options));
+
+                        const panel = el.querySelector('[data-sfn="panel"]')!;
+                        resolve({
+                            highlighted: el.querySelectorAll('.sfn-edge-selected').length,
+                            panelOpen: panel.classList.contains('sfn-open'),
+                            rows: Array.from(el.querySelectorAll('.sfn-field dt')).map(
+                                (row) => row.textContent ?? '',
+                            ),
+                            title:
+                                el.querySelector('[data-sfn="panel-title"]')?.textContent ?? '',
+                        });
+                    }),
+                );
+            });
+        }, asl as unknown as object);
+
+        expect(result.panelOpen).toBe(true);
+        expect(result.title).toBe('Start->Process#normal#0');
+        expect(result.rows).toEqual(['From', 'To', 'Type']);
+        // The drawn path and its hit-area twin.
+        expect(result.highlighted).toBe(2);
+    });
+
     it('supports two instances on one page without colliding', async () => {
         const result = await page.evaluate((definition) => {
             const a = document.createElement('sfn-diagram');

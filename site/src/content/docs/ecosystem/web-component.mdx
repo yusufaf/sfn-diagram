@@ -47,7 +47,7 @@ defineSfnDiagram({ name: 'my-diagram' }); // <my-diagram> instead of <sfn-diagra
 | `format` | `format` | `'svg' \| 'mermaid'` | `'svg'` | |
 | `layout` | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | |
 | `theme` | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | Attribute accepts `'light'`/`'dark'` only; set the property for a `CustomTheme` object |
-| `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the click-a-state detail panel |
+| `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the detail panel for a clicked state or edge |
 
 Failure to parse or validate `definition` dispatches a bubbling `sfn-error` event
 (`CustomEvent<Error>`) and renders nothing:

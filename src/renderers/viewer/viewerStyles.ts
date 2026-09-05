@@ -166,8 +166,14 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="search-count"] { min-width: 52px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
   .sfn-divider { width: 1px; align-self: stretch; background: ${palette.border}; margin: 0 4px; }
   [data-state-id] { cursor: pointer; }
+  [data-edge-id] { cursor: pointer; }
   .sfn-dim { opacity: .15; pointer-events: none; }
   .sfn-hit > :first-child { outline: 3px solid ${palette.accent}; }
+  /* CSS properties beat SVG presentation attributes, so these win over the stroke and
+     width the renderer wrote inline without needing !important. The hit-area copy is
+     excluded so the highlight lands on the drawn stroke rather than a 12px slab. */
+  .sfn-edge-selected:not([data-edge-hit-area]) { stroke: ${palette.accent}; stroke-width: 3; }
+  .sfn-edge-endpoint > :first-child { outline: 2px dashed ${palette.accent}; }
   [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
     box-shadow: -2px 0 8px rgba(0,0,0,.12); }

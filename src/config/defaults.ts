@@ -49,6 +49,8 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     showStateTypes: false,
     showVariables: true,
     edgeStyle: 'curved',
+    // Interactive-only; generateHtml and the custom element opt in for themselves.
+    edgeHitAreas: false,
     catchHandling: 'show',
     catchLabelStyle: 'error-type',
     collapse: undefined,

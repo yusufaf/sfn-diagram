@@ -6,6 +6,12 @@ import type { AslDefinition, ExecutionHistoryInput, LayoutDirection, ThemeOption
 export interface RenderDiagramParams {
     /** ASL definition as an object or JSON string. */
     asl: AslDefinition | string;
+    /**
+     * Emit an invisible widened hit area under every edge so edges are comfortably
+     * clickable. Only meaningful for `format: 'svg'` output that will be wired to the
+     * interactive viewer. Defaults to `false`.
+     */
+    edgeHitAreas?: boolean;
     /** Render an SVG diagram or emit Mermaid code. Defaults to `'svg'`. */
     format?: 'mermaid' | 'svg';
     /** Optional execution history; when set, renders an execution overlay. */
@@ -39,7 +45,7 @@ export type RenderDiagramResult =
  * ```
  */
 export function renderDiagramString(params: RenderDiagramParams): RenderDiagramResult {
-    const { asl, format = 'svg', history, layout = 'TB', theme = 'light' } = params;
+    const { asl, edgeHitAreas = false, format = 'svg', history, layout = 'TB', theme = 'light' } = params;
 
     if (format === 'mermaid') {
         const output = history
@@ -49,7 +55,7 @@ export function renderDiagramString(params: RenderDiagramParams): RenderDiagramR
     }
 
     const output = history
-        ? generateExecution({ aslDefinition: asl, history, layout, theme })
-        : generateSvg({ aslDefinition: asl, layout, theme });
+        ? generateExecution({ aslDefinition: asl, edgeHitAreas, history, layout, theme })
+        : generateSvg({ aslDefinition: asl, edgeHitAreas, layout, theme });
     return { nodeCount: output.metadata.nodeCount, svg: output.svg, type: 'svg' };
 }

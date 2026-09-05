@@ -38,6 +38,26 @@ async function centerOf(stateId: string): Promise<{ x: number; y: number }> {
     }, stateId);
 }
 
+/**
+ * A point that actually lies on an edge's stroke, in viewport coordinates.
+ *
+ * The bounding-box centre of a curved path can sit well off the path itself, so this
+ * walks the geometry instead and maps the result through the element's screen matrix.
+ */
+async function pointOnEdge(edgeId: string): Promise<{ x: number; y: number }> {
+    return page.evaluate((id) => {
+        const path = Array.from(document.querySelectorAll('[data-edge-id]')).find(
+            (element) => element.getAttribute('data-edge-id') === id,
+        ) as SVGPathElement;
+        const point = path.getPointAtLength(path.getTotalLength() / 2);
+        const matrix = path.getScreenCTM()!;
+        return {
+            x: point.x * matrix.a + point.y * matrix.c + matrix.e,
+            y: point.x * matrix.b + point.y * matrix.d + matrix.f,
+        };
+    }, edgeId);
+}
+
 async function clickAt(x: number, y: number): Promise<void> {
     await page.mouse.move(x, y);
     await page.mouse.down();
@@ -134,6 +154,57 @@ describe('interactive viewer runtime', () => {
         expect(await isPanelOpen()).toBe(false);
     });
 
+    it('opens the detail panel for the clicked edge', async () => {
+        const target = await pointOnEdge('Alpha->Beta#normal#0');
+        await clickAt(target.x, target.y);
+
+        expect(await isPanelOpen()).toBe(true);
+        // The title is the `edgeOverrides` key, verbatim and copy-pasteable.
+        expect(await page.$eval('#sfn-panel-title', (element) => element.textContent)).toBe(
+            'Alpha->Beta#normal#0',
+        );
+        expect(await page.$$eval('.sfn-field dt', (els) => els.map((el) => el.textContent))).toEqual(
+            ['From', 'To', 'Type'],
+        );
+    });
+
+    it('highlights the clicked edge and both its endpoints', async () => {
+        const target = await pointOnEdge('Alpha->Beta#normal#0');
+        await clickAt(target.x, target.y);
+
+        // Both the drawn path and its hit-area twin carry the class; the CSS rule
+        // paints only the drawn one.
+        expect(await page.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(2);
+        expect(
+            await page.$$eval('.sfn-edge-endpoint', (elements) =>
+                elements.map((element) => element.getAttribute('data-state-id')),
+            ),
+        ).toEqual(['Alpha', 'Beta']);
+    });
+
+    it('clears the edge highlight when the panel is closed', async () => {
+        const target = await pointOnEdge('Alpha->Beta#normal#0');
+        await clickAt(target.x, target.y);
+        expect(await page.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(2);
+
+        await page.keyboard.press('Escape');
+
+        expect(await isPanelOpen()).toBe(false);
+        expect(await page.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(0);
+        expect(await page.$$eval('.sfn-edge-endpoint', (elements) => elements.length)).toBe(0);
+    });
+
+    it('prefers the node when a click lands on both a node and an edge', async () => {
+        const target = await centerOf('Beta');
+        await clickAt(target.x, target.y);
+
+        expect(await page.$eval('#sfn-panel-title', (element) => element.textContent)).toBe('Beta');
+        expect(await page.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(0);
+
+        // This page is shared with the tests below, which assume a closed panel.
+        await page.keyboard.press('Escape');
+    });
+
     it('pans on drag without opening the panel', async () => {
         const before = await page.$eval(
             '#sfn-content',
@@ -212,9 +283,12 @@ describe('minimap', () => {
             return Array.from(counts.entries()).filter(([, count]) => count > 1);
         });
         expect(duplicates).toEqual([]);
-        // The original diagram's own marker-end references must still resolve.
+        // The original diagram's own marker-end references must still resolve. Scoped
+        // past the hit-area copy, which is deliberately unpainted and carries no marker.
         expect(
-            await page.$eval('.edges path', (element) => element.getAttribute('marker-end')),
+            await page.$eval('.edges path:not([data-edge-hit-area])', (element) =>
+                element.getAttribute('marker-end'),
+            ),
         ).toMatch(/^url\(#arrowhead-/);
     });
 
@@ -434,5 +508,85 @@ describe('minimap auto-visibility across the collapse toggle', () => {
         await togglePage.click('[data-sfn-collapse-toggle]'); // -> expanded view (auto rule: open anyway)
         await togglePage.click('[data-sfn-collapse-toggle]'); // -> collapsed view again (auto rule wants hidden)
         expect(await minimapCollapsed()).toBe(false); // the user's manual choice still wins
+    });
+});
+
+describe('edge detail panel on a Choice diagram', () => {
+    let choicePage: Page;
+
+    const choiceDefinition: AslDefinition = {
+        StartAt: 'Route',
+        States: {
+            Route: {
+                Type: 'Choice',
+                Choices: [{ Variable: '$.kind', StringEquals: 'work', Next: 'Work' }],
+                Default: 'Skip',
+            },
+            Work: { Type: 'Succeed' },
+            Skip: { Type: 'Succeed' },
+        },
+    };
+
+    /** Midpoint of an edge's stroke on this page, in viewport coordinates. */
+    async function pointOnChoiceEdge(edgeId: string): Promise<{ x: number; y: number }> {
+        return choicePage.evaluate((id) => {
+            const path = Array.from(document.querySelectorAll('path[data-edge-id]')).find(
+                (element) => element.getAttribute('data-edge-id') === id,
+            ) as SVGPathElement;
+            const point = path.getPointAtLength(path.getTotalLength() / 2);
+            const matrix = path.getScreenCTM()!;
+            return {
+                x: point.x * matrix.a + point.y * matrix.c + matrix.e,
+                y: point.x * matrix.b + point.y * matrix.d + matrix.f,
+            };
+        }, edgeId);
+    }
+
+    beforeAll(async () => {
+        choicePage = await browser.newPage();
+        await choicePage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: choiceDefinition });
+        await choicePage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await choicePage.close();
+    });
+
+    it('shows the condition that produced a choice edge', async () => {
+        const target = await pointOnChoiceEdge('Route->Work#choice#0');
+        await choicePage.mouse.move(target.x, target.y);
+        await choicePage.mouse.down();
+        await choicePage.mouse.up();
+
+        expect(
+            await choicePage.$eval('#sfn-panel-title', (element) => element.textContent),
+        ).toBe('Route->Work#choice#0');
+        expect(
+            await choicePage.$$eval('.sfn-field dt', (els) => els.map((el) => el.textContent)),
+        ).toEqual(['From', 'To', 'Type', 'Condition', 'Label']);
+        expect(
+            await choicePage.$$eval('.sfn-field dd', (els) => els.map((el) => el.textContent)),
+        ).toContain('$.kind == "work"');
+    });
+
+    it('selects the edge when its own label is clicked', async () => {
+        // The label box sits over the edge midpoint, exactly where a reader aims, so it
+        // must not swallow the click.
+        const labelBox = await choicePage.evaluate(() => {
+            const label = Array.from(document.querySelectorAll('rect[data-edge-id]')).find(
+                (element) => element.getAttribute('data-edge-id') === 'Route->Skip#default#0',
+            )!;
+            const rect = label.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+
+        await choicePage.mouse.move(labelBox.x, labelBox.y);
+        await choicePage.mouse.down();
+        await choicePage.mouse.up();
+
+        expect(
+            await choicePage.$eval('#sfn-panel-title', (element) => element.textContent),
+        ).toBe('Route->Skip#default#0');
     });
 });

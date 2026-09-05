@@ -14,6 +14,13 @@ import type { LayoutResult } from '../layout/DagreLayout';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
+/**
+ * Stroke width of the invisible per-edge hit area emitted under `edgeHitAreas`. Wide
+ * enough to click without aiming, narrow enough that neighbouring edges in a dense
+ * layout don't overlap each other's targets.
+ */
+const EDGE_HIT_AREA_WIDTH = 12;
+
 interface RenderShapeParams {
     group: SvgElement;
     node: StateNode;
@@ -678,6 +685,22 @@ export class SvgRenderer {
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
 
+        // Invisible widened copy of the same path, drawn first so it sits beneath the
+        // visible one. A 1.5px stroke is a punishing click target; this gives the viewer
+        // a comfortable one without changing what the diagram looks like. It carries the
+        // same `data-edge-id`, so a `closest('[data-edge-id]')` lookup resolves either way.
+        if (this.options.edgeHitAreas) {
+            group
+                .append('path')
+                .attr('d', pathData)
+                .attr('data-edge-id', edge.id)
+                .attr('data-edge-hit-area', '')
+                .attr('fill', 'none')
+                .attr('stroke', 'transparent')
+                .attr('stroke-width', EDGE_HIT_AREA_WIDTH)
+                .attr('pointer-events', 'stroke');
+        }
+
         // Render path. The edge id is emitted alongside it so callers can read the key
         // that addresses this edge in `edgeOverrides` straight off a rendered diagram,
         // rather than deriving `${from}->${to}#${type}#${ordinal}` by hand.
@@ -708,7 +731,7 @@ export class SvgRenderer {
             const midpoint = this.edgeLabelCenter({ edge, nodes, selfLoopLabelWidths });
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
-            group
+            const labelRect = group
                 .append('rect')
                 .attr('x', midpoint.x - labelDimensions.width / 2)
                 .attr('y', midpoint.y - labelDimensions.height / 2)
@@ -719,7 +742,7 @@ export class SvgRenderer {
                 .attr('stroke-width', 0.5)
                 .attr('rx', 3);
 
-            group
+            const labelText = group
                 .append('text')
                 .attr('x', midpoint.x)
                 .attr('y', midpoint.y)
@@ -728,6 +751,15 @@ export class SvgRenderer {
                 .attr('fill', edgeColor)
                 .attr('font-size', this.theme.fontSize - 2)
                 .text(edge.label);
+
+            // The label is drawn over the midpoint of its own edge, exactly where a
+            // reader aims. Without the id it would swallow the click; with it, clicking
+            // the label selects the edge it labels. Attached only alongside the hit
+            // areas, so static export markup is untouched.
+            if (this.options.edgeHitAreas) {
+                labelRect.attr('data-edge-id', edge.id);
+                labelText.attr('data-edge-id', edge.id);
+            }
         }
     }
 

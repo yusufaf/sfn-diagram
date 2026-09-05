@@ -105,7 +105,7 @@
       "declarations": [
         {
           "kind": "class",
-          "description": "`<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step\nFunctions ASL definition as an SVG or Mermaid diagram, with an optional\ninteractive viewer (pan/zoom, search, minimap, click-a-state detail panel).\n\nRenders in light DOM (no shadow root), so page CSS reaches the SVG and the\nelement degrades to plain server-rendered markup: give it a pre-rendered\n`<svg>` child (from `generateSvg()` run at build/server time) and omit\n`definition` entirely for a zero-client-JS diagram; setting `interactive`\non top still upgrades that markup with pan/zoom/search.\n\nRegister it with defineSfnDiagram (imported from `sfn-diagram/element`),\nor import `sfn-diagram/element/auto` for its zero-config `<sfn-diagram>` side effect.",
+          "description": "`<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step\nFunctions ASL definition as an SVG or Mermaid diagram, with an optional\ninteractive viewer (pan/zoom, search, minimap, and a detail panel for a clicked\nstate or edge).\n\nRenders in light DOM (no shadow root), so page CSS reaches the SVG and the\nelement degrades to plain server-rendered markup: give it a pre-rendered\n`<svg>` child (from `generateSvg()` run at build/server time) and omit\n`definition` entirely for a zero-client-JS diagram; setting `interactive`\non top still upgrades that markup with pan/zoom/search.\n\nRegister it with defineSfnDiagram (imported from `sfn-diagram/element`),\nor import `sfn-diagram/element/auto` for its zero-config `<sfn-diagram>` side effect.",
           "name": "SfnDiagramElement",
           "members": [
             {
@@ -202,7 +202,7 @@
               "type": {
                 "text": "boolean"
               },
-              "description": "Enables pan/zoom, state search, the minimap, and the click-a-state detail panel."
+              "description": "Enables pan/zoom, state search, the minimap, and the detail panel for a clicked\nstate or edge."
             },
             {
               "kind": "method",

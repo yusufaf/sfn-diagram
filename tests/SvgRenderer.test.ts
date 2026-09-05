@@ -535,6 +535,69 @@ describe('SvgRenderer', () => {
             expect(new Set(renderedIds).size).toBe(renderedIds.length);
         });
     });
+
+    describe('edgeHitAreas', () => {
+        const positionedChoice = () => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('choice') });
+            return new DagreLayout({}).calculate(nodes, edges);
+        };
+
+        it('emits no hit-area paths by default, so static export is unchanged', () => {
+            const svg = new SvgRenderer({}).render(positionedChoice()).svg;
+
+            expect(svg).not.toContain('data-edge-hit-area');
+        });
+
+        it('emits one transparent hit area per edge when enabled', () => {
+            const positioned = positionedChoice();
+            const edgePaths = (svg: string) =>
+                (svg.match(/<path [^>]*data-edge-id=/g) ?? []).length;
+
+            const withoutHitAreas = new SvgRenderer({}).render(positioned).svg;
+            const withHitAreas = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            const drawnEdges = edgePaths(withoutHitAreas);
+            expect(drawnEdges).toBeGreaterThan(0);
+            expect((withHitAreas.match(/data-edge-hit-area/g) ?? []).length).toBe(drawnEdges);
+            expect(edgePaths(withHitAreas)).toBe(drawnEdges * 2);
+        });
+
+        it('tags an edge label with its edge id so the label does not swallow clicks', () => {
+            const positioned = positionedChoice();
+
+            const withoutHitAreas = new SvgRenderer({}).render(positioned).svg;
+            const withHitAreas = new SvgRenderer({ edgeHitAreas: true }).render(positioned).svg;
+
+            // The Choice fixture draws a label on each choice/default edge.
+            expect(withHitAreas).toMatch(/<text [^>]*data-edge-id="CheckValue-&gt;HighValue/);
+            expect(withHitAreas).toMatch(/<rect [^>]*data-edge-id="CheckValue-&gt;HighValue/);
+            expect(withoutHitAreas).not.toMatch(/<text [^>]*data-edge-id=/);
+            expect(withoutHitAreas).not.toMatch(/<rect [^>]*data-edge-id=/);
+        });
+
+        it('gives the hit area the same id as the edge it covers', () => {
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positionedChoice()).svg;
+
+            const hitAreaIds = [
+                ...svg.matchAll(/<path [^>]*data-edge-id="([^"]+)"[^>]*data-edge-hit-area/g),
+            ].map((match) => match[1].replace(/&gt;/g, '>'));
+
+            expect(hitAreaIds).toContain('CheckValue->HighValue#choice#0');
+        });
+
+        it('draws the hit area unpainted, wider than the stroke, and before its edge', () => {
+            const svg = new SvgRenderer({ edgeHitAreas: true }).render(positionedChoice()).svg;
+
+            const hitArea = svg.match(/<path [^>]*data-edge-hit-area[^>]*>/)![0];
+            expect(hitArea).toContain('stroke="transparent"');
+            expect(hitArea).toContain('stroke-width="12"');
+            expect(hitArea).toContain('pointer-events="stroke"');
+            // Beneath the visible path in paint order, so the drawn edge stays crisp.
+            expect(svg.indexOf('data-edge-hit-area')).toBeLessThan(
+                svg.indexOf('marker-end'),
+            );
+        });
+    });
 });
 
 describe('collapsed containers', () => {

@@ -88,8 +88,9 @@ describe('generateHtml', () => {
 
             const result = generateHtml({ aslDefinition: hostile, includeComments: false });
 
-            // Exactly two script elements: the JSON blob and the viewer controller.
-            // The hostile comment survives only as escaped text inside the blob, so it
+            // Exactly two script elements: the state blob and the viewer controller.
+            // (A lone End state has no transitions, so no edge blob is emitted.) The
+            // hostile comment survives only as escaped text inside the blob, so it
             // never reaches an executable position.
             expect(result.html.match(/<script/g)).toHaveLength(2);
             expect(result.html).not.toContain('<script>alert');
@@ -99,6 +100,52 @@ describe('generateHtml', () => {
             );
             // Escaping is lossless — the panel still shows the real comment.
             expect(JSON.parse(match![1]).Sneaky.Comment).toBe('</script><script>alert(1)</script>');
+        });
+
+        it('embeds the edge data blob keyed by the rendered data-edge-id', () => {
+            const result = generateHtml({ aslDefinition: asl });
+            const match = result.html.match(
+                /<script type="application\/json" id="sfn-edge-data">([\s\S]*?)<\/script>/,
+            );
+            expect(match).not.toBeNull();
+
+            const edgeData = JSON.parse(match![1]);
+            expect(edgeData['A->B#normal#0']).toEqual({ from: 'A', to: 'B', type: 'normal' });
+            // Every key is addressable from the rendered SVG, which escapes `>`.
+            for (const edgeId of Object.keys(edgeData)) {
+                expect(result.html).toContain(`data-edge-id="${edgeId.replace('>', '&gt;')}"`);
+            }
+        });
+
+        it('carries the Choice condition through to the edge blob', () => {
+            const choiceAsl: AslDefinition = {
+                StartAt: 'Route',
+                States: {
+                    Route: {
+                        Type: 'Choice',
+                        Choices: [{ Variable: '$.kind', StringEquals: 'work', Next: 'Work' }],
+                        Default: 'Skip',
+                    },
+                    Work: { Type: 'Succeed' },
+                    Skip: { Type: 'Succeed' },
+                },
+            };
+
+            const result = generateHtml({ aslDefinition: choiceAsl });
+            const match = result.html.match(
+                /<script type="application\/json" id="sfn-edge-data">([\s\S]*?)<\/script>/,
+            );
+
+            expect(JSON.parse(match![1])['Route->Work#choice#0'].condition).toBe(
+                '$.kind == "work"',
+            );
+        });
+
+        it('renders clickable hit areas beneath the edges', () => {
+            const result = generateHtml({ aslDefinition: asl });
+
+            expect(result.html).toContain('data-edge-hit-area');
+            expect(result.html).toContain('pointer-events="stroke"');
         });
 
         it('omits the panel when no state data is supplied', () => {

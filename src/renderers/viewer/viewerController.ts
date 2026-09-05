@@ -1,8 +1,9 @@
 import type { AslState } from '../../types';
+import type { ViewerEdge } from './edgeData';
 
 /**
  * Runtime controller for the interactive viewer: pan/zoom, state search, minimap,
- * and (when state data is supplied) the click-a-state detail panel.
+ * and (when state or edge data is supplied) the click-for-detail panel.
  *
  * This is the single source of truth for viewer behaviour. It is consumed two ways:
  *  - directly, as an ES module, by the `sfn-diagram/element` custom element;
@@ -21,6 +22,12 @@ function hook(root: ParentNode, name: string): HTMLElement | null {
 
 /** Parameters for {@link attachViewer}. */
 export interface AttachViewerParams {
+    /**
+     * Viewer-facing detail for each edge, keyed by the `data-edge-id` the renderer
+     * stamps on every edge path. Enables the click-an-edge detail panel; omit it to
+     * leave edges inert.
+     */
+    edgeData?: Record<string, ViewerEdge>;
     /**
      * Root to scope every lookup and event listener to. Pass `document` for the
      * standalone HTML viewer (one instance per page); pass the custom element
@@ -50,20 +57,23 @@ export interface ViewerHandle {
  * function only attaches behaviour, it does not build markup.
  *
  * @param params - Attachment parameters
+ * @param params.edgeData - Detail per edge id; enables the click-an-edge panel
  * @param params.root - Scope for every lookup and listener
- * @param params.stateData - Raw ASL per state; enables the detail panel
+ * @param params.stateData - Raw ASL per state; enables the click-a-state panel
  * @returns A handle to re-fit the diagram or tear down every listener
  *
  * @example
  * ```typescript
- * const handle = attachViewer({ root: document, stateData });
+ * const handle = attachViewer({ edgeData, root: document, stateData });
  * // later
  * handle.destroy();
  * ```
  */
 export function attachViewer(params: AttachViewerParams): ViewerHandle {
-    const { root, stateData } = params;
+    const { edgeData, root, stateData } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
+    const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
+    const hasPanelData = hasStateData || hasEdgeData;
 
     // `Document.ownerDocument` is always null, so normalize both cases to "the
     // document this viewer's focus checks should read from".
@@ -158,9 +168,43 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // --- detail panel (optional) ---------------------------------------------------
 
     let openPanel: (stateId: string) => void = () => {};
+    let openEdgePanel: (edgeId: string) => void = () => {};
     let closePanel: () => void = () => {};
 
-    if (hasStateData) {
+    // Every path carrying the selected edge's id, so the highlight can be lifted again
+    // without re-querying — an id may contain characters that need CSS escaping, and an
+    // attribute-value scan avoids depending on `CSS.escape` being present.
+    let selectedEdgePaths: Element[] = [];
+    let selectedEdgeEndpoints: Element[] = [];
+
+    function clearEdgeSelection(): void {
+        for (const path of selectedEdgePaths) path.classList.remove('sfn-edge-selected');
+        for (const node of selectedEdgeEndpoints) node.classList.remove('sfn-edge-endpoint');
+        selectedEdgePaths = [];
+        selectedEdgeEndpoints = [];
+    }
+
+    /** Elements whose `data-*` attribute equals `value`, scoped to the visible view. */
+    function elementsByDataValue(attribute: string, value: string): Element[] {
+        const scope = activeSvg() ?? content!;
+        return Array.from(scope.querySelectorAll('[' + attribute + ']')).filter(
+            (element) => element.getAttribute(attribute) === value,
+        );
+    }
+
+    function selectEdge(edgeId: string, endpoints: string[]): void {
+        clearEdgeSelection();
+        selectedEdgePaths = elementsByDataValue('data-edge-id', edgeId);
+        for (const path of selectedEdgePaths) path.classList.add('sfn-edge-selected');
+        for (const stateId of endpoints) {
+            for (const node of elementsByDataValue('data-state-id', stateId)) {
+                node.classList.add('sfn-edge-endpoint');
+                selectedEdgeEndpoints.push(node);
+            }
+        }
+    }
+
+    if (hasPanelData) {
         const panel = hook(root, 'panel');
         const panelTitle = hook(root, 'panel-title');
         const panelBody = hook(root, 'panel-body');
@@ -168,6 +212,16 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         if (panel && panelTitle && panelBody && panelClose) {
             const SUMMARY_FIELDS = ['Type', 'Resource', 'Next', 'Retry', 'Catch', 'Assign'] as const;
+            const EDGE_FIELDS = ['from', 'to', 'type', 'condition', 'label'] as const;
+            // The panel's own labels, not content — the record keys are lowercase, but a
+            // reader expects title case beside the state panel's ASL field names.
+            const EDGE_FIELD_LABELS: Record<string, string> = {
+                condition: 'Condition',
+                from: 'From',
+                label: 'Label',
+                to: 'To',
+                type: 'Type',
+            };
 
             const summarize = (value: unknown): string => {
                 if (Array.isArray(value)) return value.length + ' entr' + (value.length === 1 ? 'y' : 'ies');
@@ -175,34 +229,32 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                 return String(value);
             };
 
-            closePanel = () => panel.classList.remove('sfn-open');
+            /** One `<dt>`/`<dd>` row. textContent only — content here is untrusted. */
+            const fieldRow = (term: string, detail: string): HTMLElement => {
+                const row = document.createElement('div');
+                row.className = 'sfn-field';
+                const termElement = document.createElement('dt');
+                termElement.textContent = term;
+                const detailElement = document.createElement('dd');
+                detailElement.textContent = detail;
+                row.appendChild(termElement);
+                row.appendChild(detailElement);
+                return row;
+            };
 
-            openPanel = (stateId: string) => {
-                const state = stateData![stateId] as unknown as Record<string, unknown> | undefined;
-                if (!state) return;
-                panelTitle.textContent = stateId;
+            /** Fill and open the panel. Shared by the state and edge views. */
+            const showPanel = (title: string, rows: HTMLElement[], raw: unknown): void => {
+                panelTitle.textContent = title;
 
                 const list = document.createElement('dl');
-                for (const field of SUMMARY_FIELDS) {
-                    if (state[field] === undefined) continue;
-                    const row = document.createElement('div');
-                    row.className = 'sfn-field';
-                    const term = document.createElement('dt');
-                    term.textContent = field;
-                    const detail = document.createElement('dd');
-                    // textContent throughout: state content is untrusted and must never be parsed as HTML.
-                    detail.textContent = summarize(state[field]);
-                    row.appendChild(term);
-                    row.appendChild(detail);
-                    list.appendChild(row);
-                }
+                for (const row of rows) list.appendChild(row);
 
                 const pre = document.createElement('pre');
                 pre.className = 'sfn-panel-json';
                 // The standalone HTML viewer's Puppeteer test suite selects this node by
                 // id; kept for back-compat alongside the class the CSS actually keys off.
                 pre.id = 'sfn-panel-json';
-                pre.textContent = JSON.stringify(state, null, 2);
+                pre.textContent = JSON.stringify(raw, null, 2);
 
                 panelBody.textContent = '';
                 panelBody.appendChild(list);
@@ -210,15 +262,58 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                 panel.classList.add('sfn-open');
             };
 
+            closePanel = () => {
+                panel.classList.remove('sfn-open');
+                clearEdgeSelection();
+            };
+
+            openPanel = (stateId: string) => {
+                const state = stateData?.[stateId] as unknown as Record<string, unknown> | undefined;
+                if (!state) return;
+                clearEdgeSelection();
+
+                const rows: HTMLElement[] = [];
+                for (const field of SUMMARY_FIELDS) {
+                    if (state[field] === undefined) continue;
+                    rows.push(fieldRow(field, summarize(state[field])));
+                }
+                showPanel(stateId, rows, state);
+            };
+
+            openEdgePanel = (edgeId: string) => {
+                const edge = edgeData?.[edgeId] as unknown as Record<string, unknown> | undefined;
+                // An id with no entry still opens: the title alone is the `edgeOverrides`
+                // key the reader came for, and staying silent would look like a dead click.
+                const rows: HTMLElement[] = [];
+                if (edge) {
+                    for (const field of EDGE_FIELDS) {
+                        if (edge[field] === undefined) continue;
+                        rows.push(fieldRow(EDGE_FIELD_LABELS[field], String(edge[field])));
+                    }
+                }
+                showPanel(edgeId, rows, edge ?? { id: edgeId });
+                selectEdge(
+                    edgeId,
+                    edge ? [String(edge.from), String(edge.to)] : [],
+                );
+            };
+
             on(panelClose, 'click', closePanel);
         }
     }
 
     function handleStageClick(target: EventTarget | null): void {
-        if (!hasStateData) return;
-        const group =
-            target instanceof Element ? target.closest('[data-state-id]') : null;
-        if (group) openPanel(group.getAttribute('data-state-id')!);
+        if (!hasPanelData) return;
+        const element = target instanceof Element ? target : null;
+        // A node wins over an edge: node groups are the larger target, and an edge path
+        // never sits inside one, so a hit on both means the pointer was over the node.
+        const group = element ? element.closest('[data-state-id]') : null;
+        if (group) {
+            openPanel(group.getAttribute('data-state-id')!);
+            return;
+        }
+        const edgePath = hasEdgeData && element ? element.closest('[data-edge-id]') : null;
+        if (edgePath) openEdgePanel(edgePath.getAttribute('data-edge-id')!);
         else closePanel();
     }
 
@@ -533,6 +628,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
             if (searchInput) searchInput.value = '';
             clearSearch();
+            // The highlighted paths belong to the view being hidden; the panel would
+            // otherwise keep pointing at elements no longer on screen.
+            closePanel();
             searchables = computeSearchables();
             rebuildMinimapThumbnail();
             const activeView = collapsedView.hidden ? expandedView : collapsedView;
