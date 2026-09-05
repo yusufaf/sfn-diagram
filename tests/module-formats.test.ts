@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AslDefinition } from '../src/types';
 
@@ -114,5 +116,20 @@ describe('Module Format Compatibility', () => {
             expect(result.svg).toBeDefined();
             expect(result.svg).toContain('<svg');
         });
+    });
+});
+
+describe('Published export maps', () => {
+    const readManifest = (name: string): { exports: Record<string, unknown> } =>
+        JSON.parse(readFileSync(join(__dirname, '..', name), 'utf8'));
+
+    it('offers the same entry points on npm and on JSR', () => {
+        // `./ci` shipped on npm for a release without ever reaching jsr.json, so JSR
+        // consumers could not import what npm consumers could, with nothing failing the
+        // build. Every new entry point has to be added to both manifests.
+        const npm = Object.keys(readManifest('package.json').exports).sort();
+        const jsr = Object.keys(readManifest('jsr.json').exports).sort();
+
+        expect(jsr).toEqual(npm);
     });
 });
