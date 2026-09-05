@@ -62417,6 +62417,9 @@ function getStrokeWidthForType(stateType) {
       return 2;
   }
 }
+function stripJsonataDelimiters(expression) {
+  return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
+}
 var EDGE_LABELS = {
   BRANCH_PREFIX: "Branch",
   CATCH_PREFIX: "Catch",
@@ -62447,13 +62450,48 @@ function getAssignedVariablesLabel(variableNames) {
   const remaining = variableNames.length - shown.length;
   return remaining > 0 ? `${label} +${remaining} more` : label;
 }
-function getContainerSubLabel(params) {
+var MAX_SUB_LABEL_EXPRESSION = 32;
+function elide(text) {
+  return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
+}
+function getWaitDurationLabel(state2) {
+  if (typeof state2.Seconds === "number") return `${state2.Seconds}s`;
+  if (typeof state2.Seconds === "string") return elide(stripJsonataDelimiters(state2.Seconds));
+  if (state2.SecondsPath !== void 0) return elide(state2.SecondsPath);
+  if (state2.Timestamp !== void 0) return elide(stripJsonataDelimiters(state2.Timestamp));
+  if (state2.TimestampPath !== void 0) return elide(state2.TimestampPath);
+  return "";
+}
+function getToleratedFailureLabel(state2) {
+  const parts = [];
+  if (state2.ToleratedFailureCount !== void 0) {
+    const count = state2.ToleratedFailureCount;
+    parts.push(`${count} failure${count === 1 ? "" : "s"}`);
+  }
+  if (state2.ToleratedFailurePercentage !== void 0) parts.push(`${state2.ToleratedFailurePercentage}%`);
+  return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
+}
+var BYTES_PER_KIB = 1024;
+function getItemBatchingLabel(state2) {
+  const batcher = state2.ItemBatcher;
+  if (!batcher) return "";
+  const parts = [];
+  const maxItems = batcher.MaxItemsPerBatch;
+  const maxBytes = batcher.MaxInputBytesPerBatch;
+  if (typeof maxItems === "number") parts.push(`of ${maxItems}`);
+  if (typeof maxBytes === "number") parts.push(`\u2264 ${Math.round(maxBytes / BYTES_PER_KIB)}KB`);
+  return parts.length > 0 ? `batches ${parts.join(", ")}` : "";
+}
+function getNodeSubLabel(params) {
   const { node, showStateType } = params;
   const parts = [];
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
-  if (showStateType) parts.push(`${node.type} state`);
+  if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
   if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
+  if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
+  if (node.itemBatching !== void 0) parts.push(node.itemBatching);
+  if (node.waitDuration !== void 0) parts.push(node.waitDuration);
   return parts.join(" \xB7 ");
 }
 function getCatchLabel(params) {
@@ -62817,11 +62855,19 @@ function createStateNode(params) {
   };
   const assignedVariables = Object.keys(state2.Assign ?? {});
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
+  if (state2.Type === "Wait") {
+    const waitDuration = getWaitDurationLabel(state2);
+    if (waitDuration !== "") baseNode.waitDuration = waitDuration;
+  }
   if (isContainer) {
     baseNode.children = [];
     if (state2.Type === "Map") {
       if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
       if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+      const toleratedFailure = getToleratedFailureLabel(state2);
+      if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
+      const itemBatching = getItemBatchingLabel(state2);
+      if (itemBatching !== "") baseNode.itemBatching = itemBatching;
     }
   }
   if (options?.showIcons && state2.Type === "Task") {
@@ -62928,9 +62974,6 @@ var IS_CHECKS = {
   IsString: "is string",
   IsTimestamp: "is timestamp"
 };
-function cleanJsonataExpression(expression) {
-  return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
-}
 function formatComparison(variable, operatorKey, value) {
   const isCheckPhrase = IS_CHECKS[operatorKey];
   if (isCheckPhrase) return value === false ? `${variable} ${isCheckPhrase.replace("is ", "is not ")}` : `${variable} ${isCheckPhrase}`;
@@ -62945,7 +62988,7 @@ function formatComparison(variable, operatorKey, value) {
   return `${variable} ${operator[1]} ${formattedValue}`;
 }
 function describeChoiceRule(rule) {
-  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? cleanJsonataExpression(rule.Condition) : String(rule.Condition);
+  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? stripJsonataDelimiters(rule.Condition) : String(rule.Condition);
   if (Array.isArray(rule.And)) {
     const parts = rule.And.map(describeChoiceRule).filter(Boolean);
     return parts.length > 0 ? parts.join(" AND ") : "";
@@ -63246,7 +63289,7 @@ var MermaidRenderer = class {
       if (stateDefinitions.has(id)) return;
       const suffixParts = [
         nodeAnnotations?.[node.id],
-        getContainerSubLabel({
+        getNodeSubLabel({
           node,
           showStateType: false
         }),
