@@ -62726,6 +62726,7 @@ function validateScope(params) {
   const isRoot = scope === "";
   const subject = isRoot ? "ASL definition" : scope;
   const qualify = (text) => isRoot ? text : `${scope}: ${text}`;
+  const nest = (label) => isRoot ? label : `${scope} > ${label}`;
   if (!definition || typeof definition !== "object") throw new AslValidationError(`${subject} must be a non-null object`);
   const asl = definition;
   if (!("StartAt" in asl)) throw new AslValidationError(`${subject} missing required field: StartAt`);
@@ -62750,7 +62751,7 @@ function validateScope(params) {
       state2.Branches.forEach((branch, index) => {
         validateScope({
           definition: branch,
-          scope: `Parallel state "${stateName}" branch ${index + 1}`
+          scope: nest(`Parallel state "${stateName}" branch ${index + 1}`)
         });
       });
     }
@@ -62758,7 +62759,7 @@ function validateScope(params) {
       const processor = getMapProcessor(state2);
       if (processor !== void 0) validateScope({
         definition: processor,
-        scope: `Map state "${stateName}" processor`
+        scope: nest(`Map state "${stateName}" processor`)
       });
     }
   }
