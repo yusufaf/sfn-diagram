@@ -1,4 +1,4 @@
-import { getAssignedVariablesLabel, getContainerSubLabel } from '../constants/labels';
+import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
 import type {
     StateNode,
     GraphEdge,
@@ -117,7 +117,7 @@ export class MermaidRenderer {
             // label. All are collapsed into one parenthesised, `·`-separated group.
             const suffixParts = [
                 nodeAnnotations?.[node.id],
-                getContainerSubLabel({ node, showStateType: false }),
+                getNodeSubLabel({ node, showStateType: false }),
                 showVariables === false
                     ? ''
                     : getAssignedVariablesLabel(node.assignedVariables ?? []),

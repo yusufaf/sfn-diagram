@@ -54,6 +54,24 @@ export interface ProcessorConfig {
 }
 
 /**
+ * A Distributed Map's `ItemBatcher`, which groups items so each child execution
+ * receives an array rather than a single item. Either limit may be set; the first
+ * one reached closes the batch.
+ */
+export interface ItemBatcher {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    BatchInput?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+    /** Maximum payload bytes handed to one child execution. */
+    MaxInputBytesPerBatch?: number;
+    /** Reference path resolving to `MaxInputBytesPerBatch`. */
+    MaxInputBytesPerBatchPath?: string;
+    /** Maximum items handed to one child execution. */
+    MaxItemsPerBatch?: number;
+    /** Reference path resolving to `MaxItemsPerBatch`. */
+    MaxItemsPerBatchPath?: string;
+}
+
+/**
  * A Distributed Map `ItemReader` (dataset source) or `ResultWriter` (result sink).
  * Both point at an AWS resource — typically S3, or Athena for `ItemReader` — via
  * the same `Resource` ARN shape used by Task states.
@@ -84,8 +102,7 @@ export interface AslState {
     Default?: string; // Choice-specific
     End?: boolean;
     Error?: string; // Fail-specific
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ItemBatcher?: Record<string, any>; // Distributed Map-specific; batching config
+    ItemBatcher?: ItemBatcher; // Distributed Map-specific; batching config
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -109,8 +126,8 @@ export interface AslState {
     SecondsPath?: string; // Wait-specific
     Timestamp?: string; // Wait-specific
     TimestampPath?: string; // Wait-specific
-    ToleratedFailureCount?: number; // Distributed Map-specific
-    ToleratedFailurePercentage?: number; // Distributed Map-specific
+    ToleratedFailureCount?: number | string; // Distributed Map-specific; can be a JSONata expression
+    ToleratedFailurePercentage?: number | string; // Distributed Map-specific; can be a JSONata expression
     Type: StateType;
 }
 
@@ -152,6 +169,11 @@ export interface StateNode {
     isContainer?: boolean;
     /** Whether this Map state runs in distributed mode (`ProcessorConfig.Mode: 'DISTRIBUTED'`) */
     isDistributedMap?: boolean;
+    /**
+     * A Map state's `ItemBatcher` sizing, pre-formatted for display (e.g. `batches of 50`).
+     * Absent when the Map does not batch.
+     */
+    itemBatching?: string;
     label: string;
     /** A Map state's `MaxConcurrency`, when set. Displayed on the container header. */
     maxConcurrency?: number | string;
@@ -160,7 +182,17 @@ export interface StateNode {
     /** AWS service identifier for Task states (e.g., 'lambda', 's3') */
     serviceType?: string;
     style?: NodeStyle;
+    /**
+     * A Map state's failure tolerance, pre-formatted for display (e.g. `tolerate 5%`).
+     * Absent when no tolerance is configured.
+     */
+    toleratedFailure?: string;
     type: string;
+    /**
+     * How long a Wait state waits, pre-formatted for display (e.g. `5s`, or the path
+     * or JSONata expression the duration is read from). Absent for other state types.
+     */
+    waitDuration?: string;
     width?: number;
     x?: number;
     y?: number;

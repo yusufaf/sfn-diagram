@@ -1,5 +1,9 @@
 import { line, curveBasis } from 'd3-shape';
-import { getAssignedVariablesLabel, getContainerSubLabel } from '../constants/labels';
+import {
+    fitSubLabel,
+    getAssignedVariablesLabel,
+    getNodeSubLabelParts,
+} from '../constants/labels';
 import { isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
@@ -20,6 +24,15 @@ import { SvgElement } from './svgBuilder';
  * layout don't overlap each other's targets.
  */
 const EDGE_HIT_AREA_WIDTH = 12;
+
+/**
+ * Horizontal breathing room kept on each side of a node's sub-label, so a trimmed
+ * label stops short of the border rather than touching it.
+ */
+const SUB_LABEL_PADDING = 8;
+
+/** Node width assumed when neither the layout nor the options supply one. */
+const DEFAULT_NODE_WIDTH = 120;
 
 interface RenderShapeParams {
     group: SvgElement;
@@ -387,9 +400,13 @@ export class SvgRenderer {
         // MaxConcurrency are always shown when present — a Distributed Map runs a
         // child execution per batch rather than iterating inline, so it must not
         // read as a plain Map. The state type itself stays opt-in.
-        const subLabel = getContainerSubLabel({
-            node,
-            showStateType: this.options.showStateTypes === true,
+        const subLabel = fitSubLabel({
+            availableWidth: width - SUB_LABEL_PADDING * 2,
+            measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
+            parts: getNodeSubLabelParts({
+                node,
+                showStateType: this.options.showStateTypes === true,
+            }),
         });
         if (subLabel) {
             containerGroup
@@ -475,10 +492,22 @@ export class SvgRenderer {
 
         // Optionally add state type — skipped for a collapsed container, which uses
         // the richer sub-label below (reusing the same slot/offset) instead.
-        const collapsedSubLabel = node.collapsed
-            ? getContainerSubLabel({ node, showStateType: this.options.showStateTypes === true })
-            : '';
-        const secondLineText = collapsedSubLabel || (this.options.showStateTypes ? node.type : '');
+        // Composed rather than a bare state type: a Wait state's duration shares this
+        // slot, and `showStateTypes` must not cost the reader the duration.
+        // Same fallback the shape code uses (`node.width || DEFAULT_NODE_WIDTH`): this
+        // renderer does not merge option defaults, so a hand-built layout whose nodes
+        // carry no width would otherwise compute a negative budget and silently drop
+        // every sub-label while the rect is still drawn at its default size.
+        const secondLineText = fitSubLabel({
+            availableWidth:
+                (node.width || this.options.nodeWidth || DEFAULT_NODE_WIDTH) -
+                SUB_LABEL_PADDING * 2,
+            measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
+            parts: getNodeSubLabelParts({
+                node,
+                showStateType: this.options.showStateTypes === true,
+            }),
+        });
         const secondLineShown = secondLineText !== '';
 
         if (secondLineText) {

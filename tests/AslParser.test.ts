@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
 import { applyCollapse } from '../src/graph';
+import { DagreLayout } from '../src/layout';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -755,6 +756,203 @@ describe('AslParser', () => {
                 const result = parseAsl({ definition: valid });
                 expect(result.nodes).toHaveLength(1);
             });
+        });
+    });
+
+    describe('Wait duration', () => {
+        const waitWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Pause',
+                States: { Pause: { Type: 'Wait', ...fields, End: true } },
+            }) as AslDefinition;
+
+        const durationOf = (definition: AslDefinition): string | undefined =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Pause')?.waitDuration;
+
+        it('renders a numeric Seconds with its unit', () => {
+            expect(durationOf(waitWith({ Seconds: 5 }))).toBe('5s');
+        });
+
+        it('unwraps a JSONata Seconds expression', () => {
+            expect(durationOf(waitWith({ Seconds: '{% $states.input.delaySeconds %}' }))).toBe(
+                '$states.input.delaySeconds',
+            );
+        });
+
+        it('falls back through SecondsPath, Timestamp, then TimestampPath', () => {
+            expect(durationOf(waitWith({ SecondsPath: '$.delay' }))).toBe('$.delay');
+            expect(durationOf(waitWith({ Timestamp: '2026-01-01T00:00:00Z' }))).toBe(
+                '2026-01-01T00:00:00Z',
+            );
+            expect(durationOf(waitWith({ TimestampPath: '$.readyAt' }))).toBe('$.readyAt');
+        });
+
+        it('prefers Seconds when more than one field is set', () => {
+            expect(durationOf(waitWith({ Seconds: 5, TimestampPath: '$.readyAt' }))).toBe('5s');
+        });
+
+        it('elides an expression too long for the node', () => {
+            const long = '$states.input.someVeryLongPropertyNameIndeed.delaySeconds';
+
+            const duration = durationOf(waitWith({ Seconds: `{% ${long} %}` }))!;
+
+            expect(duration.length).toBeLessThan(long.length);
+            expect(duration.endsWith('…')).toBe(true);
+        });
+
+        it('leaves waitDuration unset when the Wait carries no duration', () => {
+            expect(durationOf(waitWith({}))).toBeUndefined();
+        });
+
+        it('does not put a duration on a non-Wait state', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', Seconds: 5, End: true } as never },
+            };
+
+            expect(
+                parseAsl({ definition }).nodes.find((node) => node.id === 'Work')?.waitDuration,
+            ).toBeUndefined();
+        });
+    });
+
+    describe('Distributed Map tolerance and batching', () => {
+        const mapWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Each',
+                States: {
+                    Each: {
+                        Type: 'Map',
+                        ...fields,
+                        End: true,
+                        ItemProcessor: {
+                            ProcessorConfig: { Mode: 'DISTRIBUTED' },
+                            StartAt: 'Handle',
+                            States: { Handle: { Type: 'Pass', End: true } },
+                        },
+                    },
+                },
+            }) as AslDefinition;
+
+        const nodeFor = (definition: AslDefinition) =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Each')!;
+
+        it('reports a tolerated failure percentage', () => {
+            expect(nodeFor(mapWith({ ToleratedFailurePercentage: 5 })).toleratedFailure).toBe(
+                'tolerate 5%',
+            );
+        });
+
+        it('reports a tolerated failure count, pluralised', () => {
+            expect(nodeFor(mapWith({ ToleratedFailureCount: 100 })).toleratedFailure).toBe(
+                'tolerate 100 failures',
+            );
+            expect(nodeFor(mapWith({ ToleratedFailureCount: 1 })).toleratedFailure).toBe(
+                'tolerate 1 failure',
+            );
+        });
+
+        it('reports both thresholds when both are set', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: 100, ToleratedFailurePercentage: 5 }))
+                    .toleratedFailure,
+            ).toBe('tolerate 100 failures or 5%');
+        });
+
+        it('reports ItemBatcher sizing by items and by bytes', () => {
+            expect(nodeFor(mapWith({ ItemBatcher: { MaxItemsPerBatch: 50 } })).itemBatching).toBe(
+                'batches of 50',
+            );
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxInputBytesPerBatch: 262144 } })).itemBatching,
+            ).toBe('batches ≤ 256KB');
+            expect(
+                nodeFor(
+                    mapWith({
+                        ItemBatcher: { MaxInputBytesPerBatch: 262144, MaxItemsPerBatch: 50 },
+                    }),
+                ).itemBatching,
+            ).toBe('batches of 50, ≤ 256KB');
+        });
+
+        it('strips JSONata delimiters from a tolerance expression', () => {
+            // Either threshold can be an expression, as MaxConcurrency already can be.
+            expect(
+                nodeFor(mapWith({ ToleratedFailurePercentage: '{% $pct %}' })).toleratedFailure,
+            ).toBe('tolerate $pct%');
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: '{% $max %}' })).toleratedFailure,
+            ).toBe('tolerate $max failures');
+        });
+
+        it('reads the ItemBatcher reference-path variants', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxItemsPerBatchPath: '$.batchSize' } }))
+                    .itemBatching,
+            ).toBe('batches of $.batchSize');
+            expect(
+                nodeFor(
+                    mapWith({ ItemBatcher: { MaxInputBytesPerBatchPath: '$.batchBytes' } }),
+                ).itemBatching,
+            ).toBe('batches ≤ $.batchBytes');
+        });
+
+        it('reports a sub-kibibyte batch size in bytes rather than as 0KB', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxInputBytesPerBatch: 500 } })).itemBatching,
+            ).toBe('batches ≤ 500B');
+        });
+
+        it('leaves both unset when the Map configures neither', () => {
+            const node = nodeFor(mapWith({}));
+
+            expect(node.toleratedFailure).toBeUndefined();
+            expect(node.itemBatching).toBeUndefined();
+        });
+
+        it('ignores an ItemBatcher carrying only BatchInput', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { BatchInput: { tenant: 'acme' } } })).itemBatching,
+            ).toBeUndefined();
+        });
+    });
+
+    describe('node height and stacked lines', () => {
+        const heightOf = (definition: AslDefinition, id: string): number => {
+            const { edges, nodes } = parseAsl({ definition });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            return positioned.nodes.find((node) => node.id === id)!.height!;
+        };
+
+        const plain: AslDefinition = {
+            StartAt: 'Pause',
+            States: { Pause: { Type: 'Wait', Seconds: 5, End: true } },
+        };
+
+        it('keeps the base height for a node with one stacked line', () => {
+            expect(heightOf(plain, 'Pause')).toBe(60);
+        });
+
+        it('grows the node when a second stacked line is rendered', () => {
+            // A Wait state's duration takes the second-line slot, so its assigned
+            // variables stack below it and would otherwise land past the bottom border.
+            const withVariables: AslDefinition = {
+                StartAt: 'Pause',
+                States: {
+                    Pause: { Type: 'Wait', Seconds: 5, Assign: { attempt: 1 }, End: true },
+                },
+            };
+
+            expect(heightOf(withVariables, 'Pause')).toBeGreaterThan(heightOf(plain, 'Pause'));
+        });
+
+        it('leaves a node with nothing stacked at the base height', () => {
+            const bare: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', End: true } },
+            };
+
+            expect(heightOf(bare, 'Work')).toBe(60);
         });
     });
 
