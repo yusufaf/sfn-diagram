@@ -8,6 +8,7 @@ export {
     fitSubLabel,
     getItemBatchingLabel,
     getNodeSubLabel,
+    getNodeSubLabelParts,
     getToleratedFailureLabel,
     getWaitDurationLabel,
     getErrorLabel,

@@ -62454,6 +62454,7 @@ var MAX_SUB_LABEL_EXPRESSION = 32;
 function elide(text) {
   return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
 }
+var SUB_LABEL_SEPARATOR = " \xB7 ";
 function getWaitDurationLabel(state2) {
   if (typeof state2.Seconds === "number") return `${state2.Seconds}s`;
   if (typeof state2.Seconds === "string") return elide(stripJsonataDelimiters(state2.Seconds));
@@ -62464,11 +62465,12 @@ function getWaitDurationLabel(state2) {
 }
 function getToleratedFailureLabel(state2) {
   const parts = [];
-  if (state2.ToleratedFailureCount !== void 0) {
-    const count = state2.ToleratedFailureCount;
-    parts.push(`${count} failure${count === 1 ? "" : "s"}`);
-  }
-  if (state2.ToleratedFailurePercentage !== void 0) parts.push(`${state2.ToleratedFailurePercentage}%`);
+  const count = state2.ToleratedFailureCount;
+  const percentage = state2.ToleratedFailurePercentage;
+  if (typeof count === "number") parts.push(`${count} failure${count === 1 ? "" : "s"}`);
+  else if (typeof count === "string") parts.push(`${elide(stripJsonataDelimiters(count))} failures`);
+  if (typeof percentage === "number") parts.push(`${percentage}%`);
+  else if (typeof percentage === "string") parts.push(`${elide(stripJsonataDelimiters(percentage))}%`);
   return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
 }
 var BYTES_PER_KIB = 1024;
@@ -62479,10 +62481,15 @@ function getItemBatchingLabel(state2) {
   const maxItems = batcher.MaxItemsPerBatch;
   const maxBytes = batcher.MaxInputBytesPerBatch;
   if (typeof maxItems === "number") parts.push(`of ${maxItems}`);
-  if (typeof maxBytes === "number") parts.push(`\u2264 ${Math.round(maxBytes / BYTES_PER_KIB)}KB`);
+  else if (batcher.MaxItemsPerBatchPath !== void 0) parts.push(`of ${elide(batcher.MaxItemsPerBatchPath)}`);
+  if (typeof maxBytes === "number") parts.push(maxBytes < BYTES_PER_KIB ? `\u2264 ${maxBytes}B` : `\u2264 ${Math.round(maxBytes / BYTES_PER_KIB)}KB`);
+  else if (batcher.MaxInputBytesPerBatchPath !== void 0) parts.push(`\u2264 ${elide(batcher.MaxInputBytesPerBatchPath)}`);
   return parts.length > 0 ? `batches ${parts.join(", ")}` : "";
 }
 function getNodeSubLabel(params) {
+  return getNodeSubLabelParts(params).join(SUB_LABEL_SEPARATOR);
+}
+function getNodeSubLabelParts(params) {
   const { node, showStateType } = params;
   const parts = [];
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
@@ -62492,7 +62499,7 @@ function getNodeSubLabel(params) {
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
-  return parts.join(" \xB7 ");
+  return parts;
 }
 function getCatchLabel(params) {
   const { catchLabelStyle = "error-type", errorTypes, index } = params;

@@ -1,4 +1,5 @@
 import dagre from '@dagrejs/dagre';
+import { getNodeSubLabelParts } from '../constants/labels';
 import { isOpenContainer } from '../graph';
 import type { StateNode, GraphEdge, DiagramOptions } from '../types';
 
@@ -22,6 +23,9 @@ export interface LayoutResult {
 /**
  * DagreLayout - Calculates node positions and edge routing using Dagre algorithm
  */
+/** Vertical step between stacked text lines inside a node, matching SvgRenderer. */
+const STACKED_LINE_HEIGHT = 16;
+
 export class DagreLayout {
     private options: DiagramOptions;
 
@@ -373,6 +377,10 @@ export class DagreLayout {
     } {
         const baseWidth = this.options.nodeWidth || 120;
         const baseHeight = this.options.nodeHeight || 60;
+        // The base height fits a name plus one stacked line. Anything further - a Wait
+        // state's duration alongside its assigned variables, or an execution overlay's
+        // annotation - would otherwise be drawn past the node's bottom border.
+        const stackedHeight = this.extraStackedLines(node) * STACKED_LINE_HEIGHT;
 
         // Adjust dimensions based on shape
         switch (node.style?.shape) {
@@ -390,9 +398,28 @@ export class DagreLayout {
             }
             case 'diamond':
                 // Diamonds need extra space for rotation
-                return { height: baseHeight * 1.2, width: baseWidth * 1.2 };
+                return { height: baseHeight * 1.2 + stackedHeight, width: baseWidth * 1.2 };
             default:
-                return { height: baseHeight, width: baseWidth };
+                return { height: baseHeight + stackedHeight, width: baseWidth };
         }
+    }
+
+    /**
+     * How many stacked lines a node renders *beyond* the one the base height allows
+     * for. Mirrors the order `SvgRenderer` stacks them in: sub-label, then execution
+     * annotation, then assigned variables.
+     */
+    private extraStackedLines(node: StateNode): number {
+        const lines =
+            (getNodeSubLabelParts({
+                node,
+                showStateType: this.options.showStateTypes === true,
+            }).length > 0
+                ? 1
+                : 0) +
+            (this.options.nodeAnnotations?.[node.id] ? 1 : 0) +
+            (this.options.showVariables !== false && node.assignedVariables?.length ? 1 : 0);
+
+        return Math.max(0, lines - 1);
     }
 }

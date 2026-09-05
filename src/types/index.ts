@@ -63,8 +63,12 @@ export interface ItemBatcher {
     BatchInput?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     /** Maximum payload bytes handed to one child execution. */
     MaxInputBytesPerBatch?: number;
+    /** Reference path resolving to `MaxInputBytesPerBatch`. */
+    MaxInputBytesPerBatchPath?: string;
     /** Maximum items handed to one child execution. */
     MaxItemsPerBatch?: number;
+    /** Reference path resolving to `MaxItemsPerBatch`. */
+    MaxItemsPerBatchPath?: string;
 }
 
 /**
@@ -122,8 +126,8 @@ export interface AslState {
     SecondsPath?: string; // Wait-specific
     Timestamp?: string; // Wait-specific
     TimestampPath?: string; // Wait-specific
-    ToleratedFailureCount?: number; // Distributed Map-specific
-    ToleratedFailurePercentage?: number; // Distributed Map-specific
+    ToleratedFailureCount?: number | string; // Distributed Map-specific; can be a JSONata expression
+    ToleratedFailurePercentage?: number | string; // Distributed Map-specific; can be a JSONata expression
     Type: StateType;
 }
 

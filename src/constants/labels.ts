@@ -111,13 +111,19 @@ function elide(text: string): string {
 /** Fewest characters worth rendering before a fitted sub-label is dropped entirely. */
 const MIN_FITTED_SUB_LABEL = 4;
 
+/** Separator between the parts of a sub-label. */
+const SUB_LABEL_SEPARATOR = ' · ';
+
+/** Marker appended when parts had to be dropped to fit. */
+const SUB_LABEL_MORE = '…';
+
 interface FitSubLabelParams {
     /** Width available for the text, in the same units `measure` returns. */
     availableWidth: number;
     /** Measures the rendered width of a candidate string. */
     measure: (text: string) => number;
-    /** The full sub-label. */
-    text: string;
+    /** The sub-label's parts, in display order. */
+    parts: string[];
 }
 
 /**
@@ -126,32 +132,43 @@ interface FitSubLabelParams {
  * Node and container widths come from the layout, which sizes them from the node's
  * *name* and its children — not from this second line. A Distributed Map reporting
  * its mode, concurrency, tolerance and batching produces a line several times wider
- * than its header, which would otherwise render straight over the neighbouring
- * nodes. Trimming per-node rather than at a fixed character count keeps a short
- * label intact on a narrow node and a long one readable on a wide one.
+ * than its header, which would otherwise render straight over the neighbouring nodes.
+ *
+ * Whole parts are dropped rather than characters, because cutting inside a value is
+ * actively misleading: `tolerate 100 failures` truncated to `tolerate 10…` reads as a
+ * different number. A trailing `…` marks that something was dropped. Only when a
+ * single part cannot fit on its own does this fall back to cutting characters.
  *
  * @param params.availableWidth - Width the text must fit within
  * @param params.measure - Width of a candidate string, e.g. `estimateTextWidth`
- * @param params.text - The full sub-label
- * @returns The label, elided with `…` if it did not fit, or `''` if nothing useful fits
+ * @param params.parts - The sub-label's parts, in display order
+ * @returns The widest prefix of `parts` that fits, marked with `…` if truncated
  *
  * @example
  * ```typescript
- * fitSubLabel({ availableWidth: 90, measure, text: 'Distributed · max 100 · tolerate 5%' });
- * // 'Distributed · max…'
+ * fitSubLabel({ availableWidth: 90, measure, parts: ['Distributed', 'max 100', 'tolerate 5%'] });
+ * // 'Distributed · max 100 · …'
  * ```
  */
 export function fitSubLabel(params: FitSubLabelParams): string {
-    const { availableWidth, measure, text } = params;
+    const { availableWidth, measure, parts } = params;
 
-    if (text === '' || measure(text) <= availableWidth) {
-        return text;
+    const full = parts.join(SUB_LABEL_SEPARATOR);
+    if (full === '' || measure(full) <= availableWidth) {
+        return full;
     }
 
-    // Linear scan back from the full string: sub-labels are short enough that a
-    // binary search would not pay for its own complexity here.
-    for (let length = text.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
-        const candidate = `${text.slice(0, length).trimEnd()}…`;
+    for (let kept = parts.length - 1; kept >= 1; kept--) {
+        const candidate = [...parts.slice(0, kept), SUB_LABEL_MORE].join(SUB_LABEL_SEPARATOR);
+        if (measure(candidate) <= availableWidth) {
+            return candidate;
+        }
+    }
+
+    // A single part that does not fit on its own: cut characters as a last resort.
+    const only = parts[0] ?? '';
+    for (let length = only.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
+        const candidate = `${only.slice(0, length).trimEnd()}${SUB_LABEL_MORE}`;
         if (measure(candidate) <= availableWidth) {
             return candidate;
         }
@@ -217,13 +234,22 @@ export function getWaitDurationLabel(state: AslState): string {
  */
 export function getToleratedFailureLabel(state: AslState): string {
     const parts: string[] = [];
+    const count = state.ToleratedFailureCount;
+    const percentage = state.ToleratedFailurePercentage;
 
-    if (state.ToleratedFailureCount !== undefined) {
-        const count = state.ToleratedFailureCount;
+    if (typeof count === 'number') {
         parts.push(`${count} failure${count === 1 ? '' : 's'}`);
+    } else if (typeof count === 'string') {
+        // Either threshold can be a JSONata expression, the same way MaxConcurrency
+        // can. Strip the delimiters as the Wait path does, rather than rendering
+        // `tolerate {% $count %} failures`.
+        parts.push(`${elide(stripJsonataDelimiters(count))} failures`);
     }
-    if (state.ToleratedFailurePercentage !== undefined) {
-        parts.push(`${state.ToleratedFailurePercentage}%`);
+
+    if (typeof percentage === 'number') {
+        parts.push(`${percentage}%`);
+    } else if (typeof percentage === 'string') {
+        parts.push(`${elide(stripJsonataDelimiters(percentage))}%`);
     }
 
     return parts.length > 0 ? `tolerate ${parts.join(' or ')}` : '';
@@ -259,9 +285,19 @@ export function getItemBatchingLabel(state: AslState): string {
 
     if (typeof maxItems === 'number') {
         parts.push(`of ${maxItems}`);
+    } else if (batcher.MaxItemsPerBatchPath !== undefined) {
+        parts.push(`of ${elide(batcher.MaxItemsPerBatchPath)}`);
     }
+
     if (typeof maxBytes === 'number') {
-        parts.push(`≤ ${Math.round(maxBytes / BYTES_PER_KIB)}KB`);
+        // Below a kibibyte, round-to-KB would report a legal value as `≤ 0KB`.
+        parts.push(
+            maxBytes < BYTES_PER_KIB
+                ? `≤ ${maxBytes}B`
+                : `≤ ${Math.round(maxBytes / BYTES_PER_KIB)}KB`
+        );
+    } else if (batcher.MaxInputBytesPerBatchPath !== undefined) {
+        parts.push(`≤ ${elide(batcher.MaxInputBytesPerBatchPath)}`);
     }
 
     return parts.length > 0 ? `batches ${parts.join(', ')}` : '';
@@ -296,6 +332,18 @@ interface GetNodeSubLabelParams {
  * ```
  */
 export function getNodeSubLabel(params: GetNodeSubLabelParams): string {
+    return getNodeSubLabelParts(params).join(SUB_LABEL_SEPARATOR);
+}
+
+/**
+ * The parts {@link getNodeSubLabel} joins, for callers that need to drop whole parts
+ * to fit a width rather than receiving one pre-joined string. See {@link fitSubLabel}.
+ *
+ * @param params.node - The node being rendered
+ * @param params.showStateType - Whether the `showStateTypes` option is enabled
+ * @returns The sub-label's parts in display order; empty when there is nothing to show
+ */
+export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     const { node, showStateType } = params;
     const parts: string[] = [];
 
@@ -323,7 +371,7 @@ export function getNodeSubLabel(params: GetNodeSubLabelParams): string {
         parts.push(node.waitDuration);
     }
 
-    return parts.join(' · ');
+    return parts;
 }
 
 interface GetCatchLabelParams {

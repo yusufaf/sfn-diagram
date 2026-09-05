@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
 import { applyCollapse } from '../src/graph';
+import { DagreLayout } from '../src/layout';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -874,6 +875,34 @@ describe('AslParser', () => {
             ).toBe('batches of 50, ≤ 256KB');
         });
 
+        it('strips JSONata delimiters from a tolerance expression', () => {
+            // Either threshold can be an expression, as MaxConcurrency already can be.
+            expect(
+                nodeFor(mapWith({ ToleratedFailurePercentage: '{% $pct %}' })).toleratedFailure,
+            ).toBe('tolerate $pct%');
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: '{% $max %}' })).toleratedFailure,
+            ).toBe('tolerate $max failures');
+        });
+
+        it('reads the ItemBatcher reference-path variants', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxItemsPerBatchPath: '$.batchSize' } }))
+                    .itemBatching,
+            ).toBe('batches of $.batchSize');
+            expect(
+                nodeFor(
+                    mapWith({ ItemBatcher: { MaxInputBytesPerBatchPath: '$.batchBytes' } }),
+                ).itemBatching,
+            ).toBe('batches ≤ $.batchBytes');
+        });
+
+        it('reports a sub-kibibyte batch size in bytes rather than as 0KB', () => {
+            expect(
+                nodeFor(mapWith({ ItemBatcher: { MaxInputBytesPerBatch: 500 } })).itemBatching,
+            ).toBe('batches ≤ 500B');
+        });
+
         it('leaves both unset when the Map configures neither', () => {
             const node = nodeFor(mapWith({}));
 
@@ -885,6 +914,45 @@ describe('AslParser', () => {
             expect(
                 nodeFor(mapWith({ ItemBatcher: { BatchInput: { tenant: 'acme' } } })).itemBatching,
             ).toBeUndefined();
+        });
+    });
+
+    describe('node height and stacked lines', () => {
+        const heightOf = (definition: AslDefinition, id: string): number => {
+            const { edges, nodes } = parseAsl({ definition });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            return positioned.nodes.find((node) => node.id === id)!.height!;
+        };
+
+        const plain: AslDefinition = {
+            StartAt: 'Pause',
+            States: { Pause: { Type: 'Wait', Seconds: 5, End: true } },
+        };
+
+        it('keeps the base height for a node with one stacked line', () => {
+            expect(heightOf(plain, 'Pause')).toBe(60);
+        });
+
+        it('grows the node when a second stacked line is rendered', () => {
+            // A Wait state's duration takes the second-line slot, so its assigned
+            // variables stack below it and would otherwise land past the bottom border.
+            const withVariables: AslDefinition = {
+                StartAt: 'Pause',
+                States: {
+                    Pause: { Type: 'Wait', Seconds: 5, Assign: { attempt: 1 }, End: true },
+                },
+            };
+
+            expect(heightOf(withVariables, 'Pause')).toBeGreaterThan(heightOf(plain, 'Pause'));
+        });
+
+        it('leaves a node with nothing stacked at the base height', () => {
+            const bare: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', End: true } },
+            };
+
+            expect(heightOf(bare, 'Work')).toBe(60);
         });
     });
 

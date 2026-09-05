@@ -1,5 +1,9 @@
 import { line, curveBasis } from 'd3-shape';
-import { fitSubLabel, getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
+import {
+    fitSubLabel,
+    getAssignedVariablesLabel,
+    getNodeSubLabelParts,
+} from '../constants/labels';
 import { isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
@@ -26,6 +30,9 @@ const EDGE_HIT_AREA_WIDTH = 12;
  * label stops short of the border rather than touching it.
  */
 const SUB_LABEL_PADDING = 8;
+
+/** Node width assumed when neither the layout nor the options supply one. */
+const DEFAULT_NODE_WIDTH = 120;
 
 interface RenderShapeParams {
     group: SvgElement;
@@ -396,7 +403,7 @@ export class SvgRenderer {
         const subLabel = fitSubLabel({
             availableWidth: width - SUB_LABEL_PADDING * 2,
             measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
-            text: getNodeSubLabel({
+            parts: getNodeSubLabelParts({
                 node,
                 showStateType: this.options.showStateTypes === true,
             }),
@@ -487,10 +494,16 @@ export class SvgRenderer {
         // the richer sub-label below (reusing the same slot/offset) instead.
         // Composed rather than a bare state type: a Wait state's duration shares this
         // slot, and `showStateTypes` must not cost the reader the duration.
+        // Same fallback the shape code uses (`node.width || DEFAULT_NODE_WIDTH`): this
+        // renderer does not merge option defaults, so a hand-built layout whose nodes
+        // carry no width would otherwise compute a negative budget and silently drop
+        // every sub-label while the rect is still drawn at its default size.
         const secondLineText = fitSubLabel({
-            availableWidth: (node.width ?? this.options.nodeWidth ?? 0) - SUB_LABEL_PADDING * 2,
+            availableWidth:
+                (node.width || this.options.nodeWidth || DEFAULT_NODE_WIDTH) -
+                SUB_LABEL_PADDING * 2,
             measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
-            text: getNodeSubLabel({
+            parts: getNodeSubLabelParts({
                 node,
                 showStateType: this.options.showStateTypes === true,
             }),

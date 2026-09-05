@@ -194,33 +194,58 @@ describe('Distributed Map', () => {
         // One unit per character keeps the arithmetic in these cases obvious.
         const measure = (text: string): number => text.length;
 
-        it('returns the label untouched when it already fits', () => {
-            expect(fitSubLabel({ availableWidth: 20, measure, text: 'max 100' })).toBe('max 100');
+        it('returns the joined parts untouched when they already fit', () => {
+            expect(
+                fitSubLabel({ availableWidth: 40, measure, parts: ['Distributed', 'max 100'] }),
+            ).toBe('Distributed · max 100');
         });
 
-        it('elides a label wider than the space available', () => {
+        it('drops whole parts rather than cutting inside a value', () => {
+            // `tolerate 100 failures` cut mid-value reads as a different number, so the
+            // part goes entirely and the ellipsis says something was dropped.
             const fitted = fitSubLabel({
-                availableWidth: 12,
+                availableWidth: 30,
                 measure,
-                text: 'Distributed · max 100 · tolerate 5%',
+                parts: ['Distributed', 'max 100', 'tolerate 100 failures'],
+            });
+
+            expect(fitted).toBe('Distributed · max 100 · …');
+            expect(fitted).not.toContain('tolerate');
+        });
+
+        it('keeps dropping until what remains fits', () => {
+            expect(
+                fitSubLabel({
+                    availableWidth: 17,
+                    measure,
+                    parts: ['Distributed', 'max 100', 'tolerate 5%'],
+                }),
+            ).toBe('Distributed · …');
+        });
+
+        it('falls back to cutting characters only when one part cannot fit alone', () => {
+            const fitted = fitSubLabel({
+                availableWidth: 8,
+                measure,
+                parts: ['$states.input.delaySeconds'],
             });
 
             expect(fitted.endsWith('…')).toBe(true);
-            expect(measure(fitted)).toBeLessThanOrEqual(12);
+            expect(measure(fitted)).toBeLessThanOrEqual(8);
         });
 
         it('does not leave a trailing space before the ellipsis', () => {
-            expect(fitSubLabel({ availableWidth: 8, measure, text: 'abcd efghij' })).not.toContain(
-                ' …',
-            );
+            expect(
+                fitSubLabel({ availableWidth: 8, measure, parts: ['abcd efghij'] }),
+            ).not.toContain(' …');
         });
 
         it('drops the label entirely when not even a stub fits', () => {
-            expect(fitSubLabel({ availableWidth: 2, measure, text: 'Distributed' })).toBe('');
+            expect(fitSubLabel({ availableWidth: 2, measure, parts: ['Distributed'] })).toBe('');
         });
 
-        it('passes an empty label straight through', () => {
-            expect(fitSubLabel({ availableWidth: 0, measure, text: '' })).toBe('');
+        it('passes an empty part list straight through', () => {
+            expect(fitSubLabel({ availableWidth: 0, measure, parts: [] })).toBe('');
         });
     });
 
