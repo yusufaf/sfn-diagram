@@ -123,11 +123,22 @@ describe('Published export maps', () => {
     const readManifest = (name: string): { exports: Record<string, unknown> } =>
         JSON.parse(readFileSync(join(__dirname, '..', name), 'utf8'));
 
+    /**
+     * npm entry points with no JSR analogue. JSR maps every export to a `.ts` module,
+     * so a subpath pointing at a non-module file cannot be expressed there — `publint`
+     * nudges packages toward `"./package.json"`, which is the case this exists for.
+     * Empty today; kept so adding one is a deliberate edit rather than a test failure
+     * with a misleading message.
+     */
+    const NPM_ONLY_EXPORTS: readonly string[] = [];
+
     it('offers the same entry points on npm and on JSR', () => {
         // `./ci` shipped on npm for a release without ever reaching jsr.json, so JSR
         // consumers could not import what npm consumers could, with nothing failing the
         // build. Every new entry point has to be added to both manifests.
-        const npm = Object.keys(readManifest('package.json').exports).sort();
+        const npm = Object.keys(readManifest('package.json').exports)
+            .filter((entry) => !NPM_ONLY_EXPORTS.includes(entry))
+            .sort();
         const jsr = Object.keys(readManifest('jsr.json').exports).sort();
 
         expect(jsr).toEqual(npm);
