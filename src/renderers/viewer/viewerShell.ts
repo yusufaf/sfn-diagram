@@ -153,7 +153,8 @@ export interface WrapSvgInInteractiveHtmlParams {
      */
     nodeCount?: number;
     /**
-     * Raw ASL for each state, keyed by state name (as produced by `collectStateData`).
+     * Raw ASL for each state, keyed by graph node id (as produced by
+     * `collectStateData`), which matches the `data-state-id` on the rendered node.
      * Enables the click-a-state detail panel; omit it to render the viewer without one.
      */
     stateData?: Record<string, AslState>;

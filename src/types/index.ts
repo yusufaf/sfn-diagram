@@ -443,7 +443,8 @@ export interface DiagramOptions {
     width?: number;
 
     /**
-     * Per-node style overrides keyed by state name.
+     * Per-node style overrides keyed by graph node id, which is the state name for
+     * every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name.
      * Merged on top of the node's computed style — only specified fields are overridden.
      */
     nodeOverrides?: Record<string, Partial<NodeStyle>>;
@@ -472,7 +473,8 @@ export interface DiagramOptions {
     edgeOverrides?: Record<string, EdgeStyleOverride>;
 
     /**
-     * Extra annotation text rendered below a node's label, keyed by state name.
+     * Extra annotation text rendered below a node's label, keyed by graph node id -
+     * the state name for every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name.
      * Used by the execution overlay to show per-state duration and retry counts.
      */
     nodeAnnotations?: Record<string, string>;

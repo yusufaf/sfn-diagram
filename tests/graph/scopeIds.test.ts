@@ -158,6 +158,59 @@ describe('buildIdResolver', () => {
         expect(first.startsWith('Fanout__branch0__end')).toBe(true);
     });
 
+    it('does not let a sibling state claim a container marker id', () => {
+        // `A__branch0__end` is the id the extractor builds for branch 0's end marker,
+        // with no chance to take a discriminator - so the plain state has to move aside.
+        // It only does if the marker is reserved before that name is assigned, which
+        // is why containers are processed first within a scope.
+        const definition: AslDefinition = {
+            StartAt: 'A__branch0__end',
+            States: {
+                A__branch0__end: { Type: 'Pass', Next: 'A' },
+                A: {
+                    Type: 'Parallel',
+                    End: true,
+                    Branches: [
+                        { StartAt: 'Work', States: { Work: { Type: 'Pass', End: true } } },
+                    ],
+                },
+            },
+        } as AslDefinition;
+
+        const resolver = buildIdResolver({ definition });
+
+        expect(resolver.resolve('', 'A__branch0__end')).not.toBe('A__branch0__end');
+    });
+
+    it('reports every id a repeated name was given', () => {
+        const definition = fanout(
+            { Validate: { Type: 'Pass', End: true } },
+            { Validate: { Type: 'Pass', End: true } }
+        );
+
+        const resolver = buildIdResolver({ definition });
+        const ids = resolver.idsForName('Validate');
+
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+        expect(resolver.idsForName('Nowhere')).toEqual([]);
+    });
+
+    it('handles a state name containing the scope separator', () => {
+        // Names may contain anything, including `__`, so neither the collision survey
+        // nor the reverse index may be derived by splitting a joined key back apart.
+        const definition = fanout(
+            { 'we__ird name': { Type: 'Pass', End: true } },
+            { 'we__ird name': { Type: 'Pass', End: true } }
+        );
+
+        const resolver = buildIdResolver({ definition });
+        const ids = resolver.idsForName('we__ird name');
+
+        expect(ids).toHaveLength(2);
+        expect(new Set(ids).size).toBe(2);
+    });
+
     it('keeps every assigned id distinct across a definition full of repeats', () => {
         const branchStates = {
             Validate: { Type: 'Pass', Next: 'Work' },

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseAsl } from '../../src/AslParser';
 import { collectStateData } from '../../src/renderers/viewer';
+import { generateExecution } from '../../src/execution';
 import type { AslDefinition } from '../../src/types';
 
 /**
@@ -13,6 +14,9 @@ import type { AslDefinition } from '../../src/types';
  */
 
 const FIXTURES_DIR = join(__dirname, '..', 'fixtures');
+
+/** Node types with no ASL state of their own; their ids derive from a container's. */
+const VIRTUAL_NODE_TYPES = new Set(['BranchEnd', 'IteratorEnd', 'ItemReader', 'ResultWriter']);
 
 function loadFixture(name: string): AslDefinition {
     return JSON.parse(readFileSync(join(FIXTURES_DIR, `${name}.asl.json`), 'utf8')) as AslDefinition;
@@ -113,7 +117,7 @@ describe('duplicate nested state names', () => {
         // Virtual nodes (branch end markers) have no ASL of their own; every real
         // state must resolve.
         const realNodeIds = nodes
-            .filter((node) => node.type !== 'BranchEnd' && node.type !== 'IteratorEnd')
+            .filter((node) => !VIRTUAL_NODE_TYPES.has(node.type))
             .map((node) => node.id);
 
         for (const id of realNodeIds) {
@@ -143,6 +147,91 @@ describe('duplicate nested state names', () => {
         expect(handles).toHaveLength(2);
         // The root occurrence keeps the bare name; the nested one is qualified.
         expect(handles.map((node) => node.id)).toContain('Handle');
+    });
+
+    describe('execution overlay', () => {
+        // An execution history records only stateEnteredEventDetails.name - a bare name
+        // with no branch context - while node ids are now scoped. Without re-keying,
+        // every duplicated state renders as "not reached" even though it ran, which
+        // would be a regression in exactly the definitions this change targets.
+        // Event ids matter: takenEdges is derived by walking previousEventId back to
+        // the nearest StateExited, so a history without them yields no transitions.
+        const history = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: new Date('2026-01-01T00:00:00Z') },
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                timestamp: new Date('2026-01-01T00:00:01Z'),
+                stateEnteredEventDetails: { name: 'Fanout' },
+            },
+            {
+                id: 3,
+                previousEventId: 2,
+                type: 'PassStateEntered',
+                timestamp: new Date('2026-01-01T00:00:02Z'),
+                stateEnteredEventDetails: { name: 'Validate' },
+            },
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'PassStateExited',
+                timestamp: new Date('2026-01-01T00:00:03Z'),
+                stateExitedEventDetails: { name: 'Validate' },
+            },
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'PassStateEntered',
+                timestamp: new Date('2026-01-01T00:00:04Z'),
+                stateEnteredEventDetails: { name: 'Work' },
+            },
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'PassStateExited',
+                timestamp: new Date('2026-01-01T00:00:05Z'),
+                stateExitedEventDetails: { name: 'Work' },
+            },
+            { id: 7, previousEventId: 6, type: 'ExecutionSucceeded', timestamp: new Date('2026-01-01T00:00:06Z') },
+        ];
+
+        it('highlights every node a run\'s state name can refer to', () => {
+            const { svg } = generateExecution({
+                aslDefinition: duplicateBranches,
+                history: history as never,
+            });
+
+            // The succeeded fill, once per Validate node and once per Work node, rather
+            // than every branch rendering as not-reached.
+            const succeeded = (svg.match(/#c8e6c9/g) ?? []).length;
+            expect(succeeded).toBeGreaterThanOrEqual(4);
+        });
+
+        it('does not dim the edges of a branch that ran', () => {
+            const { svg } = generateExecution({
+                aslDefinition: duplicateBranches,
+                history: history as never,
+            });
+
+            const { edges, nodes } = parseAsl({ definition: duplicateBranches });
+            const byId = new Map(nodes.map((node) => [node.id, node]));
+            const validateToWork = edges.filter(
+                (edge) =>
+                    byId.get(edge.from)?.label === 'Validate' && byId.get(edge.to)?.label === 'Work'
+            );
+
+            expect(validateToWork.length).toBeGreaterThan(0);
+            // Taken edges are drawn at full opacity; untaken ones carry the dim style.
+            for (const edge of validateToWork) {
+                const escapedId = edge.id.replace(/>/g, '&gt;');
+                const path = svg.match(
+                    new RegExp(`<path [^>]*data-edge-id="${escapedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`)
+                );
+                expect(path, `no rendered path for ${edge.id}`).not.toBeNull();
+                expect(path![0]).not.toContain('stroke-opacity="0.2"');
+            }
+        });
     });
 
     describe('compatibility', () => {
@@ -192,7 +281,10 @@ describe('duplicate nested state names', () => {
                 for (const node of parseAsl({ definition }).nodes) {
                     // Virtual nodes and Distributed Map satellites derive their ids from
                     // a container's; only real states are subject to the guarantee.
-                    if (!names.has(node.id) && node.id.includes('__')) continue;
+                    // Filtered by node type, not by looking for the scope separator in
+                    // the id - every wrongly-qualified id contains that separator, so a
+                    // substring filter would skip exactly the failures this is for.
+                    if (VIRTUAL_NODE_TYPES.has(node.type)) continue;
                     expect(names, `${fixture}: "${node.id}" is not a bare state name`).toContain(
                         node.id
                     );
@@ -209,8 +301,7 @@ describe('duplicate nested state names', () => {
                 const stateData = collectStateData({ definition });
 
                 for (const node of nodes) {
-                    if (node.type === 'BranchEnd' || node.type === 'IteratorEnd') continue;
-                    if (node.type === 'ItemReader' || node.type === 'ResultWriter') continue;
+                    if (VIRTUAL_NODE_TYPES.has(node.type)) continue;
                     expect(
                         stateData,
                         `${fixture}: no state data for node "${node.id}"`

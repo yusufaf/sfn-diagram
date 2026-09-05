@@ -62771,20 +62771,30 @@ function reservedIdsFor(id, definition, name) {
 function buildIdResolver(params) {
   const { definition } = params;
   const scopesByName = /* @__PURE__ */ new Map();
-  const walk = (current, scope) => {
+  const walk = (current, path2) => {
+    const scopeKey = JSON.stringify(path2);
     for (const [name, state2] of Object.entries(current.States)) {
       const scopes = scopesByName.get(name) ?? /* @__PURE__ */ new Set();
-      scopes.add(scope);
+      scopes.add(scopeKey);
       scopesByName.set(name, scopes);
-      if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => walk(branch, `${scope}${SCOPE_SEPARATOR}${name}__branch${index}`));
+      if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => walk(branch, [
+        ...path2,
+        name,
+        `branch${index}`
+      ]));
       if (state2.Type === "Map") {
         const processor = getMapProcessor(state2);
-        if (processor) walk(processor, `${scope}${SCOPE_SEPARATOR}${name}__iterator`);
+        if (processor) walk(processor, [
+          ...path2,
+          name,
+          "iterator"
+        ]);
       }
     }
   };
-  walk(definition, "");
+  walk(definition, []);
   const assigned = /* @__PURE__ */ new Map();
+  const idsByName = /* @__PURE__ */ new Map();
   const taken = /* @__PURE__ */ new Set();
   let frontier = [{
     definition,
@@ -62793,14 +62803,25 @@ function buildIdResolver(params) {
   while (frontier.length > 0) {
     const next = [];
     for (const frame of frontier) {
-      for (const name of Object.keys(frame.definition.States)) {
+      const assign = (name) => {
         const candidate = (scopesByName.get(name)?.size ?? 1) > 1 && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${name}` : name;
         let id = candidate;
         for (let suffix = 2; taken.has(id); suffix++) id = `${candidate}${SCOPE_SEPARATOR}${suffix}`;
         assigned.set(assignmentKey(frame.scope, name), id);
+        idsByName.set(name, [...idsByName.get(name) ?? [], id]);
         taken.add(id);
+        return id;
+      };
+      const names = Object.keys(frame.definition.States);
+      const isContainer = (name) => {
+        const type = frame.definition.States[name].Type;
+        return type === "Parallel" || type === "Map";
+      };
+      for (const name of names.filter(isContainer)) {
+        const id = assign(name);
         for (const reserved of reservedIdsFor(id, frame.definition, name)) taken.add(reserved);
       }
+      for (const name of names.filter((candidate) => !isContainer(candidate))) assign(name);
       for (const [name, state2] of Object.entries(frame.definition.States)) {
         const containerId = assigned.get(assignmentKey(frame.scope, name));
         if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => next.push({
@@ -62820,6 +62841,7 @@ function buildIdResolver(params) {
   }
   return {
     branchScope: (scope, containerName, index) => `${resolveIn(scope, containerName)}__branch${index}`,
+    idsForName: (name) => idsByName.get(name) ?? [],
     processorScope: (scope, containerName) => `${resolveIn(scope, containerName)}__iterator`,
     resolve: resolveIn
   };
@@ -63818,15 +63840,22 @@ function summarize(overlay, allStateNames) {
 function computeOverlay(history) {
   return parseExecutionHistory({ events: normalizeEvents(history) });
 }
+function byNodeId(byStateName, idsForName) {
+  const result = {};
+  for (const [name, value] of Object.entries(byStateName)) for (const id of idsForName(name)) result[id] = value;
+  return result;
+}
 function generateMermaidExecution(params) {
   const { aslDefinition, history } = params;
   const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
   const overlay = computeOverlay(history);
   const { nodes, edges } = parseAsl({ definition: aslObj });
+  const resolver = buildIdResolver({ definition: aslObj });
+  const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
   const executionClasses = {};
   const nodeAnnotations = {};
   for (const node of nodes) {
-    const result = overlay.states[node.id];
+    const result = statesByNodeId[node.id];
     executionClasses[node.id] = result?.status ?? "notReached";
     if (result) {
       const annotation = buildAnnotation(result);
