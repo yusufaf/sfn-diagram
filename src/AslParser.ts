@@ -59,6 +59,10 @@ function validateScope(params: ValidateScopeParams): void {
     // Root messages are preserved verbatim; nested ones are qualified by their scope.
     const subject = isRoot ? 'ASL definition' : scope;
     const qualify = (text: string): string => (isRoot ? text : `${scope}: ${text}`);
+    // Scope labels compose, so a fault two levels down says which branch it is in.
+    // A Map named "Each" inside each of two Parallel branches would otherwise produce
+    // the same message for both - the exact ambiguity the qualifier exists to remove.
+    const nest = (label: string): string => (isRoot ? label : `${scope} > ${label}`);
 
     // Check basic structure
     if (!definition || typeof definition !== 'object') {
@@ -124,7 +128,7 @@ function validateScope(params: ValidateScopeParams): void {
             state.Branches.forEach((branch, index) => {
                 validateScope({
                     definition: branch,
-                    scope: `Parallel state "${stateName}" branch ${index + 1}`,
+                    scope: nest(`Parallel state "${stateName}" branch ${index + 1}`),
                 });
             });
         }
@@ -134,7 +138,7 @@ function validateScope(params: ValidateScopeParams): void {
             if (processor !== undefined) {
                 validateScope({
                     definition: processor,
-                    scope: `Map state "${stateName}" processor`,
+                    scope: nest(`Map state "${stateName}" processor`),
                 });
             }
         }

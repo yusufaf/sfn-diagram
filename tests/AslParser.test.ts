@@ -687,6 +687,41 @@ describe('AslParser', () => {
                 expect(() => validateAsl({ definition })).toThrow(AslValidationError);
             });
 
+            it('composes scope labels so a fault two levels down is unambiguous', () => {
+                // The same Map name in two different branches: without composition both
+                // faults report 'Map state "Each" processor' and neither says which
+                // branch it is in.
+                const branch = (next: string): unknown => ({
+                    StartAt: 'Each',
+                    States: {
+                        Each: {
+                            Type: 'Map',
+                            End: true,
+                            ItemProcessor: {
+                                StartAt: 'Handle',
+                                States: { Handle: { Type: 'Pass', Next: next } },
+                            },
+                        },
+                    },
+                });
+
+                const definition = {
+                    StartAt: 'Fanout',
+                    States: {
+                        Fanout: {
+                            Type: 'Parallel',
+                            End: true,
+                            Branches: [branch('Handle'), branch('Nowhere')],
+                        },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 2 > Map state "Each" processor: ' +
+                        'State "Handle": Next references non-existent state "Nowhere"',
+                );
+            });
+
             it('leaves root-level messages unqualified', () => {
                 const definition = {
                     StartAt: 'Work',
