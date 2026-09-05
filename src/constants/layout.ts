@@ -6,11 +6,15 @@
  */
 
 /**
- * Space between a container's box and its outermost children, on every side.
+ * Space between a container's box and its outermost children *above and to the sides*.
  *
- * The top gap is what the header band has to fit inside — the container's box is
- * positioned from its children's bounds, and moving it further up would collide with
- * whatever sits above it in the same column.
+ * Not symmetric vertically: the box's height adds this padding twice plus the header,
+ * while its centre shifts down by only half the header, so the gap below the last child
+ * ends up `CONTAINER_PADDING + CONTAINER_HEADER_HEIGHT`. That predates the constant
+ * being named, and the top gap is the one that matters here — it is what the header
+ * band has to fit inside, and the box cannot simply move up to make more room, because
+ * it is positioned from its children's bounds and would collide with whatever sits
+ * above it in the same column.
  */
 export const CONTAINER_PADDING = 40;
 
@@ -23,11 +27,13 @@ export const CONTAINER_PADDING = 40;
  */
 export const CONTAINER_HEADER_HEIGHT: number = CONTAINER_PADDING;
 
-/** Baseline of a container's name within its header band, measured from the band's top. */
-export const CONTAINER_NAME_BASELINE = 15;
-
 /**
- * Baseline of a container's sub-label, measured from the band's top. Only used when
- * there is a sub-label; a container without one centres its name instead.
+ * Gap between the two header lines, as a multiple of the name's font size.
+ *
+ * Expressed relative to the font rather than as a fixed pixel offset: `theme.fontSize`
+ * is a public, required field of `CustomTheme`, and fixed baselines that happen to suit
+ * the built-in 14px themes put the two lines on top of each other at 18px and push the
+ * sub-label back out of the band at 22px — reintroducing the very overlap this geometry
+ * exists to prevent.
  */
-export const CONTAINER_SUB_LABEL_BASELINE = 30;
+export const CONTAINER_LINE_GAP_RATIO = 0.95;

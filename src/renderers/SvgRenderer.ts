@@ -15,11 +15,7 @@ import type {
     NodeStyle,
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
-import {
-    CONTAINER_HEADER_HEIGHT,
-    CONTAINER_NAME_BASELINE,
-    CONTAINER_SUB_LABEL_BASELINE,
-} from '../constants/layout';
+import { CONTAINER_HEADER_HEIGHT, CONTAINER_LINE_GAP_RATIO } from '../constants/layout';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
@@ -401,17 +397,35 @@ export class SvgRenderer {
                 showStateType: this.options.showStateTypes === true,
             }),
         });
-        // Both lines live inside the header band. When there is no sub-label the name
-        // is centred in the band; when there is, the two share it — the band is only
-        // as tall as the gap the layout leaves above the children, so anything drawn
-        // past it lands under the first child row.
+        // Both lines live inside the header band. When there is no sub-label the name is
+        // centred in it; when there is, the two straddle the centre, separated by a gap
+        // proportional to the font so a large custom fontSize cannot push the sub-label
+        // back out of the band. Both baselines are clamped to the band for the same
+        // reason — the band is only as tall as the gap the layout leaves above the
+        // children, so anything drawn past it lands under the first child row.
         const headerTop = -height / 2;
+        const headerMiddle = headerTop + headerHeight / 2;
+        const lineGap = this.theme.fontSize * CONTAINER_LINE_GAP_RATIO;
+        // Past a certain font size two lines simply do not fit the band. Clamping alone
+        // would keep both inside it but sitting on top of each other, so the sub-label
+        // is dropped instead and the name keeps the whole band.
+        const bothLinesFit =
+            this.theme.fontSize + (this.theme.fontSize - 2) <= headerHeight;
+        const showSubLabel = subLabel !== '' && bothLinesFit;
+        const clampToBand = (y: number, fontSize: number): number =>
+            Math.min(
+                Math.max(y, headerTop + fontSize / 2),
+                headerTop + headerHeight - fontSize / 2,
+            );
+
         containerGroup
             .append('text')
             .attr('x', 0)
             .attr(
                 'y',
-                subLabel ? headerTop + CONTAINER_NAME_BASELINE : headerTop + headerHeight / 2,
+                showSubLabel
+                    ? clampToBand(headerMiddle - lineGap / 2, this.theme.fontSize)
+                    : headerMiddle,
             )
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'middle')
@@ -420,11 +434,11 @@ export class SvgRenderer {
             .attr('font-family', this.theme.fontFamily)
             .text(node.label);
 
-        if (subLabel) {
+        if (showSubLabel) {
             containerGroup
                 .append('text')
                 .attr('x', 0)
-                .attr('y', headerTop + CONTAINER_SUB_LABEL_BASELINE)
+                .attr('y', clampToBand(headerMiddle + lineGap / 2, this.theme.fontSize - 2))
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
