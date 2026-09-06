@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs as parseArgsFromNode } from 'node:util';
@@ -912,11 +912,28 @@ function writeOutput(content: string, outputPath: string | null): void {
 // Only execute when invoked directly as the `sfn-diagram` bin, not when
 // imported (e.g. by tests). The CLI is built ESM-only (see tsdown.config.ts),
 // so comparing this module's URL to the invoked script is safe.
-const invokedDirectly =
-    process.argv[1] !== undefined &&
-    import.meta.url === pathToFileURL(process.argv[1]).href;
+//
+// The invoked script is resolved to its real path first: npm, pnpm, and yarn
+// install the bin on Linux and macOS as a symlink (node_modules/.bin/sfn-diagram
+// -> ../sfn-diagram/dist/cli.js), and Node dereferences that link for
+// import.meta.url but leaves process.argv[1] as the symlink path. Comparing
+// the raw path made `npx sfn-diagram` exit 0 without output on those platforms.
+function isInvokedDirectly(): boolean {
+    const invoked = process.argv[1];
+    if (invoked === undefined) {
+        return false;
+    }
+    let entry = invoked;
+    try {
+        entry = realpathSync(invoked);
+    } catch {
+        // Not a real filesystem path (e.g. the standalone binary's virtual
+        // root); compare as given.
+    }
+    return import.meta.url === pathToFileURL(entry).href;
+}
 
-if (invokedDirectly) {
+if (isInvokedDirectly()) {
     void run(process.argv.slice(2)).then((code) => {
         // Set the exit code and let Node unwind on its own rather than calling
         // process.exit(). `--format html` embeds icons over fetch, and tearing the
