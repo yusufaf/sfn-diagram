@@ -109,7 +109,7 @@
     }
   },
   "bin": {
-    "sfn-diagram": "dist/cli.js"
+    "sfn-diagram": "dist/bin.js"
   },
   "files": [
     "dist",
