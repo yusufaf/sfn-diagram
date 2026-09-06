@@ -259,11 +259,18 @@ export class DagreLayout {
             }
 
             if (children.length === 0) {
-                // No children, use default dimensions
+                // No children: fall back to a default box, still widened for the header
+                // the same way the normal path below is - a long name or sub-label on a
+                // childless container would otherwise be elided even though nothing here
+                // is forcing the box narrow.
+                const width = Math.max(
+                    400,
+                    Math.min(CONTAINER_MAX_HEADER_WIDTH, this.getContainerHeaderWidth(container)),
+                );
                 return {
                     ...container,
                     height: 200,
-                    width: 400,
+                    width,
                     x: 0,
                     y: 0,
                 };

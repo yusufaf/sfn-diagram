@@ -205,4 +205,23 @@ describe('container header width', () => {
         // or shrinking it toward a header-driven minimum.
         expect(container.width).toBe(maxX - minX + CONTAINER_PADDING * 2);
     });
+
+    it('widens a childless container for its header too, not just the 400px default', () => {
+        // calculateContainerBounds has a separate early-return branch for a container
+        // whose children resolve to none (e.g. every child was filtered out as a
+        // BranchEnd/IteratorEnd marker) - a long name here must not fall back to a
+        // hardcoded 400px the way the normal, children-driven path no longer does.
+        const longName = 'VeryLongContainerNameThatWouldOtherwiseStretchTheDiagram'.repeat(3);
+        const container: StateNode = {
+            id: longName,
+            isContainer: true,
+            label: longName,
+            type: 'Parallel',
+        };
+
+        const layout = new DagreLayout({}).calculate([container], []);
+        const result = layout.nodes.find((node) => node.id === longName)!;
+
+        expect(result.width).toBe(CONTAINER_MAX_HEADER_WIDTH);
+    });
 });
