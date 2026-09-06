@@ -121,6 +121,7 @@
   "scripts": {
     "build": "pnpm run build:viewer-script && pnpm run build:manifest && tsdown",
     "build:action-bundle": "tsdown && pnpm --filter github-action-sfn-diagram build",
+    "build:binary": "node scripts/build-binaries.mjs",
     "build:manifest": "cem analyze --globs \"src/element/**/*.ts\" --exclude \"src/element/**/*.test.ts\" --outdir .",
     "build:viewer-script": "node scripts/build-viewer-script.mjs",
     "dev": "tsdown --watch",

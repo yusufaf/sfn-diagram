@@ -27,6 +27,8 @@ The core package pulls in **no browser engine** — SVG and Mermaid generation s
 npm install sfn-diagram node-html-to-image
 ```
 
+Not a Node project? The CLI also ships as standalone binaries for Linux, macOS, and Windows on every [release](https://github.com/yusufaf/sfn-diagram/releases), or via Homebrew (`brew install yusufaf/tap/sfn-diagram`), and as a [Docker image](https://sfn.yusufaf.dev/guides/cli/#docker). See [using sfn-diagram from other languages](https://sfn.yusufaf.dev/guides/other-languages/).
+
 ## Quick start
 
 ```ts

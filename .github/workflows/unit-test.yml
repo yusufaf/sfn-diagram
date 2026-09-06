@@ -95,3 +95,41 @@ jobs:
             echo "::error::Docker image did not render a valid SVG from stdin"
             exit 1
           }
+
+  # The standalone binaries (release-please.yml `binaries` job) bundle dist/cli.js
+  # with bun. Anything the CLI graph picks up that bun cannot bundle, or that
+  # assumes a package.json next to the script, would otherwise only surface at
+  # release time. Build one target here and run the same smoke test the release
+  # job runs against the uploaded assets.
+  binary-smoke:
+    name: Standalone Binary Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Build core
+        run: pnpm run build
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build linux-x64 binary
+        run: pnpm run build:binary --target bun-linux-x64
+
+      - name: Smoke test
+        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64

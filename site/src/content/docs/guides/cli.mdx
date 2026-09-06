@@ -89,3 +89,17 @@ docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
 ```
 
 Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
+
+## Standalone binary
+
+Each GitHub release also attaches single-file executables for Linux (x64, arm64),
+macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js:
+
+```bash
+brew install yusufaf/tap/sfn-diagram
+# or download sfn-diagram-<os>-<arch> from the releases page and chmod +x it
+```
+
+They support every format except `png`, which needs a headless browser: use the
+Docker image above or the npm package with `node-html-to-image` installed. See
+[Use from Python, Go, Java, and other languages](/guides/other-languages/).

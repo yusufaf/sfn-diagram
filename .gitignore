@@ -31,3 +31,6 @@ docs/superpowers/
 
 # Packaged VS Code extension artifacts
 *.vsix
+
+# Standalone CLI binaries (pnpm run build:binary) - release assets, never committed
+binaries/

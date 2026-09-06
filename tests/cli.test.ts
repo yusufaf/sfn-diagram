@@ -843,3 +843,50 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('stateDiagram-v2');
     });
 });
+
+describe('standalone binary build info', () => {
+    const buildGlobal = globalThis as { __SFN_DIAGRAM_BUILD__?: unknown };
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        buildGlobal.__SFN_DIAGRAM_BUILD__ = { standalone: true, version: '9.9.9' };
+    });
+
+    afterEach(() => {
+        delete buildGlobal.__SFN_DIAGRAM_BUILD__;
+        stdout.mockRestore();
+        stderr.mockRestore();
+    });
+
+    it('reports the baked-in version instead of reading package.json', async () => {
+        const code = await run(['--version']);
+        expect(code).toBe(0);
+        expect(stdoutData).toBe('9.9.9\n');
+    });
+
+    it('refuses --format png with a pointer to the npm package and Docker image', async () => {
+        const code = await run([simpleFixture, '--format', 'png', '-o', 'out.png']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('not available in the standalone binary');
+        expect(stderrData).toContain('ghcr.io/yusufaf/sfn-diagram');
+    });
+
+    it('still renders SVG', async () => {
+        const code = await run([simpleFixture]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<svg');
+    });
+});

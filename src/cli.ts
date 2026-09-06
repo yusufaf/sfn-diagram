@@ -368,7 +368,26 @@ async function readStdin(): Promise<string> {
     return Buffer.concat(chunks).toString('utf-8');
 }
 
+/**
+ * Build-time constant set by `scripts/build-binaries.mjs` for the standalone
+ * (bun-compiled) executables. Undefined in the npm-published CLI, where the
+ * version comes from package.json at runtime and PNG export is available.
+ */
+declare const __SFN_DIAGRAM_BUILD__:
+    | { standalone: boolean; version: string }
+    | undefined;
+
+function readBuildInfo(): { standalone: boolean; version: string } | undefined {
+    return typeof __SFN_DIAGRAM_BUILD__ === 'undefined'
+        ? undefined
+        : __SFN_DIAGRAM_BUILD__;
+}
+
 function readPackageVersion(): string {
+    const buildInfo = readBuildInfo();
+    if (buildInfo) {
+        return buildInfo.version;
+    }
     try {
         const url = new URL('../package.json', import.meta.url);
         const packageJson = JSON.parse(readFileSync(url, 'utf-8')) as {
@@ -663,6 +682,15 @@ export async function run(argv: string[]): Promise<number> {
     if (args.execution !== null && !OVERLAY_FORMATS.includes(args.format)) {
         process.stderr.write(
             `--execution supports --format svg, mermaid or html, not ${args.format}\n`,
+        );
+        return 1;
+    }
+    if (args.format === 'png' && readBuildInfo()?.standalone) {
+        process.stderr.write(
+            '--format png is not available in the standalone binary: PNG export ' +
+                'needs a headless browser. Use the npm package ' +
+                '(npx --package sfn-diagram --package node-html-to-image sfn-diagram …) ' +
+                'or the Docker image (ghcr.io/yusufaf/sfn-diagram), which bundles Chromium.\n',
         );
         return 1;
     }
