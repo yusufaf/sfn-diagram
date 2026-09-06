@@ -62736,6 +62736,9 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+function getMapProcessor(state2) {
+  return state2.ItemProcessor ?? state2.Iterator;
+}
 function assignEdgeIds(params) {
   const { edges } = params;
   const ordinals = /* @__PURE__ */ new Map();
@@ -62749,6 +62752,110 @@ function assignEdgeIds(params) {
       id: `${pairKey}#${ordinal}`
     };
   });
+}
+var SCOPE_SEPARATOR = "__";
+function assignmentKey(scope, name) {
+  return `${scope}\0${name}`;
+}
+function branchEndMarkerId(containerId, branchIndex) {
+  return `${containerId}${SCOPE_SEPARATOR}branch${branchIndex}${SCOPE_SEPARATOR}end`;
+}
+function iteratorEndMarkerId(containerId) {
+  return `${containerId}${SCOPE_SEPARATOR}iterator${SCOPE_SEPARATOR}end`;
+}
+var ITEM_READER_ID_SUFFIX = `${SCOPE_SEPARATOR}itemreader`;
+var RESULT_WRITER_ID_SUFFIX = `${SCOPE_SEPARATOR}resultwriter`;
+function reservedIdsFor(id, definition, name) {
+  const state2 = definition.States[name];
+  const reserved = [];
+  if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((_2, index) => reserved.push(branchEndMarkerId(id, index)));
+  if (state2.Type === "Map") {
+    if (getMapProcessor(state2) !== void 0) reserved.push(iteratorEndMarkerId(id));
+    if (state2.ItemReader?.Resource) reserved.push(`${id}${ITEM_READER_ID_SUFFIX}`);
+    if (state2.ResultWriter?.Resource) reserved.push(`${id}${RESULT_WRITER_ID_SUFFIX}`);
+  }
+  return reserved;
+}
+function buildIdResolver(params) {
+  const { definition } = params;
+  const scopesByName = /* @__PURE__ */ new Map();
+  const walk = (current, path2) => {
+    const scopeKey = JSON.stringify(path2);
+    for (const [name, state2] of Object.entries(current.States)) {
+      const scopes = scopesByName.get(name) ?? /* @__PURE__ */ new Set();
+      scopes.add(scopeKey);
+      scopesByName.set(name, scopes);
+      if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => walk(branch, [
+        ...path2,
+        name,
+        `branch${index}`
+      ]));
+      if (state2.Type === "Map") {
+        const processor = getMapProcessor(state2);
+        if (processor) walk(processor, [
+          ...path2,
+          name,
+          "iterator"
+        ]);
+      }
+    }
+  };
+  walk(definition, []);
+  const assigned = /* @__PURE__ */ new Map();
+  const idsByName = /* @__PURE__ */ new Map();
+  const taken = /* @__PURE__ */ new Set();
+  let frontier = [{
+    definition,
+    scope: ""
+  }];
+  while (frontier.length > 0) {
+    const next = [];
+    for (const frame of frontier) {
+      const assign = (name) => {
+        const candidate = (scopesByName.get(name)?.size ?? 1) > 1 && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${name}` : name;
+        let id = candidate;
+        for (let suffix = 2; taken.has(id); suffix++) id = `${candidate}${SCOPE_SEPARATOR}${suffix}`;
+        assigned.set(assignmentKey(frame.scope, name), id);
+        idsByName.set(name, [...idsByName.get(name) ?? [], id]);
+        taken.add(id);
+        return id;
+      };
+      const names = Object.keys(frame.definition.States);
+      const isContainer = (name) => {
+        const type = frame.definition.States[name].Type;
+        return type === "Parallel" || type === "Map";
+      };
+      for (const name of names.filter(isContainer)) {
+        const id = assign(name);
+        for (const reserved of reservedIdsFor(id, frame.definition, name)) taken.add(reserved);
+      }
+      for (const name of names.filter((candidate) => !isContainer(candidate))) assign(name);
+      for (const [name, state2] of Object.entries(frame.definition.States)) {
+        const containerId = assigned.get(assignmentKey(frame.scope, name));
+        if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => next.push({
+          definition: branch,
+          scope: `${containerId}__branch${index}`
+        }));
+        if (state2.Type === "Map") {
+          const processor = getMapProcessor(state2);
+          if (processor) next.push({
+            definition: processor,
+            scope: `${containerId}__iterator`
+          });
+        }
+      }
+    }
+    frontier = next;
+  }
+  return {
+    branchScope: (scope, containerName, index) => `${resolveIn(scope, containerName)}__branch${index}`,
+    idsForName: (name) => idsByName.get(name) ?? [],
+    processorScope: (scope, containerName) => `${resolveIn(scope, containerName)}__iterator`,
+    resolve: resolveIn
+  };
+  function resolveIn(scope, name) {
+    return assigned.get(assignmentKey(scope, name)) ?? name;
+  }
 }
 var AslValidationError = class extends Error {
   constructor(message) {
@@ -62856,15 +62963,20 @@ function parseAsl(params) {
   const nodes = [];
   const edges = [];
   validateAsl({ definition });
+  const nodeIndex = /* @__PURE__ */ new Map();
+  const resolver = buildIdResolver({ definition });
   extractStatesRecursively({
     definition,
-    nodeIndex: /* @__PURE__ */ new Map(),
+    nodeIndex,
     nodes,
-    options
+    options,
+    resolver,
+    scope: ""
   });
   for (const [stateName, state2] of Object.entries(definition.States)) {
     const stateEdges = extractEdgesFromState({
       catchLabelStyle: options?.catchLabelStyle,
+      resolveId: (name) => resolver.resolve("", name),
       state: state2,
       stateName
     });
@@ -62873,7 +62985,9 @@ function parseAsl(params) {
   extractNestedEdges({
     definition,
     edges,
-    options
+    options,
+    resolver,
+    scope: ""
   });
   return {
     edges: assignEdgeIds({ edges }),
@@ -62881,10 +62995,10 @@ function parseAsl(params) {
   };
 }
 function createStateNode(params) {
-  const { name, options, state: state2, stylePreset } = params;
+  const { id, name, options, state: state2, stylePreset } = params;
   const isContainer = state2.Type === "Parallel" || state2.Type === "Map";
   const baseNode = {
-    id: name,
+    id,
     isContainer,
     label: options?.includeComments !== false ? state2.Comment || name : name,
     style: getNodeStyle({
@@ -62923,17 +63037,18 @@ function createStateNode(params) {
   return baseNode;
 }
 function extractEdgesFromState(params) {
-  const { catchLabelStyle, state: state2, stateName } = params;
+  const { catchLabelStyle, resolveId, state: state2, stateName } = params;
   const edges = [];
+  const stateId = resolveId(stateName);
   if (state2.Type === "Map") for (const io of ITEM_IO_ROLES) {
     if (!state2[io.field]?.Resource) continue;
-    const satelliteId = `${stateName}${io.idSuffix}`;
+    const satelliteId = `${stateId}${io.idSuffix}`;
     edges.push(io.edgeDirection === "in" ? {
       from: satelliteId,
       label: io.label,
-      to: stateName
+      to: stateId
     } : {
-      from: stateName,
+      from: stateId,
       label: io.label,
       to: satelliteId
     });
@@ -62944,17 +63059,17 @@ function extractEdgesFromState(params) {
         const condition = extractConditionLabel(choice);
         edges.push({
           condition,
-          from: stateName,
+          from: stateId,
           label: condition,
-          to: choice.Next,
+          to: resolveId(choice.Next),
           type: "choice"
         });
       });
       if (state2.Default) {
         if (!(state2.Choices?.map((choice) => choice.Next) || []).includes(state2.Default)) edges.push({
-          from: stateName,
+          from: stateId,
           label: EDGE_LABELS.DEFAULT,
-          to: state2.Default,
+          to: resolveId(state2.Default),
           type: "default"
         });
       }
@@ -62965,28 +63080,28 @@ function extractEdgesFromState(params) {
       break;
     default:
       if (state2.Next) edges.push({
-        from: stateName,
-        to: state2.Next,
+        from: stateId,
+        to: resolveId(state2.Next),
         type: "normal"
       });
       break;
   }
   if (state2.Retry && state2.Retry.length > 0) edges.push({
-    from: stateName,
+    from: stateId,
     label: getRetryLabel(state2.Retry),
-    to: stateName,
+    to: stateId,
     type: "retry",
     visualOnly: true
   });
   if (state2.Catch) state2.Catch.forEach((catchBlock, index) => {
     if (catchBlock.Next) edges.push({
-      from: stateName,
+      from: stateId,
       label: getCatchLabel({
         catchLabelStyle,
         errorTypes: catchBlock.ErrorEquals,
         index
       }),
-      to: catchBlock.Next,
+      to: resolveId(catchBlock.Next),
       type: "error"
     });
   });
@@ -63051,26 +63166,24 @@ function describeChoiceRule(rule) {
 function extractConditionLabel(choice) {
   return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
 }
-function getMapProcessor(state2) {
-  return state2.ItemProcessor ?? state2.Iterator;
-}
 var ITEM_IO_ROLES = [{
   edgeDirection: "in",
   field: "ItemReader",
-  idSuffix: "__itemreader",
+  idSuffix: ITEM_READER_ID_SUFFIX,
   label: "ItemReader",
   nodeType: "ItemReader"
 }, {
   edgeDirection: "out",
   field: "ResultWriter",
-  idSuffix: "__resultwriter",
+  idSuffix: RESULT_WRITER_ID_SUFFIX,
   label: "ResultWriter",
   nodeType: "ResultWriter"
 }];
 function extractStatesRecursively(params) {
-  const { definition, nodeIndex, nodes, options } = params;
+  const { definition, nodeIndex, nodes, options, resolver, scope } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
     const stateNode = createStateNode({
+      id: resolver.resolve(scope, stateName),
       name: stateName,
       options,
       state: state2,
@@ -63079,14 +63192,18 @@ function extractStatesRecursively(params) {
     nodes.push(stateNode);
     nodeIndex.set(stateNode.id, stateNode);
     if (state2.Type === "Parallel" && state2.Branches) state2.Branches.forEach((branch, index) => {
+      const branchScope = resolver.branchScope(scope, stateName, index);
       extractStatesRecursively({
         definition: branch,
         nodeIndex,
         nodes,
-        options
+        options,
+        resolver,
+        scope: branchScope
       });
-      if (nodeIndex.get(branch.StartAt)) stateNode.children?.push(branch.StartAt);
-      const endNodeId = `${stateName}__branch${index}__end`;
+      const branchStartId = resolver.resolve(branchScope, branch.StartAt);
+      if (nodeIndex.get(branchStartId)) stateNode.children?.push(branchStartId);
+      const endNodeId = branchEndMarkerId(stateNode.id, index);
       const endNode = {
         id: endNodeId,
         isContainer: false,
@@ -63105,20 +63222,26 @@ function extractStatesRecursively(params) {
       markBranchStatesAsChildren({
         branch,
         containerNode: stateNode,
-        nodeIndex
+        nodeIndex,
+        resolver,
+        scope: branchScope
       });
     });
     const mapProcessor = state2.Type === "Map" ? getMapProcessor(state2) : void 0;
     if (state2.Type === "Map" && mapProcessor) {
       const iterator2 = mapProcessor;
+      const processorScope = resolver.processorScope(scope, stateName);
       extractStatesRecursively({
         definition: iterator2,
         nodeIndex,
         nodes,
-        options
+        options,
+        resolver,
+        scope: processorScope
       });
-      if (nodeIndex.get(iterator2.StartAt)) stateNode.children?.push(iterator2.StartAt);
-      const endNodeId = `${stateName}__iterator__end`;
+      const iteratorStartId = resolver.resolve(processorScope, iterator2.StartAt);
+      if (nodeIndex.get(iteratorStartId)) stateNode.children?.push(iteratorStartId);
+      const endNodeId = iteratorEndMarkerId(stateNode.id);
       const endNode = {
         id: endNodeId,
         isContainer: false,
@@ -63137,7 +63260,9 @@ function extractStatesRecursively(params) {
       markBranchStatesAsChildren({
         branch: iterator2,
         containerNode: stateNode,
-        nodeIndex
+        nodeIndex,
+        resolver,
+        scope: processorScope
       });
     }
     if (state2.Type === "Map") for (const io of ITEM_IO_ROLES) {
@@ -63147,7 +63272,7 @@ function extractStatesRecursively(params) {
         iconResolver: options?.iconResolver,
         resource
       });
-      const satelliteId = `${stateName}${io.idSuffix}`;
+      const satelliteId = `${stateNode.id}${io.idSuffix}`;
       const satelliteNode = {
         id: satelliteId,
         isContainer: false,
@@ -63170,74 +63295,85 @@ function extractStatesRecursively(params) {
   }
 }
 function markBranchStatesAsChildren(params) {
-  const { branch, containerNode, nodeIndex } = params;
+  const { branch, containerNode, nodeIndex, resolver, scope } = params;
   const children = containerNode.children;
   if (!children) return;
   const existingChildren = new Set(children);
-  for (const stateName of Object.keys(branch.States)) if (nodeIndex.has(stateName) && !existingChildren.has(stateName)) {
-    children.push(stateName);
-    existingChildren.add(stateName);
+  for (const stateName of Object.keys(branch.States)) {
+    const id = resolver.resolve(scope, stateName);
+    if (nodeIndex.has(id) && !existingChildren.has(id)) {
+      children.push(id);
+      existingChildren.add(id);
+    }
   }
 }
 function extractNestedEdges(params) {
-  const { definition, edges, options } = params;
+  const { definition, edges, options, resolver, scope } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
     if (state2.Type === "Parallel" && state2.Branches) state2.Branches.forEach((branch, index) => {
-      const endNodeId = `${stateName}__branch${index}__end`;
+      const containerId = resolver.resolve(scope, stateName);
+      const branchScope = resolver.branchScope(scope, stateName, index);
+      const endNodeId = branchEndMarkerId(containerId, index);
       edges.push({
-        from: stateName,
-        to: branch.StartAt,
+        from: containerId,
+        to: resolver.resolve(branchScope, branch.StartAt),
         type: "normal",
         visualOnly: true
       });
       for (const [branchStateName, branchState] of Object.entries(branch.States)) {
         const branchEdges = extractEdgesFromState({
           catchLabelStyle: options?.catchLabelStyle,
+          resolveId: (name) => resolver.resolve(branchScope, name),
           state: branchState,
           stateName: branchStateName
         });
         edges.push(...branchEdges);
         if (branchState.End || !branchState.Next && branchState.Type !== "Choice") edges.push({
-          from: branchStateName,
+          from: resolver.resolve(branchScope, branchStateName),
           to: endNodeId,
           type: "normal"
         });
       }
       if (state2.Next) edges.push({
         from: endNodeId,
-        to: state2.Next,
+        to: resolver.resolve(scope, state2.Next),
         type: "normal"
       });
       if (state2.Branches && index === state2.Branches.length - 1 && state2.Next) edges.push({
-        from: stateName,
-        to: state2.Next,
+        from: containerId,
+        to: resolver.resolve(scope, state2.Next),
         type: "normal",
         visualOnly: true
       });
       extractNestedEdges({
         definition: branch,
         edges,
-        options
+        options,
+        resolver,
+        scope: branchScope
       });
     });
     const mapProcessor = state2.Type === "Map" ? getMapProcessor(state2) : void 0;
     if (state2.Type === "Map" && mapProcessor) {
-      const endNodeId = `${stateName}__iterator__end`;
+      const containerId = resolver.resolve(scope, stateName);
+      const processorScope = resolver.processorScope(scope, stateName);
+      const endNodeId = iteratorEndMarkerId(containerId);
       edges.push({
-        from: stateName,
-        to: mapProcessor.StartAt,
+        from: containerId,
+        to: resolver.resolve(processorScope, mapProcessor.StartAt),
         type: "normal",
         visualOnly: true
       });
       for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
         const iteratorEdges = extractEdgesFromState({
           catchLabelStyle: options?.catchLabelStyle,
+          resolveId: (name) => resolver.resolve(processorScope, name),
           state: iteratorState,
           stateName: iteratorStateName
         });
         edges.push(...iteratorEdges);
         if (iteratorState.End || !iteratorState.Next && iteratorState.Type !== "Choice") edges.push({
-          from: iteratorStateName,
+          from: resolver.resolve(processorScope, iteratorStateName),
           to: endNodeId,
           type: "normal"
         });
@@ -63245,12 +63381,12 @@ function extractNestedEdges(params) {
       if (state2.Next) {
         edges.push({
           from: endNodeId,
-          to: state2.Next,
+          to: resolver.resolve(scope, state2.Next),
           type: "normal"
         });
         edges.push({
-          from: stateName,
-          to: state2.Next,
+          from: containerId,
+          to: resolver.resolve(scope, state2.Next),
           type: "normal",
           visualOnly: true
         });
@@ -63258,7 +63394,9 @@ function extractNestedEdges(params) {
       extractNestedEdges({
         definition: mapProcessor,
         edges,
-        options
+        options,
+        resolver,
+        scope: processorScope
       });
     }
   }
@@ -63710,15 +63848,22 @@ function summarize(overlay, allStateNames) {
 function computeOverlay(history) {
   return parseExecutionHistory({ events: normalizeEvents(history) });
 }
+function byNodeId(byStateName, idsForName) {
+  const result = {};
+  for (const [name, value] of Object.entries(byStateName)) for (const id of idsForName(name)) result[id] = value;
+  return result;
+}
 function generateMermaidExecution(params) {
   const { aslDefinition, history } = params;
   const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
   const overlay = computeOverlay(history);
   const { nodes, edges } = parseAsl({ definition: aslObj });
+  const resolver = buildIdResolver({ definition: aslObj });
+  const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
   const executionClasses = {};
   const nodeAnnotations = {};
   for (const node of nodes) {
-    const result = overlay.states[node.id];
+    const result = statesByNodeId[node.id];
     executionClasses[node.id] = result?.status ?? "notReached";
     if (result) {
       const annotation = buildAnnotation(result);

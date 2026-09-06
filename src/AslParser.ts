@@ -9,8 +9,20 @@ import {
     getWaitDurationLabel,
 } from './constants';
 import { detectService, detectServiceFromResource } from './services';
-import { assignEdgeIds } from './graph';
-import type { RawEdge } from './graph';
+import {
+    assignEdgeIds,
+    branchEndMarkerId,
+    buildIdResolver,
+    getMapProcessor,
+    ITEM_READER_ID_SUFFIX,
+    iteratorEndMarkerId,
+    RESULT_WRITER_ID_SUFFIX,
+} from './graph';
+import type { RawEdge, IdResolver, ScopePath } from './graph';
+
+// Re-exported from its home in `graph/containers`: it was defined here, and both
+// the viewer's state collection and the id resolver import it from this module.
+export { getMapProcessor };
 import { stripJsonataDelimiters } from './utils/jsonata';
 
 /**
@@ -279,7 +291,9 @@ function validateState(params: ValidateStateParams): void {
  * Parameters for creating a state node from an ASL state
  */
 interface CreateStateNodeParams {
-    /** Unique identifier/name for the state */
+    /** Graph node id, scoped by nesting. May differ from `name` when the name repeats. */
+    id: string;
+    /** The state's own name within its `States` block, used as its display label. */
     name: string;
     /** Diagram generation options */
     options?: DiagramOptions;
@@ -295,6 +309,13 @@ interface CreateStateNodeParams {
 interface ExtractEdgesFromStateParams {
     /** How to label catch/error edges */
     catchLabelStyle: DiagramOptions['catchLabelStyle'];
+    /**
+     * Turns a state name into its graph node id, bound to the scope this state lives
+     * in. Every endpoint goes through it: ASL scopes transitions, so a branch-local
+     * `Next: 'Validate'` means *that branch's* Validate, not a same-named state
+     * elsewhere in the machine.
+     */
+    resolveId: (name: string) => string;
     /** The ASL state to extract edges from */
     state: AslState;
     /** Name of the state (used as edge source) */
@@ -323,13 +344,20 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     // Avoids O(n^2) `nodes.find()` scans on large/deeply-nested state machines.
     const nodeIndex = new Map<string, StateNode>();
 
+    // Node ids are scoped by nesting, because ASL only requires a state name to be
+    // unique within its own States block. Both traversals below - one building nodes,
+    // one building edges - resolve through this same instance, or an edge would land
+    // on a different node than the one the name refers to in its own scope.
+    const resolver = buildIdResolver({ definition });
+
     // Extract all states as nodes (including nested states)
-    extractStatesRecursively({ definition, nodeIndex, nodes, options });
+    extractStatesRecursively({ definition, nodeIndex, nodes, options, resolver, scope: '' });
 
     // Extract transitions as edges
     for (const [stateName, state] of Object.entries(definition.States)) {
         const stateEdges = extractEdgesFromState({
             catchLabelStyle: options?.catchLabelStyle,
+            resolveId: (name) => resolver.resolve('', name),
             state,
             stateName,
         });
@@ -337,13 +365,13 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     }
 
     // Extract edges from nested states (Parallel branches, Map iterators)
-    extractNestedEdges({ definition, edges, options });
+    extractNestedEdges({ definition, edges, options, resolver, scope: '' });
 
     return { edges: assignEdgeIds({ edges }), nodes };
 }
 
 function createStateNode(params: CreateStateNodeParams): StateNode {
-    const { name, options, state, stylePreset } = params;
+    const { id, name, options, state, stylePreset } = params;
     const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
 
     // When includeComments is enabled (the default), a state's Comment is used as its
@@ -353,7 +381,7 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     const label = includeComments ? state.Comment || name : name;
 
     const baseNode: StateNode = {
-        id: name,
+        id,
         isContainer,
         label,
         style: getNodeStyle({ stateType: state.Type, stylePreset }),
@@ -422,8 +450,9 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
 }
 
 function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
-    const { catchLabelStyle, state, stateName } = params;
+    const { catchLabelStyle, resolveId, state, stateName } = params;
     const edges: RawEdge[] = [];
+    const stateId = resolveId(stateName);
 
     // Connect Distributed Map I/O satellites: the ItemReader feeds the Map, and
     // the Map feeds the ResultWriter.
@@ -433,11 +462,11 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
                 continue;
             }
 
-            const satelliteId = `${stateName}${io.idSuffix}`;
+            const satelliteId = `${stateId}${io.idSuffix}`;
             edges.push(
                 io.edgeDirection === 'in'
-                    ? { from: satelliteId, label: io.label, to: stateName }
-                    : { from: stateName, label: io.label, to: satelliteId }
+                    ? { from: satelliteId, label: io.label, to: stateId }
+                    : { from: stateId, label: io.label, to: satelliteId }
             );
         }
     }
@@ -450,9 +479,9 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
                     const condition = extractConditionLabel(choice);
                     edges.push({
                         condition,
-                        from: stateName,
+                        from: stateId,
                         label: condition, // Use condition as label for display
-                        to: choice.Next,
+                        to: resolveId(choice.Next),
                         type: 'choice',
                     });
                 });
@@ -465,9 +494,9 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
 
                 if (!isRedundant) {
                     edges.push({
-                        from: stateName,
+                        from: stateId,
                         label: EDGE_LABELS.DEFAULT,
-                        to: state.Default,
+                        to: resolveId(state.Default),
                         type: 'default',
                     });
                 }
@@ -488,8 +517,8 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
             // Handle simple Next transitions
             if (state.Next) {
                 edges.push({
-                    from: stateName,
-                    to: state.Next,
+                    from: stateId,
+                    to: resolveId(state.Next),
                     type: 'normal',
                 });
             }
@@ -500,9 +529,9 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
     // not participate in dagre ranking; it is routed manually as a loop on the node.
     if (state.Retry && state.Retry.length > 0) {
         edges.push({
-            from: stateName,
+            from: stateId,
             label: getRetryLabel(state.Retry),
-            to: stateName,
+            to: stateId,
             type: 'retry',
             visualOnly: true,
         });
@@ -513,13 +542,13 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
         state.Catch.forEach((catchBlock: CatchBlock, index: number) => {
             if (catchBlock.Next) {
                 edges.push({
-                    from: stateName,
+                    from: stateId,
                     label: getCatchLabel({
                         catchLabelStyle,
                         errorTypes: catchBlock.ErrorEquals,
                         index,
                     }),
-                    to: catchBlock.Next,
+                    to: resolveId(catchBlock.Next),
                     type: 'error',
                 });
             }
@@ -636,19 +665,12 @@ interface ExtractStatesRecursivelyParams {
     nodes: StateNode[];
     /** Diagram generation options */
     options?: DiagramOptions;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The `States` block being walked. Empty at the machine root. */
+    scope: ScopePath;
 }
 
-/**
- * Resolve a Map state's inline processor definition.
- * Prefers the modern `ItemProcessor` field (used by inline and Distributed Map)
- * and falls back to the legacy `Iterator` field for pre-2022 definitions.
- *
- * Exported for internal reuse (the HTML viewer's state-data collector walks the
- * same nested definitions); not part of the package's public API.
- */
-export function getMapProcessor(state: AslState): AslDefinition | undefined {
-    return state.ItemProcessor ?? state.Iterator;
-}
 
 /**
  * The two Distributed Map I/O roles, rendered as satellite nodes beside the Map
@@ -658,14 +680,14 @@ const ITEM_IO_ROLES = [
     {
         edgeDirection: 'in',
         field: 'ItemReader',
-        idSuffix: '__itemreader',
+        idSuffix: ITEM_READER_ID_SUFFIX,
         label: 'ItemReader',
         nodeType: 'ItemReader',
     },
     {
         edgeDirection: 'out',
         field: 'ResultWriter',
-        idSuffix: '__resultwriter',
+        idSuffix: RESULT_WRITER_ID_SUFFIX,
         label: 'ResultWriter',
         nodeType: 'ResultWriter',
     },
@@ -681,11 +703,12 @@ const ITEM_IO_ROLES = [
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
 function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void {
-    const { definition, nodeIndex, nodes, options } = params;
+    const { definition, nodeIndex, nodes, options, resolver, scope } = params;
 
     // Extract states from current level
     for (const [stateName, state] of Object.entries(definition.States)) {
         const stateNode = createStateNode({
+            id: resolver.resolve(scope, stateName),
             name: stateName,
             options,
             state,
@@ -697,17 +720,27 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
         // Recursively extract states from Parallel branches
         if (state.Type === 'Parallel' && state.Branches) {
             state.Branches.forEach((branch: AslDefinition, index: number) => {
+                const branchScope = resolver.branchScope(scope, stateName, index);
+
                 // Extract branch states
-                extractStatesRecursively({ definition: branch, nodeIndex, nodes, options });
+                extractStatesRecursively({
+                    definition: branch,
+                    nodeIndex,
+                    nodes,
+                    options,
+                    resolver,
+                    scope: branchScope,
+                });
 
                 // Track children for bounding box calculation
-                const branchStartState = nodeIndex.get(branch.StartAt);
+                const branchStartId = resolver.resolve(branchScope, branch.StartAt);
+                const branchStartState = nodeIndex.get(branchStartId);
                 if (branchStartState) {
-                    stateNode.children?.push(branch.StartAt);
+                    stateNode.children?.push(branchStartId);
                 }
 
                 // Create virtual end node for this branch
-                const endNodeId = `${stateName}__branch${index}__end`;
+                const endNodeId = branchEndMarkerId(stateNode.id, index);
                 const endNode: StateNode = {
                     id: endNodeId,
                     isContainer: false,
@@ -725,7 +758,13 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                 stateNode.children?.push(endNodeId);
 
                 // Track all branch states as children for bounding box
-                markBranchStatesAsChildren({ branch, containerNode: stateNode, nodeIndex });
+                markBranchStatesAsChildren({
+                    branch,
+                    containerNode: stateNode,
+                    nodeIndex,
+                    resolver,
+                    scope: branchScope,
+                });
             });
         }
 
@@ -733,16 +772,25 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
         const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
         if (state.Type === 'Map' && mapProcessor) {
             const iterator = mapProcessor;
-            extractStatesRecursively({ definition: iterator, nodeIndex, nodes, options });
+            const processorScope = resolver.processorScope(scope, stateName);
+            extractStatesRecursively({
+                definition: iterator,
+                nodeIndex,
+                nodes,
+                options,
+                resolver,
+                scope: processorScope,
+            });
 
             // Track children for bounding box calculation
-            const iteratorStartState = nodeIndex.get(iterator.StartAt);
+            const iteratorStartId = resolver.resolve(processorScope, iterator.StartAt);
+            const iteratorStartState = nodeIndex.get(iteratorStartId);
             if (iteratorStartState) {
-                stateNode.children?.push(iterator.StartAt);
+                stateNode.children?.push(iteratorStartId);
             }
 
             // Create virtual end node for iterator
-            const endNodeId = `${stateName}__iterator__end`;
+            const endNodeId = iteratorEndMarkerId(stateNode.id);
             const endNode: StateNode = {
                 id: endNodeId,
                 isContainer: false,
@@ -760,7 +808,13 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             stateNode.children?.push(endNodeId);
 
             // Track all iterator states as children for bounding box
-            markBranchStatesAsChildren({ branch: iterator, containerNode: stateNode, nodeIndex });
+            markBranchStatesAsChildren({
+                branch: iterator,
+                containerNode: stateNode,
+                nodeIndex,
+                resolver,
+                scope: processorScope,
+            });
         }
 
         // A Distributed Map reads its dataset from an ItemReader and writes
@@ -779,7 +833,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                     resource,
                 });
 
-                const satelliteId = `${stateName}${io.idSuffix}`;
+                const satelliteId = `${stateNode.id}${io.idSuffix}`;
                 const satelliteNode: StateNode = {
                     id: satelliteId,
                     isContainer: false,
@@ -815,13 +869,17 @@ interface MarkBranchStatesAsChildrenParams {
     containerNode: StateNode;
     /** Index of node id -> node for O(1) lookups */
     nodeIndex: Map<string, StateNode>;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The branch's own scope. */
+    scope: ScopePath;
 }
 
 /**
  * Mark all states in a branch as children of the container for bounding box calculation
  */
 function markBranchStatesAsChildren(params: MarkBranchStatesAsChildrenParams): void {
-    const { branch, containerNode, nodeIndex } = params;
+    const { branch, containerNode, nodeIndex, resolver, scope } = params;
     const children = containerNode.children;
     if (!children) {
         return;
@@ -831,9 +889,10 @@ function markBranchStatesAsChildren(params: MarkBranchStatesAsChildrenParams): v
     const existingChildren = new Set(children);
 
     for (const stateName of Object.keys(branch.States)) {
-        if (nodeIndex.has(stateName) && !existingChildren.has(stateName)) {
-            children.push(stateName);
-            existingChildren.add(stateName);
+        const id = resolver.resolve(scope, stateName);
+        if (nodeIndex.has(id) && !existingChildren.has(id)) {
+            children.push(id);
+            existingChildren.add(id);
         }
     }
 }
@@ -848,24 +907,30 @@ interface ExtractNestedEdgesParams {
     edges: RawEdge[];
     /** Diagram generation options */
     options?: DiagramOptions;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The `States` block being walked. Empty at the machine root. */
+    scope: ScopePath;
 }
 
 /**
  * Extract edges from nested state machines (Parallel branches and Map iterators)
  */
 function extractNestedEdges(params: ExtractNestedEdgesParams): void {
-    const { definition, edges, options } = params;
+    const { definition, edges, options, resolver, scope } = params;
 
     for (const [stateName, state] of Object.entries(definition.States)) {
         // Extract edges from Parallel branches
         if (state.Type === 'Parallel' && state.Branches) {
             state.Branches.forEach((branch: AslDefinition, index: number) => {
-                const endNodeId = `${stateName}__branch${index}__end`;
+                const containerId = resolver.resolve(scope, stateName);
+                const branchScope = resolver.branchScope(scope, stateName, index);
+                const endNodeId = branchEndMarkerId(containerId, index);
 
                 // Add visual edge from container to branch start
                 edges.push({
-                    from: stateName,
-                    to: branch.StartAt,
+                    from: containerId,
+                    to: resolver.resolve(branchScope, branch.StartAt),
                     type: 'normal',
                     visualOnly: true,
                 });
@@ -874,6 +939,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 for (const [branchStateName, branchState] of Object.entries(branch.States)) {
                     const branchEdges = extractEdgesFromState({
                         catchLabelStyle: options?.catchLabelStyle,
+                        resolveId: (name) => resolver.resolve(branchScope, name),
                         state: branchState,
                         stateName: branchStateName,
                     });
@@ -882,7 +948,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                     // If this is a terminal state in the branch (End=true or no Next), connect to end marker
                     if (branchState.End || (!branchState.Next && branchState.Type !== 'Choice')) {
                         edges.push({
-                            from: branchStateName,
+                            from: resolver.resolve(branchScope, branchStateName),
                             to: endNodeId,
                             type: 'normal',
                         });
@@ -890,11 +956,12 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 }
 
                 // Create edge from each branch end marker to Next state for layout positioning
-                // This ensures Next is centered below all branches
+                // This ensures Next is centered below all branches. `Next` belongs to the
+                // container's own scope, not the branch's - a branch cannot target it.
                 if (state.Next) {
                     edges.push({
                         from: endNodeId,
-                        to: state.Next,
+                        to: resolver.resolve(scope, state.Next),
                         type: 'normal',
                     });
                 }
@@ -902,27 +969,35 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 // Also create visual-only edge from container to Next for rendering
                 if (state.Branches && index === state.Branches.length - 1 && state.Next) {
                     edges.push({
-                        from: stateName,
-                        to: state.Next,
+                        from: containerId,
+                        to: resolver.resolve(scope, state.Next),
                         type: 'normal',
                         visualOnly: true,
                     });
                 }
 
                 // Recursively handle nested Parallel/Map states
-                extractNestedEdges({ definition: branch, edges, options });
+                extractNestedEdges({
+                    definition: branch,
+                    edges,
+                    options,
+                    resolver,
+                    scope: branchScope,
+                });
             });
         }
 
         // Extract edges from Map processor (ItemProcessor or legacy Iterator)
         const mapProcessor = state.Type === 'Map' ? getMapProcessor(state) : undefined;
         if (state.Type === 'Map' && mapProcessor) {
-            const endNodeId = `${stateName}__iterator__end`;
+            const containerId = resolver.resolve(scope, stateName);
+            const processorScope = resolver.processorScope(scope, stateName);
+            const endNodeId = iteratorEndMarkerId(containerId);
 
             // Add visual edge from container to iterator start
             edges.push({
-                from: stateName,
-                to: mapProcessor.StartAt,
+                from: containerId,
+                to: resolver.resolve(processorScope, mapProcessor.StartAt),
                 type: 'normal',
                 visualOnly: true,
             });
@@ -930,6 +1005,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
                 const iteratorEdges = extractEdgesFromState({
                     catchLabelStyle: options?.catchLabelStyle,
+                    resolveId: (name) => resolver.resolve(processorScope, name),
                     state: iteratorState,
                     stateName: iteratorStateName,
                 });
@@ -938,32 +1014,39 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 // If this is a terminal state in the iterator, connect to end marker
                 if (iteratorState.End || (!iteratorState.Next && iteratorState.Type !== 'Choice')) {
                     edges.push({
-                        from: iteratorStateName,
+                        from: resolver.resolve(processorScope, iteratorStateName),
                         to: endNodeId,
                         type: 'normal',
                     });
                 }
             }
 
-            // Create edge from iterator end marker to Next state for layout positioning
+            // Create edge from iterator end marker to Next state for layout positioning.
+            // `Next` belongs to the Map's own scope, not the processor's.
             if (state.Next) {
                 edges.push({
                     from: endNodeId,
-                    to: state.Next,
+                    to: resolver.resolve(scope, state.Next),
                     type: 'normal',
                 });
 
                 // Also create visual-only edge from container to Next for rendering
                 edges.push({
-                    from: stateName,
-                    to: state.Next,
+                    from: containerId,
+                    to: resolver.resolve(scope, state.Next),
                     type: 'normal',
                     visualOnly: true,
                 });
             }
 
             // Recursively handle nested Parallel/Map states
-            extractNestedEdges({ definition: mapProcessor, edges, options });
+            extractNestedEdges({
+                definition: mapProcessor,
+                edges,
+                options,
+                resolver,
+                scope: processorScope,
+            });
         }
     }
 }

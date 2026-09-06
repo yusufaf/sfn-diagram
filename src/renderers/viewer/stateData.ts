@@ -1,4 +1,4 @@
-import { getMapProcessor } from '../../AslParser';
+import { buildIdResolver, getMapProcessor } from '../../graph';
 import { serializeForScriptBlock } from './scriptJson';
 import type { AslDefinition, AslState } from '../../types';
 
@@ -32,32 +32,35 @@ export interface SerializeStateDataParams {
  * ```
  *
  * @remarks
- * ASL requires state names to be unique only within a single `States` block, so a
- * name reused inside a Parallel branch collapses onto the outer entry. This mirrors
- * the parser's own node-id behaviour, keeping the viewer consistent with the diagram.
+ * Keys come from the same resolver the parser assigns node ids with, so a name reused
+ * across Parallel branches produces one entry per state rather than collapsing them —
+ * and a click on any node resolves to that node's own ASL.
  */
 export function collectStateData(params: CollectStateDataParams): Record<string, AslState> {
     const { definition } = params;
     const stateData: Record<string, AslState> = {};
+    const resolver = buildIdResolver({ definition });
 
-    const visit = (current: AslDefinition): void => {
+    const visit = (current: AslDefinition, scope: string): void => {
         for (const [stateName, state] of Object.entries(current.States)) {
-            stateData[stateName] = state;
+            stateData[resolver.resolve(scope, stateName)] = state;
 
-            if (state.Type === 'Parallel' && state.Branches) {
-                state.Branches.forEach((branch) => visit(branch));
+            if (state.Type === 'Parallel' && Array.isArray(state.Branches)) {
+                state.Branches.forEach((branch, index) =>
+                    visit(branch, resolver.branchScope(scope, stateName, index))
+                );
             }
 
             if (state.Type === 'Map') {
                 const processor = getMapProcessor(state);
                 if (processor) {
-                    visit(processor);
+                    visit(processor, resolver.processorScope(scope, stateName));
                 }
             }
         }
     };
 
-    visit(definition);
+    visit(definition, '');
     return stateData;
 }
 

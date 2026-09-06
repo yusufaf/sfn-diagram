@@ -14,6 +14,7 @@ import type {
     NodeStyle,
 } from './types';
 import { parseAsl } from './AslParser';
+import { buildIdResolver } from './graph';
 import { DagreLayout } from './layout';
 import { SvgRenderer, MermaidRenderer } from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
@@ -373,6 +374,33 @@ function computeOverlay(history: ExecutionHistoryInput): ExecutionOverlay {
  * const { svg } = generateExecution({ aslDefinition: asl, history: events });
  * ```
  */
+/**
+ * Re-key an overlay's per-state results from ASL state names onto graph node ids.
+ *
+ * An execution history records only `stateEnteredEventDetails.name`, a bare state
+ * name with no indication of which Parallel branch or Map iteration it came from.
+ * Node ids are scoped by nesting, so a name that repeats across branches maps to
+ * several nodes and the history cannot say which one ran.
+ *
+ * Every node carrying that name therefore takes the result. That matches what the
+ * diagram did before ids were scoped — those states shared a single node, so the one
+ * highlight covered all of them — and it is the only reading the history supports.
+ * The alternative, matching nothing, would leave a branch that demonstrably ran
+ * rendered as "not reached".
+ */
+function byNodeId<Value>(
+    byStateName: Record<string, Value>,
+    idsForName: (name: string) => string[]
+): Record<string, Value> {
+    const result: Record<string, Value> = {};
+    for (const [name, value] of Object.entries(byStateName)) {
+        for (const id of idsForName(name)) {
+            result[id] = value;
+        }
+    }
+    return result;
+}
+
 export function generateExecution(params: GenerateExecutionParams): ExecutionOutput {
     const {
         aslDefinition,
@@ -388,11 +416,17 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
 
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
 
+    // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
+    // once rather than looking up `overlay.states[node.id]`, which silently misses
+    // every nested state whose name repeats - see byNodeId.
+    const resolver = buildIdResolver({ definition: aslObj });
+    const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
+
     // Node colours: known states by status; everything else "not reached".
     const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
     const nodeAnnotations: Record<string, string> = {};
     for (const node of nodes) {
-        const result = overlay.states[node.id];
+        const result = statesByNodeId[node.id];
         const status = result?.status ?? 'notReached';
         nodeOverrides[node.id] = EXECUTION_COLORS[status];
         if (result) {
@@ -421,7 +455,22 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
     const callerBarePairs = new Set(
         Object.keys(callerEdgeOverrides ?? {}).filter((key) => pairKeys.has(key)),
     );
-    const takenKeys = new Set(overlay.takenEdges.map((edge) => `${edge.from}->${edge.to}`));
+    // Same re-keying for taken transitions: history records both endpoints by name.
+    // A name repeated across scopes (the reason `resolver` exists at all) makes
+    // `idsForName` return more than one id per side, so the naive cross-product
+    // would also produce pairs that were never real edges - e.g. crossing from one
+    // Parallel branch's `A` to a different branch's `B`. Filtering through
+    // `pairKeys`, the graph's actual edges, drops those phantom pairs; a taken key
+    // is only ever kept when some real edge could have produced it.
+    const takenKeys = new Set(
+        overlay.takenEdges
+            .flatMap((edge) =>
+                resolver
+                    .idsForName(edge.from)
+                    .flatMap((from) => resolver.idsForName(edge.to).map((to) => `${from}->${to}`))
+            )
+            .filter((key) => pairKeys.has(key))
+    );
     const edgeOverrides: Record<string, EdgeStyleOverride> = {};
     for (const edge of edges) {
         const pairKey = `${edge.from}->${edge.to}`;
@@ -477,11 +526,13 @@ export function generateMermaidExecution(
     const overlay = computeOverlay(history);
 
     const { nodes, edges } = parseAsl({ definition: aslObj });
+    const resolver = buildIdResolver({ definition: aslObj });
+    const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
 
     const executionClasses: Record<string, ExecutionStateStatus> = {};
     const nodeAnnotations: Record<string, string> = {};
     for (const node of nodes) {
-        const result = overlay.states[node.id];
+        const result = statesByNodeId[node.id];
         executionClasses[node.id] = result?.status ?? 'notReached';
         if (result) {
             const annotation = buildAnnotation(result);
