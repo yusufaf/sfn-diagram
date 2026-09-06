@@ -4,6 +4,13 @@ All notable changes to the Step Functions Diagram VS Code extension are document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.1.1](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.1.0...vscode-sfn-diagram-v0.1.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **vscode:** restore asl keyword, drop aws instead ([46f59ac](https://github.com/yusufaf/sfn-diagram/commit/46f59ace53dabfdae254e3ec73e918f45007d53c))
+
 ## [Unreleased]
 
 ### Fixed

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.3.2...github-action-sfn-diagram-v1.4.0) (2026-09-06)
+
+
+### Features
+
+* add GitLab merge request integration via sfn-diagram/ci ([#108](https://github.com/yusufaf/sfn-diagram/issues/108)) ([60c1e38](https://github.com/yusufaf/sfn-diagram/commit/60c1e3893a3043b3d621d1cbd4aef9ccd46f38a2))
+* **parser:** surface Wait duration and Distributed Map tolerance on the node ([#117](https://github.com/yusufaf/sfn-diagram/issues/117)) ([ca62222](https://github.com/yusufaf/sfn-diagram/commit/ca62222cf9fab71d7816b4b4eabd545e894d6642))
+* **viewer:** open a detail panel for the clicked edge ([#114](https://github.com/yusufaf/sfn-diagram/issues/114)) ([2176768](https://github.com/yusufaf/sfn-diagram/commit/21767687e6e507e585e307ee269d77273c94df1a))
+
+
+### Bug Fixes
+
+* **parser:** scope node ids by nesting so duplicate names stop colliding ([#122](https://github.com/yusufaf/sfn-diagram/issues/122)) ([8a258fc](https://github.com/yusufaf/sfn-diagram/commit/8a258fcef306727de23799291bc9943960b01a5c))
+* **parser:** validate nested Parallel branches and Map processors ([#116](https://github.com/yusufaf/sfn-diagram/issues/116)) ([10a7462](https://github.com/yusufaf/sfn-diagram/commit/10a7462f189089d921aa5115e349cf12a20a4570))
+
 ## [1.3.2](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.3.1...github-action-sfn-diagram-v1.3.2) (2026-09-03)
 
 
