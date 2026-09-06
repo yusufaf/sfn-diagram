@@ -456,12 +456,20 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
         Object.keys(callerEdgeOverrides ?? {}).filter((key) => pairKeys.has(key)),
     );
     // Same re-keying for taken transitions: history records both endpoints by name.
+    // A name repeated across scopes (the reason `resolver` exists at all) makes
+    // `idsForName` return more than one id per side, so the naive cross-product
+    // would also produce pairs that were never real edges - e.g. crossing from one
+    // Parallel branch's `A` to a different branch's `B`. Filtering through
+    // `pairKeys`, the graph's actual edges, drops those phantom pairs; a taken key
+    // is only ever kept when some real edge could have produced it.
     const takenKeys = new Set(
-        overlay.takenEdges.flatMap((edge) =>
-            resolver
-                .idsForName(edge.from)
-                .flatMap((from) => resolver.idsForName(edge.to).map((to) => `${from}->${to}`))
-        )
+        overlay.takenEdges
+            .flatMap((edge) =>
+                resolver
+                    .idsForName(edge.from)
+                    .flatMap((from) => resolver.idsForName(edge.to).map((to) => `${from}->${to}`))
+            )
+            .filter((key) => pairKeys.has(key))
     );
     const edgeOverrides: Record<string, EdgeStyleOverride> = {};
     for (const edge of edges) {

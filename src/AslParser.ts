@@ -9,7 +9,15 @@ import {
     getWaitDurationLabel,
 } from './constants';
 import { detectService, detectServiceFromResource } from './services';
-import { assignEdgeIds, buildIdResolver, getMapProcessor } from './graph';
+import {
+    assignEdgeIds,
+    branchEndMarkerId,
+    buildIdResolver,
+    getMapProcessor,
+    ITEM_READER_ID_SUFFIX,
+    iteratorEndMarkerId,
+    RESULT_WRITER_ID_SUFFIX,
+} from './graph';
 import type { RawEdge, IdResolver, ScopePath } from './graph';
 
 // Re-exported from its home in `graph/containers`: it was defined here, and both
@@ -299,6 +307,8 @@ interface CreateStateNodeParams {
  * Parameters for extracting graph edges from a state
  */
 interface ExtractEdgesFromStateParams {
+    /** How to label catch/error edges */
+    catchLabelStyle: DiagramOptions['catchLabelStyle'];
     /**
      * Turns a state name into its graph node id, bound to the scope this state lives
      * in. Every endpoint goes through it: ASL scopes transitions, so a branch-local
@@ -306,8 +316,6 @@ interface ExtractEdgesFromStateParams {
      * elsewhere in the machine.
      */
     resolveId: (name: string) => string;
-    /** How to label catch/error edges */
-    catchLabelStyle: DiagramOptions['catchLabelStyle'];
     /** The ASL state to extract edges from */
     state: AslState;
     /** Name of the state (used as edge source) */
@@ -649,10 +657,6 @@ function extractConditionLabel(choice: ChoiceRule): string {
  * Parameters for recursive state extraction
  */
 interface ExtractStatesRecursivelyParams {
-    /** Resolver turning a state name in `scope` into its graph node id. */
-    resolver: IdResolver;
-    /** The `States` block being walked. Empty at the machine root. */
-    scope: ScopePath;
     /** ASL definition containing states to extract */
     definition: AslDefinition;
     /** Index of node id -> node for O(1) lookups */
@@ -661,6 +665,10 @@ interface ExtractStatesRecursivelyParams {
     nodes: StateNode[];
     /** Diagram generation options */
     options?: DiagramOptions;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The `States` block being walked. Empty at the machine root. */
+    scope: ScopePath;
 }
 
 
@@ -672,14 +680,14 @@ const ITEM_IO_ROLES = [
     {
         edgeDirection: 'in',
         field: 'ItemReader',
-        idSuffix: '__itemreader',
+        idSuffix: ITEM_READER_ID_SUFFIX,
         label: 'ItemReader',
         nodeType: 'ItemReader',
     },
     {
         edgeDirection: 'out',
         field: 'ResultWriter',
-        idSuffix: '__resultwriter',
+        idSuffix: RESULT_WRITER_ID_SUFFIX,
         label: 'ResultWriter',
         nodeType: 'ResultWriter',
     },
@@ -732,7 +740,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                 }
 
                 // Create virtual end node for this branch
-                const endNodeId = `${stateNode.id}__branch${index}__end`;
+                const endNodeId = branchEndMarkerId(stateNode.id, index);
                 const endNode: StateNode = {
                     id: endNodeId,
                     isContainer: false,
@@ -782,7 +790,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             }
 
             // Create virtual end node for iterator
-            const endNodeId = `${stateNode.id}__iterator__end`;
+            const endNodeId = iteratorEndMarkerId(stateNode.id);
             const endNode: StateNode = {
                 id: endNodeId,
                 isContainer: false,
@@ -855,16 +863,16 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
  * Parameters for marking branch states as children of a container
  */
 interface MarkBranchStatesAsChildrenParams {
-    /** Resolver turning a state name in `scope` into its graph node id. */
-    resolver: IdResolver;
-    /** The branch's own scope. */
-    scope: ScopePath;
     /** Branch or iterator definition containing child states */
     branch: AslDefinition;
     /** Parent container node (Parallel or Map) */
     containerNode: StateNode;
     /** Index of node id -> node for O(1) lookups */
     nodeIndex: Map<string, StateNode>;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The branch's own scope. */
+    scope: ScopePath;
 }
 
 /**
@@ -893,16 +901,16 @@ function markBranchStatesAsChildren(params: MarkBranchStatesAsChildrenParams): v
  * Parameters for extracting edges from nested state machines
  */
 interface ExtractNestedEdgesParams {
-    /** Resolver turning a state name in `scope` into its graph node id. */
-    resolver: IdResolver;
-    /** The `States` block being walked. Empty at the machine root. */
-    scope: ScopePath;
     /** ASL definition to extract nested edges from */
     definition: AslDefinition;
     /** Array to accumulate extracted edges into */
     edges: RawEdge[];
     /** Diagram generation options */
     options?: DiagramOptions;
+    /** Resolver turning a state name in `scope` into its graph node id. */
+    resolver: IdResolver;
+    /** The `States` block being walked. Empty at the machine root. */
+    scope: ScopePath;
 }
 
 /**
@@ -917,7 +925,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             state.Branches.forEach((branch: AslDefinition, index: number) => {
                 const containerId = resolver.resolve(scope, stateName);
                 const branchScope = resolver.branchScope(scope, stateName, index);
-                const endNodeId = `${containerId}__branch${index}__end`;
+                const endNodeId = branchEndMarkerId(containerId, index);
 
                 // Add visual edge from container to branch start
                 edges.push({
@@ -984,7 +992,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
         if (state.Type === 'Map' && mapProcessor) {
             const containerId = resolver.resolve(scope, stateName);
             const processorScope = resolver.processorScope(scope, stateName);
-            const endNodeId = `${containerId}__iterator__end`;
+            const endNodeId = iteratorEndMarkerId(containerId);
 
             // Add visual edge from container to iterator start
             edges.push({

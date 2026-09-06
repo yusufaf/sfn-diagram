@@ -9,5 +9,11 @@ export type { ApplyCatchHandlingParams } from './catchHandling';
 export { getMapProcessor, isOpenContainer } from './containers';
 export { assignEdgeIds } from './edgeIdentity';
 export type { AssignEdgeIdsParams, RawEdge } from './edgeIdentity';
-export { buildIdResolver } from './scopeIds';
+export {
+    branchEndMarkerId,
+    buildIdResolver,
+    ITEM_READER_ID_SUFFIX,
+    iteratorEndMarkerId,
+    RESULT_WRITER_ID_SUFFIX,
+} from './scopeIds';
 export type { BuildIdResolverParams, IdResolver, ScopePath } from './scopeIds';

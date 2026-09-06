@@ -62757,14 +62757,22 @@ var SCOPE_SEPARATOR = "__";
 function assignmentKey(scope, name) {
   return `${scope}\0${name}`;
 }
+function branchEndMarkerId(containerId, branchIndex) {
+  return `${containerId}${SCOPE_SEPARATOR}branch${branchIndex}${SCOPE_SEPARATOR}end`;
+}
+function iteratorEndMarkerId(containerId) {
+  return `${containerId}${SCOPE_SEPARATOR}iterator${SCOPE_SEPARATOR}end`;
+}
+var ITEM_READER_ID_SUFFIX = `${SCOPE_SEPARATOR}itemreader`;
+var RESULT_WRITER_ID_SUFFIX = `${SCOPE_SEPARATOR}resultwriter`;
 function reservedIdsFor(id, definition, name) {
   const state2 = definition.States[name];
   const reserved = [];
-  if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((_2, index) => reserved.push(`${id}__branch${index}__end`));
+  if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((_2, index) => reserved.push(branchEndMarkerId(id, index)));
   if (state2.Type === "Map") {
-    if (getMapProcessor(state2) !== void 0) reserved.push(`${id}__iterator__end`);
-    if (state2.ItemReader?.Resource) reserved.push(`${id}__itemreader`);
-    if (state2.ResultWriter?.Resource) reserved.push(`${id}__resultwriter`);
+    if (getMapProcessor(state2) !== void 0) reserved.push(iteratorEndMarkerId(id));
+    if (state2.ItemReader?.Resource) reserved.push(`${id}${ITEM_READER_ID_SUFFIX}`);
+    if (state2.ResultWriter?.Resource) reserved.push(`${id}${RESULT_WRITER_ID_SUFFIX}`);
   }
   return reserved;
 }
@@ -63161,13 +63169,13 @@ function extractConditionLabel(choice) {
 var ITEM_IO_ROLES = [{
   edgeDirection: "in",
   field: "ItemReader",
-  idSuffix: "__itemreader",
+  idSuffix: ITEM_READER_ID_SUFFIX,
   label: "ItemReader",
   nodeType: "ItemReader"
 }, {
   edgeDirection: "out",
   field: "ResultWriter",
-  idSuffix: "__resultwriter",
+  idSuffix: RESULT_WRITER_ID_SUFFIX,
   label: "ResultWriter",
   nodeType: "ResultWriter"
 }];
@@ -63195,7 +63203,7 @@ function extractStatesRecursively(params) {
       });
       const branchStartId = resolver.resolve(branchScope, branch.StartAt);
       if (nodeIndex.get(branchStartId)) stateNode.children?.push(branchStartId);
-      const endNodeId = `${stateNode.id}__branch${index}__end`;
+      const endNodeId = branchEndMarkerId(stateNode.id, index);
       const endNode = {
         id: endNodeId,
         isContainer: false,
@@ -63233,7 +63241,7 @@ function extractStatesRecursively(params) {
       });
       const iteratorStartId = resolver.resolve(processorScope, iterator2.StartAt);
       if (nodeIndex.get(iteratorStartId)) stateNode.children?.push(iteratorStartId);
-      const endNodeId = `${stateNode.id}__iterator__end`;
+      const endNodeId = iteratorEndMarkerId(stateNode.id);
       const endNode = {
         id: endNodeId,
         isContainer: false,
@@ -63305,7 +63313,7 @@ function extractNestedEdges(params) {
     if (state2.Type === "Parallel" && state2.Branches) state2.Branches.forEach((branch, index) => {
       const containerId = resolver.resolve(scope, stateName);
       const branchScope = resolver.branchScope(scope, stateName, index);
-      const endNodeId = `${containerId}__branch${index}__end`;
+      const endNodeId = branchEndMarkerId(containerId, index);
       edges.push({
         from: containerId,
         to: resolver.resolve(branchScope, branch.StartAt),
@@ -63349,7 +63357,7 @@ function extractNestedEdges(params) {
     if (state2.Type === "Map" && mapProcessor) {
       const containerId = resolver.resolve(scope, stateName);
       const processorScope = resolver.processorScope(scope, stateName);
-      const endNodeId = `${containerId}__iterator__end`;
+      const endNodeId = iteratorEndMarkerId(containerId);
       edges.push({
         from: containerId,
         to: resolver.resolve(processorScope, mapProcessor.StartAt),
