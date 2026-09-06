@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Resolves a release tag to the version (plus its major and major.minor
 // prefixes) that .github/workflows/docker.yml tags the ghcr.io image with.
 //
@@ -16,6 +15,12 @@
 //   node scripts/resolve-docker-tag.mjs --tag sfn-diagram-v1.6.0
 // Appends version=/major=/minor= to $GITHUB_OUTPUT, or exits 1 with a
 // message on an unrecognized tag.
+//
+// No shebang: unlike the other scripts in this directory, this one is
+// imported directly by tests/ci/resolveDockerTag.test.ts, and a shebang line
+// followed by CRLF endings (what a Windows checkout of this repo produces,
+// with no .gitattributes forcing LF) breaks esbuild's shebang-stripping
+// regex during that import - it is never invoked as an executable itself.
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -24,8 +29,23 @@ const LEGACY_TAGS = new Set(['v0.2.0', 'v0.3.0', 'v0.4.0', 'v0.4.1']);
 const SEMVER = /^\d+\.\d+\.\d+(?:-[\w.]+)?$/;
 
 /**
- * @param {{ tag: string }} params
+ * @typedef {object} ResolveDockerTagParams
+ * @property {string} tag - The git tag to resolve, e.g. `sfn-diagram-v1.6.0`
+ */
+
+/**
+ * Resolve a release tag to the version and its major/major.minor prefixes, for the
+ * four `type=raw` Docker tags docker.yml pushes to ghcr.io - rejecting any tag that
+ * isn't the core `sfn-diagram` package's, rather than silently mis-parsing it into
+ * a garbage tag (see #127).
+ *
+ * @param {ResolveDockerTagParams} params
  * @returns {{ major: string, minor: string, version: string }}
+ * @throws if `tag` isn't a core sfn-diagram release tag, or its version isn't a semver
+ *
+ * @example
+ * resolveDockerTag({ tag: 'sfn-diagram-v1.6.0' });
+ * // { major: '1', minor: '1.6', version: '1.6.0' }
  */
 export function resolveDockerTag(params) {
     const { tag } = params;
