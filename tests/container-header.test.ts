@@ -134,6 +134,36 @@ describe('container header space', () => {
         }
     });
 
+    it('never overlaps the two header lines, even at a font size the sub-label floor cannot fit', () => {
+        // At fontSize 35 the MIN_SUB_LABEL_FONT_SIZE floor (8px) no longer fits inside
+        // CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize (5px here), which previously
+        // forced the two clamped lines to overlap by design of the independent clamp.
+        const hugeFont: CustomTheme = {
+            background: '#ffffff',
+            edgeColors: { choice: '#000', default: '#000', error: '#000', normal: '#000' },
+            fontFamily: 'sans-serif',
+            fontSize: 35,
+            nodeColors: {},
+        };
+
+        const { nodes, svg } = render('distributed-map', hugeFont);
+        const container = nodes.find((node) => node.id === 'ProcessItems')!;
+        const halfHeight = (container.height ?? 0) / 2;
+
+        const lines = headerLines(svg, 'ProcessItems');
+        // The sub-label is dropped rather than overlapping the name: only one line.
+        expect(lines).toHaveLength(1);
+        expect(lines[0].fontSize).toBe(35);
+        expect(svg).not.toContain('Distributed');
+
+        for (const line of lines) {
+            expect(line.y - line.fontSize / 2).toBeGreaterThanOrEqual(-halfHeight);
+            expect(line.y + line.fontSize / 2).toBeLessThanOrEqual(
+                -halfHeight + CONTAINER_HEADER_TEXT_HEIGHT
+            );
+        }
+    });
+
     it('states the text height as the gap the layout actually leaves', () => {
         // Derived from the layout rather than restating a constant: the text height is
         // the container's top padding, which is what separates its box from its children.

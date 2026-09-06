@@ -392,28 +392,40 @@ export class SvgRenderer {
             .attr('stroke', node.style?.stroke || '#c2185b')
             .attr('stroke-width', 2);
 
+        const headerTop = -height / 2;
+        const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
+        const nameFontSize = this.theme.fontSize;
+
+        // The sub-label shrinks into whatever room is left rather than being dropped: a
+        // large custom theme.fontSize would otherwise silently lose the Distributed
+        // marker, concurrency, tolerance and batching altogether. The two clamped lines
+        // (below) never overlap as long as this stays at or under
+        // `CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize` — each line's independent clamp
+        // then lands them exactly touching at worst. The MIN_SUB_LABEL_FONT_SIZE floor
+        // exists for legibility, but once nameFontSize leaves it less room than that
+        // floor, honouring the floor would push the sub-label past that touching point
+        // and into the name — so canFitSubLabel below drops the sub-label there instead.
+        const subFontSize = Math.max(
+            MIN_SUB_LABEL_FONT_SIZE,
+            Math.min(nameFontSize - 2, CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize)
+        );
+        const canFitSubLabel = CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize >= MIN_SUB_LABEL_FONT_SIZE;
+
         // Sub-label under the container name. The Distributed marker and
         // MaxConcurrency are always shown when present — a Distributed Map runs a
         // child execution per batch rather than iterating inline, so it must not
         // read as a plain Map. The state type itself stays opt-in.
-        const subLabel = fitSubLabel({
-            availableWidth: width - SUB_LABEL_PADDING * 2,
-            measure: (text) =>
-                estimateTextWidth(
-                    text,
-                    Math.max(
-                        MIN_SUB_LABEL_FONT_SIZE,
-                        Math.min(
-                            this.theme.fontSize - 2,
-                            CONTAINER_HEADER_TEXT_HEIGHT - this.theme.fontSize
-                        )
-                    )
-                ),
-            parts: getNodeSubLabelParts({
-                node,
-                showStateType: this.options.showStateTypes === true,
-            }),
-        });
+        const subLabel = canFitSubLabel
+            ? fitSubLabel({
+                  availableWidth: width - SUB_LABEL_PADDING * 2,
+                  measure: (text) => estimateTextWidth(text, subFontSize),
+                  parts: getNodeSubLabelParts({
+                      node,
+                      showStateType: this.options.showStateTypes === true,
+                  }),
+              })
+            : null;
+
         // Both lines live inside the header band. When there is no sub-label the name is
         // centred in it; when there is, the two straddle the centre, separated by a gap
         // proportional to the font so a large custom fontSize cannot push the sub-label
@@ -424,17 +436,6 @@ export class SvgRenderer {
         // painted before their children - so the text gets CONTAINER_HEADER_TEXT_HEIGHT,
         // the part genuinely clear of children, rather than the band's full height.
         // Using the latter is what put the sub-label under the first child.
-        const headerTop = -height / 2;
-        const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
-        const nameFontSize = this.theme.fontSize;
-
-        // The sub-label shrinks into whatever room is left rather than being dropped: a
-        // large custom theme.fontSize would otherwise silently lose the Distributed
-        // marker, concurrency, tolerance and batching altogether.
-        const subFontSize = Math.max(
-            MIN_SUB_LABEL_FONT_SIZE,
-            Math.min(nameFontSize - 2, CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize)
-        );
         const lineGap = (nameFontSize + subFontSize) * CONTAINER_LINE_GAP_RATIO;
         const clampToText = (y: number, fontSize: number): number =>
             Math.min(
