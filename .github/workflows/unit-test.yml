@@ -77,8 +77,9 @@ jobs:
       - name: Smoke test the packed tarball's bin
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          TARBALL="$PWD/$(npm pack --silent)"
-          cd "$(mktemp -d)"
+          WORK="$(mktemp -d)"
+          TARBALL="$WORK/$(npm pack --silent --pack-destination "$WORK")"
+          cd "$WORK"
           npm init -y >/dev/null
           npm install --no-audit --no-fund "$TARBALL" >/dev/null
           ACTUAL="$(./node_modules/.bin/sfn-diagram --version)"

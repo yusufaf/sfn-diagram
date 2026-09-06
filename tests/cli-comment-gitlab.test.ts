@@ -74,7 +74,8 @@ describe('parseCommentGitlabArgs', () => {
     });
 });
 
-describe('run(["comment", "gitlab", ...])', () => {
+// Spawns a real git repo per test; see tests/ci/changedFiles.test.ts for the budget.
+describe('run(["comment", "gitlab", ...])', { timeout: 30_000 }, () => {
     let repo: string;
     let originalCwd: string;
     let stdout: ReturnType<typeof vi.spyOn>;

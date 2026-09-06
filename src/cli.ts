@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import { runGitlabComment } from './ci/gitlab';
@@ -913,24 +913,32 @@ function writeOutput(content: string, outputPath: string | null): void {
 // imported (e.g. by tests). The CLI is built ESM-only (see tsdown.config.ts),
 // so comparing this module's URL to the invoked script is safe.
 //
-// The invoked script is resolved to its real path first: npm, pnpm, and yarn
+// Both paths are resolved to their real path first: npm, pnpm, and yarn
 // install the bin on Linux and macOS as a symlink (node_modules/.bin/sfn-diagram
 // -> ../sfn-diagram/dist/cli.js), and Node dereferences that link for
-// import.meta.url but leaves process.argv[1] as the symlink path. Comparing
-// the raw path made `npx sfn-diagram` exit 0 without output on those platforms.
+// import.meta.url but leaves process.argv[1] as the symlink path (or the other
+// way round under --preserve-symlinks-main). Comparing the raw paths made
+// `npx sfn-diagram` exit 0 without output on those platforms.
+function toRealPath(path: string): string {
+    try {
+        return realpathSync(path);
+    } catch {
+        // Not a real filesystem path (e.g. the standalone binary's virtual
+        // root); compare as given.
+        return path;
+    }
+}
+
 function isInvokedDirectly(): boolean {
     const invoked = process.argv[1];
     if (invoked === undefined) {
         return false;
     }
-    let entry = invoked;
-    try {
-        entry = realpathSync(invoked);
-    } catch {
-        // Not a real filesystem path (e.g. the standalone binary's virtual
-        // root); compare as given.
-    }
-    return import.meta.url === pathToFileURL(entry).href;
+    const modulePath = toRealPath(fileURLToPath(import.meta.url));
+    return (
+        pathToFileURL(modulePath).href ===
+        pathToFileURL(toRealPath(invoked)).href
+    );
 }
 
 if (isInvokedDirectly()) {
