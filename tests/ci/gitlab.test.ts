@@ -223,7 +223,8 @@ function oversizedAsl(): string {
     return JSON.stringify({ StartAt: stateNames[0], States: states });
 }
 
-describe('runGitlabComment (integration, real git repo)', () => {
+// Spawns a real git repo per test; see changedFiles.test.ts for the budget.
+describe('runGitlabComment (integration, real git repo)', { timeout: 30_000 }, () => {
     let repo: string;
     let outputDir: string;
 

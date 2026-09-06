@@ -69,6 +69,30 @@ jobs:
           pnpm run validate
           pnpm --filter sfn-diagram-react run validate
 
+      # Install the packed tarball into an empty project and run the bin the
+      # way npm links it on Linux: as a symlink under node_modules/.bin. The
+      # CLI's entry guard compared the raw symlink path to import.meta.url and
+      # silently did nothing on that path from v0.5.1 to v1.6.0 - nothing in the
+      # suite spawned the bin, and Windows shims hid it locally.
+      - name: Smoke test the packed tarball's bin
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          WORK="$(mktemp -d)"
+          TARBALL="$WORK/$(npm pack --silent --pack-destination "$WORK")"
+          cd "$WORK"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "$TARBALL" >/dev/null
+          ACTUAL="$(./node_modules/.bin/sfn-diagram --version)"
+          [ "$ACTUAL" = "$VERSION" ] || {
+            echo "::error::packed bin printed '$ACTUAL', expected '$VERSION'"
+            exit 1
+          }
+          ./node_modules/.bin/sfn-diagram - --format svg \
+            < "$GITHUB_WORKSPACE/tests/fixtures/simple.asl.json" | grep -q '<svg' || {
+            echo "::error::packed bin did not render an SVG from stdin"
+            exit 1
+          }
+
       - name: Test
         run: pnpm turbo run test
 

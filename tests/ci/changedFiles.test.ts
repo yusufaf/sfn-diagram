@@ -9,7 +9,9 @@ import {
 } from '../../src/ci/changedFiles';
 import { git } from './gitTestHelper';
 
-describe('changedFiles (real git repo)', () => {
+// Each test spawns a dozen git processes; on a loaded Windows machine that
+// blows the default 5s budget.
+describe('changedFiles (real git repo)', { timeout: 30_000 }, () => {
     let repo: string;
 
     beforeEach(() => {
