@@ -399,16 +399,211 @@ jobs:
             exit 1
           }
 
+  # Standalone CLI executables (bun build --compile) attached to the GitHub
+  # Release so people without Node can `curl` one binary. Built from the same
+  # dist/ the npm package ships. macOS assets are built on a macOS runner: bun
+  # ad-hoc code-signs Mach-O binaries natively there, whereas cross-compiled
+  # signatures have shipped truncated in past bun versions, and an unsigned
+  # arm64 binary is SIGKILLed by macOS before it prints anything.
+  binaries:
+    needs: release-please
+    if: |
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            targets: --target bun-linux-x64 --target bun-linux-arm64 --target bun-windows-x64
+          - os: macos-latest
+            targets: --target bun-darwin-arm64 --target bun-darwin-x64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      - name: Build core
+        run: pnpm run build
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build binaries
+        run: pnpm run build:binary ${{ matrix.targets }}
+
+      - name: Verify macOS code signatures
+        if: runner.os == 'macOS'
+        run: |
+          for binary in binaries/sfn-diagram-darwin-*; do
+            codesign --verify --verbose=2 "$binary"
+          done
+
+      # --clobber so a re-run of a partially failed release replaces the asset
+      # instead of failing on "already exists".
+      - name: Upload to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
+          gh release upload "$TAG" binaries/sfn-diagram-* --clobber
+
+  # Pull every uploaded binary back down, publish a SHA256SUMS next to them, and
+  # smoke-test the Linux one the way a user would receive it - from the release,
+  # not from the build directory.
+  binaries-verify:
+    needs: [release-please, binaries]
+    if: always() && needs.binaries.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      # The smoke test compares the binary's SVG against node dist/cli.js.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Download release binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
+          gh release download "$TAG" --pattern 'sfn-diagram-*' --dir binaries
+          ls -l binaries
+          [ "$(ls binaries | wc -l)" -eq 5 ] || {
+            echo "::error::expected 5 binaries on release $TAG"
+            exit 1
+          }
+
+      - name: Publish SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
+          (cd binaries && sha256sum sfn-diagram-* > SHA256SUMS)
+          cat binaries/SHA256SUMS
+          gh release upload "$TAG" binaries/SHA256SUMS --clobber
+
+      - name: Smoke test the released linux-x64 binary
+        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
+
+      - name: Keep SHA256SUMS for the Homebrew job
+        uses: actions/upload-artifact@v4
+        with:
+          name: sha256sums
+          path: binaries/SHA256SUMS
+
+  # Regenerate the Homebrew formula from the release checksums and push it to
+  # the tap repo. Opt-in: set the HOMEBREW_TAP_REPO repository variable to the
+  # tap's repo name (e.g. `homebrew-tap`, under the same owner) once that repo
+  # exists and the release GitHub App is installed on it with Contents: write.
+  # Until then this job is skipped rather than failing every release.
+  homebrew-tap:
+    needs: [release-please, binaries-verify]
+    if: always() && needs.binaries-verify.result == 'success' && vars.HOMEBREW_TAP_REPO != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Mint tap-scoped token
+        uses: actions/create-github-app-token@v3
+        id: tap-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ vars.HOMEBREW_TAP_REPO }}
+
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
+
+      - name: Download SHA256SUMS
+        uses: actions/download-artifact@v4
+        with:
+          name: sha256sums
+          path: binaries
+
+      - name: Render the formula
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
+          node scripts/generate-homebrew-formula.mjs \
+            --repo "${{ github.repository }}" \
+            --tag "$TAG" \
+            --sums binaries/SHA256SUMS > sfn-diagram.rb
+          cat sfn-diagram.rb
+
+      - name: Push to the tap
+        env:
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+        run: |
+          TAP="${{ github.repository_owner }}/${{ vars.HOMEBREW_TAP_REPO }}"
+          VERSION="$(node -p "require('./package.json').version")"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP}.git" tap
+          mkdir -p tap/Formula
+          cp sfn-diagram.rb tap/Formula/sfn-diagram.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/sfn-diagram.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date"
+            exit 0
+          fi
+          git commit -m "sfn-diagram ${VERSION}"
+          git push
+
   # None of the publish jobs above are triggered by a human clicking something -
   # a failure has no "actor" to notify. File an issue so a broken publish to any
   # registry can't silently sit in the Actions tab unnoticed the way the Docker
   # image did for three releases before this was added.
   report-publish-failure:
     name: Report publish failure
-    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync]
+    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync, binaries, binaries-verify, homebrew-tap]
     if: |
       always() &&
       (needs.npm-publish.result == 'failure' ||
+       needs.binaries.result == 'failure' ||
+       needs.binaries-verify.result == 'failure' ||
+       needs.homebrew-tap.result == 'failure' ||
        needs.jsr-publish.result == 'failure' ||
        needs.react-npm-publish.result == 'failure' ||
        needs.openvsx-publish.result == 'failure' ||
@@ -435,5 +630,8 @@ jobs:
           | react-npm-publish | ${{ needs.react-npm-publish.result }} |
           | openvsx-publish | ${{ needs.openvsx-publish.result }} |
           | mirror-sync | ${{ needs.mirror-sync.result }} |
+          | binaries | ${{ needs.binaries.result }} |
+          | binaries-verify | ${{ needs.binaries-verify.result }} |
+          | homebrew-tap | ${{ needs.homebrew-tap.result }} |
 
           Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

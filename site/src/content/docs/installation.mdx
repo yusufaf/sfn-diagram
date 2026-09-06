@@ -14,3 +14,18 @@ The core package pulls in **no browser engine** — SVG and Mermaid generation s
 ## Deno / JSR
 
 <PackageManagers pkgManagers={['deno']} pkg="jsr:@yusufaf/sfn-diagram" />
+
+## CLI without Node
+
+Every release ships standalone executables for Linux, macOS, and Windows, so the
+command line works without installing Node.js:
+
+```bash
+brew install yusufaf/tap/sfn-diagram
+```
+
+Or download a binary from the [releases page](https://github.com/yusufaf/sfn-diagram/releases)
+and put it on your `PATH`. The binaries render SVG, Mermaid, and HTML; PNG export needs a
+headless browser, which only the [Docker image](/guides/cli/#docker) bundles. See
+[Use from Python, Go, Java, and other languages](/guides/other-languages/) for details
+and subprocess examples.
