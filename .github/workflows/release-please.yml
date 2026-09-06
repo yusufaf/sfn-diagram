@@ -5,12 +5,14 @@ on:
     branches:
       - main
       - master
-  # Manual/recovery publish: build an existing tag and publish it to npm.
-  # Useful when a release tag was created but the publish step failed.
+  # Manual/recovery run for a core release tag: re-runs every core publish job
+  # idempotently. npm and JSR skip when the version is already there; the
+  # binaries, SHA256SUMS, and Homebrew formula are rebuilt and overwritten.
+  # Use it when a release tag exists but one of those jobs failed.
   workflow_dispatch:
     inputs:
       publish_tag:
-        description: 'Git tag to build and publish to npm (e.g. sfn-diagram-v0.5.1)'
+        description: 'Core release tag to (re)publish, e.g. sfn-diagram-v1.6.0'
         required: true
         type: string
 
@@ -51,7 +53,8 @@ jobs:
     if: |
       always() &&
       (needs.release-please.outputs.release_created == 'true' ||
-       github.event_name == 'workflow_dispatch')
+       (github.event_name == 'workflow_dispatch' &&
+        startsWith(github.event.inputs.publish_tag, 'sfn-diagram-v')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -100,14 +103,16 @@ jobs:
       - name: Validate package
         run: pnpm run validate
 
-      # Skip when the version is already on the registry so a workflow_dispatch
-      # re-run for a tag whose npm publish succeeded (but whose binaries or
-      # another job failed) doesn't die on "cannot publish over previously
-      # published version". jsr-publish already behaves this way.
+      # On a manual re-run for a tag whose npm publish already succeeded (but
+      # whose binaries or another job failed), skip instead of dying on "cannot
+      # publish over previously published version". Only on dispatch: a push-
+      # triggered release that finds its version already taken is a real
+      # problem and must fail loudly.
       - name: Publish to npm
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          if [ "$(npm view sfn-diagram@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] &&
+             [ "$(npm view sfn-diagram@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
             echo "sfn-diagram@$VERSION is already on npm, skipping publish"
             exit 0
           fi
@@ -117,9 +122,11 @@ jobs:
       # tarball - it says nothing about whether the package actually installs
       # and runs. The registry can also lag a minute or so before a fresh
       # publish is visible. Poll for it, then actually run the published CLI.
-      # The npx run is retried too: on the 1.6.0 release the metadata was
-      # visible before the tarball was installable and npx failed with
-      # "sfn-diagram: not found" although the package was fine.
+      #
+      # The npx run happens from an empty temp dir: run from the checkout, npm
+      # resolves `sfn-diagram` to the repo's own root package, installs nothing,
+      # and execs a bin that was never linked ("sfn-diagram: not found"), which
+      # is what failed the 1.6.0 release although the package was fine.
       - name: Verify the published version on npm
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -135,14 +142,16 @@ jobs:
             echo "::error::npm registry never showed sfn-diagram@$VERSION after publish"
             exit 1
           fi
-          for i in $(seq 1 6); do
-            if [ "$(npx --yes sfn-diagram@"$VERSION" --version 2>/dev/null || true)" = "$VERSION" ]; then
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "::error::npx sfn-diagram@$VERSION --version never reported $VERSION after publish"
-          exit 1
+          cd "$(mktemp -d)"
+          set +e
+          OUTPUT="$(npx --yes sfn-diagram@"$VERSION" --version 2>&1)"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -ne 0 ] || [ "$OUTPUT" != "$VERSION" ]; then
+            echo "$OUTPUT"
+            echo "::error::npx sfn-diagram@$VERSION --version exited $STATUS with '$OUTPUT', expected '$VERSION'"
+            exit 1
+          fi
 
   # Publish to JSR (jsr.io) alongside npm. JSR reads TypeScript source directly,
   # so no build/browser install is needed. Tokenless OIDC — id-token: write, no
@@ -154,7 +163,8 @@ jobs:
     if: |
       always() &&
       (needs.release-please.outputs.release_created == 'true' ||
-       github.event_name == 'workflow_dispatch')
+       (github.event_name == 'workflow_dispatch' &&
+        startsWith(github.event.inputs.publish_tag, 'sfn-diagram-v')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -182,20 +192,22 @@ jobs:
 
       # `jsr publish` exiting 0 doesn't guarantee jsr.io serves the new version
       # yet. Poll its own metadata endpoint rather than trusting the exit code.
+      # Check for this exact version rather than `.latest`, so a recovery
+      # dispatch for an older tag still passes once a newer release exists.
       - name: Verify the published version on JSR
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           FOUND=""
           for i in $(seq 1 20); do
-            ACTUAL="$(curl -fsSL https://jsr.io/@yusufaf/sfn-diagram/meta.json | jq -r .latest 2>/dev/null || true)"
-            if [ "$ACTUAL" = "$VERSION" ]; then
+            if curl -fsSL https://jsr.io/@yusufaf/sfn-diagram/meta.json \
+                | jq -e --arg v "$VERSION" '.versions[$v] != null' >/dev/null 2>&1; then
               FOUND=1
               break
             fi
             sleep 15
           done
           if [ -z "$FOUND" ]; then
-            echo "::error::JSR never showed @yusufaf/sfn-diagram@$VERSION after publish (last seen: $ACTUAL)"
+            echo "::error::JSR never showed @yusufaf/sfn-diagram@$VERSION after publish"
             exit 1
           fi
 
@@ -264,9 +276,17 @@ jobs:
             }
           "
 
+      # Skip when already published so "Re-run failed jobs" after a verify
+      # timeout doesn't die on "cannot publish over previously published version".
       - name: Publish to npm
         working-directory: packages/sfn-diagram-react
-        run: npm publish --provenance --access public
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$(npm view sfn-diagram-react@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "sfn-diagram-react@$VERSION is already on npm, skipping publish"
+            exit 0
+          fi
+          npm publish --provenance --access public
 
       - name: Verify the published version on npm
         run: |
@@ -421,10 +441,10 @@ jobs:
 
   # Standalone CLI executables (bun build --compile) attached to the GitHub
   # Release so people without Node can `curl` one binary. Built from the same
-  # dist/ the npm package ships. macOS assets are built on a macOS runner: bun
-  # ad-hoc code-signs Mach-O binaries natively there, whereas cross-compiled
-  # signatures have shipped truncated in past bun versions, and an unsigned
-  # arm64 binary is SIGKILLed by macOS before it prints anything.
+  # dist/ the npm package ships. macOS assets are built on a macOS runner
+  # because the signature bun writes cannot be trusted (see the re-sign step)
+  # and only macOS has `codesign` to replace it and launch the result; an
+  # unsigned or mis-signed arm64 binary is SIGKILLed before it prints anything.
   # On manual dispatch only run for a core tag: a subpackage tag (react, vscode,
   # action) has its own release, and uploading core binaries to it would both
   # mislabel that release and feed the Homebrew formula the wrong URLs.
@@ -475,19 +495,34 @@ jobs:
       - name: Build binaries
         run: pnpm run build:binary ${{ matrix.targets }}
 
-      # bun ad-hoc signs the Mach-O it emits, but the signature it writes for a
-      # cross-architecture target (darwin-x64 built on the arm64 runner) failed
-      # `codesign --verify` on the 1.6.0 release ("code or signature have been
-      # modified"), which macOS treats as SIGKILL-on-launch. Re-sign both with
-      # the system codesign, which is what bun's own docs recommend, then verify.
-      - name: Re-sign and verify macOS binaries
+      # bun ad-hoc signs the Mach-O it emits, but the signature it wrote for
+      # the cross-architecture darwin-x64 target failed `codesign --verify` on
+      # the 1.6.0 release ("code or signature have been modified"), which
+      # macOS treats as SIGKILL-on-launch. Replace both signatures with an
+      # ad-hoc one from the system codesign (--force overwrites the existing
+      # signature), verify, then actually launch the binaries: a valid
+      # signature proves the bytes match, not that the executable runs.
+      - name: Re-sign, verify, and smoke-test macOS binaries
         if: runner.os == 'macOS'
         run: |
           for binary in binaries/sfn-diagram-darwin-*; do
-            codesign --remove-signature "$binary"
             codesign --force --sign - "$binary"
             codesign --verify --verbose=2 "$binary"
           done
+          bash scripts/smoke-test-binary.sh binaries/sfn-diagram-darwin-arm64
+          # The x64 binary can only run here under Rosetta; launch it when
+          # the runner image has Rosetta, otherwise say so rather than skip
+          # silently.
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            VERSION="$(node -p "require('./package.json').version")"
+            ACTUAL="$(arch -x86_64 binaries/sfn-diagram-darwin-x64 --version)"
+            [ "$ACTUAL" = "$VERSION" ] || {
+              echo "::error::darwin-x64 binary reported '$ACTUAL', expected '$VERSION'"
+              exit 1
+            }
+          else
+            echo "::warning::Rosetta not available on this runner; darwin-x64 binary was signed and verified but not launched"
+          fi
 
       # --clobber so a re-run of a partially failed release replaces the asset
       # instead of failing on "already exists".

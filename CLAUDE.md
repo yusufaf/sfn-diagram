@@ -172,6 +172,8 @@ Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
 
 **To ship a release:** merge the open release PR. Nothing else needed.
 
+**If a core publish job fails after the tag exists** (binaries, SHA256SUMS, Homebrew formula, or a flaky verify step): run the `release-please` workflow manually with `publish_tag` set to the core tag (e.g. `sfn-diagram-v1.6.0`). Every core job is idempotent there: npm and JSR skip versions that already exist, binaries and checksums are re-uploaded with `--clobber`, and the formula is overwritten. Never re-publish by hand and never cut a new release just to retry.
+
 Commit types that increment the version:
 - `feat` → MINOR bump
 - `fix` / `perf` → PATCH bump
