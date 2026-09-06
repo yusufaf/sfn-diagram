@@ -1,8 +1,16 @@
 import dagre from '@dagrejs/dagre';
-import { getNodeSubLabelParts } from '../constants/labels';
-import { CONTAINER_HEADER_HEIGHT, CONTAINER_PADDING } from '../constants';
+import { getNodeSubLabel, getNodeSubLabelParts } from '../constants/labels';
+import {
+    CONTAINER_HEADER_HEIGHT,
+    CONTAINER_HEADER_PADDING_X,
+    CONTAINER_MAX_HEADER_WIDTH,
+    CONTAINER_PADDING,
+    getContainerHeaderFontSizes,
+} from '../constants';
+import { getTheme } from '../config/themes';
 import { isOpenContainer } from '../graph';
-import type { StateNode, GraphEdge, DiagramOptions } from '../types';
+import { estimateTextWidth } from '../utils/textMeasure';
+import type { StateNode, GraphEdge, DiagramOptions, CustomTheme } from '../types';
 
 /** Self-loop arc geometry. Each additional loop on a node nests one step further out. */
 const LOOP_BASE_REACH = 40;
@@ -29,9 +37,13 @@ const STACKED_LINE_HEIGHT = 16;
 
 export class DagreLayout {
     private options: DiagramOptions;
+    private theme: CustomTheme;
 
     constructor(options: DiagramOptions) {
         this.options = options;
+        // Resolved once so a container's minimum width agrees with what the renderer
+        // actually draws its header at - see calculateContainerBounds.
+        this.theme = getTheme(options.theme, options.customColors);
     }
 
     /**
@@ -247,11 +259,18 @@ export class DagreLayout {
             }
 
             if (children.length === 0) {
-                // No children, use default dimensions
+                // No children: fall back to a default box, still widened for the header
+                // the same way the normal path below is - a long name or sub-label on a
+                // childless container would otherwise be elided even though nothing here
+                // is forcing the box narrow.
+                const width = Math.max(
+                    400,
+                    Math.min(CONTAINER_MAX_HEADER_WIDTH, this.getContainerHeaderWidth(container)),
+                );
                 return {
                     ...container,
                     height: 200,
-                    width: 400,
+                    width,
                     x: 0,
                     y: 0,
                 };
@@ -278,7 +297,14 @@ export class DagreLayout {
                 maxY = Math.max(maxY, childY + halfHeight);
             }
 
-            const width = maxX - minX + padding * 2;
+            // The cap bounds only the header-driven growth below - it never shrinks the
+            // box below what the children themselves already need.
+            const childrenWidth = maxX - minX + padding * 2;
+            const headerWidth = Math.min(
+                CONTAINER_MAX_HEADER_WIDTH,
+                this.getContainerHeaderWidth(container),
+            );
+            const width = Math.max(childrenWidth, headerWidth);
             const height = maxY - minY + padding * 2 + headerHeight;
             const x = (minX + maxX) / 2;
             const y = (minY + maxY) / 2 + headerHeight / 2;
@@ -291,6 +317,35 @@ export class DagreLayout {
                 y,
             };
         });
+    }
+
+    /**
+     * Minimum width a container needs to fit its header, before the
+     * CONTAINER_MAX_HEADER_WIDTH cap is applied.
+     *
+     * Measured with the same font sizes and `showStateTypes` reading the renderer
+     * uses (`getContainerHeaderFontSizes`, `SvgRenderer`'s `this.options.showStateTypes
+     * === true`) so the box the layout hands back always has room for what actually
+     * gets drawn into it - a mismatch would leave the renderer eliding text the layout
+     * thought it had already made room for.
+     */
+    private getContainerHeaderWidth(container: StateNode): number {
+        const { canFitSubLabel, nameFontSize, subFontSize } = getContainerHeaderFontSizes(
+            this.theme.fontSize,
+        );
+
+        const nameWidth = estimateTextWidth(container.label, nameFontSize);
+        const subLabelWidth = canFitSubLabel
+            ? estimateTextWidth(
+                  getNodeSubLabel({
+                      node: container,
+                      showStateType: this.options.showStateTypes === true,
+                  }),
+                  subFontSize,
+              )
+            : 0;
+
+        return Math.max(nameWidth, subLabelWidth) + CONTAINER_HEADER_PADDING_X * 2;
     }
 
     /**

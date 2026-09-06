@@ -27,8 +27,12 @@ function loadFixture(name: string): AslDefinition {
 
 function render(name: string, theme?: CustomTheme): { nodes: StateNode[]; svg: string } {
     const { edges, nodes } = parseAsl({ definition: loadFixture(name) });
-    const layout = new DagreLayout({}).calculate(nodes, edges);
-    return { nodes: layout.nodes, svg: new SvgRenderer(theme ? { theme } : {}).render(layout).svg };
+    // Same options object to both: the layout resolves the theme to size a
+    // container's header-driven minimum width, and must agree with what the
+    // renderer actually draws that header at.
+    const options = theme ? { theme } : {};
+    const layout = new DagreLayout(options).calculate(nodes, edges);
+    return { nodes: layout.nodes, svg: new SvgRenderer(options).render(layout).svg };
 }
 
 /** Header text lines of one container, as `{ y, fontSize }` in the group's own frame. */
