@@ -42,5 +42,5 @@ COPY --from=build /app/dist ./dist
 COPY package.json ./
 
 USER node
-ENTRYPOINT ["dumb-init", "--", "node", "dist/cli.js"]
+ENTRYPOINT ["dumb-init", "--", "node", "dist/bin.js"]
 CMD ["--help"]
