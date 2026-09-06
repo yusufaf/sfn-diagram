@@ -100,13 +100,26 @@ jobs:
       - name: Validate package
         run: pnpm run validate
 
+      # Skip when the version is already on the registry so a workflow_dispatch
+      # re-run for a tag whose npm publish succeeded (but whose binaries or
+      # another job failed) doesn't die on "cannot publish over previously
+      # published version". jsr-publish already behaves this way.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$(npm view sfn-diagram@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "sfn-diagram@$VERSION is already on npm, skipping publish"
+            exit 0
+          fi
+          npm publish --provenance --access public
 
       # A successful `npm publish` only means the registry accepted the
       # tarball - it says nothing about whether the package actually installs
       # and runs. The registry can also lag a minute or so before a fresh
       # publish is visible. Poll for it, then actually run the published CLI.
+      # The npx run is retried too: on the 1.6.0 release the metadata was
+      # visible before the tarball was installable and npx failed with
+      # "sfn-diagram: not found" although the package was fine.
       - name: Verify the published version on npm
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -122,7 +135,14 @@ jobs:
             echo "::error::npm registry never showed sfn-diagram@$VERSION after publish"
             exit 1
           fi
-          npx --yes sfn-diagram@"$VERSION" --version
+          for i in $(seq 1 6); do
+            if [ "$(npx --yes sfn-diagram@"$VERSION" --version 2>/dev/null || true)" = "$VERSION" ]; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::npx sfn-diagram@$VERSION --version never reported $VERSION after publish"
+          exit 1
 
   # Publish to JSR (jsr.io) alongside npm. JSR reads TypeScript source directly,
   # so no build/browser install is needed. Tokenless OIDC — id-token: write, no
@@ -455,10 +475,17 @@ jobs:
       - name: Build binaries
         run: pnpm run build:binary ${{ matrix.targets }}
 
-      - name: Verify macOS code signatures
+      # bun ad-hoc signs the Mach-O it emits, but the signature it writes for a
+      # cross-architecture target (darwin-x64 built on the arm64 runner) failed
+      # `codesign --verify` on the 1.6.0 release ("code or signature have been
+      # modified"), which macOS treats as SIGKILL-on-launch. Re-sign both with
+      # the system codesign, which is what bun's own docs recommend, then verify.
+      - name: Re-sign and verify macOS binaries
         if: runner.os == 'macOS'
         run: |
           for binary in binaries/sfn-diagram-darwin-*; do
+            codesign --remove-signature "$binary"
+            codesign --force --sign - "$binary"
             codesign --verify --verbose=2 "$binary"
           done
 
