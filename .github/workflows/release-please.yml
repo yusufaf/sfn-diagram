@@ -405,12 +405,16 @@ jobs:
   # ad-hoc code-signs Mach-O binaries natively there, whereas cross-compiled
   # signatures have shipped truncated in past bun versions, and an unsigned
   # arm64 binary is SIGKILLed by macOS before it prints anything.
+  # On manual dispatch only run for a core tag: a subpackage tag (react, vscode,
+  # action) has its own release, and uploading core binaries to it would both
+  # mislabel that release and feed the Homebrew formula the wrong URLs.
   binaries:
     needs: release-please
     if: |
       always() &&
       (needs.release-please.outputs.release_created == 'true' ||
-       github.event_name == 'workflow_dispatch')
+       (github.event_name == 'workflow_dispatch' &&
+        startsWith(github.event.inputs.publish_tag, 'sfn-diagram-v')))
     strategy:
       fail-fast: false
       matrix:
@@ -512,6 +516,11 @@ jobs:
             exit 1
           }
 
+      # Smoke test before publishing checksums, so a broken binary set never
+      # carries a SHA256SUMS that makes it look verified.
+      - name: Smoke test the released linux-x64 binary
+        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
+
       - name: Publish SHA256SUMS
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -520,9 +529,6 @@ jobs:
           (cd binaries && sha256sum sfn-diagram-* > SHA256SUMS)
           cat binaries/SHA256SUMS
           gh release upload "$TAG" binaries/SHA256SUMS --clobber
-
-      - name: Smoke test the released linux-x64 binary
-        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
 
       - name: Keep SHA256SUMS for the Homebrew job
         uses: actions/upload-artifact@v4
@@ -589,7 +595,9 @@ jobs:
             exit 0
           fi
           git commit -m "sfn-diagram ${VERSION}"
-          git push
+          # -u origin HEAD: a freshly created, empty tap has an unborn default
+          # branch with no upstream, and a bare `git push` fails there.
+          git push -u origin HEAD
 
   # None of the publish jobs above are triggered by a human clicking something -
   # a failure has no "actor" to notify. File an issue so a broken publish to any

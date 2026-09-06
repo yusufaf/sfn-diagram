@@ -132,11 +132,17 @@ try {
             `--outfile=${outfile}`,
         ];
         console.log(`build-binaries: ${target} -> binaries/${assetName}`);
-        const result = spawnSync('bun', args, {
+        // Windows resolves the npm-installed `bun` through a .cmd shim, which
+        // needs a shell. With `shell: true` Node joins the arguments without
+        // quoting, so the two absolute paths are quoted by hand in case the
+        // checkout lives under a directory with a space in its name.
+        const useShell = process.platform === 'win32';
+        const shellArgs = useShell
+            ? args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg))
+            : args;
+        const result = spawnSync('bun', shellArgs, {
             cwd: root,
-            // Windows resolves the npm-installed `bun` through a .cmd shim, which
-            // needs a shell; none of the arguments contain spaces or quotes.
-            shell: process.platform === 'win32',
+            shell: useShell,
             stdio: 'inherit',
         });
         if (result.error) {

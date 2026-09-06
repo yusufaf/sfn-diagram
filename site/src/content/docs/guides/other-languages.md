@@ -93,6 +93,7 @@ package sfndiagram
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 )
 
