@@ -2,13 +2,27 @@
     "name": "vscode-sfn-diagram",
     "displayName": "Step Functions Diagram",
     "description": "Preview AWS Step Functions ASL definitions as diagrams",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "publisher": "yusufaf",
     "icon": "media/icon.png",
-    "galleryBanner": { "color": "#232f3e", "theme": "dark" },
-    "engines": { "vscode": "^1.85.0" },
-    "categories": ["Visualization", "Other"],
-    "keywords": ["step-functions", "stepfunctions", "asl", "diagram", "state-machine"],
+    "galleryBanner": {
+        "color": "#232f3e",
+        "theme": "dark"
+    },
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Visualization",
+        "Other"
+    ],
+    "keywords": [
+        "step-functions",
+        "stepfunctions",
+        "asl",
+        "diagram",
+        "state-machine"
+    ],
     "activationEvents": [],
     "main": "./out/extension.js",
     "contributes": {

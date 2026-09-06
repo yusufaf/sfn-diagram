@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.5.1...sfn-diagram-v1.6.0) (2026-09-06)
+
+
+### Features
+
+* add GitLab merge request integration via sfn-diagram/ci ([#108](https://github.com/yusufaf/sfn-diagram/issues/108)) ([60c1e38](https://github.com/yusufaf/sfn-diagram/commit/60c1e3893a3043b3d621d1cbd4aef9ccd46f38a2))
+* **cli:** ship standalone binaries for linux, macos, and windows ([#126](https://github.com/yusufaf/sfn-diagram/issues/126)) ([dab19ce](https://github.com/yusufaf/sfn-diagram/commit/dab19ce5aa4a714e87d987e790cef77c741bebd3)), closes [#123](https://github.com/yusufaf/sfn-diagram/issues/123)
+* **parser:** surface Wait duration and Distributed Map tolerance on the node ([#117](https://github.com/yusufaf/sfn-diagram/issues/117)) ([ca62222](https://github.com/yusufaf/sfn-diagram/commit/ca62222cf9fab71d7816b4b4eabd545e894d6642))
+* **viewer:** open a detail panel for the clicked edge ([#114](https://github.com/yusufaf/sfn-diagram/issues/114)) ([2176768](https://github.com/yusufaf/sfn-diagram/commit/21767687e6e507e585e307ee269d77273c94df1a))
+
+
+### Bug Fixes
+
+* address code review findings on gallery, sitemap, and scripts ([9689acf](https://github.com/yusufaf/sfn-diagram/commit/9689acf3f7828edba92a8a0947329791ed5435c3))
+* **jsr:** add the missing ./ci export to jsr.json ([#115](https://github.com/yusufaf/sfn-diagram/issues/115)) ([44e1a15](https://github.com/yusufaf/sfn-diagram/commit/44e1a155236e9930d44f2127c4c54a1673dd009d))
+* **layout:** keep a container's header inside the gap left for it ([#120](https://github.com/yusufaf/sfn-diagram/issues/120)) ([5d5e67a](https://github.com/yusufaf/sfn-diagram/commit/5d5e67a5359bc60e194bbdf2e881683beeec69e5))
+* **parser:** scope node ids by nesting so duplicate names stop colliding ([#122](https://github.com/yusufaf/sfn-diagram/issues/122)) ([8a258fc](https://github.com/yusufaf/sfn-diagram/commit/8a258fcef306727de23799291bc9943960b01a5c))
+* **parser:** validate nested Parallel branches and Map processors ([#116](https://github.com/yusufaf/sfn-diagram/issues/116)) ([10a7462](https://github.com/yusufaf/sfn-diagram/commit/10a7462f189089d921aa5115e349cf12a20a4570))
+
 ## [1.5.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.5.0...sfn-diagram-v1.5.1) (2026-09-03)
 
 
