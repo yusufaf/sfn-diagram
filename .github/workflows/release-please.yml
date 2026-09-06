@@ -142,14 +142,17 @@ jobs:
             echo "::error::npm registry never showed sfn-diagram@$VERSION after publish"
             exit 1
           fi
+          # Compare stdout only (stderr stays on the job log): npm writes a
+          # deprecation warning for the runner's .npmrc `always-auth` key to
+          # stderr, which failed the 1.6.1 check although the CLI printed the
+          # right version.
           cd "$(mktemp -d)"
           set +e
-          OUTPUT="$(npx --yes sfn-diagram@"$VERSION" --version 2>&1)"
+          OUTPUT="$(npx --yes sfn-diagram@"$VERSION" --version)"
           STATUS=$?
           set -e
           if [ "$STATUS" -ne 0 ] || [ "$OUTPUT" != "$VERSION" ]; then
-            echo "$OUTPUT"
-            echo "::error::npx sfn-diagram@$VERSION --version exited $STATUS with '$OUTPUT', expected '$VERSION'"
+            echo "::error::npx sfn-diagram@$VERSION --version exited $STATUS with stdout '$OUTPUT', expected '$VERSION'"
             exit 1
           fi
 
