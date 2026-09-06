@@ -1,5 +1,6 @@
 import dagre from '@dagrejs/dagre';
 import { getNodeSubLabelParts } from '../constants/labels';
+import { CONTAINER_HEADER_HEIGHT, CONTAINER_PADDING } from '../constants';
 import { isOpenContainer } from '../graph';
 import type { StateNode, GraphEdge, DiagramOptions } from '../types';
 
@@ -259,8 +260,8 @@ export class DagreLayout {
             // Calculate bounding box from children positions.
             // Use a single reduce pass (instead of Math.min(...spread)) to avoid both
             // four array allocations and call-stack overflow on very large containers.
-            const padding = 40;
-            const headerHeight = 50;
+            const padding = CONTAINER_PADDING;
+            const headerHeight = CONTAINER_HEADER_HEIGHT;
 
             let minX = Infinity;
             let maxX = -Infinity;
@@ -342,7 +343,7 @@ export class DagreLayout {
         // For container nodes, check if toNode is a child (branch start)
         if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
             // Edge from container to branch start: start below header
-            const headerHeight = 50;
+            const headerHeight = CONTAINER_HEADER_HEIGHT;
             const fromX = fromNode.x || 0;
             const toX = toNode.x || 0;
             const fromY = (fromNode.y || 0) - (fromNode.height || 0) / 2 + headerHeight;

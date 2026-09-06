@@ -15,6 +15,11 @@ import type {
     NodeStyle,
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
+import {
+    CONTAINER_HEADER_HEIGHT,
+    CONTAINER_HEADER_TEXT_HEIGHT,
+    CONTAINER_LINE_GAP_RATIO,
+} from '../constants';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
@@ -30,6 +35,9 @@ const EDGE_HIT_AREA_WIDTH = 12;
  * label stops short of the border rather than touching it.
  */
 const SUB_LABEL_PADDING = 8;
+
+/** Floor for the shrunk container sub-label, below which it stops being legible. */
+const MIN_SUB_LABEL_FONT_SIZE = 8;
 
 /** Node width assumed when neither the layout nor the options supply one. */
 const DEFAULT_NODE_WIDTH = 120;
@@ -357,7 +365,7 @@ export class SvgRenderer {
 
         const width = node.width || 480;
         const height = node.height || 180;
-        const headerHeight = 50;
+        const headerHeight = CONTAINER_HEADER_HEIGHT;
 
         // Draw translucent bounding box
         containerGroup
@@ -384,39 +392,77 @@ export class SvgRenderer {
             .attr('stroke', node.style?.stroke || '#c2185b')
             .attr('stroke-width', 2);
 
-        // Add container label in header
-        containerGroup
-            .append('text')
-            .attr('x', 0)
-            .attr('y', -height / 2 + headerHeight / 2)
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', this.theme.fontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(node.label);
+        const headerTop = -height / 2;
+        const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
+        const nameFontSize = this.theme.fontSize;
+
+        // The sub-label shrinks into whatever room is left rather than being dropped: a
+        // large custom theme.fontSize would otherwise silently lose the Distributed
+        // marker, concurrency, tolerance and batching altogether. The two clamped lines
+        // (below) never overlap as long as this stays at or under
+        // `CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize` — each line's independent clamp
+        // then lands them exactly touching at worst. The MIN_SUB_LABEL_FONT_SIZE floor
+        // exists for legibility, but once nameFontSize leaves it less room than that
+        // floor, honouring the floor would push the sub-label past that touching point
+        // and into the name — so canFitSubLabel below drops the sub-label there instead.
+        const subFontSize = Math.max(
+            MIN_SUB_LABEL_FONT_SIZE,
+            Math.min(nameFontSize - 2, CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize)
+        );
+        const canFitSubLabel = CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize >= MIN_SUB_LABEL_FONT_SIZE;
 
         // Sub-label under the container name. The Distributed marker and
         // MaxConcurrency are always shown when present — a Distributed Map runs a
         // child execution per batch rather than iterating inline, so it must not
         // read as a plain Map. The state type itself stays opt-in.
-        const subLabel = fitSubLabel({
-            availableWidth: width - SUB_LABEL_PADDING * 2,
-            measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
-            parts: getNodeSubLabelParts({
-                node,
-                showStateType: this.options.showStateTypes === true,
-            }),
-        });
+        const subLabel = canFitSubLabel
+            ? fitSubLabel({
+                  availableWidth: width - SUB_LABEL_PADDING * 2,
+                  measure: (text) => estimateTextWidth(text, subFontSize),
+                  parts: getNodeSubLabelParts({
+                      node,
+                      showStateType: this.options.showStateTypes === true,
+                  }),
+              })
+            : null;
+
+        // Both lines live inside the header band. When there is no sub-label the name is
+        // centred in it; when there is, the two straddle the centre, separated by a gap
+        // proportional to the font so a large custom fontSize cannot push the sub-label
+        // back out of the band. Both baselines are clamped to the band for the same
+        // reason — the band is only as tall as the gap the layout leaves above the
+        // children, so anything drawn past it lands under the first child row.
+        // The band's lower strip is covered by the first child row - containers are
+        // painted before their children - so the text gets CONTAINER_HEADER_TEXT_HEIGHT,
+        // the part genuinely clear of children, rather than the band's full height.
+        // Using the latter is what put the sub-label under the first child.
+        const lineGap = (nameFontSize + subFontSize) * CONTAINER_LINE_GAP_RATIO;
+        const clampToText = (y: number, fontSize: number): number =>
+            Math.min(
+                Math.max(y, headerTop + fontSize / 2),
+                headerTop + CONTAINER_HEADER_TEXT_HEIGHT - fontSize / 2
+            );
+
+        containerGroup
+            .append('text')
+            .attr('x', 0)
+            .attr('y', subLabel ? clampToText(textMiddle - lineGap / 2, nameFontSize) : textMiddle)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('fill', this.theme.textColor)
+            .attr('font-size', nameFontSize)
+            .attr('font-family', this.theme.fontFamily)
+            .text(node.label);
+
         if (subLabel) {
             containerGroup
                 .append('text')
                 .attr('x', 0)
-                .attr('y', -height / 2 + headerHeight / 2 + 18)
+                .attr('y', clampToText(textMiddle + lineGap / 2, subFontSize))
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
-                .attr('font-size', this.theme.fontSize - 2)
+                .attr('font-size', subFontSize)
                 .attr('opacity', 0.7)
                 .text(subLabel);
         }
