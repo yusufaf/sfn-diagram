@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
@@ -444,6 +444,72 @@ describe('SfnDiagram', () => {
             )
             expect(container.firstChild).toBeNull()
             expect(onError).toHaveBeenCalledWith(expect.any(Error))
+        })
+    })
+
+    describe('onStateClick', () => {
+        it('calls the callback once with the clicked state id', () => {
+            const onStateClick = vi.fn()
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} onStateClick={onStateClick} />
+            )
+            const node = container.querySelector('[data-state-id="HelloWorld"]')
+            fireEvent.click(node as Element)
+
+            expect(onStateClick).toHaveBeenCalledTimes(1)
+            expect(onStateClick).toHaveBeenCalledWith(
+                expect.objectContaining({ stateId: 'HelloWorld' })
+            )
+        })
+
+        it('resolves to the node when a descendant is clicked', () => {
+            const onStateClick = vi.fn()
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} onStateClick={onStateClick} />
+            )
+            const label = container.querySelector('[data-state-id="HelloWorld"] text')
+            fireEvent.click(label as Element)
+
+            expect(onStateClick).toHaveBeenCalledWith(
+                expect.objectContaining({ stateId: 'HelloWorld' })
+            )
+        })
+
+        it('does not call the callback when clicking blank canvas', () => {
+            const onStateClick = vi.fn()
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} onStateClick={onStateClick} />
+            )
+            const svg = container.querySelector('svg')
+            fireEvent.click(svg as Element)
+
+            expect(onStateClick).not.toHaveBeenCalled()
+        })
+
+        it('does not attach a click handler or throw when onStateClick is absent', () => {
+            const { container } = render(<SfnDiagram definition={HELLO_WORLD} />)
+            const node = container.querySelector('[data-state-id="HelloWorld"]')
+            expect(() => fireEvent.click(node as Element)).not.toThrow()
+        })
+
+        it('is not invoked in Mermaid format', () => {
+            const onStateClick = vi.fn()
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} format="mermaid" onStateClick={onStateClick} />
+            )
+            fireEvent.click(container.querySelector('pre') as Element)
+
+            expect(onStateClick).not.toHaveBeenCalled()
+        })
+
+        it('is not invoked in HTML format', () => {
+            const onStateClick = vi.fn()
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} format="html" onStateClick={onStateClick} />
+            )
+            fireEvent.click(container.querySelector('iframe') as Element)
+
+            expect(onStateClick).not.toHaveBeenCalled()
         })
     })
 

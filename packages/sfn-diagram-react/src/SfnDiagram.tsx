@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
     generateExecution,
     generateHtml,
@@ -44,6 +44,16 @@ export interface SfnDiagramProps
      */
     history?: ExecutionHistoryInput
     onError?: (error: Error) => void
+    /**
+     * Called when a state node is clicked. SVG format only - a click inside the
+     * sandboxed `format="html"` iframe does not reach this handler, and Mermaid
+     * output has no clickable elements. `stateId` is the graph node id, which
+     * equals the state name for every state whose name is unique across the
+     * machine; for a nested state whose name repeats elsewhere in the machine the
+     * id is qualified by its scope, so read it off the rendered `data-state-id`
+     * rather than assuming the bare name.
+     */
+    onStateClick?: (params: OnStateClickParams) => void
     style?: React.CSSProperties
     /**
      * Accessible title for the rendered iframe when `format` is `'html'`. Ignored
@@ -52,6 +62,12 @@ export interface SfnDiagramProps
      * @default 'Step Functions diagram'
      */
     title?: string
+}
+
+/** Parameters passed to {@link SfnDiagramProps.onStateClick}. */
+export interface OnStateClickParams {
+    event: React.MouseEvent<HTMLDivElement>
+    stateId: string
 }
 
 type DiagramResult =
@@ -91,6 +107,7 @@ export function SfnDiagram({
     layout = 'TB',
     nodeOverrides,
     onError,
+    onStateClick,
     showIcons,
     showVariables,
     style,
@@ -154,6 +171,20 @@ export function SfnDiagram({
         theme,
     ])
 
+    // A direct click target can be a descendant (the label text, an icon) rather
+    // than the node group itself, so `closest` is required - reading `event.target`
+    // alone would miss most clicks.
+    const handleStateClick = useCallback(
+        (event: React.MouseEvent<HTMLDivElement>) => {
+            const target = event.target instanceof Element ? event.target : null
+            const stateId = target?.closest('[data-state-id]')?.getAttribute('data-state-id')
+            if (stateId) {
+                onStateClick?.({ event, stateId })
+            }
+        },
+        [onStateClick]
+    )
+
     // Reporting an error is a side effect, so it belongs in an effect rather than
     // the render body: StrictMode double-invokes render in development, which
     // fired onError twice for a single real error. StrictMode also re-runs
@@ -201,6 +232,7 @@ export function SfnDiagram({
         <div
             className={className}
             dangerouslySetInnerHTML={{ __html: result.svg }}
+            onClick={onStateClick ? handleStateClick : undefined}
             style={style}
         />
     )
