@@ -107,7 +107,11 @@ function makeOctokit(params: OctokitStubParams = {}) {
         rest: {
             issues: {
                 createComment: vi.fn().mockResolvedValue({}),
-                listComments: vi.fn().mockResolvedValue({ data: existingComments }),
+                listComments: vi
+                    .fn()
+                    .mockImplementation(async (pageParams: PageParams) =>
+                        servePage(existingComments, pageParams),
+                    ),
                 updateComment: vi.fn().mockResolvedValue({}),
             },
             pulls: {
@@ -315,6 +319,28 @@ describe('run', () => {
         expect(stub.rest.pulls.listFiles).toHaveBeenCalledTimes(2)
         expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
         expect(createdBody(stub)).toContain('flows/order.asl.json')
+    })
+
+    it('updates the marker comment even when it falls past the first page', async () => {
+        // A marker comment's created_at is set once and never bumped by an update,
+        // so on a busy PR it ages off page 1 - and the action posted a duplicate.
+        setPullRequest()
+        const chatter = Array.from({ length: 120 }, (_, index) => ({
+            body: `unrelated comment ${index}`,
+            id: index + 1,
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            existingComments: [...chatter, { body: `${MARKER}\nprevious run`, id: 999 }],
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.issues.updateComment).toHaveBeenCalledTimes(1)
+        expect(stub.rest.issues.updateComment.mock.calls[0][0].comment_id).toBe(999)
+        expect(stub.rest.issues.createComment).not.toHaveBeenCalled()
     })
 
     it('updates the existing comment instead of creating a new one', async () => {

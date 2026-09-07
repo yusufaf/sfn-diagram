@@ -29,6 +29,14 @@ const LIST_PAGE_SIZE = 100
  */
 const MAX_LIST_PAGES = 5
 
+interface FindCommentByMarkerParams {
+    marker: string
+    octokit: ReturnType<typeof github.getOctokit>
+    owner: string
+    pullNumber: number
+    repo: string
+}
+
 interface ListChangedFilesParams {
     octokit: ReturnType<typeof github.getOctokit>
     owner: string
@@ -83,6 +91,35 @@ async function listChangedFiles(
     }
 
     return collected
+}
+
+/**
+ * The action's own comment from a previous run, found by its marker prefix.
+ *
+ * Paginated rather than first-page-only: a marker comment's created_at is set
+ * once at creation and never bumped by a later update, so on a PR with enough
+ * other discussion it drops off page 1 and the action posts a duplicate instead
+ * of updating what is already there.
+ */
+async function findCommentByMarker(
+    params: FindCommentByMarkerParams,
+): Promise<{ body?: string; id: number } | undefined> {
+    const { marker, octokit, owner, pullNumber, repo } = params
+
+    for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+        const { data } = await octokit.rest.issues.listComments({
+            issue_number: pullNumber,
+            owner,
+            page,
+            per_page: LIST_PAGE_SIZE,
+            repo,
+        })
+        const found = data.find((comment) => comment.body?.startsWith(marker))
+        if (found) return found
+        if (data.length < LIST_PAGE_SIZE) break
+    }
+
+    return undefined
 }
 
 export async function run(): Promise<void> {
@@ -197,13 +234,7 @@ export async function run(): Promise<void> {
     const marker = `${COMMENT_PREFIX}${commentTag}-->`
     const body = assembleCommentBody({ marker, sections: bodySections })
 
-    const { data: existingComments } = await octokit.rest.issues.listComments({
-        issue_number: pullNumber,
-        owner,
-        repo,
-    })
-
-    const existing = existingComments.find((comment) => comment.body?.startsWith(marker))
+    const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo })
 
     if (existing) {
         await octokit.rest.issues.updateComment({
