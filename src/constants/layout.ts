@@ -1,3 +1,5 @@
+import type { LayoutDirection } from '../types';
+
 /**
  * Geometry shared between the layout, which decides where a container's box goes, and
  * the renderer, which draws its header inside that box. Both kept their own copy of
@@ -32,6 +34,17 @@ export const CONTAINER_PADDING = 40;
  * it has always been.
  */
 export const CONTAINER_HEADER_HEIGHT = 50;
+
+/**
+ * True when a container's header band belongs at the *bottom* of its box instead
+ * of the top - only for `BT`, where the container's own flow enters from the
+ * bottom. `DagreLayout` (which reserves the extra room for the band) and
+ * `SvgRenderer` (which draws the band there) both need this exact same answer,
+ * so it lives here rather than as a copy in each.
+ */
+export function isBottomHeaderLayout(rankdir: LayoutDirection): boolean {
+    return rankdir === 'BT';
+}
 
 /**
  * Vertical space at the top of a container that is genuinely clear of its children,

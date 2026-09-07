@@ -7,6 +7,7 @@ export {
     CONTAINER_PADDING,
     MIN_SUB_LABEL_FONT_SIZE,
     getContainerHeaderFontSizes,
+    isBottomHeaderLayout,
 } from './layout';
 export {
     EDGE_LABELS,

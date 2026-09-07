@@ -6,6 +6,7 @@ import {
     CONTAINER_MAX_HEADER_WIDTH,
     CONTAINER_PADDING,
     getContainerHeaderFontSizes,
+    isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
 import { isMarkerNode, isOpenContainer } from '../graph';
@@ -49,8 +50,15 @@ function oppositeSide(side: FlowSide): FlowSide {
     }
 }
 
+/** Parameters for {@link sidePoint}. */
+interface SidePointParams {
+    node: StateNode;
+    side: FlowSide;
+}
+
 /** The point at the middle of a node's box on the given side. */
-function sidePoint(node: StateNode, side: FlowSide): { x: number; y: number } {
+function sidePoint(params: SidePointParams): { x: number; y: number } {
+    const { node, side } = params;
     const x = node.x || 0;
     const y = node.y || 0;
     const halfWidth = (node.width || 0) / 2;
@@ -67,22 +75,19 @@ function sidePoint(node: StateNode, side: FlowSide): { x: number; y: number } {
     }
 }
 
-/** Nudge a side point inward, toward the node's centre, by `amount`. */
-function insetFromSide(
-    point: { x: number; y: number },
-    side: FlowSide,
-    amount: number,
-): { x: number; y: number } {
-    switch (side) {
-        case 'top':
-            return { x: point.x, y: point.y + amount };
-        case 'bottom':
-            return { x: point.x, y: point.y - amount };
-        case 'left':
-            return { x: point.x + amount, y: point.y };
-        case 'right':
-            return { x: point.x - amount, y: point.y };
-    }
+/** Parameters for {@link insetFromSide}. */
+interface InsetFromSideParams {
+    amount: number;
+    point: { x: number; y: number };
+    // Only ever called for the container header band, which lives on the top or
+    // bottom side (see isBottomHeaderLayout) - never left/right.
+    side: 'top' | 'bottom';
+}
+
+/** Nudge a top/bottom side point inward, toward the node's centre, by `amount`. */
+function insetFromSide(params: InsetFromSideParams): { x: number; y: number } {
+    const { amount, point, side } = params;
+    return side === 'top' ? { x: point.x, y: point.y + amount } : { x: point.x, y: point.y - amount };
 }
 
 export interface LayoutResult {
@@ -427,8 +432,7 @@ export class DagreLayout {
             // room goes below the children (centre shifts down); under BT the band
             // flips to the bottom, so that room has to go above them instead (centre
             // shifts up) - see the same TB/BT split in calculateVisualEdgePoints.
-            const isBottomHeader = (this.options.layout || 'TB') === 'BT';
-            const y = isBottomHeader
+            const y = isBottomHeaderLayout(this.options.layout || 'TB')
                 ? (minY + maxY) / 2 - headerHeight / 2
                 : (minY + maxY) / 2 + headerHeight / 2;
 
@@ -538,13 +542,17 @@ export class DagreLayout {
             // with them - see calculateContainerBounds); under LR/RL it stays a
             // horizontal band across the top, clear of the left/right entry edge,
             // so there's nothing to duck under there.
-            const headerOnEntrySide = rankdir === 'TB' || rankdir === 'BT';
-            const rawFrom = sidePoint(fromNode, entrySide);
-            const from = headerOnEntrySide
-                ? insetFromSide(rawFrom, entrySide, CONTAINER_HEADER_HEIGHT)
-                : rawFrom;
+            const rawFrom = sidePoint({ node: fromNode, side: entrySide });
+            // Ducking under the header only applies for TB/BT, where entrySide is
+            // 'top'/'bottom' - never for LR/RL, where it's 'left'/'right'. This
+            // check both selects that case and narrows entrySide to the type
+            // insetFromSide accepts.
+            const from =
+                entrySide === 'top' || entrySide === 'bottom'
+                    ? insetFromSide({ amount: CONTAINER_HEADER_HEIGHT, point: rawFrom, side: entrySide })
+                    : rawFrom;
 
-            return [from, sidePoint(toNode, entrySide)];
+            return [from, sidePoint({ node: toNode, side: entrySide })];
         }
 
         // Any other container-touching edge: the container's own `-> Next` edge,
@@ -552,7 +560,7 @@ export class DagreLayout {
         // its own exit side and arrive on the target's entry side - whichever end
         // is actually the container, this is the same rule ordinary ranked edges
         // follow implicitly via dagre's rankdir.
-        return [sidePoint(fromNode, exitSide), sidePoint(toNode, entrySide)];
+        return [sidePoint({ node: fromNode, side: exitSide }), sidePoint({ node: toNode, side: entrySide })];
     }
 
     /**

@@ -23,6 +23,7 @@ import {
     CONTAINER_HEADER_TEXT_HEIGHT,
     CONTAINER_LINE_GAP_RATIO,
     getContainerHeaderFontSizes,
+    isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
@@ -377,7 +378,7 @@ export class SvgRenderer {
         // The header band sits at the top for TB/LR/RL, matching where
         // DagreLayout.calculateContainerBounds leaves the extra headerHeight room;
         // under BT that room - and the band - moves to the bottom instead.
-        const isBottomHeader = (this.options.layout || 'TB') === 'BT';
+        const isBottomHeader = isBottomHeaderLayout(this.options.layout || 'TB');
 
         // Draw translucent bounding box
         containerGroup
