@@ -62560,7 +62560,8 @@ function getNodeSubLabelParts(params) {
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
   if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
-  if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
+  if (typeof node.maxConcurrency === "number") parts.push(`max ${node.maxConcurrency}`);
+  else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
