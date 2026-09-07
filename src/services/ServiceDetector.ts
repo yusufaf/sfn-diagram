@@ -27,7 +27,11 @@ interface NormalizeServiceNameParams {
  *
  * Pinned rather than `@latest`: the URL is embedded verbatim into every generated
  * SVG and HTML document, so an unpinned specifier lets an upstream release change
- * or break icons in output that already shipped. Bump deliberately.
+ * or break icons in output that already shipped.
+ *
+ * Bump deliberately, and only alongside the icon names in SERVICE_ICON_MAP: an
+ * entry naming an icon that this version does not publish yet resolves to a 404
+ * with every check still green, since nothing here fetches the URL.
  */
 const AWS_ICONS_VERSION = '3.3.0';
 
@@ -223,7 +227,7 @@ function buildIconUrl(params: BuildIconUrlParams): string {
  * detectService({ state: taskState })
  * // Returns: {
  * //   serviceName: 'lambda',
- * //   iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/arch/Arch_AWS-Lambda_48.svg'
+ * //   iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/AWSLambda.svg'
  * // }
  *
  * @example
