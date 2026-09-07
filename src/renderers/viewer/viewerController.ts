@@ -523,7 +523,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             // to render differently per-copy. Edges keep their marker-end url(#...)
             // attributes, but with no matching id in the document they just draw without
             // an arrowhead, which doesn't matter at thumbnail scale.
-            for (const node of Array.from(clone.querySelectorAll('text, image, title, defs'))) {
+            for (const node of Array.from(clone.querySelectorAll('text, image, title, desc, defs'))) {
                 node.remove();
             }
             minimapThumb.textContent = ''; // clear a previous thumbnail before rebuilding

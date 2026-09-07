@@ -328,6 +328,20 @@ export interface DiagramOptions {
     customColors?: Partial<Record<StateType, NodeStyle>>;
 
     /**
+     * Accessible description for the diagram, rendered as the root `<svg>`'s `<desc>`.
+     * Falls back to a state/transition count summary when omitted.
+     */
+    diagramDescription?: string;
+
+    /**
+     * Accessible name for the diagram, rendered as the root `<svg>`'s `<title>` and
+     * `aria-label`. `generateSvg` defaults it from the ASL definition's top-level
+     * `Comment` when omitted.
+     * @default 'AWS Step Functions state machine diagram'
+     */
+    diagramTitle?: string;
+
+    /**
      * Render an invisible, thicker hit area beneath every edge so pointer events land
      * on a comfortable target rather than on the drawn stroke, which is 1.5–2px wide.
      *

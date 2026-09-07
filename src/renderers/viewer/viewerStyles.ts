@@ -170,13 +170,18 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
      rendered, and the id alone is also on the label and on inert static output. */
   [data-edge-hit-area] { cursor: pointer; }
   .sfn-dim { opacity: .15; pointer-events: none; }
-  .sfn-hit > :first-child { outline: 3px solid ${palette.accent}; }
+  /* A node/container group's first child is now its accessible <title> (see
+     SvgRenderer), which the outline must skip past onto the actually-drawn shape.
+     The ":not(title)" half keeps this working for pre-existing server-rendered SVG
+     from an older version - the <sfn-diagram interactive> progressive-enhancement
+     path can upgrade markup that predates per-node titles entirely. */
+  .sfn-hit > title + *, .sfn-hit > :first-child:not(title) { outline: 3px solid ${palette.accent}; }
   /* CSS properties beat SVG presentation attributes, so these win over the stroke and
      width the renderer wrote inline without needing !important. Restricted to the drawn
      path: the class also lands on the hit-area copy (a 12px slab) and, on a labelled
      edge, on the label's own rect and text, which a 3px stroke would render illegible. */
   path.sfn-edge-selected:not([data-edge-hit-area]) { stroke: ${palette.accent}; stroke-width: 3; }
-  .sfn-edge-endpoint > :first-child { outline: 2px dashed ${palette.accent}; }
+  .sfn-edge-endpoint > title + *, .sfn-edge-endpoint > :first-child:not(title) { outline: 2px dashed ${palette.accent}; }
   [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
     box-shadow: -2px 0 8px rgba(0,0,0,.12); }

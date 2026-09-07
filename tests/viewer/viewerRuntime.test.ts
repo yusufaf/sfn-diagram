@@ -112,6 +112,13 @@ describe('interactive viewer runtime', () => {
         ).toBe('Alpha');
         // The two non-matching states are dimmed.
         expect(await page.$$eval('.sfn-dim', (elements) => elements.length)).toBe(2);
+        // The outline lands on the drawn shape, not on the (invisible) <title> that
+        // now precedes it as the group's first child. `outlineWidth` alone isn't a
+        // reliable signal here - Chromium reports a nonzero initial value for it even
+        // when `outline-style` is `none` (unset) - so assert on the style instead.
+        expect(
+            await page.$eval('.sfn-hit rect', (element) => getComputedStyle(element).outlineStyle),
+        ).toBe('solid');
     });
 
     it('clears the search on Escape', async () => {

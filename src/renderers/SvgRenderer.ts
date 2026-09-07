@@ -153,6 +153,13 @@ export class SvgRenderer {
                 `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`,
             );
 
+        // `graphics-document` (not `img`) so per-node/edge semantics added below stay
+        // exposed to assistive tech rather than being flattened into one opaque image.
+        const titleText = this.accessibleTitle();
+        svg.attr('role', 'graphics-document').attr('aria-label', titleText);
+        svg.append('title').text(titleText);
+        svg.append('desc').text(this.accessibleDescription(layout));
+
         // Add background
         if (this.theme.background && this.theme.background !== 'transparent') {
             svg.append('rect')
@@ -286,6 +293,55 @@ export class SvgRenderer {
     }
 
     /**
+     * Accessible name for the diagram: the caller-supplied `diagramTitle`, or a fixed
+     * fallback. Rendered as both the root `<svg>`'s `<title>` and its `aria-label` -
+     * redundant on purpose, since `aria-label` wins the accessible-name computation
+     * everywhere while `<title>` also drives the hover tooltip and covers assistive
+     * tech that doesn't compute SVG accessible names.
+     */
+    private accessibleTitle(): string {
+        return this.options.diagramTitle ?? 'AWS Step Functions state machine diagram';
+    }
+
+    /**
+     * Accessible description for the diagram: the caller-supplied `diagramDescription`,
+     * or a state/transition count summary derived from the same layout the caller
+     * already sees in {@link SvgOutput.metadata}.
+     */
+    private accessibleDescription(layout: LayoutResult): string {
+        if (this.options.diagramDescription) {
+            return this.options.diagramDescription;
+        }
+        return `${layout.nodes.length} states, ${layout.edges.length} transitions.`;
+    }
+
+    /**
+     * Give a node or container group an accessible name via a `<title>` child, or -
+     * for a synthetic branch/iterator end marker, which has nothing meaningful to
+     * announce - hide it from assistive tech instead.
+     */
+    private appendAccessibleTitle(params: { group: SvgElement; node: StateNode }): void {
+        const { group, node } = params;
+        if (isMarkerNode(node)) {
+            group.attr('aria-hidden', 'true');
+            return;
+        }
+        group.append('title').text(`${node.label} (${node.type})`);
+    }
+
+    /**
+     * Accessible name for an edge: its endpoints, plus its label or condition when
+     * either is present. Every edge gets one - not only labelled edges - so a Choice
+     * condition otherwise only visible as small on-canvas text is exposed as a
+     * tooltip/accessible name even when no label is drawn.
+     */
+    private edgeAccessibleTitle(edge: GraphEdge): string {
+        const detail = edge.label ?? edge.condition;
+        const base = `${edge.from} to ${edge.to}`;
+        return detail ? `${base}: ${detail}` : base;
+    }
+
+    /**
      * Calculate bounding box including all nodes and edge points
      */
     private calculateBounds(params: CalculateBoundsParams): {
@@ -371,6 +427,8 @@ export class SvgRenderer {
             .attr('data-state-id', node.id)
             .attr('data-state-type', node.type)
             .attr('transform', `translate(${node.x}, ${node.y})`);
+
+        this.appendAccessibleTitle({ group: containerGroup, node });
 
         const width = node.width || 480;
         const height = node.height || 180;
@@ -543,6 +601,8 @@ export class SvgRenderer {
         if (!baseStyle) {
             return;
         }
+        this.appendAccessibleTitle({ group: nodeGroup, node });
+
         // Theme colour sits over the parse-time style, and the override over both:
         // that is how diff and execution overlays paint a state by its status rather
         // than its type, while a strokeWidth-only override keeps the theme's colour.
@@ -767,7 +827,9 @@ export class SvgRenderer {
             .attr('width', iconSize)
             .attr('height', iconSize)
             .attr('href', iconUrl)
-            .attr('preserveAspectRatio', 'xMidYMid meet');
+            .attr('preserveAspectRatio', 'xMidYMid meet')
+            .attr('role', 'presentation')
+            .attr('aria-hidden', 'true');
     }
 
     /**
@@ -843,12 +905,15 @@ export class SvgRenderer {
                 : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
         const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
+        const edgeTitle = this.edgeAccessibleTitle(edge);
 
         // Invisible widened copy of the same path. A 1.5px stroke is a punishing click
         // target; this gives the viewer a comfortable one without changing what the
         // diagram looks like. It carries the same `data-edge-id`, so a
         // `closest('[data-edge-id]')` lookup resolves either way. It goes in its own
         // group rather than beside the visible path - see the group ordering in render().
+        // It also carries its own `<title>` (the hit area sits on top of the drawn
+        // path, so without one it would swallow the hover tooltip).
         if (hitAreaGroup) {
             hitAreaGroup
                 .append('path')
@@ -858,7 +923,9 @@ export class SvgRenderer {
                 .attr('fill', 'none')
                 .attr('stroke', 'transparent')
                 .attr('stroke-width', EDGE_HIT_AREA_WIDTH)
-                .attr('pointer-events', 'stroke');
+                .attr('pointer-events', 'stroke')
+                .append('title')
+                .text(edgeTitle);
         }
 
         // Render path. The edge id is emitted alongside it so callers can read the key
@@ -872,6 +939,8 @@ export class SvgRenderer {
             .attr('stroke', strokeColor)
             .attr('stroke-width', strokeWidth)
             .attr('marker-end', `url(#arrowhead-${markerType})`);
+
+        pathElement.append('title').text(edgeTitle);
 
         if (override?.strokeOpacity !== undefined) {
             pathElement.attr('stroke-opacity', override.strokeOpacity);
