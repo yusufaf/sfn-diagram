@@ -49,15 +49,16 @@ export function SfnDiagram({
 
     const result = useMemo((): DiagramResult => {
         try {
+            const diagramOptions = { layout, theme }
             if (format === 'mermaid') {
                 const output = history
-                    ? generateMermaidExecution({ aslDefinition: asl, history, layout, theme })
-                    : generateMermaid({ aslDefinition: asl, layout, theme })
+                    ? generateMermaidExecution({ aslDefinition: asl, history, ...diagramOptions })
+                    : generateMermaid({ aslDefinition: asl, ...diagramOptions })
                 return { type: 'mermaid', code: output.code }
             }
             const output = history
-                ? generateExecution({ aslDefinition: asl, history, layout, theme })
-                : generateSvg({ aslDefinition: asl, layout, theme })
+                ? generateExecution({ aslDefinition: asl, history, ...diagramOptions })
+                : generateSvg({ aslDefinition: asl, ...diagramOptions })
             return { type: 'svg', svg: output.svg }
         } catch (err) {
             return { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
