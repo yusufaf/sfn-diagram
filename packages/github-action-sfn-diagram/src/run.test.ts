@@ -73,6 +73,49 @@ const afterAsl: AslDefinition = {
     },
 }
 
+const withCatchAsl: AslDefinition = {
+    StartAt: 'Risky',
+    States: {
+        Risky: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:::function:risky',
+            Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Handle' }],
+            End: true,
+        },
+        Handle: { Type: 'Fail', Error: 'Boom' },
+    },
+}
+
+const parallelAsl: AslDefinition = {
+    StartAt: 'Groups',
+    States: {
+        Groups: {
+            Type: 'Parallel',
+            End: true,
+            Branches: [
+                { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+                { StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } },
+            ],
+        },
+    },
+}
+
+const twoParallelAsl: AslDefinition = {
+    StartAt: 'GroupA',
+    States: {
+        GroupA: {
+            Type: 'Parallel',
+            Next: 'GroupB',
+            Branches: [{ StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } }],
+        },
+        GroupB: {
+            Type: 'Parallel',
+            End: true,
+            Branches: [{ StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } }],
+        },
+    },
+}
+
 /** A single Pass-chain ASL definition whose Mermaid diagram grows with `stateCount`. */
 function makeLargeAsl(stateCount: number): AslDefinition {
     const stateNames = Array.from({ length: stateCount }, (_, index) => `StateNumber${index}`)
@@ -169,6 +212,15 @@ beforeEach(() => {
         name === 'github-token' ? 'test-token' : '',
     )
 })
+
+/** Wraps the default `core.getInput` stub, overriding just the named inputs. */
+function withInputs(overrides: Record<string, string>): void {
+    vi.mocked(core.getInput).mockImplementation((name: string) => {
+        if (name in overrides) return overrides[name]
+        if (name === 'github-token') return 'test-token'
+        return ''
+    })
+}
 
 describe('matchesPatterns', () => {
     const patterns = ['**/*.asl.json', '**/*.asl']
@@ -601,5 +653,96 @@ describe('buildBoundedCommentBody', () => {
         expect(result.body).toContain('Execution diagram omitted')
         expect(result.body).toContain('a.asl.json')
         expect(result.body).toContain('```mermaid')
+    })
+})
+
+describe('run - diagram-rendering inputs', () => {
+    it('drops Catch branches from a plain diagram when hide-catch is true', async () => {
+        setPullRequest()
+        withInputs({ 'hide-catch': 'true' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: withCatchAsl },
+            files: [{ filename: 'flows/risky.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).not.toContain('Handle')
+    })
+
+    it('applies theme to a plain diagram', async () => {
+        setPullRequest()
+        withInputs({ theme: 'dark' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).toContain('classDef successState fill:#14532d')
+    })
+
+    it('applies layout to a plain diagram', async () => {
+        setPullRequest()
+        withInputs({ layout: 'LR' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).toContain('direction LR')
+    })
+
+    it('collapses every container when collapse is true', async () => {
+        setPullRequest()
+        withInputs({ collapse: 'true' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: parallelAsl },
+            files: [{ filename: 'flows/parallel.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        const body = createdBody(stub)
+        expect(body).not.toContain('BranchA')
+        expect(body).not.toContain('BranchB')
+    })
+
+    it('warns and falls back to light for an unrecognised theme value', async () => {
+        setPullRequest()
+        withInputs({ theme: 'purple' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('light, dark'))
+        expect(createdBody(stub)).toContain('classDef successState fill:#e8f5e8')
+    })
+
+    it('collapses only the named containers when collapse is a comma-separated list', async () => {
+        setPullRequest()
+        withInputs({ collapse: 'GroupA' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: twoParallelAsl },
+            files: [{ filename: 'flows/two-groups.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        const body = createdBody(stub)
+        expect(body).not.toContain('BranchA')
+        expect(body).toContain('BranchB')
     })
 })

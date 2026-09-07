@@ -63804,15 +63804,17 @@ function buildStatusMap(diff) {
   return statusByState;
 }
 function generateMermaidDiff(params) {
-  const { after: afterArg, before: beforeArg } = params;
+  const { after: afterArg, before: beforeArg, layout, theme } = params;
   const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
   const { added, mergedAsl, modified, removed, unchanged } = diff;
   const { edges, nodes } = parseAsl({ definition: mergedAsl });
   const { code, metadata } = new MermaidRenderer().render({
     asl: mergedAsl,
     edges,
+    layout,
     nodes,
-    stateClasses: buildStatusMap(diff)
+    stateClasses: buildStatusMap(diff),
+    theme
   });
   return {
     code,
@@ -64154,7 +64156,9 @@ function buildAslFileSection(change, options = {}) {
   }
   const diff = generateMermaidDiff({
     after: afterAsl,
-    before: beforeAsl
+    before: beforeAsl,
+    layout: options.layout,
+    theme: options.theme
   });
   const { added, modified, removed, unchanged } = diff.metadata;
   const rows = [];
@@ -64317,6 +64321,8 @@ async function fetchExecutionForOverlay(params) {
 // src/run.ts
 var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
 var EXECUTION_MODES = ["off", "latest", "latest-failed"];
+var DIAGRAM_THEMES = ["light", "dark"];
+var LAYOUT_DIRECTIONS = ["TB", "LR", "RL", "BT"];
 var MAX_COMMENT_CHARS = 65536;
 var DIAGRAM_TOO_LARGE_NOTE = "> \u{1F4CE} **Diagram omitted** \u2014 inlining it would push this comment past GitHub's 65,536-character comment limit. Shrink it with the `hide-catch` or `collapse` inputs, or open the file's diagram locally with the `sfn-diagram` CLI.";
 var EXECUTION_OVERLAY_KEY = "\0execution-overlay";
@@ -64427,6 +64433,38 @@ async function findCommentByMarker(params) {
   );
   return void 0;
 }
+function parseCollapseNames(value) {
+  return value.split(",").map((name) => name.trim()).filter((name) => name.length > 0);
+}
+function resolveDiagramOptions() {
+  const hideCatch = core.getInput("hide-catch").trim().toLowerCase() === "true";
+  const themeRaw = core.getInput("theme").trim().toLowerCase();
+  let theme = "light";
+  if (themeRaw !== "" && themeRaw !== "light") {
+    if (DIAGRAM_THEMES.includes(themeRaw)) {
+      theme = themeRaw;
+    } else {
+      core.warning(`Unknown theme "${themeRaw}"; expected one of ${DIAGRAM_THEMES.join(", ")}. Falling back to light.`);
+    }
+  }
+  const layoutRaw = core.getInput("layout").trim().toUpperCase();
+  let layout = "TB";
+  if (layoutRaw !== "" && layoutRaw !== "TB") {
+    if (LAYOUT_DIRECTIONS.includes(layoutRaw)) {
+      layout = layoutRaw;
+    } else {
+      core.warning(`Unknown layout "${layoutRaw}"; expected one of ${LAYOUT_DIRECTIONS.join(", ")}. Falling back to TB.`);
+    }
+  }
+  const collapseRaw = core.getInput("collapse").trim();
+  const collapse = collapseRaw === "" || collapseRaw.toLowerCase() === "false" ? void 0 : collapseRaw.toLowerCase() === "true" ? true : parseCollapseNames(collapseRaw);
+  return {
+    catchHandling: hideCatch ? "hide" : void 0,
+    collapse,
+    layout,
+    theme
+  };
+}
 async function run() {
   const token = core.getInput("github-token", { required: true });
   const aslGlobRaw = core.getInput("asl-glob") || "**/*.asl.json,**/*.asl";
@@ -64444,6 +64482,7 @@ async function run() {
     core.warning("execution-mode is set but state-machine-arn is empty; skipping the execution overlay.");
     executionMode = "off";
   }
+  const diagramOptions = resolveDiagramOptions();
   const patterns = aslGlobRaw.split(",").map((pattern) => pattern.trim());
   const { context: context3 } = github_exports;
   if (!context3.payload.pull_request) {
@@ -64480,7 +64519,7 @@ async function run() {
     if (afterAsl) {
       overlayCandidates.push({ afterAsl, filename });
     }
-    const section = buildAslFileSection({ afterAsl, beforeAsl, filename });
+    const section = buildAslFileSection({ afterAsl, beforeAsl, filename }, diagramOptions);
     if (section) sections.push(section);
   }
   if (sections.length === 0) {

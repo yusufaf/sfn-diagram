@@ -27,6 +27,6 @@ jobs:
       - uses: yusufaf/sfn-diagram-action@v1
 ```
 
-Inputs: `github-token` (defaults to `${{ github.token }}`), `asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `comment-tag` (marker used to find/update the comment, default `sfn-diagram-preview`).
+Inputs: `github-token` (defaults to `${{ github.token }}`), `asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `comment-tag` (marker used to find/update the comment, default `sfn-diagram-preview`), `hide-catch` (drop Catch branches, default `false`), `theme` (`light`/`dark`, default `light`), `layout` (`TB`/`LR`/`RL`/`BT`, default `TB`), and `collapse` (`true` to collapse every Parallel/Map container, or a comma-separated list of names, default empty). `hide-catch`, `layout`, `theme`, and `collapse` apply to new/deleted-file diagrams; a modified file's diff diagram honours `layout`/`theme` but ignores `hide-catch`/`collapse` — it renders a merged before/after graph with a per-state status map that dropping or collapsing states would desynchronise.
 
 Optionally overlay a real run: set `execution-mode` (`latest` or `latest-failed`) and `state-machine-arn` to append the most recent (or most recent failed) execution as a Mermaid overlay beneath the diff. This is opt-in (`off` by default), needs AWS credentials (`states:ListExecutions` + `states:GetExecutionHistory`), and applies when exactly one ASL file changed — see the [action README](https://github.com/yusufaf/sfn-diagram/blob/main/packages/github-action-sfn-diagram/README.marketplace.md) for a full workflow.

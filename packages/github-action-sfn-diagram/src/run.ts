@@ -11,13 +11,20 @@ import {
     renderAslFileSection,
     renderExecutionOverlaySection,
 } from 'sfn-diagram/ci'
-import type { AslFileSection, ExecutionOverlaySection, OverlayCandidate } from 'sfn-diagram/ci'
-import type { AslDefinition } from 'sfn-diagram'
+import type {
+    AslFileSection,
+    BuildAslFileSectionOptions,
+    ExecutionOverlaySection,
+    OverlayCandidate,
+} from 'sfn-diagram/ci'
+import type { AslDefinition, LayoutDirection } from 'sfn-diagram'
 import { fetchExecutionForOverlay } from './sfn.js'
 import type { ExecutionMode } from './sfn.js'
 
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
+const DIAGRAM_THEMES = ['light', 'dark'] as const
+const LAYOUT_DIRECTIONS: LayoutDirection[] = ['TB', 'LR', 'RL', 'BT']
 
 /**
  * GitHub rejects an issue/PR comment body longer than this with a raw 422.
@@ -255,6 +262,54 @@ async function findCommentByMarker(
     return undefined
 }
 
+/** Split a `collapse: Name1,Name2` value into trimmed, non-empty state names. */
+function parseCollapseNames(value: string): string[] {
+    return value
+        .split(',')
+        .map((name) => name.trim())
+        .filter((name) => name.length > 0)
+}
+
+/** Reads the diagram-rendering inputs, warning and falling back to the default on an unrecognised value. */
+function resolveDiagramOptions(): BuildAslFileSectionOptions {
+    const hideCatch = core.getInput('hide-catch').trim().toLowerCase() === 'true'
+
+    const themeRaw = core.getInput('theme').trim().toLowerCase()
+    let theme: 'light' | 'dark' = 'light'
+    if (themeRaw !== '' && themeRaw !== 'light') {
+        if ((DIAGRAM_THEMES as readonly string[]).includes(themeRaw)) {
+            theme = themeRaw as 'light' | 'dark'
+        } else {
+            core.warning(`Unknown theme "${themeRaw}"; expected one of ${DIAGRAM_THEMES.join(', ')}. Falling back to light.`)
+        }
+    }
+
+    const layoutRaw = core.getInput('layout').trim().toUpperCase()
+    let layout: LayoutDirection = 'TB'
+    if (layoutRaw !== '' && layoutRaw !== 'TB') {
+        if ((LAYOUT_DIRECTIONS as string[]).includes(layoutRaw)) {
+            layout = layoutRaw as LayoutDirection
+        } else {
+            core.warning(`Unknown layout "${layoutRaw}"; expected one of ${LAYOUT_DIRECTIONS.join(', ')}. Falling back to TB.`)
+        }
+    }
+
+    const collapseRaw = core.getInput('collapse').trim()
+    const collapse: boolean | string[] | undefined =
+        collapseRaw === '' || collapseRaw.toLowerCase() === 'false'
+            ? undefined
+            : collapseRaw.toLowerCase() === 'true'
+              ? true
+              : parseCollapseNames(collapseRaw)
+
+    return {
+        catchHandling: hideCatch ? 'hide' : undefined,
+        collapse,
+        layout,
+        theme,
+    }
+}
+
 export async function run(): Promise<void> {
     const token = core.getInput('github-token', { required: true })
     const aslGlobRaw = core.getInput('asl-glob') || '**/*.asl.json,**/*.asl'
@@ -274,6 +329,8 @@ export async function run(): Promise<void> {
         core.warning('execution-mode is set but state-machine-arn is empty; skipping the execution overlay.')
         executionMode = 'off'
     }
+
+    const diagramOptions = resolveDiagramOptions()
 
     const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
     const { context } = github
@@ -336,7 +393,7 @@ export async function run(): Promise<void> {
             overlayCandidates.push({ afterAsl, filename })
         }
 
-        const section = buildAslFileSection({ afterAsl, beforeAsl, filename })
+        const section = buildAslFileSection({ afterAsl, beforeAsl, filename }, diagramOptions)
         if (section) sections.push(section)
     }
 

@@ -9,7 +9,7 @@ import { minimatch } from 'minimatch';
 import { generateMermaid } from '../index';
 import { generateMermaidDiff } from '../diff';
 import { generateMermaidExecution } from '../execution';
-import type { AslDefinition, CatchHandling } from '../types';
+import type { AslDefinition, CatchHandling, LayoutDirection, ThemeOption } from '../types';
 import type {
     ExecutionMode,
     FetchExecutionForOverlayParams,
@@ -78,6 +78,16 @@ export interface AslFileSection {
     mermaidOpenByDefault: boolean;
 }
 
+/** Render options forwarded to the underlying Mermaid generators for one file's section. */
+export interface BuildAslFileSectionOptions {
+    /** Drop error-handler (Catch) branches. Plain (added/deleted) diagrams only — a diff diagram is unaffected. */
+    catchHandling?: CatchHandling;
+    /** Collapse Parallel/Map containers: `true` for all, or the named ones. Plain diagrams only. */
+    collapse?: boolean | string[];
+    layout?: LayoutDirection;
+    theme?: ThemeOption;
+}
+
 /**
  * Builds one report section for a changed ASL file: a plain diagram for an
  * added or deleted file, or a diff-highlighted diagram plus a change-summary
@@ -85,7 +95,7 @@ export interface AslFileSection {
  */
 export function buildAslFileSection(
     change: AslFileChange,
-    options: { catchHandling?: CatchHandling } = {},
+    options: BuildAslFileSectionOptions = {},
 ): AslFileSection | null {
     const { afterAsl, beforeAsl, filename } = change;
 
@@ -123,11 +133,15 @@ export function buildAslFileSection(
         };
     }
 
-    // generateMermaidDiff takes no DiagramOptions — `catchHandling` has no effect
-    // on a diff section, only on the plain (added/deleted) branches above.
+    // A diff renders a merged before/after graph with a per-state status map;
+    // dropping (catchHandling) or collapsing states would desynchronise that
+    // map, so only layout/theme reach a diff section — catchHandling/collapse
+    // have no effect here, only on the plain (added/deleted) branches above.
     const diff = generateMermaidDiff({
         after: afterAsl as AslDefinition,
         before: beforeAsl as AslDefinition,
+        layout: options.layout,
+        theme: options.theme,
     });
     const { added, modified, removed, unchanged } = diff.metadata;
 

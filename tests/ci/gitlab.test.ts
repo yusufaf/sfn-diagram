@@ -346,6 +346,38 @@ describe('runGitlabComment (integration, real git repo)', { timeout: 30_000 }, (
         expect(posted.body).toContain('```mermaid');
     });
 
+    it('passes theme through to the inline Mermaid of a plain section', async () => {
+        git(repo, 'commit', '-q', '--allow-empty', '-m', 'base');
+        const baseSha = git(repo, 'rev-parse', 'HEAD').trim();
+        writeFileSync(join(repo, 'new.asl.json'), simpleAsl('A'));
+        git(repo, 'add', '.');
+        git(repo, 'commit', '-q', '-m', 'head');
+
+        const { calls, fetchImpl } = makeFetchStub([]);
+        const result = await runGitlabComment({
+            ...baseParams,
+            cwd: repo,
+            env: {
+                CI_API_V4_URL: 'https://gitlab.example.com/api/v4',
+                CI_MERGE_REQUEST_DIFF_BASE_SHA: baseSha,
+                CI_MERGE_REQUEST_IID: '7',
+                CI_MERGE_REQUEST_PROJECT_ID: '42',
+                GITLAB_TOKEN: 'tok',
+            },
+            fetchImpl,
+            outputDir,
+            theme: 'dark',
+        });
+
+        expect(result.exitCode).toBe(0);
+        const postCall = calls.find((call) => call.init?.method === 'POST');
+        const posted = JSON.parse(postCall!.init!.body as string) as {
+            body: string;
+        };
+        expect(posted.body).toContain('classDef successState fill:#14532d');
+        expect(posted.body).not.toContain('classDef successState fill:#e8f5e8');
+    });
+
     it('updates the existing note (found by marker) on a second run instead of creating a new one', async () => {
         git(repo, 'commit', '-q', '--allow-empty', '-m', 'base');
         const baseSha = git(repo, 'rev-parse', 'HEAD').trim();

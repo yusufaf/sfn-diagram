@@ -314,7 +314,7 @@ export async function runGitlabComment(
 
         const section = buildAslFileSection(
             { afterAsl, beforeAsl, filename: file.filename },
-            { catchHandling },
+            { catchHandling, theme },
         );
         if (section) sections.push(section);
     }

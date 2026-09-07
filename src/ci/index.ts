@@ -45,6 +45,7 @@ export type {
     AslFileChange,
     AslFileSection,
     AssembleCommentBodyParams,
+    BuildAslFileSectionOptions,
     BuildExecutionOverlaySectionParams,
     BuildExecutionOverlaySectionResult,
     ExecutionOverlaySection,

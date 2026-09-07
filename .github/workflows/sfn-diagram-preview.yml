@@ -33,3 +33,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           asl-glob: '**/*.asl.json,**/*.asl'
+          hide-catch: 'true'
+          theme: 'dark'
+          layout: 'LR'

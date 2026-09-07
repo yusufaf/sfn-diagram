@@ -224,6 +224,58 @@ describe('buildAslFileSection', () => {
         expect(shown?.mermaidCode).toContain('Handle');
         expect(hidden?.mermaidCode).not.toContain('Handle');
     });
+
+    const withParallel: AslDefinition = {
+        StartAt: 'Branches',
+        States: {
+            Branches: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+                    { StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } },
+                ],
+                End: true,
+            },
+        },
+    };
+
+    it('applies collapse to a plain section', () => {
+        const expanded = buildAslFileSection({
+            afterAsl: withParallel,
+            beforeAsl: null,
+            filename: 'p.asl.json',
+        });
+        const collapsed = buildAslFileSection(
+            { afterAsl: withParallel, beforeAsl: null, filename: 'p.asl.json' },
+            { collapse: true },
+        );
+        expect(collapsed?.mermaidCode.length).toBeLessThan(expanded!.mermaidCode.length);
+        expect(collapsed?.mermaidCode).not.toContain('BranchA');
+    });
+
+    it('applies layout to a plain section', () => {
+        const section = buildAslFileSection(
+            { afterAsl, beforeAsl: null, filename: 'a.asl.json' },
+            { layout: 'LR' },
+        );
+        expect(section?.mermaidCode).toContain('direction LR');
+    });
+
+    it('applies theme to a plain section', () => {
+        const section = buildAslFileSection(
+            { afterAsl, beforeAsl: null, filename: 'a.asl.json' },
+            { theme: 'dark' },
+        );
+        expect(section?.mermaidCode).toContain('classDef taskState fill:#9c3400,stroke:#ffb74d,stroke-width:2px');
+    });
+
+    it('applies layout but not collapse to a diff section', () => {
+        const section = buildAslFileSection(
+            { afterAsl, beforeAsl, filename: 'order.asl.json' },
+            { collapse: true, layout: 'LR' },
+        );
+        expect(section?.mermaidCode).toContain('direction LR');
+    });
 });
 
 describe('renderAslFileSection', () => {

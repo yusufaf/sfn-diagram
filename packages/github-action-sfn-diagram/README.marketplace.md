@@ -101,6 +101,10 @@ The overlay is applied only when exactly one ASL file changed in the PR (so the 
 | `github-token` | `${{ github.token }}` | Token used to post/update the PR comment |
 | `asl-glob` | `**/*.asl.json,**/*.asl` | Comma-separated glob patterns matching ASL files |
 | `comment-tag` | `sfn-diagram-preview` | Marker used to find and update an existing comment |
+| `hide-catch` | `false` | Drop error-handler (Catch) branches from the rendered diagrams. Applies to new/deleted-file diagrams only; a modified file's diff diagram is unaffected |
+| `theme` | `light` | Colour theme driving the Mermaid `classDef` styling: `light` or `dark` |
+| `layout` | `TB` | Graph layout direction emitted as the Mermaid direction statement: `TB`, `LR`, `RL`, or `BT` |
+| `collapse` | `''` | Collapse Parallel/Map containers into a single placeholder node. `true` collapses every container; a comma-separated list of state names collapses only those. Applies to new/deleted-file diagrams only |
 | `execution-mode` | `off` | `off`, `latest`, or `latest-failed` — overlay a real execution (needs AWS creds) |
 | `state-machine-arn` | `''` | State machine ARN to fetch executions for (required unless `execution-mode: off`) |
 | `aws-region` | `''` | Region for the SFN client (defaults to the environment, e.g. `AWS_REGION`) |
