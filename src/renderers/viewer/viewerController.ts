@@ -568,16 +568,28 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         // toggle's auto-visibility rule (below) stops overriding their choice.
         let minimapUserToggled = false;
 
+        // Keeps the toolbar button's aria-pressed in sync with the minimap's actual
+        // visibility - "pressed" reads as "the minimap is showing", the inverse of the
+        // collapsed class - so it can never fall out of step with the class it mirrors.
+        const syncMinimapToggleState = (): void => {
+            minimapToggle.setAttribute(
+                'aria-pressed',
+                minimap.classList.contains('sfn-minimap-collapsed') ? 'false' : 'true',
+            );
+        };
+
         const toggleMinimap = (): void => {
             minimapUserToggled = true;
             minimap.classList.toggle('sfn-minimap-collapsed');
             updateMinimapViewport();
+            syncMinimapToggleState();
         };
 
         applyMinimapAutoVisibility = (autoHidden: boolean): void => {
             if (minimapUserToggled) return;
             minimap.classList.toggle('sfn-minimap-collapsed', autoHidden);
             updateMinimapViewport();
+            syncMinimapToggleState();
         };
 
         let minimapDragging = false;
@@ -614,6 +626,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         });
 
         buildMinimapThumbnail();
+        syncMinimapToggleState();
         onApply.push(updateMinimapViewport);
     }
 
@@ -633,6 +646,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             expandedView.hidden = !expandedView.hidden;
             collapsedView.hidden = !collapsedView.hidden;
             collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
+            // "Expanded" is a state (the expanded view is what's showing), not the
+            // button's own action label - the two disagree once the view is collapsed.
+            collapseToggle.setAttribute('aria-expanded', collapsedView.hidden ? 'true' : 'false');
             if (searchInput) searchInput.value = '';
             clearSearch();
             // The highlighted paths belong to the view being hidden; the panel would

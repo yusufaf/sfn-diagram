@@ -245,10 +245,30 @@ describe('interactive viewer runtime', () => {
         await page.keyboard.press('Escape');
         expect(await isPanelOpen()).toBe(false);
     });
+
+    it('shows a visible focus ring on a keyboard-focused toolbar button', async () => {
+        await page.focus('#sfn-search');
+        await page.keyboard.press('Tab');
+
+        expect(
+            await page.evaluate(() =>
+                document.activeElement?.hasAttribute('data-sfn-minimap-toggle'),
+            ),
+        ).toBe(true);
+        expect(
+            await page.evaluate(
+                () => getComputedStyle(document.activeElement as Element).outlineStyle,
+            ),
+        ).toBe('solid');
+    });
 });
 
 async function isMinimapCollapsed(): Promise<boolean> {
     return page.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+}
+
+async function minimapToggleAriaPressed(): Promise<string | null> {
+    return page.$eval('[data-sfn-minimap-toggle]', (element) => element.getAttribute('aria-pressed'));
 }
 
 async function rectOf(
@@ -272,6 +292,7 @@ describe('minimap', () => {
         await page.click('[data-sfn-minimap-toggle]');
 
         expect(await isMinimapCollapsed()).toBe(false);
+        expect(await minimapToggleAriaPressed()).toBe('true');
         expect(
             await page.$eval('#sfn-minimap-thumb', (element) => !!element.querySelector('svg')),
         ).toBe(true);
@@ -333,9 +354,11 @@ describe('minimap', () => {
     it('toggles via the "m" keyboard shortcut', async () => {
         await page.keyboard.press('KeyM');
         expect(await isMinimapCollapsed()).toBe(true);
+        expect(await minimapToggleAriaPressed()).toBe('false');
 
         await page.keyboard.press('KeyM');
         expect(await isMinimapCollapsed()).toBe(false);
+        expect(await minimapToggleAriaPressed()).toBe('true');
     });
 });
 
@@ -402,6 +425,9 @@ describe('collapse toggle runtime', () => {
         await collapsePage.close();
     });
 
+    const collapseToggleAriaExpanded = (): Promise<string | null> =>
+        collapsePage.$eval('[data-sfn-collapse-toggle]', (element) => element.getAttribute('aria-expanded'));
+
     it('shows the expanded view with both branch states visible by default', async () => {
         const expandedVisible = await collapsePage.$eval(
             '[data-sfn-view="expanded"]',
@@ -413,6 +439,7 @@ describe('collapse toggle runtime', () => {
         );
         expect(expandedVisible).toBe(true);
         expect(collapsedHidden).toBe(true);
+        expect(await collapseToggleAriaExpanded()).toBe('true');
     });
 
     it('toggling shows the collapsed placeholder and hides the branch states', async () => {
@@ -428,6 +455,7 @@ describe('collapse toggle runtime', () => {
         );
         expect(expandedHidden).toBe(true);
         expect(collapsedHidden).toBe(false);
+        expect(await collapseToggleAriaExpanded()).toBe('false');
 
         const buttonLabel = await collapsePage.$eval(
             '[data-sfn-collapse-toggle]',
@@ -453,6 +481,7 @@ describe('collapse toggle runtime', () => {
             (element) => element.textContent,
         );
         expect(buttonLabel).toBe('Collapse');
+        expect(await collapseToggleAriaExpanded()).toBe('true');
     });
 });
 
@@ -492,17 +521,22 @@ describe('minimap auto-visibility across the collapse toggle', () => {
 
     const minimapCollapsed = (): Promise<boolean> =>
         togglePage.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+    const minimapToggleAriaPressed = (): Promise<string | null> =>
+        togglePage.$eval('[data-sfn-minimap-toggle]', (element) => element.getAttribute('aria-pressed'));
 
     it('starts open for the large expanded view', async () => {
         expect(await minimapCollapsed()).toBe(false);
+        expect(await minimapToggleAriaPressed()).toBe('true');
     });
 
     it('auto-hides on switching to the small collapsed view, and reopens switching back', async () => {
         await togglePage.click('[data-sfn-collapse-toggle]');
         expect(await minimapCollapsed()).toBe(true);
+        expect(await minimapToggleAriaPressed()).toBe('false');
 
         await togglePage.click('[data-sfn-collapse-toggle]');
         expect(await minimapCollapsed()).toBe(false);
+        expect(await minimapToggleAriaPressed()).toBe('true');
     });
 
     it('leaves a manually-opened minimap open even on a later switch that would normally auto-hide it', async () => {

@@ -204,5 +204,17 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="minimap-thumb"] { position: absolute; inset: 0; cursor: pointer; }
   [data-sfn="minimap-thumb"] svg { display: block; }
   [data-sfn="minimap-viewport"] { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
+  [data-sfn="toolbar"] button:focus-visible, [data-sfn="panel-close"]:focus-visible { outline: 2px solid ${palette.accent}; outline-offset: 1px; }
+  /* The outline goes on the drawn shape, not the group itself - the group's first
+     child is now its accessible <title> (see SvgRenderer), which has no visible box
+     to draw an outline around. */
+  [data-state-id]:focus-visible { outline: none; }
+  [data-state-id]:focus-visible > title + * { outline: 3px solid ${palette.accent}; }
+  /* An edge hit area is an invisible, oversized stroke - an outline would trace that
+     oversized shape rather than the drawn line, so the visible edge is restyled instead. */
+  [data-edge-hit-area]:focus-visible { outline: none; stroke: ${palette.accent}; stroke-opacity: .4; }
+  /* Panel focus is programmatic (see the keyboard-open flow) - the dialog opening at
+     all is the affordance, so a ring around the whole 360px panel is just noise. */
+  [data-sfn="panel"]:focus { outline: none; }
 `;
 }
