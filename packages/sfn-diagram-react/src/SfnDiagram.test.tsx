@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
 
@@ -117,6 +118,32 @@ describe('SfnDiagram', () => {
         it('renders null without onError when definition is invalid', () => {
             const { container } = render(<SfnDiagram definition="bad json" />)
             expect(container.firstChild).toBeNull()
+        })
+    })
+
+    describe('onError', () => {
+        const INVALID = { StartAt: 'Missing', States: {} }
+
+        it('fires exactly once per error under StrictMode', () => {
+            const onError = vi.fn()
+
+            render(
+                <StrictMode>
+                    <SfnDiagram definition={INVALID} onError={onError} />
+                </StrictMode>
+            )
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            expect(onError.mock.calls[0][0]).toBeInstanceOf(Error)
+        })
+
+        it('does not fire again on a re-render with the same definition', () => {
+            const onError = vi.fn()
+            const { rerender } = render(<SfnDiagram definition={INVALID} onError={onError} />)
+
+            rerender(<SfnDiagram definition={INVALID} onError={onError} />)
+
+            expect(onError).toHaveBeenCalledTimes(1)
         })
     })
 })

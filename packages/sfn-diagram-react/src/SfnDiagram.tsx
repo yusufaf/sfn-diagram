@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
     generateExecution,
     generateMermaid,
@@ -64,8 +64,26 @@ export function SfnDiagram({
         }
     }, [asl, format, history, layout, theme])
 
-    if (result.type === 'error') {
+    // Reporting an error is a side effect, so it belongs in an effect rather than
+    // the render body: StrictMode double-invokes render in development, which
+    // fired onError twice for a single real error. StrictMode also re-runs
+    // effects on mount, so the reported result is tracked to keep one error to
+    // one call - a consumer that toasts or logs from onError sees it once.
+    const reportedResult = useRef<DiagramResult | null>(null)
+
+    useEffect(() => {
+        if (result.type !== 'error') {
+            reportedResult.current = null
+            return
+        }
+        if (reportedResult.current === result) {
+            return
+        }
+        reportedResult.current = result
         onError?.(result.error)
+    }, [onError, result])
+
+    if (result.type === 'error') {
         return null
     }
 
