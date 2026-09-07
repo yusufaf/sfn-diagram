@@ -501,10 +501,7 @@ export class SvgRenderer {
     }
 
     /**
-     * Render a single node
-     */
-    /**
-     * Fill and stroke for a node, resolved against the active theme.
+     * Fill and stroke for a node's state type, from the active theme.
      *
      * `AslParser` bakes a style into every node before any theme is known, so
      * `node.style` always carries the built-in light palette. The theme (and the
@@ -512,17 +509,17 @@ export class SvgRenderer {
      * is resolved at render time while shape and stroke width - which the layout
      * reads to size nodes - stay on `node.style`.
      *
-     * `nodeOverrides` wins: that is how diff and execution overlays paint a state
-     * by its status rather than its type.
+     * Deliberately theme-only: `nodeOverrides` is layered on top of this by
+     * `renderNode`, and left off containers entirely - an overlay's status colour
+     * stretched across a translucent bounding box washes the box out.
      */
     private resolveNodeColors(node: StateNode): Partial<Pick<NodeStyle, 'fill' | 'stroke'>> {
-        const override = this.options.nodeOverrides?.[node.id];
         // `node.type` is free-form (it also carries synthetic types like BranchEnd
         // and ItemReader), and a caller-supplied theme need not define nodeColors at
         // all - either miss leaves the key out, so `node.style` keeps its say.
         const themeColor = this.theme.nodeColors?.[node.type as StateType];
-        const fill = override?.fill ?? themeColor?.fill;
-        const stroke = override?.stroke ?? themeColor?.stroke;
+        const fill = themeColor?.fill;
+        const stroke = themeColor?.stroke;
 
         return {
             ...(fill === undefined ? {} : { fill }),
@@ -530,6 +527,9 @@ export class SvgRenderer {
         };
     }
 
+    /**
+     * Render a single node
+     */
     private renderNode(params: RenderNodeParams): void {
         const { group, node } = params;
         const nodeGroup = group
@@ -543,13 +543,13 @@ export class SvgRenderer {
         if (!baseStyle) {
             return;
         }
-        const override = this.options.nodeOverrides?.[node.id];
-        // resolveNodeColors already accounts for the override, so spreading it last
-        // keeps a strokeWidth-only override working while colour stays authoritative.
+        // Theme colour sits over the parse-time style, and the override over both:
+        // that is how diff and execution overlays paint a state by its status rather
+        // than its type, while a strokeWidth-only override keeps the theme's colour.
         const style: NodeStyle = {
             ...baseStyle,
-            ...override,
             ...this.resolveNodeColors(node),
+            ...this.options.nodeOverrides?.[node.id],
         };
 
         // Render shape based on type

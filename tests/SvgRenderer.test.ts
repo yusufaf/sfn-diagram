@@ -818,6 +818,28 @@ describe('Theme-driven node colors', () => {
         expect(taskRect(svg)).toContain('stroke="#2e7d32"');
     });
 
+    it('keeps the theme stroke when customColors names only a fill', () => {
+        const svg = renderFixture({
+            options: { customColors: { Task: { fill: '#ff0000' } }, theme: 'dark' },
+        } as { options: DiagramOptions });
+
+        expect(taskRect(svg)).toContain('fill="#ff0000"');
+        expect(taskRect(svg)).toContain('stroke="#ffb74d"');
+    });
+
+    it('leaves container colors to the theme rather than to nodeOverrides', () => {
+        // An overlay's status colour stretched across a translucent bounding box
+        // washes the box out - a container an execution never entered would be
+        // drawn near-invisible grey.
+        const svg = renderFixture({
+            fixture: 'parallel',
+            options: { nodeOverrides: { ParallelExecution: { fill: '#f5f5f5', stroke: '#bdbdbd' } } },
+        });
+
+        expect(containerRect(svg)).toContain('fill="#fce4ec"');
+        expect(containerRect(svg)).toContain('stroke="#c2185b"');
+    });
+
     it('paints a Map container with the Map theme colors, not Parallel pink', () => {
         const svg = renderFixture({ fixture: 'map', options: {} });
 

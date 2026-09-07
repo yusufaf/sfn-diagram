@@ -1,5 +1,4 @@
 import type { CustomTheme, StateType } from '../types';
-import { mergeRecordOptions } from './defaults';
 
 /**
  * AWS Light Theme - matches the AWS Step Functions console light mode
@@ -72,12 +71,16 @@ export function getTheme(
         baseTheme = theme;
     }
 
-    // Apply custom color overrides if provided
+    // Apply custom color overrides if provided. Merged per channel rather than per
+    // state type: an entry that names only a fill would otherwise drop the theme's
+    // stroke for that type, leaving the node half-themed.
     if (customColors) {
-        return {
-            ...baseTheme,
-            nodeColors: mergeRecordOptions(baseTheme.nodeColors, customColors),
-        };
+        const nodeColors = { ...baseTheme.nodeColors };
+        for (const [stateType, colors] of Object.entries(customColors)) {
+            const key = stateType as StateType;
+            nodeColors[key] = { ...nodeColors[key], ...colors };
+        }
+        return { ...baseTheme, nodeColors };
     }
 
     return baseTheme;
