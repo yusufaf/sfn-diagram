@@ -374,6 +374,11 @@ export class SvgRenderer {
         const height = node.height || 180;
         const headerHeight = CONTAINER_HEADER_HEIGHT;
 
+        // The header band sits at the top for TB/LR/RL, matching where
+        // DagreLayout.calculateContainerBounds leaves the extra headerHeight room;
+        // under BT that room - and the band - moves to the bottom instead.
+        const isBottomHeader = (this.options.layout || 'TB') === 'BT';
+
         // Draw translucent bounding box
         containerGroup
             .append('rect')
@@ -387,11 +392,11 @@ export class SvgRenderer {
             .attr('stroke-width', 2)
             .attr('opacity', 0.5);
 
-        // Draw header area at top
+        // Draw header area
         containerGroup
             .append('rect')
             .attr('x', -width / 2)
-            .attr('y', -height / 2)
+            .attr('y', isBottomHeader ? height / 2 - headerHeight : -height / 2)
             .attr('width', width)
             .attr('height', headerHeight)
             .attr('rx', 7)
@@ -399,7 +404,12 @@ export class SvgRenderer {
             .attr('stroke', node.style?.stroke || '#c2185b')
             .attr('stroke-width', 2);
 
-        const headerTop = -height / 2;
+        // The zone the header *text* is clamped into - the part of the band
+        // genuinely clear of children (see CONTAINER_HEADER_TEXT_HEIGHT). For a
+        // top band that's its own top edge; for a bottom band (BT) the band's
+        // near-children strip is instead its top few pixels, so the clear zone is
+        // the band's last CONTAINER_HEADER_TEXT_HEIGHT px, ending at the box edge.
+        const headerTop = isBottomHeader ? height / 2 - CONTAINER_HEADER_TEXT_HEIGHT : -height / 2;
         const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
         // getContainerHeaderFontSizes shrinks subFontSize into whatever room is left
         // rather than dropping it: a large custom theme.fontSize would otherwise
