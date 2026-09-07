@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import {
     generateExecution,
+    generateExecutionHtml,
+    generateExecutionHtmlAsync,
     generateMermaidExecution,
     parseExecutionHistory,
 } from '../src/index';
@@ -306,6 +308,88 @@ describe('retry self-loops in the overlay', () => {
         // TAKEN_EDGE_STYLE in src/execution.ts is `{ stroke: '#2e7d32', strokeWidth: 3 }`.
         expect(retryPath).not.toContain('#2e7d32');
         expect(retryPath).not.toContain('stroke-width="3"');
+    });
+});
+
+describe('generateExecutionHtml', () => {
+    it('wraps the execution overlay SVG in the interactive viewer', () => {
+        const result = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+
+        expect(result.html).toContain('<!DOCTYPE html>');
+        expect(result.html).toContain('data-sfn-zoom');
+        expect(result.html).toContain('data-sfn="search"');
+        expect(result.html).toContain('data-sfn="minimap"');
+        // The execution overlay's own styling still made it into the embedded SVG.
+        expect(result.html).toContain('#c8e6c9'); // succeeded fill
+        expect(result.html).toContain('stroke-opacity="0.2"'); // untaken edge
+    });
+
+    it('reports the same metadata as generateExecution for the same inputs', () => {
+        const svgResult = generateExecution({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+        const htmlResult = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+
+        expect(htmlResult.metadata).toEqual(svgResult.metadata);
+        expect(htmlResult.height).toBe(svgResult.height);
+        expect(htmlResult.width).toBe(svgResult.width);
+    });
+
+    it('embeds clickable edges and state detail, like generateHtml does', () => {
+        const result = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+
+        expect(result.html).toContain('data-edge-hit-area');
+        expect(result.html).toContain('id="sfn-state-data"');
+    });
+
+    it('stamps the given nonce on every script and style tag', () => {
+        const result = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+            nonce: 'abc123',
+        });
+
+        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        expect(scriptTags.length).toBeGreaterThan(0);
+        expect(styleTags.length).toBeGreaterThan(0);
+        for (const tag of [...scriptTags, ...styleTags]) {
+            expect(tag).toContain('nonce="abc123"');
+        }
+    });
+
+    it('omits nonce attributes entirely when not provided', () => {
+        const result = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+        expect(result.html).not.toContain('nonce=');
+    });
+});
+
+describe('generateExecutionHtmlAsync', () => {
+    it('matches generateExecutionHtml when the diagram has no remote icons', async () => {
+        const sync = generateExecutionHtml({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+        const async = await generateExecutionHtmlAsync({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+
+        expect(async.html).toBe(sync.html);
+        expect(async.metadata).toEqual(sync.metadata);
     });
 });
 

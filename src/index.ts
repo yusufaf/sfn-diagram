@@ -610,11 +610,13 @@ export type {
     // Execution overlay
     EdgeStyleOverride,
     ExecutionHistoryInput,
+    ExecutionHtmlOutput,
     ExecutionOutput,
     ExecutionOverlay,
     ExecutionStateResult,
     ExecutionStateStatus,
     ExecutionStatus,
+    GenerateExecutionHtmlParams,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
     MermaidExecutionOutput,
@@ -636,6 +638,8 @@ export { AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
 export {
     generateExecution,
+    generateExecutionHtml,
+    generateExecutionHtmlAsync,
     generateMermaidExecution,
     parseExecutionHistory,
 } from './execution';

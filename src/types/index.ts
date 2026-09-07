@@ -826,6 +826,29 @@ export interface ExecutionOutput {
     width: number;
 }
 
+/** Parameters for `generateExecutionHtml`/`generateExecutionHtmlAsync`. */
+export interface GenerateExecutionHtmlParams extends GenerateExecutionParams {
+    /**
+     * Content-Security-Policy nonce to stamp on every embedded `<style>`/`<script>`
+     * tag, so the document runs under a host with a strict `script-src 'nonce-…'`
+     * policy (e.g. a VS Code webview). Must match `/^[A-Za-z0-9+/=_-]+$/` or an
+     * error is thrown. Omit for a document with no nonce attributes at all.
+     */
+    nonce?: string;
+}
+
+/** Self-contained interactive HTML execution overlay output. */
+export interface ExecutionHtmlOutput {
+    /** Height of the diagram in pixels. */
+    height: number;
+    /** Complete, self-contained HTML document with an inline pan/zoom viewer. */
+    html: string;
+    /** Execution summary metadata. */
+    metadata: ExecutionOutput['metadata'];
+    /** Width of the diagram in pixels. */
+    width: number;
+}
+
 /** Mermaid execution overlay output. */
 export interface MermaidExecutionOutput {
     /** Mermaid state diagram syntax with execution highlighting */
