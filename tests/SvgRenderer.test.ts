@@ -780,6 +780,9 @@ describe('Theme-driven node colors', () => {
     const taskRect = (svg: string): string =>
         svg.match(/<g class="node node-Task"[^>]*>[\s\S]*?<rect[^>]*>/)![0];
 
+    const containerRect = (svg: string): string =>
+        svg.match(/<g class="container[^>]*>[\s\S]*?<rect[^>]*>/)![0];
+
     it('paints Task nodes with the dark theme fill and stroke', () => {
         const svg = renderFixture({ options: { theme: 'dark' } });
 
@@ -813,6 +816,20 @@ describe('Theme-driven node colors', () => {
 
         expect(taskRect(svg)).toContain('fill="#c8e6c9"');
         expect(taskRect(svg)).toContain('stroke="#2e7d32"');
+    });
+
+    it('paints a Map container with the Map theme colors, not Parallel pink', () => {
+        const svg = renderFixture({ fixture: 'map', options: {} });
+
+        expect(containerRect(svg)).toContain('fill="#f1f8e9"');
+        expect(containerRect(svg)).toContain('stroke="#558b2f"');
+    });
+
+    it('paints a container with the dark theme colors under theme: dark', () => {
+        const svg = renderFixture({ fixture: 'parallel', options: { theme: 'dark' } });
+
+        expect(containerRect(svg)).toContain('fill="#880e4f"');
+        expect(containerRect(svg)).toContain('stroke="#f48fb1"');
     });
 
 });

@@ -381,6 +381,11 @@ export class SvgRenderer {
         // under BT that room - and the band - moves to the bottom instead.
         const isBottomHeader = isBottomHeaderLayout(this.options.layout || 'TB');
 
+        const {
+            fill = node.style?.fill || '#fce4ec',
+            stroke = node.style?.stroke || '#c2185b',
+        } = this.resolveNodeColors(node);
+
         // Draw translucent bounding box
         containerGroup
             .append('rect')
@@ -389,8 +394,8 @@ export class SvgRenderer {
             .attr('width', width)
             .attr('height', height)
             .attr('rx', 7)
-            .attr('fill', node.style?.fill || '#fce4ec')
-            .attr('stroke', node.style?.stroke || '#c2185b')
+            .attr('fill', fill)
+            .attr('stroke', stroke)
             .attr('stroke-width', 2)
             .attr('opacity', 0.5);
 
@@ -402,8 +407,8 @@ export class SvgRenderer {
             .attr('width', width)
             .attr('height', headerHeight)
             .attr('rx', 7)
-            .attr('fill', node.style?.fill || '#fce4ec')
-            .attr('stroke', node.style?.stroke || '#c2185b')
+            .attr('fill', fill)
+            .attr('stroke', stroke)
             .attr('stroke-width', 2);
 
         // The zone the header *text* is clamped into - the part of the band
