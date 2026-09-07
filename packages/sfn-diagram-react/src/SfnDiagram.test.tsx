@@ -328,6 +328,56 @@ describe('SfnDiagram', () => {
         })
     })
 
+    describe('nodeOverrides and edgeOverrides', () => {
+        it('applies a fill override to the matching node', () => {
+            const { container } = render(
+                <SfnDiagram
+                    definition={WITH_ASSIGN}
+                    nodeOverrides={{ LoadTotal: { fill: '#ff0000' } }}
+                />
+            )
+            const node = container.querySelector('[data-state-id="LoadTotal"]')
+            expect(node?.innerHTML).toContain('#ff0000')
+        })
+
+        it('ignores an override for an unknown node id', () => {
+            const { container } = render(
+                <SfnDiagram
+                    definition={WITH_ASSIGN}
+                    nodeOverrides={{ NoSuchState: { fill: '#ff0000' } }}
+                />
+            )
+            expect(container.querySelector('svg')).toBeInTheDocument()
+            expect(container.querySelector('svg')?.innerHTML).not.toContain('#ff0000')
+        })
+
+        it('applies a stroke override to the matching edge by its qualified id', () => {
+            const { container: plain } = render(<SfnDiagram definition={WITH_ASSIGN} />)
+            const edgeId = plain.querySelector('path[data-edge-id]')?.getAttribute('data-edge-id')
+            expect(edgeId).toBeTruthy()
+
+            const { container } = render(
+                <SfnDiagram
+                    definition={WITH_ASSIGN}
+                    edgeOverrides={{ [edgeId as string]: { stroke: '#00ff00' } }}
+                />
+            )
+            const edge = container.querySelector(`path[data-edge-id="${edgeId}"]`)
+            expect(edge?.getAttribute('stroke')).toBe('#00ff00')
+        })
+
+        it('ignores an override for an unknown edge id', () => {
+            const { container } = render(
+                <SfnDiagram
+                    definition={WITH_ASSIGN}
+                    edgeOverrides={{ 'NoSuchEdge->Anywhere#normal#0': { stroke: '#00ff00' } }}
+                />
+            )
+            const edge = container.querySelector('path[data-edge-id]')
+            expect(edge?.getAttribute('stroke')).not.toBe('#00ff00')
+        })
+    })
+
     describe('Error handling', () => {
         it('returns null and calls onError for invalid JSON string', () => {
             const onError = vi.fn()

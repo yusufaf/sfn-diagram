@@ -7,18 +7,22 @@ import {
     generateMermaidExecution,
     generateSvg,
 } from 'sfn-diagram'
-import type { DiagramOptions, ExecutionHistoryInput, LayoutDirection, ThemeOption } from 'sfn-diagram'
+import type { DiagramOptions, ExecutionHistoryInput } from 'sfn-diagram'
 
 export interface SfnDiagramProps
     extends Pick<
         DiagramOptions,
         | 'catchHandling'
         | 'collapse'
+        | 'edgeOverrides'
         | 'edgeStyle'
         | 'iconPosition'
         | 'iconSize'
+        | 'layout'
+        | 'nodeOverrides'
         | 'showIcons'
         | 'showVariables'
+        | 'theme'
     > {
     className?: string
     definition: object | string
@@ -31,10 +35,8 @@ export interface SfnDiagramProps
      * JSON string of either.
      */
     history?: ExecutionHistoryInput
-    layout?: LayoutDirection
     onError?: (error: Error) => void
     style?: React.CSSProperties
-    theme?: ThemeOption
 }
 
 type DiagramResult =
@@ -64,12 +66,14 @@ export function SfnDiagram({
     className,
     collapse,
     definition,
+    edgeOverrides,
     edgeStyle,
     format = 'svg',
     history,
     iconPosition,
     iconSize,
     layout = 'TB',
+    nodeOverrides,
     onError,
     showIcons,
     showVariables,
@@ -86,10 +90,12 @@ export function SfnDiagram({
             const diagramOptions = omitUndefinedValues({
                 catchHandling,
                 collapse,
+                edgeOverrides,
                 edgeStyle,
                 iconPosition,
                 iconSize,
                 layout,
+                nodeOverrides,
                 showIcons,
                 showVariables,
                 theme,
@@ -111,12 +117,14 @@ export function SfnDiagram({
         asl,
         catchHandling,
         collapse,
+        edgeOverrides,
         edgeStyle,
         format,
         history,
         iconPosition,
         iconSize,
         layout,
+        nodeOverrides,
         showIcons,
         showVariables,
         theme,
