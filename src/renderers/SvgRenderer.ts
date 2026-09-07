@@ -5,7 +5,7 @@ import {
     getAssignedVariablesLabel,
     getNodeSubLabelParts,
 } from '../constants/labels';
-import { isOpenContainer } from '../graph';
+import { isMarkerNode, isOpenContainer } from '../graph';
 import { parsePath, pointAtHalfLength } from '../utils/pathSample';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
@@ -249,10 +249,7 @@ export class SvgRenderer {
         layout.edges.forEach((edge) => {
             // Skip edges from branch/iterator end markers - we show container edges instead
             const fromNode = nodesById.get(edge.from);
-            if (
-                fromNode &&
-                (fromNode.type === 'BranchEnd' || fromNode.type === 'IteratorEnd')
-            ) {
+            if (fromNode && isMarkerNode(fromNode)) {
                 return;
             }
 

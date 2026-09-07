@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MermaidRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
+import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
@@ -258,6 +259,63 @@ describe('MermaidRenderer', () => {
             expect(result.code).toContain('ParallelExecution');
             expect(result.code).toContain('Branch1');
             expect(result.code).toContain('Branch2');
+        });
+
+        it('should not emit branch/iterator end marker states or duplicate transitions', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__end');
+            expect(result.code).not.toContain('__branch');
+            expect(result.code).toContain('Branch1 --> FinalState');
+            expect(result.code).toContain('Branch2 --> FinalState');
+            // One arrival per branch, not a third duplicate straight from the container.
+            expect(result.code.match(/--> FinalState/g)).toHaveLength(2);
+            expect(result.metadata.stateCount).toBe(4);
+            expect(result.metadata.edgeCount).toBe(4);
+        });
+
+        it('should not emit an iterator end marker state for Map', () => {
+            const asl = loadFixture('map');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__iterator__end');
+            expect(result.code).toContain('ValidateItem --> Done');
+            expect(result.code.match(/--> Done/g)).toHaveLength(1);
+        });
+
+        it('should flatten markers through a nested container without leaking them', () => {
+            const asl = loadFixture('nested-map');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__end');
+            // ProcessBatch (the nested Map) is itself the branch's terminal state,
+            // so its container -> Next edge is what carries the branch to Complete.
+            expect(result.code).toContain('ProcessBatch --> Complete');
+            expect(result.code).toContain('Notify --> Complete');
+        });
+
+        it('should keep a collapsed container reachable via its placeholder', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const collapsed = applyCollapse({ collapse: true, edges, nodes });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes: collapsed.nodes, edges: collapsed.edges, asl });
+
+            // No branch markers survive the collapse itself, and the container's own
+            // -> Next visual edge - its only remaining link to the rest of the graph -
+            // must not be mistaken for a now-nonexistent duplicate and dropped too.
+            expect(result.code).toContain('ParallelExecution --> FinalState');
         });
 
         it('should handle error transitions', () => {

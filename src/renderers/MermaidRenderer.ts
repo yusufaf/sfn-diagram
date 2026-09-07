@@ -1,4 +1,5 @@
 import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
+import { flattenMarkers } from '../graph';
 import type {
     StateNode,
     GraphEdge,
@@ -96,14 +97,18 @@ export class MermaidRenderer {
     render(params: RenderMermaidParams): MermaidOutput {
         const {
             asl,
-            edges,
             executionClasses,
             nodeAnnotations,
-            nodes,
             showVariables,
             stateClasses,
         } = params;
         const lines: string[] = [];
+
+        // Drop synthetic branch/iterator end markers and rewire around them -
+        // SvgRenderer draws them as small dots and needs the container -> Next
+        // edge they anchor, but stateDiagram-v2 has no equivalent for a marker
+        // with an empty label, so left in they render as phantom states.
+        const { nodes, edges } = flattenMarkers({ edges: params.edges, nodes: params.nodes });
 
         // Reset per-render id allocation, then pre-allocate ids for every node in
         // order. Distinct state names that sanitize to the same base (e.g.

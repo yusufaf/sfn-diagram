@@ -8,7 +8,7 @@ import {
     getContainerHeaderFontSizes,
 } from '../constants';
 import { getTheme } from '../config/themes';
-import { isOpenContainer } from '../graph';
+import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type { StateNode, GraphEdge, DiagramOptions, CustomTheme } from '../types';
 
@@ -303,7 +303,7 @@ export class DagreLayout {
                     continue;
                 }
                 const child = positionedNodeIndex.get(childId);
-                if (child && child.type !== 'BranchEnd' && child.type !== 'IteratorEnd') {
+                if (child && !isMarkerNode(child)) {
                     children.push(child);
                 }
             }
@@ -497,7 +497,7 @@ export class DagreLayout {
             case 'circle': {
                 // Circles need to be square to render properly
                 // Branch end markers should be small
-                if (node.type === 'BranchEnd' || node.type === 'IteratorEnd') {
+                if (isMarkerNode(node)) {
                     return { height: 16, width: 16 };
                 }
                 // Terminal states (Succeed/Fail) use consistent fixed sizing

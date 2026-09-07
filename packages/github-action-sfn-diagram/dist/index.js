@@ -62615,7 +62615,16 @@ function detectServiceFromResource(params) {
     serviceName
   };
 }
-var SYNTHETIC_MARKER_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
+function isOpenContainer(node) {
+  return node.isContainer === true && !node.collapsed;
+}
+var MARKER_NODE_TYPES = /* @__PURE__ */ new Set(["BranchEnd", "IteratorEnd"]);
+function isMarkerNode(node) {
+  return MARKER_NODE_TYPES.has(node.type);
+}
+function getMapProcessor(state2) {
+  return state2.ItemProcessor ?? state2.Iterator;
+}
 function computeCollapsePlan(params) {
   const { collapse, edges, nodes } = params;
   const nodesById = new Map(nodes.map((node) => [node.id, node]));
@@ -62679,7 +62688,7 @@ function applyCollapse(params) {
     let collapsedCount = 0;
     for (const id of closure) {
       const descendant = nodesById.get(id);
-      if (descendant && !SYNTHETIC_MARKER_TYPES.has(descendant.type)) collapsedCount += 1;
+      if (descendant && !isMarkerNode(descendant)) collapsedCount += 1;
     }
     return {
       ...node,
@@ -62736,8 +62745,56 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
-function getMapProcessor(state2) {
-  return state2.ItemProcessor ?? state2.Iterator;
+function flattenMarkers(params) {
+  const { edges, nodes } = params;
+  const markerIds = new Set(nodes.filter((node) => isMarkerNode(node)).map((node) => node.id));
+  if (markerIds.size === 0) return {
+    edges,
+    nodes
+  };
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  const outgoingByMarker = /* @__PURE__ */ new Map();
+  for (const edge of edges) {
+    if (!markerIds.has(edge.from)) continue;
+    const outgoing = outgoingByMarker.get(edge.from) ?? [];
+    outgoing.push(edge);
+    outgoingByMarker.set(edge.from, outgoing);
+  }
+  const resolveMarkerTargets = (markerId, visited) => {
+    if (visited.has(markerId)) return [];
+    visited.add(markerId);
+    return (outgoingByMarker.get(markerId) ?? []).flatMap((edge) => markerIds.has(edge.to) ? resolveMarkerTargets(edge.to, visited) : [edge]);
+  };
+  const resultEdges = [];
+  const seenRewired = /* @__PURE__ */ new Set();
+  let flattenedCounter = 0;
+  for (const edge of edges) {
+    if (markerIds.has(edge.from)) continue;
+    if (markerIds.has(edge.to)) {
+      for (const target of resolveMarkerTargets(edge.to, /* @__PURE__ */ new Set())) {
+        const rewired = {
+          ...edge,
+          condition: edge.condition ?? target.condition,
+          id: `${edge.from}->${target.to}#flattened#${flattenedCounter++}`,
+          label: edge.label ?? target.label,
+          to: target.to,
+          type: edge.type ?? target.type
+        };
+        const dedupeKey = `${rewired.from}->${rewired.to}#${rewired.label ?? ""}`;
+        if (seenRewired.has(dedupeKey)) continue;
+        seenRewired.add(dedupeKey);
+        resultEdges.push(rewired);
+      }
+      continue;
+    }
+    const fromNode = nodesById.get(edge.from);
+    if (edge.visualOnly === true && fromNode !== void 0 && isOpenContainer(fromNode) && !(fromNode.children ?? []).includes(edge.to)) continue;
+    resultEdges.push(edge);
+  }
+  return {
+    edges: resultEdges,
+    nodes: nodes.filter((node) => !markerIds.has(node.id))
+  };
 }
 function assignEdgeIds(params) {
   const { edges } = params;
@@ -63458,8 +63515,12 @@ var MermaidRenderer = class {
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
-    const { asl, edges, executionClasses, nodeAnnotations, nodes, showVariables, stateClasses } = params;
+    const { asl, executionClasses, nodeAnnotations, showVariables, stateClasses } = params;
     const lines = [];
+    const { nodes, edges } = flattenMarkers({
+      edges: params.edges,
+      nodes: params.nodes
+    });
     this.idMap = /* @__PURE__ */ new Map();
     this.usedIds = /* @__PURE__ */ new Set();
     nodes.forEach((node) => this.mermaidId(node.id));

@@ -42,7 +42,6 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     [*] --> SplitInput
     ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50)
-    ProcessItems__iterator__end: 
     ProcessItems__itemreader: ItemReader (s3)
     ProcessItems__resultwriter: ResultWriter (s3)
 
@@ -51,9 +50,7 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
     ProcessItems --> ProcessItems__resultwriter: ResultWriter
     ProcessItems --> ProcessItem
     ProcessItem --> ValidateItem
-    ValidateItem --> ProcessItems__iterator__end
-    ProcessItems__iterator__end --> Done
-    ProcessItems --> Done
+    ValidateItem --> Done
 
     Done --> [*]
 
@@ -68,8 +65,8 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for distributed-map 2`] = `
 {
-  "edgeCount": 8,
-  "stateCount": 8,
+  "edgeCount": 6,
+  "stateCount": 7,
 }
 `;
 
@@ -106,14 +103,11 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     [*] --> SplitInput
     ProcessItems: ProcessItems (max 4)
-    ProcessItems__iterator__end: 
 
     SplitInput --> ProcessItems
     ProcessItems --> ProcessItem
     ProcessItem --> ValidateItem
-    ValidateItem --> ProcessItems__iterator__end
-    ProcessItems__iterator__end --> Done
-    ProcessItems --> Done
+    ValidateItem --> Done
 
     Done --> [*]
 
@@ -128,8 +122,8 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for map 2`] = `
 {
-  "edgeCount": 6,
-  "stateCount": 6,
+  "edgeCount": 4,
+  "stateCount": 5,
 }
 `;
 
@@ -137,16 +131,10 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 "stateDiagram-v2
 
     [*] --> ParallelExecution
-    ParallelExecution__branch0__end: 
-    ParallelExecution__branch1__end: 
-
     ParallelExecution --> Branch1
-    Branch1 --> ParallelExecution__branch0__end
-    ParallelExecution__branch0__end --> FinalState
+    Branch1 --> FinalState
     ParallelExecution --> Branch2
-    Branch2 --> ParallelExecution__branch1__end
-    ParallelExecution__branch1__end --> FinalState
-    ParallelExecution --> FinalState
+    Branch2 --> FinalState
 
     FinalState --> [*]
 
@@ -162,8 +150,8 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for parallel 2`] = `
 {
-  "edgeCount": 7,
-  "stateCount": 6,
+  "edgeCount": 4,
+  "stateCount": 4,
 }
 `;
 
