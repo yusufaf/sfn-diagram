@@ -291,6 +291,28 @@ describe('Distributed Map', () => {
             ).toBe('Distributed · max 100 · tolerate 5% · batches of 50');
         });
 
+        it('strips JSONata delimiters from MaxConcurrency, like its ToleratedFailure siblings', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        End: true,
+                        ItemProcessor: {
+                            StartAt: 'Work',
+                            States: { Work: { End: true, Type: 'Pass' } },
+                        },
+                        MaxConcurrency: '{% $limit %}',
+                        Type: 'Map',
+                    },
+                },
+            };
+
+            const { nodes } = parseAsl({ definition: asl });
+            const container = nodes.find((candidate) => candidate.id === 'Fan')!;
+
+            expect(getNodeSubLabel({ node: container, showStateType: false })).toBe('max $limit');
+        });
+
         it('shows the duration of a Wait state', () => {
             const wait: StateNode = {
                 id: 'Pause',

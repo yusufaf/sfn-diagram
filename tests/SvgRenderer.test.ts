@@ -6,7 +6,13 @@ import { applyCollapse } from '../src/graph';
 import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition, EdgeStyleOverride, GraphEdge, StateNode } from '../src/types';
+import type {
+    AslDefinition,
+    DiagramOptions,
+    EdgeStyleOverride,
+    GraphEdge,
+    StateNode,
+} from '../src/types';
 import type { LayoutResult } from '../src/layout/DagreLayout';
 
 const loadFixture = (name: string): AslDefinition => {
@@ -760,4 +766,92 @@ describe('collapsed containers', () => {
         expect(result.svg).toContain('2 states');
         expect(result.svg).toContain('stroke-dasharray');
     });
+});
+
+describe('Theme-driven node colors', () => {
+    const renderFixture = (params: { fixture?: string; options: DiagramOptions }): string => {
+        const { fixture = 'simple', options } = params;
+        const asl = loadFixture(fixture);
+        const { nodes, edges } = parseAsl({ definition: asl });
+        const layout = new DagreLayout(options).calculate(nodes, edges);
+        return new SvgRenderer(options).render(layout).svg;
+    };
+
+    const taskRect = (svg: string): string =>
+        svg.match(/<g class="node node-Task"[^>]*>[\s\S]*?<rect[^>]*>/)![0];
+
+    const containerRect = (svg: string): string =>
+        svg.match(/<g class="container[^>]*>[\s\S]*?<rect[^>]*>/)![0];
+
+    it('paints Task nodes with the dark theme fill and stroke', () => {
+        const svg = renderFixture({ options: { theme: 'dark' } });
+
+        expect(taskRect(svg)).toContain('fill="#9c3400"');
+        expect(taskRect(svg)).toContain('stroke="#ffb74d"');
+    });
+
+    it('paints Task nodes with the light theme fill and stroke', () => {
+        const svg = renderFixture({ options: { theme: 'light' } });
+
+        expect(taskRect(svg)).toContain('fill="#fff3e0"');
+        expect(taskRect(svg)).toContain('stroke="#d84315"');
+    });
+
+    it('honours customColors over the theme', () => {
+        const svg = renderFixture({
+            options: { customColors: { Task: { fill: '#ff0000', stroke: '#00ff00' } } },
+        });
+
+        expect(taskRect(svg)).toContain('fill="#ff0000"');
+        expect(taskRect(svg)).toContain('stroke="#00ff00"');
+    });
+
+    it('lets nodeOverrides win over the resolved theme', () => {
+        const svg = renderFixture({
+            options: {
+                nodeOverrides: { Process: { fill: '#c8e6c9', stroke: '#2e7d32' } },
+                theme: 'dark',
+            },
+        });
+
+        expect(taskRect(svg)).toContain('fill="#c8e6c9"');
+        expect(taskRect(svg)).toContain('stroke="#2e7d32"');
+    });
+
+    it('keeps the theme stroke when customColors names only a fill', () => {
+        const svg = renderFixture({
+            options: { customColors: { Task: { fill: '#ff0000' } }, theme: 'dark' },
+        } as { options: DiagramOptions });
+
+        expect(taskRect(svg)).toContain('fill="#ff0000"');
+        expect(taskRect(svg)).toContain('stroke="#ffb74d"');
+    });
+
+    it('leaves container colors to the theme rather than to nodeOverrides', () => {
+        // An overlay's status colour stretched across a translucent bounding box
+        // washes the box out - a container an execution never entered would be
+        // drawn near-invisible grey.
+        const svg = renderFixture({
+            fixture: 'parallel',
+            options: { nodeOverrides: { ParallelExecution: { fill: '#f5f5f5', stroke: '#bdbdbd' } } },
+        });
+
+        expect(containerRect(svg)).toContain('fill="#fce4ec"');
+        expect(containerRect(svg)).toContain('stroke="#c2185b"');
+    });
+
+    it('paints a Map container with the Map theme colors, not Parallel pink', () => {
+        const svg = renderFixture({ fixture: 'map', options: {} });
+
+        expect(containerRect(svg)).toContain('fill="#f1f8e9"');
+        expect(containerRect(svg)).toContain('stroke="#558b2f"');
+    });
+
+    it('paints a container with the dark theme colors under theme: dark', () => {
+        const svg = renderFixture({ fixture: 'parallel', options: { theme: 'dark' } });
+
+        expect(containerRect(svg)).toContain('fill="#880e4f"');
+        expect(containerRect(svg)).toContain('stroke="#f48fb1"');
+    });
+
 });

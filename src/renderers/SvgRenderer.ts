@@ -15,6 +15,7 @@ import type {
     SvgOutput,
     CustomTheme,
     NodeStyle,
+    StateType,
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
 import {
@@ -380,6 +381,11 @@ export class SvgRenderer {
         // under BT that room - and the band - moves to the bottom instead.
         const isBottomHeader = isBottomHeaderLayout(this.options.layout || 'TB');
 
+        const {
+            fill = node.style?.fill || '#fce4ec',
+            stroke = node.style?.stroke || '#c2185b',
+        } = this.resolveNodeColors(node);
+
         // Draw translucent bounding box
         containerGroup
             .append('rect')
@@ -388,8 +394,8 @@ export class SvgRenderer {
             .attr('width', width)
             .attr('height', height)
             .attr('rx', 7)
-            .attr('fill', node.style?.fill || '#fce4ec')
-            .attr('stroke', node.style?.stroke || '#c2185b')
+            .attr('fill', fill)
+            .attr('stroke', stroke)
             .attr('stroke-width', 2)
             .attr('opacity', 0.5);
 
@@ -401,8 +407,8 @@ export class SvgRenderer {
             .attr('width', width)
             .attr('height', headerHeight)
             .attr('rx', 7)
-            .attr('fill', node.style?.fill || '#fce4ec')
-            .attr('stroke', node.style?.stroke || '#c2185b')
+            .attr('fill', fill)
+            .attr('stroke', stroke)
             .attr('stroke-width', 2);
 
         // The zone the header *text* is clamped into - the part of the band
@@ -495,6 +501,33 @@ export class SvgRenderer {
     }
 
     /**
+     * Fill and stroke for a node's state type, from the active theme.
+     *
+     * `AslParser` bakes a style into every node before any theme is known, so
+     * `node.style` always carries the built-in light palette. The theme (and the
+     * `customColors` merged into it by `getTheme`) is only known here, so colour
+     * is resolved at render time while shape and stroke width - which the layout
+     * reads to size nodes - stay on `node.style`.
+     *
+     * Deliberately theme-only: `nodeOverrides` is layered on top of this by
+     * `renderNode`, and left off containers entirely - an overlay's status colour
+     * stretched across a translucent bounding box washes the box out.
+     */
+    private resolveNodeColors(node: StateNode): Partial<Pick<NodeStyle, 'fill' | 'stroke'>> {
+        // `node.type` is free-form (it also carries synthetic types like BranchEnd
+        // and ItemReader), and a caller-supplied theme need not define nodeColors at
+        // all - either miss leaves the key out, so `node.style` keeps its say.
+        const themeColor = this.theme.nodeColors?.[node.type as StateType];
+        const fill = themeColor?.fill;
+        const stroke = themeColor?.stroke;
+
+        return {
+            ...(fill === undefined ? {} : { fill }),
+            ...(stroke === undefined ? {} : { stroke }),
+        };
+    }
+
+    /**
      * Render a single node
      */
     private renderNode(params: RenderNodeParams): void {
@@ -510,8 +543,14 @@ export class SvgRenderer {
         if (!baseStyle) {
             return;
         }
-        const override = this.options.nodeOverrides?.[node.id];
-        const style: NodeStyle = override ? { ...baseStyle, ...override } : baseStyle;
+        // Theme colour sits over the parse-time style, and the override over both:
+        // that is how diff and execution overlays paint a state by its status rather
+        // than its type, while a strokeWidth-only override keeps the theme's colour.
+        const style: NodeStyle = {
+            ...baseStyle,
+            ...this.resolveNodeColors(node),
+            ...this.options.nodeOverrides?.[node.id],
+        };
 
         // Render shape based on type
         switch (style.shape) {
