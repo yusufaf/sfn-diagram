@@ -1,27 +1,46 @@
 import * as vscode from 'vscode'
 import { generateExecution, generateSvg } from 'sfn-diagram'
-import type { ExecutionOutput, LayoutDirection, ThemeOption } from 'sfn-diagram'
+import type { ExecutionOutput, LayoutDirection } from 'sfn-diagram'
+import { toDiagramOptions } from './settings'
+import type { ResolvedTheme, SfnDiagramSettings } from './settings'
 
 type ExecutionMetadata = ExecutionOutput['metadata']
+
+export interface CreateOrShowParams {
+    aslContent: string
+    colorScheme: ResolvedTheme
+    preserveFocus?: boolean
+    settings: SfnDiagramSettings
+}
+
+export interface ApplySettingsParams {
+    colorScheme: ResolvedTheme
+    settings: SfnDiagramSettings
+}
 
 export class DiagramPanel {
     static currentPanel: DiagramPanel | undefined
 
     private readonly _panel: vscode.WebviewPanel
     private _disposables: vscode.Disposable[] = []
-    private _layout: LayoutDirection = 'TB'
-    private _theme: ThemeOption = 'dark'
+    private _collapse: boolean | undefined
+    private _layout: LayoutDirection
+    private _showIcons: boolean
+    private _theme: ResolvedTheme
+    private _layoutOverridden = false
+    private _themeOverridden = false
     private _lastContent = ''
     /** Raw execution-history JSON (kept as a string per the ExecutionHistoryInput type gotcha). */
     private _history: string | undefined
 
-    static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
+    static createOrShow(params: CreateOrShowParams) {
+        const { aslContent, colorScheme, preserveFocus, settings } = params
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn! + 1
             : vscode.ViewColumn.Two
 
         if (DiagramPanel.currentPanel) {
-            DiagramPanel.currentPanel._panel.reveal(column)
+            DiagramPanel.currentPanel._panel.reveal(column, preserveFocus)
             DiagramPanel.currentPanel.update(aslContent)
             return
         }
@@ -29,15 +48,20 @@ export class DiagramPanel {
         const panel = vscode.window.createWebviewPanel(
             'sfnDiagramPreview',
             'Step Functions Preview',
-            column,
+            { preserveFocus, viewColumn: column },
             { enableScripts: true, retainContextWhenHidden: true }
         )
 
-        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent)
+        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent, colorScheme, settings)
     }
 
-    private constructor(panel: vscode.WebviewPanel, aslContent: string) {
+    private constructor(panel: vscode.WebviewPanel, aslContent: string, colorScheme: ResolvedTheme, settings: SfnDiagramSettings) {
         this._panel = panel
+        const diagramOptions = toDiagramOptions({ colorScheme, settings })
+        this._collapse = diagramOptions.collapse
+        this._layout = diagramOptions.layout
+        this._showIcons = diagramOptions.showIcons
+        this._theme = diagramOptions.theme
         this.update(aslContent)
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables)
@@ -46,8 +70,10 @@ export class DiagramPanel {
             (message: { command: string; value: string }) => {
                 if (message.command === 'setLayout') {
                     this._layout = message.value as LayoutDirection
+                    this._layoutOverridden = true
                 } else if (message.command === 'setTheme') {
-                    this._theme = message.value as ThemeOption
+                    this._theme = message.value as ResolvedTheme
+                    this._themeOverridden = true
                 } else if (message.command === 'clearExecution') {
                     this._history = undefined
                 } else {
@@ -58,6 +84,32 @@ export class DiagramPanel {
             null,
             this._disposables
         )
+    }
+
+    /**
+     * Applies a configuration or color-theme change to an already-open preview.
+     *
+     * A layout or theme picked from the toolbar for the current session is left
+     * alone, so an unrelated settings change doesn't clobber it.
+     *
+     * @param params - Parameters object.
+     * @param params.colorScheme - The current VS Code color scheme.
+     * @param params.settings - The freshly-resolved extension settings.
+     * @example
+     * DiagramPanel.currentPanel?.applySettings({ colorScheme, settings })
+     */
+    applySettings(params: ApplySettingsParams): void {
+        const { colorScheme, settings } = params
+        const diagramOptions = toDiagramOptions({ colorScheme, settings })
+        this._collapse = diagramOptions.collapse
+        this._showIcons = diagramOptions.showIcons
+        if (!this._layoutOverridden) {
+            this._layout = diagramOptions.layout
+        }
+        if (!this._themeOverridden) {
+            this._theme = diagramOptions.theme
+        }
+        this.update(this._lastContent)
     }
 
     /**
@@ -93,8 +145,10 @@ export class DiagramPanel {
             if (this._history !== undefined) {
                 const { svg, metadata } = generateExecution({
                     aslDefinition: aslContent,
+                    collapse: this._collapse,
                     history: this._history,
                     layout: this._layout,
+                    showIcons: this._showIcons,
                     theme: this._theme,
                 })
                 this._panel.webview.html = this._getHtml(svg, metadata)
@@ -102,7 +156,9 @@ export class DiagramPanel {
             }
             const { svg } = generateSvg({
                 aslDefinition: aslContent,
+                collapse: this._collapse,
                 layout: this._layout,
+                showIcons: this._showIcons,
                 theme: this._theme,
             })
             this._panel.webview.html = this._getHtml(svg)
@@ -122,7 +178,8 @@ export class DiagramPanel {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
+<!-- img-src allows AWS service icons, rendered as <image> tags referencing the jsDelivr CDN when sfnDiagram.showIcons is on. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https://cdn.jsdelivr.net; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Step Functions Preview</title>
 <style>
