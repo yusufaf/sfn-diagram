@@ -526,6 +526,54 @@ describe('SvgRenderer', () => {
         });
     });
 
+    describe('Text font-family', () => {
+        const expectAllTextHasFontFamily = (svg: string): void => {
+            const textTags = svg.match(/<text\b[^>]*>/g) ?? [];
+            expect(textTags.length).toBeGreaterThan(0);
+            for (const tag of textTags) {
+                expect(tag).toContain('font-family="Arial, sans-serif"');
+            }
+        };
+
+        it('sets font-family on the container name, sub-label and node second line', () => {
+            const asl = loadFixture('distributed-map');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({ showStateTypes: true });
+            const result = renderer.render(positioned);
+
+            expectAllTextHasFontFamily(result.svg);
+        });
+
+        it('sets font-family on edge labels', () => {
+            const asl = loadFixture('choice');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const result = renderer.render(positioned);
+
+            expectAllTextHasFontFamily(result.svg);
+        });
+
+        it('sets font-family on the assigned-variables line and node annotations', () => {
+            const asl = loadFixture('variables');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({
+                nodeAnnotations: { LoadOrder: '1.2s' },
+            });
+            const result = renderer.render(positioned);
+
+            expectAllTextHasFontFamily(result.svg);
+        });
+    });
+
     describe('Metadata', () => {
         it('should include node count in metadata', () => {
             const asl = loadFixture('simple');
