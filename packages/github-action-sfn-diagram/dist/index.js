@@ -62390,7 +62390,7 @@ var AWS_DARK_THEME = {
       stroke: "#4fc3f7"
     },
     Task: {
-      fill: "#e65100",
+      fill: "#9c3400",
       stroke: "#ffb74d"
     },
     Choice: {
@@ -62402,12 +62402,12 @@ var AWS_DARK_THEME = {
       stroke: "#81c784"
     },
     Succeed: {
-      fill: "#2e7d32",
+      fill: "#14532d",
       stroke: "#a5d6a7"
     },
     Fail: {
       fill: "#b71c1c",
-      stroke: "#ef5350"
+      stroke: "#ffb4ab"
     },
     Parallel: {
       fill: "#880e4f",
