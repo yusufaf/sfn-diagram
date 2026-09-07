@@ -16,6 +16,7 @@ vi.mock('@actions/core', () => ({
     getInput: vi.fn(),
     info: vi.fn(),
     setFailed: vi.fn(),
+    setOutput: vi.fn(),
     warning: vi.fn(),
 }))
 
@@ -162,13 +163,17 @@ function makeOctokit(params: OctokitStubParams = {}) {
     return {
         rest: {
             issues: {
-                createComment: vi.fn().mockResolvedValue({}),
+                createComment: vi.fn().mockResolvedValue({
+                    data: { html_url: 'https://github.com/acme/workflows/pull/42#issuecomment-1', id: 1 },
+                }),
                 listComments: vi
                     .fn()
                     .mockImplementation(async (pageParams: PageParams) =>
                         servePage(existingComments, pageParams),
                     ),
-                updateComment: vi.fn().mockResolvedValue({}),
+                updateComment: vi.fn().mockResolvedValue({
+                    data: { html_url: 'https://github.com/acme/workflows/pull/42#issuecomment-999', id: 999 },
+                }),
             },
             pulls: {
                 listFiles: vi
@@ -204,6 +209,10 @@ function setPullRequest(): void {
 
 const createdBody = (stub: OctokitStub): string =>
     stub.rest.issues.createComment.mock.calls[0][0].body as string
+
+/** Last value set for a given `core.setOutput` key (later writes win, matching the runner). */
+const outputValue = (name: string): string | undefined =>
+    vi.mocked(core.setOutput).mock.calls.filter(([key]) => key === name).at(-1)?.[1] as string | undefined
 
 beforeEach(() => {
     vi.clearAllMocks()
@@ -744,5 +753,94 @@ describe('run - diagram-rendering inputs', () => {
         const body = createdBody(stub)
         expect(body).not.toContain('BranchA')
         expect(body).toContain('BranchB')
+    })
+})
+
+describe('run - outputs', () => {
+    it('sets zero outputs when the event is not a pull request', async () => {
+        await run()
+
+        expect(outputValue('changed-count')).toBe('0')
+        expect(outputValue('changed-files')).toBe('[]')
+        expect(outputValue('comment-id')).toBe('')
+        expect(outputValue('comment-url')).toBe('')
+    })
+
+    it('sets zero outputs when no changed files match the ASL globs', async () => {
+        setPullRequest()
+        const stub = makeOctokit({ files: [{ filename: 'src/app.ts', status: 'modified' }] })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('changed-count')).toBe('0')
+        expect(outputValue('changed-files')).toBe('[]')
+        expect(outputValue('comment-id')).toBe('')
+        expect(outputValue('comment-url')).toBe('')
+        expect(github.getOctokit).toHaveBeenCalled()
+    })
+
+    it('reflects a matched-but-unparseable file in changed-count/changed-files, but posts no comment', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: {},
+            files: [{ filename: 'flows/bad.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('changed-count')).toBe('1')
+        expect(JSON.parse(outputValue('changed-files') ?? '[]')).toEqual(['flows/bad.asl.json'])
+        expect(outputValue('comment-id')).toBe('')
+        expect(stub.rest.issues.createComment).not.toHaveBeenCalled()
+    })
+
+    it('sets comment-id/comment-url from the API response when a comment is created', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('comment-id')).toBe('1')
+        expect(outputValue('comment-url')).toBe('https://github.com/acme/workflows/pull/42#issuecomment-1')
+    })
+
+    it('sets comment-id/comment-url from the API response when a comment is updated', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            existingComments: [{ body: `${MARKER}\nold`, id: 999 }],
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('comment-id')).toBe('999')
+        expect(outputValue('comment-url')).toBe('https://github.com/acme/workflows/pull/42#issuecomment-999')
+    })
+
+    it('sets changed-files to a JSON array of both changed paths, in order', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [
+                { filename: 'flows/a.asl.json', status: 'added' },
+                { filename: 'flows/b.asl.json', status: 'added' },
+            ],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(JSON.parse(outputValue('changed-files') ?? '[]')).toEqual([
+            'flows/a.asl.json',
+            'flows/b.asl.json',
+        ])
     })
 })

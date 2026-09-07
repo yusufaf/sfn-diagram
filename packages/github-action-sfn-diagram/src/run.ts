@@ -310,6 +310,20 @@ function resolveDiagramOptions(): BuildAslFileSectionOptions {
     }
 }
 
+interface SetActionOutputsParams {
+    changedFiles: string[]
+    commentId?: number
+    commentUrl?: string
+}
+
+function setActionOutputs(params: SetActionOutputsParams): void {
+    const { changedFiles, commentId, commentUrl } = params
+    core.setOutput('changed-count', String(changedFiles.length))
+    core.setOutput('changed-files', JSON.stringify(changedFiles))
+    core.setOutput('comment-id', commentId === undefined ? '' : String(commentId))
+    core.setOutput('comment-url', commentUrl ?? '')
+}
+
 export async function run(): Promise<void> {
     const token = core.getInput('github-token', { required: true })
     const aslGlobRaw = core.getInput('asl-glob') || '**/*.asl.json,**/*.asl'
@@ -335,6 +349,8 @@ export async function run(): Promise<void> {
     const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
     const { context } = github
 
+    setActionOutputs({ changedFiles: [] })
+
     if (!context.payload.pull_request) {
         core.info('Not a pull_request event — skipping')
         return
@@ -359,6 +375,8 @@ export async function run(): Promise<void> {
     const aslFiles = changedFiles.filter(
         (file) => file.status !== 'unchanged' && matchesPatterns(file.filename, patterns),
     )
+    const aslFilenames = aslFiles.map((file) => file.filename)
+    setActionOutputs({ changedFiles: aslFilenames })
 
     if (aslFiles.length === 0) {
         core.info('No ASL files changed in this PR')
@@ -441,20 +459,22 @@ export async function run(): Promise<void> {
 
     try {
         if (existing) {
-            await octokit.rest.issues.updateComment({
+            const { data: comment } = await octokit.rest.issues.updateComment({
                 body,
                 comment_id: existing.id,
                 owner,
                 repo,
             })
+            setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url })
             core.info(`Updated existing PR comment #${existing.id}`)
         } else {
-            await octokit.rest.issues.createComment({
+            const { data: comment } = await octokit.rest.issues.createComment({
                 body,
                 issue_number: pullNumber,
                 owner,
                 repo,
             })
+            setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url })
             core.info('Created new PR comment')
         }
     } catch (error) {

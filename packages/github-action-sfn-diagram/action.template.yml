@@ -69,6 +69,16 @@ inputs:
     required: false
     default: ''
 
+outputs:
+  changed-count:
+    description: 'Number of changed ASL files matched by asl-glob (0 when none, or when the event is not a pull request)'
+  changed-files:
+    description: 'JSON array of the changed ASL file paths (added, modified, or removed); "[]" when none'
+  comment-id:
+    description: 'ID of the PR comment created or updated by this run; empty when no comment was posted'
+  comment-url:
+    description: 'HTML URL of the PR comment created or updated by this run; empty when no comment was posted'
+
 runs:
   using: 'node24'
   main: 'dist/index.js'

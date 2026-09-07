@@ -51,6 +51,27 @@ jobs:
 
 When `execution-mode` is enabled, add an AWS auth step (e.g. `aws-actions/configure-aws-credentials`) before this action and grant `states:ListExecutions` + `states:GetExecutionHistory`. See the Marketplace README for a full workflow example.
 
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `changed-count` | Number of changed ASL files matched by `asl-glob` (`0` when none, or when the event is not a pull request) |
+| `changed-files` | JSON array of the changed ASL file paths (added, modified, or removed); `"[]"` when none |
+| `comment-id` | ID of the PR comment created or updated by this run; empty when no comment was posted |
+| `comment-url` | HTML URL of the PR comment created or updated by this run; empty when no comment was posted |
+
+Give the step an `id` to read its outputs downstream, e.g. to skip a later step when nothing changed:
+
+```yaml
+- name: Preview Step Functions diagrams
+  id: preview
+  uses: yusufaf/sfn-diagram-action@v1
+
+- name: Notify on diagram changes
+  if: steps.preview.outputs.changed-count != '0'
+  run: echo "${{ steps.preview.outputs.changed-count }} ASL file(s) changed"
+```
+
 ## Development
 
 The action ships a bundled `dist/index.js` (committed, since GitHub runs the action without installing dependencies). After changing `src/` or bumping the core, rebuild and commit the bundle:

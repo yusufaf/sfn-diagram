@@ -28532,7 +28532,7 @@ var require_core = __commonJS({
 Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
     }
     exports2.getBooleanInput = getBooleanInput;
-    function setOutput(name, value) {
+    function setOutput2(name, value) {
       const filePath = process.env["GITHUB_OUTPUT"] || "";
       if (filePath) {
         return (0, file_command_1.issueFileCommand)("OUTPUT", (0, file_command_1.prepareKeyValueMessage)(name, value));
@@ -28540,7 +28540,7 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(os.EOL);
       (0, command_1.issueCommand)("set-output", { name }, (0, utils_1.toCommandValue)(value));
     }
-    exports2.setOutput = setOutput;
+    exports2.setOutput = setOutput2;
     function setCommandEcho(enabled) {
       (0, command_1.issue)("echo", enabled ? "on" : "off");
     }
@@ -64465,6 +64465,13 @@ function resolveDiagramOptions() {
     theme
   };
 }
+function setActionOutputs(params) {
+  const { changedFiles, commentId, commentUrl } = params;
+  core.setOutput("changed-count", String(changedFiles.length));
+  core.setOutput("changed-files", JSON.stringify(changedFiles));
+  core.setOutput("comment-id", commentId === void 0 ? "" : String(commentId));
+  core.setOutput("comment-url", commentUrl ?? "");
+}
 async function run() {
   const token = core.getInput("github-token", { required: true });
   const aslGlobRaw = core.getInput("asl-glob") || "**/*.asl.json,**/*.asl";
@@ -64485,6 +64492,7 @@ async function run() {
   const diagramOptions = resolveDiagramOptions();
   const patterns = aslGlobRaw.split(",").map((pattern) => pattern.trim());
   const { context: context3 } = github_exports;
+  setActionOutputs({ changedFiles: [] });
   if (!context3.payload.pull_request) {
     core.info("Not a pull_request event \u2014 skipping");
     return;
@@ -64500,6 +64508,8 @@ async function run() {
   const aslFiles = changedFiles.filter(
     (file) => file.status !== "unchanged" && matchesPatterns(file.filename, patterns)
   );
+  const aslFilenames = aslFiles.map((file) => file.filename);
+  setActionOutputs({ changedFiles: aslFilenames });
   if (aslFiles.length === 0) {
     core.info("No ASL files changed in this PR");
     return;
@@ -64556,20 +64566,22 @@ async function run() {
   const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo });
   try {
     if (existing) {
-      await octokit.rest.issues.updateComment({
+      const { data: comment } = await octokit.rest.issues.updateComment({
         body,
         comment_id: existing.id,
         owner,
         repo
       });
+      setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url });
       core.info(`Updated existing PR comment #${existing.id}`);
     } else {
-      await octokit.rest.issues.createComment({
+      const { data: comment } = await octokit.rest.issues.createComment({
         body,
         issue_number: pullNumber,
         owner,
         repo
       });
+      setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url });
       core.info("Created new PR comment");
     }
   } catch (error2) {

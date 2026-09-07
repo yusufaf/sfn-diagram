@@ -109,6 +109,27 @@ The overlay is applied only when exactly one ASL file changed in the PR (so the 
 | `state-machine-arn` | `''` | State machine ARN to fetch executions for (required unless `execution-mode: off`) |
 | `aws-region` | `''` | Region for the SFN client (defaults to the environment, e.g. `AWS_REGION`) |
 
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `changed-count` | Number of changed ASL files matched by `asl-glob` (`0` when none, or when the event is not a pull request) |
+| `changed-files` | JSON array of the changed ASL file paths (added, modified, or removed); `"[]"` when none |
+| `comment-id` | ID of the PR comment created or updated by this run; empty when no comment was posted |
+| `comment-url` | HTML URL of the PR comment created or updated by this run; empty when no comment was posted |
+
+Give the step an `id` to read its outputs downstream, e.g. to skip a later step when nothing changed:
+
+```yaml
+- name: Preview Step Functions diagrams
+  id: preview
+  uses: yusufaf/sfn-diagram-action@v1
+
+- name: Notify on diagram changes
+  if: steps.preview.outputs.changed-count != '0'
+  run: echo "${{ steps.preview.outputs.changed-count }} ASL file(s) changed"
+```
+
 ## Notes
 
 - Runs only on `pull_request` events; on other events it no-ops.
