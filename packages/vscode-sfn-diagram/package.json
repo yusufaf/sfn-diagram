@@ -23,7 +23,7 @@
         "diagram",
         "state-machine"
     ],
-    "activationEvents": [],
+    "activationEvents": ["onLanguage:json", "onLanguage:jsonc"],
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
@@ -47,12 +47,12 @@
             "editor/title": [
                 {
                     "command": "sfn-diagram.preview",
-                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "when": "resourceFilename =~ /\\.asl\\.json$/i || resourceExtname == .asl || (resourceExtname == .json && sfnDiagram.isAslDocument)",
                     "group": "navigation"
                 },
                 {
                     "command": "sfn-diagram.previewExecution",
-                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "when": "resourceFilename =~ /\\.asl\\.json$/i || resourceExtname == .asl || (resourceExtname == .json && sfnDiagram.isAslDocument)",
                     "group": "navigation"
                 }
             ]
