@@ -62291,50 +62291,6 @@ var Si = v((mo, Dt) => {
 var dagre_esm_default = Si();
 
 // ../../dist/ci.js
-var DEFAULT_DIAGRAM_OPTIONS = {
-  format: "svg",
-  theme: "light",
-  customColors: void 0,
-  layout: "TB",
-  rankSeparation: 50,
-  nodeSeparation: 50,
-  width: void 0,
-  height: void 0,
-  nodeWidth: 120,
-  nodeHeight: 60,
-  padding: 20,
-  includeComments: true,
-  showStateTypes: false,
-  showVariables: true,
-  edgeStyle: "curved",
-  edgeHitAreas: false,
-  catchHandling: "show",
-  catchLabelStyle: "error-type",
-  collapse: void 0,
-  stylePreset: "aws-standard",
-  iconPosition: "left",
-  iconResolver: void 0,
-  iconSize: 24,
-  showIcons: false,
-  pngQuality: 90,
-  backgroundColor: "transparent",
-  nodeOverrides: void 0,
-  edgeOverrides: void 0,
-  nodeAnnotations: void 0
-};
-function mergeOptions(options = {}) {
-  return {
-    ...DEFAULT_DIAGRAM_OPTIONS,
-    ...options
-  };
-}
-function mergeRecordOptions(base, override) {
-  if (!base && !override) return void 0;
-  return {
-    ...base,
-    ...override
-  };
-}
 var AWS_LIGHT_THEME = {
   background: "#ffffff",
   nodeColors: {
@@ -62434,10 +62390,20 @@ function getTheme(theme, customColors) {
   if (!theme || theme === "light") baseTheme = AWS_LIGHT_THEME;
   else if (theme === "dark") baseTheme = AWS_DARK_THEME;
   else baseTheme = theme;
-  if (customColors) return {
-    ...baseTheme,
-    nodeColors: mergeRecordOptions(baseTheme.nodeColors, customColors)
-  };
+  if (customColors) {
+    const nodeColors = { ...baseTheme.nodeColors };
+    for (const [stateType, colors] of Object.entries(customColors)) {
+      const key = stateType;
+      nodeColors[key] = {
+        ...nodeColors[key],
+        ...colors
+      };
+    }
+    return {
+      ...baseTheme,
+      nodeColors
+    };
+  }
   return baseTheme;
 }
 function getNodeStyle(params) {
@@ -63750,6 +63716,43 @@ var MermaidRenderer = class {
     return nodes.find((node) => !targetNodes.has(node.id))?.id || nodes[0]?.id || null;
   }
 };
+var DEFAULT_DIAGRAM_OPTIONS = {
+  format: "svg",
+  theme: "light",
+  customColors: void 0,
+  layout: "TB",
+  rankSeparation: 50,
+  nodeSeparation: 50,
+  width: void 0,
+  height: void 0,
+  nodeWidth: 120,
+  nodeHeight: 60,
+  padding: 20,
+  includeComments: true,
+  showStateTypes: false,
+  showVariables: true,
+  edgeStyle: "curved",
+  edgeHitAreas: false,
+  catchHandling: "show",
+  catchLabelStyle: "error-type",
+  collapse: void 0,
+  stylePreset: "aws-standard",
+  iconPosition: "left",
+  iconResolver: void 0,
+  iconSize: 24,
+  showIcons: false,
+  pngQuality: 90,
+  backgroundColor: "transparent",
+  nodeOverrides: void 0,
+  edgeOverrides: void 0,
+  nodeAnnotations: void 0
+};
+function mergeOptions(options = {}) {
+  return {
+    ...DEFAULT_DIAGRAM_OPTIONS,
+    ...options
+  };
+}
 function parseAslArg(value) {
   return typeof value === "string" ? JSON.parse(value) : value;
 }
