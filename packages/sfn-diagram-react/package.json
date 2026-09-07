@@ -28,7 +28,7 @@
     "scripts": {
         "build": "tsdown",
         "dev": "tsdown --watch",
-        "test": "vitest run",
+        "test": "pnpm run build && vitest run",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
         "prepublishOnly": "pnpm run build && pnpm run validate",
