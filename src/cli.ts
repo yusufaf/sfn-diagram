@@ -697,6 +697,14 @@ export async function run(argv: string[]): Promise<number> {
         return 1;
     }
 
+    // With no input argument, loadAsl falls through to readStdin(). On a terminal
+    // that stdin never ends, so a bare invocation would block forever - print usage
+    // instead. An explicit `-` still reads stdin: the user asked for it.
+    if (args.input === null && process.stdin.isTTY) {
+        process.stderr.write(HELP_TEXT);
+        return 2;
+    }
+
     let aslSource: string;
     try {
         aslSource = await loadAsl(args.input);
