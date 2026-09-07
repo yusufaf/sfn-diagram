@@ -108,7 +108,10 @@ function elide(text: string): string {
         : text;
 }
 
-/** Fewest characters worth rendering before a fitted sub-label is dropped entirely. */
+/**
+ * Fewest characters worth rendering before a fitted string is dropped entirely.
+ * Shared by {@link fitSubLabel}'s last-resort branch and {@link fitText}.
+ */
 const MIN_FITTED_SUB_LABEL = 4;
 
 /** Separator between the parts of a sub-label. */
@@ -166,9 +169,44 @@ export function fitSubLabel(params: FitSubLabelParams): string {
     }
 
     // A single part that does not fit on its own: cut characters as a last resort.
-    const only = parts[0] ?? '';
-    for (let length = only.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
-        const candidate = `${only.slice(0, length).trimEnd()}${SUB_LABEL_MORE}`;
+    return fitText({ availableWidth, measure, text: parts[0] ?? '' });
+}
+
+interface FitTextParams {
+    /** Width available for the text, in the same units `measure` returns. */
+    availableWidth: number;
+    /** Measures the rendered width of a candidate string. */
+    measure: (text: string) => number;
+    /** The text to fit. */
+    text: string;
+}
+
+/**
+ * Trim a string to the width actually available, cutting characters rather than
+ * dropping whole parts — for text with no separator-joined parts to drop the way
+ * {@link fitSubLabel} does, such as a container's name.
+ *
+ * @param params.availableWidth - Width the text must fit within
+ * @param params.measure - Width of a candidate string, e.g. `estimateTextWidth`
+ * @param params.text - The text to fit
+ * @returns The widest prefix of `text` that fits, marked with `…` if truncated, or
+ * `''` if nothing at or above {@link MIN_FITTED_SUB_LABEL} characters fits
+ *
+ * @example
+ * ```typescript
+ * fitText({ availableWidth: 60, measure, text: 'A very long container name' });
+ * // 'A very l…'
+ * ```
+ */
+export function fitText(params: FitTextParams): string {
+    const { availableWidth, measure, text } = params;
+
+    if (text === '' || measure(text) <= availableWidth) {
+        return text;
+    }
+
+    for (let length = text.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
+        const candidate = `${text.slice(0, length).trimEnd()}${SUB_LABEL_MORE}`;
         if (measure(candidate) <= availableWidth) {
             return candidate;
         }

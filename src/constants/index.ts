@@ -1,8 +1,12 @@
 export {
     CONTAINER_HEADER_HEIGHT,
+    CONTAINER_HEADER_PADDING_X,
     CONTAINER_HEADER_TEXT_HEIGHT,
     CONTAINER_LINE_GAP_RATIO,
+    CONTAINER_MAX_HEADER_WIDTH,
     CONTAINER_PADDING,
+    MIN_SUB_LABEL_FONT_SIZE,
+    getContainerHeaderFontSizes,
 } from './layout';
 export {
     EDGE_LABELS,
@@ -12,6 +16,7 @@ export {
     getCatchLabel,
     getChoiceLabel,
     fitSubLabel,
+    fitText,
     getItemBatchingLabel,
     getNodeSubLabel,
     getNodeSubLabelParts,
