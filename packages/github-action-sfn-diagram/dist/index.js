@@ -62572,6 +62572,7 @@ function getCatchLabel(params) {
   if (catchLabelStyle === "catch-number") return `${EDGE_LABELS.CATCH_PREFIX} #${index + 1}`;
   return getErrorLabel(errorTypes);
 }
+var AWS_ICONS_VERSION = "3.3.0";
 var SERVICE_ICON_MAP = {
   "apigateway": "AmazonAPIGateway",
   "appflow": "AmazonAppFlow",
@@ -62653,7 +62654,7 @@ function normalizeServiceName(params) {
 }
 function buildIconUrl(params) {
   const { iconName } = params;
-  return `https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/architecture-service/${iconName}.svg`;
+  return `https://cdn.jsdelivr.net/npm/aws-icons@${AWS_ICONS_VERSION}/icons/architecture-service/${iconName}.svg`;
 }
 function detectService(params) {
   const { iconResolver, state: state2 } = params;

@@ -23,9 +23,18 @@ interface NormalizeServiceNameParams {
 }
 
 /**
+ * Exact `aws-icons` version the CDN icon URLs point at.
+ *
+ * Pinned rather than `@latest`: the URL is embedded verbatim into every generated
+ * SVG and HTML document, so an unpinned specifier lets an upstream release change
+ * or break icons in output that already shipped. Bump deliberately.
+ */
+const AWS_ICONS_VERSION = '3.3.0';
+
+/**
  * Mapping of AWS service names to their icon filenames in the aws-icons package
  * Icons sourced from: https://github.com/MKAbuMattar/aws-icons
- * URL pattern: https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/architecture-service/{ICON_NAME}.svg
+ * URL pattern: https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/{ICON_NAME}.svg
  */
 const SERVICE_ICON_MAP: Record<string, string> = {
     // Application Integration
@@ -186,12 +195,12 @@ function normalizeServiceName(params: NormalizeServiceNameParams): string {
  *
  * @example
  * buildIconUrl({ iconName: 'AWSLambda' })
- * // Returns: 'https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/architecture-service/AWSLambda.svg'
+ * // Returns: 'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/AWSLambda.svg'
  */
 function buildIconUrl(params: BuildIconUrlParams): string {
     const { iconName } = params;
     const category = 'architecture-service';
-    return `https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/${category}/${iconName}.svg`;
+    return `https://cdn.jsdelivr.net/npm/aws-icons@${AWS_ICONS_VERSION}/icons/${category}/${iconName}.svg`;
 }
 
 /**
@@ -214,7 +223,7 @@ function buildIconUrl(params: BuildIconUrlParams): string {
  * detectService({ state: taskState })
  * // Returns: {
  * //   serviceName: 'lambda',
- * //   iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/arch/Arch_AWS-Lambda_48.svg'
+ * //   iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/arch/Arch_AWS-Lambda_48.svg'
  * // }
  *
  * @example
@@ -261,7 +270,7 @@ interface DetectServiceFromResourceParams {
  * @example
  * ```typescript
  * detectServiceFromResource({ resource: 'arn:aws:states:::s3:getObject' });
- * // { serviceName: 's3', iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@latest/...' }
+ * // { serviceName: 's3', iconUrl: 'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/...' }
  * ```
  */
 export function detectServiceFromResource(
