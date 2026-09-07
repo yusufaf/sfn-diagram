@@ -76,21 +76,24 @@ export function parsePath(d: string): ParsedPath {
 /** Number of chords a cubic segment is flattened into when walking arc length. */
 const CUBIC_SAMPLES = 16;
 
-function cubicPointAt(
-    p0: PathPoint,
-    p1: PathPoint,
-    p2: PathPoint,
-    p3: PathPoint,
-    t: number
-): PathPoint {
+interface CubicPointAtParams {
+    control1: PathPoint;
+    control2: PathPoint;
+    from: PathPoint;
+    t: number;
+    to: PathPoint;
+}
+
+function cubicPointAt(params: CubicPointAtParams): PathPoint {
+    const { control1, control2, from, t, to } = params;
     const mt = 1 - t;
     const a = mt * mt * mt;
     const b = 3 * mt * mt * t;
     const c = 3 * mt * t * t;
     const e = t * t * t;
     return {
-        x: a * p0.x + b * p1.x + c * p2.x + e * p3.x,
-        y: a * p0.y + b * p1.y + c * p2.y + e * p3.y,
+        x: a * from.x + b * control1.x + c * control2.x + e * to.x,
+        y: a * from.y + b * control1.y + c * control2.y + e * to.y,
     };
 }
 
@@ -107,18 +110,33 @@ function flattenToPolyline(path: ParsedPath): PathPoint[] {
         const control1 = segment.control1 as PathPoint;
         const control2 = segment.control2 as PathPoint;
         for (let i = 1; i <= CUBIC_SAMPLES; i += 1) {
-            points.push(cubicPointAt(segment.from, control1, control2, segment.to, i / CUBIC_SAMPLES));
+            points.push(
+                cubicPointAt({ control1, control2, from: segment.from, t: i / CUBIC_SAMPLES, to: segment.to })
+            );
         }
     }
     return points;
 }
 
-function distance(a: PathPoint, b: PathPoint): number {
-    return Math.hypot(b.x - a.x, b.y - a.y);
+interface DistanceParams {
+    from: PathPoint;
+    to: PathPoint;
 }
 
-function lerp(a: PathPoint, b: PathPoint, t: number): PathPoint {
-    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+function distance(params: DistanceParams): number {
+    const { from, to } = params;
+    return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+interface LerpParams {
+    from: PathPoint;
+    t: number;
+    to: PathPoint;
+}
+
+function lerp(params: LerpParams): PathPoint {
+    const { from, t, to } = params;
+    return { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t };
 }
 
 /**
@@ -138,7 +156,7 @@ export function pointAtHalfLength(path: ParsedPath): PathPoint {
     const cumulative = [0];
     let total = 0;
     for (let i = 1; i < points.length; i += 1) {
-        total += distance(points[i - 1], points[i]);
+        total += distance({ from: points[i - 1], to: points[i] });
         cumulative.push(total);
     }
 
@@ -151,7 +169,7 @@ export function pointAtHalfLength(path: ParsedPath): PathPoint {
         if (cumulative[i] >= target) {
             const segmentLength = cumulative[i] - cumulative[i - 1];
             const t = segmentLength === 0 ? 0 : (target - cumulative[i - 1]) / segmentLength;
-            return lerp(points[i - 1], points[i], t);
+            return lerp({ from: points[i - 1], t, to: points[i] });
         }
     }
     return points[points.length - 1];

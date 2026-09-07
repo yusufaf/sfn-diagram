@@ -103,6 +103,11 @@ export class SvgRenderer {
     private options: DiagramOptions;
     private theme: CustomTheme;
     private pathGenerator: (points: Array<{ x: number; y: number }>) => string | null;
+    // Non-self-loop edge label midpoints, keyed by edge id - calculateBounds and
+    // renderEdge both need the same edge's midpoint; see edgeLabelCenter. Cleared at
+    // the top of render() even though every call site constructs a fresh renderer per
+    // render, so a reused instance can never see a stale entry.
+    private edgeMidpointCache = new Map<string, { x: number; y: number }>();
 
     constructor(options: DiagramOptions) {
         this.options = options;
@@ -123,6 +128,8 @@ export class SvgRenderer {
      * Render the diagram to SVG string
      */
     render(layout: LayoutResult): SvgOutput {
+        this.edgeMidpointCache.clear();
+
         // Nested self-loop labels stagger along a shared axis, so every loop on a node
         // has to step by the same amount - see selfLoopLabelCenter. Measured once here
         // so bounds and rendering agree on where each label lands.
@@ -878,6 +885,10 @@ export class SvgRenderer {
      * Compute where an edge's label should be centered. Normal edges center on the
      * path midpoint; self-loops anchor off the loop's apex instead, falling back to a
      * spot clear of neighbouring nodes if the default placement would land on one.
+     *
+     * `calculateBounds` and `renderEdge` both call this for the same edge - the
+     * non-self-loop midpoint is cached by edge id (`edgeMidpointCache`, cleared at
+     * the top of `render()`) so sampling the drawn path only happens once per edge.
      */
     private edgeLabelCenter(params: EdgeLabelCenterParams): { x: number; y: number } {
         const { edge, nodes, selfLoopLabelWidths } = params;
@@ -885,7 +896,13 @@ export class SvgRenderer {
         if (edge.from === edge.to && edge.label && points.length >= 3) {
             return this.selfLoopLabelCenter({ edge, nodes, points, selfLoopLabelWidths });
         }
-        return this.getPathMidpoint(points);
+        const cached = this.edgeMidpointCache.get(edge.id);
+        if (cached) {
+            return cached;
+        }
+        const midpoint = this.getPathMidpoint(points);
+        this.edgeMidpointCache.set(edge.id, midpoint);
+        return midpoint;
     }
 
     /**
