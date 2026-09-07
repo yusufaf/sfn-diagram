@@ -263,8 +263,22 @@ describe('Service Detection', () => {
             const result = detectService({ state });
 
             expect(result?.iconUrl).toBe(
-                'https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/architecture-service/AWSLambda.svg'
+                'https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/AWSLambda.svg'
             );
+        });
+
+        it('pins the icon CDN to an exact version rather than @latest', () => {
+            // The URL is embedded verbatim into every generated SVG/HTML, so an
+            // unpinned specifier hands a third party control over already-shipped output.
+            const state: AslState = {
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:MyFunction',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.iconUrl).not.toContain('@latest');
+            expect(result?.iconUrl).toMatch(/aws-icons@\d+\.\d+\.\d+\//);
         });
 
         it('should include correct icon name for each service', () => {

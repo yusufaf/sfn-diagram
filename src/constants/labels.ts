@@ -396,8 +396,10 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     if (node.isDistributedMap) {
         parts.push('Distributed');
     }
-    if (node.maxConcurrency !== undefined) {
+    if (typeof node.maxConcurrency === 'number') {
         parts.push(`max ${node.maxConcurrency}`);
+    } else if (typeof node.maxConcurrency === 'string') {
+        parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
     }
     if (node.toleratedFailure !== undefined) {
         parts.push(node.toleratedFailure);

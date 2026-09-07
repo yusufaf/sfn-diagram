@@ -62526,7 +62526,8 @@ function getNodeSubLabelParts(params) {
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
   if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
-  if (node.maxConcurrency !== void 0) parts.push(`max ${node.maxConcurrency}`);
+  if (typeof node.maxConcurrency === "number") parts.push(`max ${node.maxConcurrency}`);
+  else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
@@ -62537,6 +62538,7 @@ function getCatchLabel(params) {
   if (catchLabelStyle === "catch-number") return `${EDGE_LABELS.CATCH_PREFIX} #${index + 1}`;
   return getErrorLabel(errorTypes);
 }
+var AWS_ICONS_VERSION = "3.3.0";
 var SERVICE_ICON_MAP = {
   "apigateway": "AmazonAPIGateway",
   "appflow": "AmazonAppFlow",
@@ -62618,7 +62620,7 @@ function normalizeServiceName(params) {
 }
 function buildIconUrl(params) {
   const { iconName } = params;
-  return `https://cdn.jsdelivr.net/npm/aws-icons@latest/icons/architecture-service/${iconName}.svg`;
+  return `https://cdn.jsdelivr.net/npm/aws-icons@${AWS_ICONS_VERSION}/icons/architecture-service/${iconName}.svg`;
 }
 function detectService(params) {
   const { iconResolver, state: state2 } = params;
