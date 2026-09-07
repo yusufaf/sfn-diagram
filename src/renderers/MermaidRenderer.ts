@@ -1,4 +1,7 @@
 import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
+import { getTheme } from '../config/themes';
+import { flattenMarkers } from '../graph';
+import { resolveViewerTheme } from './viewer/viewerStyles';
 import type {
     StateNode,
     GraphEdge,
@@ -6,7 +9,51 @@ import type {
     AslDefinition,
     DiffStatus,
     ExecutionStateStatus,
+    LayoutDirection,
+    StateType,
+    ThemeOption,
 } from '../types';
+
+/**
+ * Mermaid numeric-entity escapes for characters that are significant to
+ * `stateDiagram-v2` syntax: `#` introduces an entity itself, `"` and `;` end a
+ * label or statement early, `<`/`>` and `{`/`}` are HTML/composite-state
+ * syntax, and a backtick can break Markdown-flavoured label rendering.
+ */
+const MERMAID_LABEL_ENTITIES: Record<string, string> = {
+    '#': '#35;',
+    '"': '#quot;',
+    ';': '#59;',
+    '<': '#60;',
+    '>': '#62;',
+    '{': '#123;',
+    '}': '#125;',
+    '`': '#96;',
+};
+
+/** Mermaid classDef class name for each ASL state type, in emission order. */
+const STATE_TYPE_CLASS_NAMES: Record<StateType, string> = {
+    Succeed: 'successState',
+    Fail: 'failState',
+    Choice: 'choiceState',
+    Task: 'taskState',
+    Pass: 'passState',
+    Wait: 'waitState',
+    Parallel: 'parallelState',
+    Map: 'mapState',
+};
+
+/** Stroke width for each state type's classDef - terminal states are drawn thicker. */
+const STATE_TYPE_STROKE_WIDTHS: Record<StateType, number> = {
+    Succeed: 3,
+    Fail: 3,
+    Choice: 2,
+    Task: 2,
+    Pass: 2,
+    Wait: 2,
+    Parallel: 2,
+    Map: 2,
+};
 
 /** Mermaid classDef declarations for diff highlighting, keyed by diff status. */
 const DIFF_CLASS_DEFS: Record<DiffStatus, string> = {
@@ -43,9 +90,16 @@ const EXECUTION_CLASS_NAMES: Record<ExecutionStateStatus, string> = {
 // Internal parameter types for methods
 interface RenderMermaidParams {
     asl?: AslDefinition;
+    /** Per-state-type fill/stroke overrides, merged onto the resolved theme's `nodeColors`. */
+    customColors?: Partial<Record<StateType, { fill: string; stroke: string }>>;
     edges: GraphEdge[];
     /** Optional per-state execution status used to colour states by run outcome */
     executionClasses?: Record<string, ExecutionStateStatus>;
+    /**
+     * Graph layout direction, emitted as a Mermaid `direction` statement.
+     * @default 'TB'
+     */
+    layout?: LayoutDirection;
     /** Optional extra text appended to a state's label (e.g. execution duration) */
     nodeAnnotations?: Record<string, string>;
     nodes: StateNode[];
@@ -56,6 +110,12 @@ interface RenderMermaidParams {
     showVariables?: boolean;
     /** Optional per-state diff status used to colour added/modified/removed states */
     stateClasses?: Record<string, DiffStatus>;
+    /**
+     * Diagram theme - drives the `classDef` colours and, for a dark theme, an
+     * `%%{init}%%` directive so Mermaid's own base styling matches.
+     * @default 'light'
+     */
+    theme?: ThemeOption;
 }
 
 interface FindStartStateParams {
@@ -79,14 +139,24 @@ export class MermaidRenderer {
     render(params: RenderMermaidParams): MermaidOutput {
         const {
             asl,
-            edges,
+            customColors,
             executionClasses,
+            layout,
             nodeAnnotations,
-            nodes,
             showVariables,
             stateClasses,
+            theme,
         } = params;
         const lines: string[] = [];
+
+        // Drop synthetic branch/iterator end markers and rewire around them -
+        // SvgRenderer draws them as small dots and needs the container -> Next
+        // edge they anchor, but stateDiagram-v2 has no equivalent for a marker
+        // with an empty label, so left in they render as phantom states.
+        const { nodes, edges } = flattenMarkers({ edges: params.edges, nodes: params.nodes });
+
+        const resolvedTheme = getTheme(theme, customColors);
+        const isDarkTheme = resolveViewerTheme({ theme }) === 'dark';
 
         // Reset per-render id allocation, then pre-allocate ids for every node in
         // order. Distinct state names that sanitize to the same base (e.g.
@@ -96,8 +166,13 @@ export class MermaidRenderer {
         this.usedIds = new Set();
         nodes.forEach((node) => this.mermaidId(node.id));
 
-        // Header
+        // Header. The init directive must precede the diagram type declaration -
+        // Mermaid only honours it as the very first line of the document.
+        if (isDarkTheme) {
+            lines.push("%%{init: {'theme':'dark'}}%%");
+        }
         lines.push('stateDiagram-v2');
+        lines.push(`    direction ${layout ?? 'TB'}`);
         lines.push('');
 
         // Find start state from ASL or edges
@@ -168,20 +243,17 @@ export class MermaidRenderer {
             });
         }
 
-        // Add styling classes
+        // Add styling classes, derived from the resolved theme rather than a
+        // hard-coded light-theme palette, so `theme: 'dark'` (or a CustomTheme)
+        // actually changes the emitted colours.
         lines.push('');
-        lines.push(
-            '    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px',
-        );
-        lines.push(
-            '    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px',
-        );
-        lines.push(
-            '    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px',
-        );
-        lines.push(
-            '    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px',
-        );
+        for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES) as StateType[]) {
+            const { fill, stroke } = resolvedTheme.nodeColors[stateType];
+            const strokeWidth = STATE_TYPE_STROKE_WIDTHS[stateType];
+            lines.push(
+                `    classDef ${STATE_TYPE_CLASS_NAMES[stateType]} fill:${fill},stroke:${stroke},stroke-width:${strokeWidth}px`,
+            );
+        }
 
         // Diff highlighting classes (only emitted when a diff map is supplied)
         const hasDiff = stateClasses && Object.keys(stateClasses).length > 0;
@@ -218,19 +290,12 @@ export class MermaidRenderer {
                 return;
             }
 
-            switch (node.type) {
-                case 'Succeed':
-                    lines.push(`    class ${id} successState`);
-                    break;
-                case 'Fail':
-                    lines.push(`    class ${id} failState`);
-                    break;
-                case 'Choice':
-                    lines.push(`    class ${id} choiceState`);
-                    break;
-                case 'Task':
-                    lines.push(`    class ${id} taskState`);
-                    break;
+            // Node types outside StateType (ItemReader/ResultWriter satellites) have
+            // no classDef and are left unstyled, same as before this lookup replaced
+            // the four-case switch it's a superset of.
+            const className = (STATE_TYPE_CLASS_NAMES as Record<string, string>)[node.type];
+            if (className) {
+                lines.push(`    class ${id} ${className}`);
             }
         });
 
@@ -269,11 +334,16 @@ export class MermaidRenderer {
     }
 
     /**
-     * Escape label text for Mermaid
+     * Escape label text for Mermaid.
+     *
+     * Every replacement is a Mermaid numeric entity, each ending in the `;` this
+     * escapes - a sequential chain of `.replace()` calls would have the `;` rule
+     * mangle the entities the earlier rules just inserted, so this runs as one
+     * pass over a single character class instead. Encoding `>` also neutralises
+     * a literal `-->` inside a label, so no separate arrow rule is needed.
      */
     private escapeLabel(label: string): string {
-        // Remove or escape characters that might break Mermaid syntax
-        return label.replace(/"/g, "'").replace(/\n/g, ' ');
+        return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, ' ');
     }
 
     /**

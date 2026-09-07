@@ -777,6 +777,10 @@ export interface GenerateMermaidExecutionParams {
     aslDefinition: AslDefinition | string;
     /** Execution history (events array, GetExecutionHistory response, or JSON string) */
     history: ExecutionHistoryInput;
+    /** Graph layout direction, emitted as a Mermaid `direction` statement. @default 'TB' */
+    layout?: LayoutDirection;
+    /** Diagram theme - drives the emitted `classDef` colours. @default 'light' */
+    theme?: ThemeOption;
 }
 
 /** Status summary shared by execution overlay outputs. */

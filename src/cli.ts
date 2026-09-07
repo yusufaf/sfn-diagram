@@ -840,6 +840,8 @@ export async function run(argv: string[]): Promise<number> {
                 const result = generateMermaidExecution({
                     aslDefinition: definitionSource,
                     history: historySource,
+                    layout: args.layout,
+                    theme: args.theme,
                 });
                 writeExecutionSummary(result.metadata);
                 writeOutput(result.code, args.output);
@@ -868,6 +870,8 @@ export async function run(argv: string[]): Promise<number> {
             const result = generateMermaid({
                 aslDefinition: definitionSource,
                 ...sharedOptions,
+                layout: args.layout,
+                theme: args.theme,
             });
             writeOutput(result.code, args.output);
             return 0;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MermaidRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
+import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition } from '../src/types';
@@ -85,8 +86,10 @@ describe('MermaidRenderer', () => {
             const renderer = new MermaidRenderer();
             const result = renderer.render({ nodes, edges, asl });
 
+            // `;` is Mermaid-significant, so the label's own separator is escaped
+            // to `#59;` along with everything else escapeLabel handles.
             expect(result.code).toContain(
-                'Submit --> Submit: ↻ States.Timeout (4x); States.ALL (2x)',
+                'Submit --> Submit: ↻ States.Timeout (4x)#59; States.ALL (2x)',
             );
         });
     });
@@ -186,6 +189,83 @@ describe('MermaidRenderer', () => {
         });
     });
 
+    describe('Layout and theme options', () => {
+        it('should default to a TB direction when layout is not given', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('    direction TB');
+        });
+
+        it('should emit the requested layout direction', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, layout: 'LR' });
+
+            expect(result.code).toContain('    direction LR');
+        });
+
+        it('should derive classDef colours from the light theme by default', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px');
+            expect(result.code).not.toContain("%%{init:");
+        });
+
+        it('should switch classDef colours and emit a dark init directive for theme: dark', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, theme: 'dark' });
+
+            expect(result.code.startsWith("%%{init: {'theme':'dark'}}%%\n")).toBe(true);
+            expect(result.code).toContain('classDef taskState fill:#9c3400,stroke:#ffb74d,stroke-width:2px');
+        });
+
+        it('should classify a dark CustomTheme by background luminance', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const customTheme = {
+                background: '#101820',
+                edgeColors: { choice: '#fff', default: '#fff', error: '#fff', normal: '#fff' },
+                fontFamily: 'Arial, sans-serif',
+                fontSize: 14,
+                nodeColors: {
+                    Pass: { fill: '#000', stroke: '#fff' },
+                    Task: { fill: '#111111', stroke: '#fff' },
+                    Choice: { fill: '#000', stroke: '#fff' },
+                    Wait: { fill: '#000', stroke: '#fff' },
+                    Succeed: { fill: '#000', stroke: '#fff' },
+                    Fail: { fill: '#000', stroke: '#fff' },
+                    Parallel: { fill: '#000', stroke: '#fff' },
+                    Map: { fill: '#000', stroke: '#fff' },
+                },
+                textColor: '#fff',
+            };
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, theme: customTheme });
+
+            expect(result.code.startsWith("%%{init:")).toBe(true);
+            expect(result.code).toContain('classDef taskState fill:#111111,stroke:#fff,stroke-width:2px');
+        });
+
+        it('should style container and pass/wait states, not just the original four types', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('classDef parallelState');
+            expect(result.code).toContain('class ParallelExecution parallelState');
+        });
+    });
+
     describe('ID sanitization', () => {
         it('should handle special characters in state names', () => {
             const asl: AslDefinition = {
@@ -258,6 +338,63 @@ describe('MermaidRenderer', () => {
             expect(result.code).toContain('Branch2');
         });
 
+        it('should not emit branch/iterator end marker states or duplicate transitions', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__end');
+            expect(result.code).not.toContain('__branch');
+            expect(result.code).toContain('Branch1 --> FinalState');
+            expect(result.code).toContain('Branch2 --> FinalState');
+            // One arrival per branch, not a third duplicate straight from the container.
+            expect(result.code.match(/--> FinalState/g)).toHaveLength(2);
+            expect(result.metadata.stateCount).toBe(4);
+            expect(result.metadata.edgeCount).toBe(4);
+        });
+
+        it('should not emit an iterator end marker state for Map', () => {
+            const asl = loadFixture('map');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__iterator__end');
+            expect(result.code).toContain('ValidateItem --> Done');
+            expect(result.code.match(/--> Done/g)).toHaveLength(1);
+        });
+
+        it('should flatten markers through a nested container without leaking them', () => {
+            const asl = loadFixture('nested-map');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes, edges, asl });
+
+            expect(result.code).not.toContain('__end');
+            // ProcessBatch (the nested Map) is itself the branch's terminal state,
+            // so its container -> Next edge is what carries the branch to Complete.
+            expect(result.code).toContain('ProcessBatch --> Complete');
+            expect(result.code).toContain('Notify --> Complete');
+        });
+
+        it('should keep a collapsed container reachable via its placeholder', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const collapsed = applyCollapse({ collapse: true, edges, nodes });
+
+            const renderer = new MermaidRenderer();
+            const result = renderer.render({ nodes: collapsed.nodes, edges: collapsed.edges, asl });
+
+            // No branch markers survive the collapse itself, and the container's own
+            // -> Next visual edge - its only remaining link to the rest of the graph -
+            // must not be mistaken for a now-nonexistent duplicate and dropped too.
+            expect(result.code).toContain('ParallelExecution --> FinalState');
+        });
+
         it('should handle error transitions', () => {
             const asl = loadFixture('error-handling');
             const { nodes, edges } = parseAsl({ definition: asl });
@@ -267,6 +404,67 @@ describe('MermaidRenderer', () => {
 
             expect(result.code).toContain('RiskyTask');
             expect(result.code).toContain('HandleError');
+        });
+    });
+
+    describe('Label escaping', () => {
+        // A state name carrying every Mermaid-significant character at once,
+        // plus a literal arrow sequence that must not be read as a transition.
+        const escapesAsl: AslDefinition = {
+            StartAt: 'Start',
+            States: {
+                Start: {
+                    Type: 'Pass',
+                    Next: 'Check#1 "Quoted" <Tag>{brace}`tick`;a-->b',
+                },
+                'Check#1 "Quoted" <Tag>{brace}`tick`;a-->b': {
+                    Type: 'Succeed',
+                },
+            },
+        };
+
+        it('should escape every Mermaid-significant character', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            expect(result.code).toContain(
+                'Check#35;1 #quot;Quoted#quot; #60;Tag#62;#123;brace#125;#96;tick#96;#59;a--#62;b',
+            );
+        });
+
+        it('should not let the escaped label contain a raw arrow, quote, or brace', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            // Isolate the state definition line so the assertion can't be satisfied
+            // by the `-->` transition syntax that legitimately appears elsewhere.
+            const definitionLine = result.code
+                .split('\n')
+                .find((line) => line.trim().startsWith('Check_1'));
+
+            expect(definitionLine).toBeDefined();
+            expect(definitionLine).not.toContain('-->');
+            expect(definitionLine).not.toContain('"');
+            expect(definitionLine).not.toContain('{');
+            expect(definitionLine).not.toContain('}');
+        });
+
+        it('should still collapse newlines to spaces', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Multi\nLine',
+                States: { 'Multi\nLine': { Type: 'Succeed' } },
+            };
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('Multi Line');
+        });
+
+        it('should match the full escaped snapshot', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            expect(result.code).toMatchSnapshot();
         });
     });
 });

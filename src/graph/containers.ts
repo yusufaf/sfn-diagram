@@ -11,6 +11,18 @@ export function isOpenContainer(node: StateNode): boolean {
 }
 
 /**
+ * Synthetic node types the parser injects to anchor a Parallel branch's or
+ * Map iterator's terminal edge for layout - not real ASL states, and never
+ * meant to be shown to a reader.
+ */
+export const MARKER_NODE_TYPES: ReadonlySet<string> = new Set(['BranchEnd', 'IteratorEnd']);
+
+/** True for a synthetic branch/iterator end marker node (see {@link MARKER_NODE_TYPES}). */
+export function isMarkerNode(node: StateNode): boolean {
+    return MARKER_NODE_TYPES.has(node.type);
+}
+
+/**
  * Resolve a Map state's inline processor definition.
  * Prefers the modern `ItemProcessor` field (used by inline and Distributed Map)
  * and falls back to the legacy `Iterator` field for pre-2022 definitions.

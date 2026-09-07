@@ -212,9 +212,12 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
     const renderer = new MermaidRenderer();
     return renderer.render({
         asl: aslObj,
+        customColors: mergedOptions.customColors,
         edges: collapsedGraph.edges,
+        layout: mergedOptions.layout,
         nodes: collapsedGraph.nodes,
         showVariables: mergedOptions.showVariables,
+        theme: mergedOptions.theme,
     });
 }
 

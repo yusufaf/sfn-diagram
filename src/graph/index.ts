@@ -6,7 +6,9 @@ export type {
 } from './collapseContainers';
 export { applyCatchHandling } from './catchHandling';
 export type { ApplyCatchHandlingParams } from './catchHandling';
-export { getMapProcessor, isOpenContainer } from './containers';
+export { getMapProcessor, isMarkerNode, isOpenContainer, MARKER_NODE_TYPES } from './containers';
+export { flattenMarkers } from './flattenMarkers';
+export type { FlattenMarkersParams, FlattenMarkersResult } from './flattenMarkers';
 export { assignEdgeIds } from './edgeIdentity';
 export type { AssignEdgeIdsParams, RawEdge } from './edgeIdentity';
 export {

@@ -73,3 +73,13 @@ test('catchHandling hide drops error-handler branches', () => {
     expect(hidden.metadata.stateCount).toBeLessThan(shown.metadata.stateCount);
     expect(shown.code).not.toBe(hidden.code);
 });
+
+test('generateMermaid forwards layout and theme to the renderer', () => {
+    const asl: AslDefinition = {
+        StartAt: 'T',
+        States: { T: { Type: 'Task', Resource: 'arn:x', Next: 'Done' }, Done: { Type: 'Succeed' } },
+    };
+    const result = generateMermaid({ aslDefinition: asl, layout: 'LR', theme: 'dark' });
+    expect(result.code).toContain('    direction LR');
+    expect(result.code).toContain("%%{init: {'theme':'dark'}}%%");
+});

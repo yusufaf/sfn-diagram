@@ -1,8 +1,6 @@
 import { MAP_IO_NODE_TYPES } from '../constants';
 import type { GraphEdge, StateNode } from '../types';
-
-/** Synthetic marker node types that don't count as real states. */
-const SYNTHETIC_MARKER_TYPES = new Set(['BranchEnd', 'IteratorEnd']);
+import { isMarkerNode } from './containers';
 
 /** Parameters for {@link applyCollapse}. */
 export interface ApplyCollapseParams {
@@ -164,7 +162,7 @@ export function applyCollapse(params: ApplyCollapseParams): {
             let collapsedCount = 0;
             for (const id of closure) {
                 const descendant = nodesById.get(id);
-                if (descendant && !SYNTHETIC_MARKER_TYPES.has(descendant.type)) {
+                if (descendant && !isMarkerNode(descendant)) {
                     collapsedCount += 1;
                 }
             }

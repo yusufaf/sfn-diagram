@@ -51,6 +51,15 @@ describe('renderDiagramString', () => {
         expect(result.type).toBe('svg');
     });
 
+    it('respects layout and theme for Mermaid output too', () => {
+        const result = renderDiagramString({ asl, format: 'mermaid', layout: 'LR', theme: 'dark' });
+        expect(result.type).toBe('mermaid');
+        if (result.type === 'mermaid') {
+            expect(result.code).toContain('    direction LR');
+            expect(result.code).toContain("%%{init: {'theme':'dark'}}%%");
+        }
+    });
+
     it('throws on invalid ASL', () => {
         expect(() => renderDiagramString({ asl: { StartAt: 'Missing', States: {} } })).toThrow();
     });

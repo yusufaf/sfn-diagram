@@ -10,10 +10,11 @@ exports[`Integration Tests > Snapshot tests > Layout consistency > should produc
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for choice 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> CheckValue
-    CheckValue --> HighValue: $.value > 10
-    CheckValue --> LowValue: $.value <= 10
+    CheckValue --> HighValue: $.value #62; 10
+    CheckValue --> LowValue: $.value #60;= 10
     CheckValue --> DefaultPath: Default
     HighValue --> Done
     LowValue --> Done
@@ -21,12 +22,19 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     Done --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
     class CheckValue choiceState
+    class HighValue passState
+    class LowValue passState
+    class DefaultPath passState
     class Done successState"
 `;
 
@@ -39,10 +47,10 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for distributed-map 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> SplitInput
     ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50)
-    ProcessItems__iterator__end: 
     ProcessItems__itemreader: ItemReader (s3)
     ProcessItems__resultwriter: ResultWriter (s3)
 
@@ -51,30 +59,36 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
     ProcessItems --> ProcessItems__resultwriter: ResultWriter
     ProcessItems --> ProcessItem
     ProcessItem --> ValidateItem
-    ValidateItem --> ProcessItems__iterator__end
-    ProcessItems__iterator__end --> Done
-    ProcessItems --> Done
+    ValidateItem --> Done
 
     Done --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
+    class SplitInput passState
+    class ProcessItems mapState
     class ProcessItem taskState
+    class ValidateItem passState
     class Done successState"
 `;
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for distributed-map 2`] = `
 {
-  "edgeCount": 8,
-  "stateCount": 8,
+  "edgeCount": 6,
+  "stateCount": 7,
 }
 `;
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for error-handling 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> RiskyTask
     RiskyTask --> Success
@@ -85,12 +99,18 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     Success --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
     class RiskyTask taskState
+    class HandleError passState
+    class FallbackError passState
     class Success successState"
 `;
 
@@ -103,58 +123,63 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for map 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> SplitInput
     ProcessItems: ProcessItems (max 4)
-    ProcessItems__iterator__end: 
 
     SplitInput --> ProcessItems
     ProcessItems --> ProcessItem
     ProcessItem --> ValidateItem
-    ValidateItem --> ProcessItems__iterator__end
-    ProcessItems__iterator__end --> Done
-    ProcessItems --> Done
+    ValidateItem --> Done
 
     Done --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
+    class SplitInput passState
+    class ProcessItems mapState
     class ProcessItem taskState
+    class ValidateItem passState
     class Done successState"
 `;
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for map 2`] = `
 {
-  "edgeCount": 6,
-  "stateCount": 6,
+  "edgeCount": 4,
+  "stateCount": 5,
 }
 `;
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for parallel 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> ParallelExecution
-    ParallelExecution__branch0__end: 
-    ParallelExecution__branch1__end: 
-
     ParallelExecution --> Branch1
-    Branch1 --> ParallelExecution__branch0__end
-    ParallelExecution__branch0__end --> FinalState
+    Branch1 --> FinalState
     ParallelExecution --> Branch2
-    Branch2 --> ParallelExecution__branch1__end
-    ParallelExecution__branch1__end --> FinalState
-    ParallelExecution --> FinalState
+    Branch2 --> FinalState
 
     FinalState --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
+    class ParallelExecution parallelState
     class Branch1 taskState
     class Branch2 taskState
     class FinalState successState"
@@ -162,13 +187,14 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for parallel 2`] = `
 {
-  "edgeCount": 7,
-  "stateCount": 6,
+  "edgeCount": 4,
+  "stateCount": 4,
 }
 `;
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for simple 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> Start
     Start: Starting state
@@ -178,11 +204,16 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     End --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
+    class Start passState
     class Process taskState
     class End successState"
 `;
@@ -196,22 +227,28 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for wait-fail 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> WaitState
     WaitState: WaitState (5s)
 
     WaitState --> CheckCondition
-    CheckCondition --> SuccessState: $.status == 'success'
+    CheckCondition --> SuccessState: $.status == #quot;success#quot;
     CheckCondition --> FailState: Default
 
     SuccessState --> [*]
     FailState --> [*]
 
-    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
-    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
 
+    class WaitState waitState
     class CheckCondition choiceState
     class SuccessState successState
     class FailState failState"
