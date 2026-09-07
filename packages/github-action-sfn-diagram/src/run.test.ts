@@ -87,17 +87,37 @@ interface OctokitStubParams {
     files?: { filename: string; status: string }[]
 }
 
+/** Page size the action requests; the stub slices its fixtures to match. */
+const STUB_PAGE_SIZE = 100
+
+interface PageParams {
+    page?: number
+    per_page?: number
+}
+
+/** Serves a fixture array one page at a time, the way the REST API does. */
+function servePage<T>(items: T[], { page = 1, per_page = STUB_PAGE_SIZE }: PageParams) {
+    const start = (page - 1) * per_page
+    return { data: items.slice(start, start + per_page) }
+}
+
 function makeOctokit(params: OctokitStubParams = {}) {
     const { contentByRef = {}, existingComments = [], files = [] } = params
     return {
         rest: {
             issues: {
                 createComment: vi.fn().mockResolvedValue({}),
-                listComments: vi.fn().mockResolvedValue({ data: existingComments }),
+                listComments: vi
+                    .fn()
+                    .mockImplementation(async (pageParams: PageParams) =>
+                        servePage(existingComments, pageParams),
+                    ),
                 updateComment: vi.fn().mockResolvedValue({}),
             },
             pulls: {
-                listFiles: vi.fn().mockResolvedValue({ data: files }),
+                listFiles: vi
+                    .fn()
+                    .mockImplementation(async (pageParams: PageParams) => servePage(files, pageParams)),
             },
             repos: {
                 getContent: vi.fn().mockImplementation(async ({ ref }: { ref: string }) => {
@@ -278,6 +298,88 @@ describe('run', () => {
         expect(body).toContain('classDef diffAdded')
         expect(body).toContain('class FraudCheck diffAdded')
         expect(body).toContain('class CancelOrder diffRemoved')
+    })
+
+    it('reports on an ASL file that falls past the first page of changed files', async () => {
+        // GitHub's default page size for pulls.listFiles is 30; a PR touching more
+        // files than that silently lost anything after page 1.
+        setPullRequest()
+        const padding = Array.from({ length: 120 }, (_, index) => ({
+            filename: `src/unrelated-${index}.ts`,
+            status: 'modified',
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [...padding, { filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.pulls.listFiles).toHaveBeenCalledTimes(2)
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
+        expect(createdBody(stub)).toContain('flows/order.asl.json')
+    })
+
+    it('updates the marker comment even when it falls past the first page', async () => {
+        // A marker comment's created_at is set once and never bumped by an update,
+        // so on a busy PR it ages off page 1 - and the action posted a duplicate.
+        setPullRequest()
+        const chatter = Array.from({ length: 120 }, (_, index) => ({
+            body: `unrelated comment ${index}`,
+            id: index + 1,
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            existingComments: [...chatter, { body: `${MARKER}\nprevious run`, id: 999 }],
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.issues.updateComment).toHaveBeenCalledTimes(1)
+        expect(stub.rest.issues.updateComment.mock.calls[0][0].comment_id).toBe(999)
+        expect(stub.rest.issues.createComment).not.toHaveBeenCalled()
+    })
+
+    it('warns rather than silently truncating when the changed-files cap is hit', async () => {
+        setPullRequest()
+        const padding = Array.from({ length: 500 }, (_, index) => ({
+            filename: `src/unrelated-${index}.ts`,
+            status: 'modified',
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [...padding, { filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.pulls.listFiles).toHaveBeenCalledTimes(5)
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page cap 5'))
+    })
+
+    it('warns rather than silently giving up when the comment-search cap is hit', async () => {
+        setPullRequest()
+        const chatter = Array.from({ length: 500 }, (_, index) => ({
+            body: `unrelated comment ${index}`,
+            id: index + 1,
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            existingComments: [...chatter, { body: `${MARKER}\nprevious run`, id: 999 }],
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(
+            expect.stringContaining('Stopped searching for a previous comment'),
+        )
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
     })
 
     it('updates the existing comment instead of creating a new one', async () => {

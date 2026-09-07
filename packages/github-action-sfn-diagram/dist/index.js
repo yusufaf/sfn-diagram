@@ -64317,6 +64317,8 @@ async function fetchExecutionForOverlay(params) {
 // src/run.ts
 var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
 var EXECUTION_MODES = ["off", "latest", "latest-failed"];
+var LIST_PAGE_SIZE = 100;
+var MAX_LIST_PAGES = 5;
 async function getFileAtRef(params) {
   const { octokit, owner, path: path2, ref, repo } = params;
   try {
@@ -64327,6 +64329,44 @@ async function getFileAtRef(params) {
   } catch {
     return null;
   }
+}
+async function listChangedFiles(params) {
+  const { octokit, owner, pullNumber, repo } = params;
+  const collected = [];
+  for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+    const { data: data2 } = await octokit.rest.pulls.listFiles({
+      owner,
+      page,
+      per_page: LIST_PAGE_SIZE,
+      pull_number: pullNumber,
+      repo
+    });
+    collected.push(...data2);
+    if (data2.length < LIST_PAGE_SIZE) return collected;
+  }
+  core.warning(
+    `Only the first ${collected.length} changed files were examined (page cap ${MAX_LIST_PAGES}); an ASL file beyond that is not reported on.`
+  );
+  return collected;
+}
+async function findCommentByMarker(params) {
+  const { marker, octokit, owner, pullNumber, repo } = params;
+  for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+    const { data: data2 } = await octokit.rest.issues.listComments({
+      issue_number: pullNumber,
+      owner,
+      page,
+      per_page: LIST_PAGE_SIZE,
+      repo
+    });
+    const found = data2.find((comment) => comment.body?.startsWith(marker));
+    if (found) return found;
+    if (data2.length < LIST_PAGE_SIZE) return void 0;
+  }
+  core.warning(
+    `Stopped searching for a previous comment after ${MAX_LIST_PAGES} pages; a new comment will be posted even if one already exists.`
+  );
+  return void 0;
 }
 async function run() {
   const token = core.getInput("github-token", { required: true });
@@ -64358,11 +64398,7 @@ async function run() {
   const baseSha = pr.base.sha;
   const headSha = pr.head.sha;
   const octokit = getOctokit(token);
-  const { data: changedFiles } = await octokit.rest.pulls.listFiles({
-    owner,
-    pull_number: pullNumber,
-    repo
-  });
+  const changedFiles = await listChangedFiles({ octokit, owner, pullNumber, repo });
   const aslFiles = changedFiles.filter(
     (file) => file.status !== "unchanged" && matchesPatterns(file.filename, patterns)
   );
@@ -64411,12 +64447,7 @@ async function run() {
   }
   const marker = `${COMMENT_PREFIX}${commentTag}-->`;
   const body = assembleCommentBody({ marker, sections: bodySections });
-  const { data: existingComments } = await octokit.rest.issues.listComments({
-    issue_number: pullNumber,
-    owner,
-    repo
-  });
-  const existing = existingComments.find((comment) => comment.body?.startsWith(marker));
+  const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo });
   if (existing) {
     await octokit.rest.issues.updateComment({
       body,

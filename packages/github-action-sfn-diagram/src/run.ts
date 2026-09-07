@@ -19,6 +19,31 @@ import type { ExecutionMode } from './sfn.js'
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
 
+/** Items requested per page; the maximum the REST API accepts. */
+const LIST_PAGE_SIZE = 100
+
+/**
+ * Bounds worst-case pagination to 500 items. Mirrors MAX_NOTE_LIST_PAGES in the
+ * GitLab integration: enough for any realistic PR, while keeping a pathological
+ * one from making unbounded API calls.
+ */
+const MAX_LIST_PAGES = 5
+
+interface FindCommentByMarkerParams {
+    marker: string
+    octokit: ReturnType<typeof github.getOctokit>
+    owner: string
+    pullNumber: number
+    repo: string
+}
+
+interface ListChangedFilesParams {
+    octokit: ReturnType<typeof github.getOctokit>
+    owner: string
+    pullNumber: number
+    repo: string
+}
+
 interface GetFileAtRefParams {
     octokit: ReturnType<typeof github.getOctokit>
     owner: string
@@ -40,6 +65,76 @@ async function getFileAtRef(params: GetFileAtRefParams): Promise<string | null> 
     } catch {
         return null
     }
+}
+
+/**
+ * Every file in a pull request, paginated. GitHub returns 30 per page by default,
+ * so a single unpaginated call silently drops anything a large PR touches beyond
+ * the first page - including ASL files this action exists to report on.
+ */
+async function listChangedFiles(
+    params: ListChangedFilesParams,
+): Promise<{ filename: string; status: string }[]> {
+    const { octokit, owner, pullNumber, repo } = params
+    const collected: { filename: string; status: string }[] = []
+
+    for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+        const { data } = await octokit.rest.pulls.listFiles({
+            owner,
+            page,
+            per_page: LIST_PAGE_SIZE,
+            pull_number: pullNumber,
+            repo,
+        })
+        collected.push(...data)
+        if (data.length < LIST_PAGE_SIZE) return collected
+    }
+
+    // Reaching the cap with a full final page means there is more to fetch. Say so:
+    // silently truncating here is the same no-error, no-warning miss as #155, just
+    // at a higher threshold.
+    core.warning(
+        `Only the first ${collected.length} changed files were examined (page cap ${MAX_LIST_PAGES}); an ASL file beyond that is not reported on.`,
+    )
+
+    return collected
+}
+
+/**
+ * The action's own comment from a previous run, found by its marker prefix.
+ *
+ * Paginated rather than first-page-only: `issues.listComments` returns oldest
+ * first, so on a PR that already had a hundred-plus comments when this action
+ * first ran, the marker comment sits past page 1 and never gets found - and the
+ * action posts a duplicate instead of updating what is already there. Ascending
+ * order is also what makes forward paging safe here: a comment added mid-scan
+ * lands at the end, so it cannot shift an unread one onto a page already passed.
+ */
+async function findCommentByMarker(
+    params: FindCommentByMarkerParams,
+): Promise<{ body?: string; id: number } | undefined> {
+    const { marker, octokit, owner, pullNumber, repo } = params
+
+    for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+        const { data } = await octokit.rest.issues.listComments({
+            issue_number: pullNumber,
+            owner,
+            page,
+            per_page: LIST_PAGE_SIZE,
+            repo,
+        })
+        const found = data.find((comment) => comment.body?.startsWith(marker))
+        if (found) return found
+        if (data.length < LIST_PAGE_SIZE) return undefined
+    }
+
+    // Gave up rather than ran out - without this the caller cannot tell the two
+    // apart, and posts a duplicate comment exactly as it did before #156.
+    core.warning(
+        `Stopped searching for a previous comment after ${MAX_LIST_PAGES} pages; a new comment will be posted even if one already exists.`,
+    )
+
+    return undefined
 }
 
 export async function run(): Promise<void> {
@@ -84,11 +179,7 @@ export async function run(): Promise<void> {
 
     const octokit = github.getOctokit(token)
 
-    const { data: changedFiles } = await octokit.rest.pulls.listFiles({
-        owner,
-        pull_number: pullNumber,
-        repo,
-    })
+    const changedFiles = await listChangedFiles({ octokit, owner, pullNumber, repo })
 
     const aslFiles = changedFiles.filter(
         (file) => file.status !== 'unchanged' && matchesPatterns(file.filename, patterns),
@@ -158,13 +249,7 @@ export async function run(): Promise<void> {
     const marker = `${COMMENT_PREFIX}${commentTag}-->`
     const body = assembleCommentBody({ marker, sections: bodySections })
 
-    const { data: existingComments } = await octokit.rest.issues.listComments({
-        issue_number: pullNumber,
-        owner,
-        repo,
-    })
-
-    const existing = existingComments.find((comment) => comment.body?.startsWith(marker))
+    const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo })
 
     if (existing) {
         await octokit.rest.issues.updateComment({
