@@ -72,6 +72,24 @@ describe('SfnDiagram', () => {
             expect(pre).toBeInTheDocument()
             expect(pre?.textContent).toContain('stateDiagram-v2')
         })
+
+        it('forwards layout to Mermaid output', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} format="mermaid" layout="LR" />
+            )
+
+            expect(container.querySelector('pre')?.textContent).toContain('direction LR')
+        })
+
+        it('forwards theme to Mermaid output', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} format="mermaid" theme="dark" />
+            )
+
+            expect(container.querySelector('pre')?.textContent).toContain(
+                "%%{init: {'theme':'dark'}}%%"
+            )
+        })
     })
 
     describe('Execution overlay', () => {
