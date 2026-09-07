@@ -50,6 +50,7 @@ Give it an ASL definition like this order-processing workflow ([`examples/order-
 
 ```mermaid
 stateDiagram-v2
+    direction TB
 
     [*] --> ValidateOrder
     ValidateOrder --> CheckStock
@@ -65,7 +66,12 @@ stateDiagram-v2
     classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#689f38,stroke-width:2px
 
+    class ValidateOrder passState
     class CheckStock choiceState
     class ChargePayment taskState
     class ShipOrder taskState

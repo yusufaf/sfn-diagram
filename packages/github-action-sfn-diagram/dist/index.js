@@ -62328,6 +62328,13 @@ function mergeOptions(options = {}) {
     ...options
   };
 }
+function mergeRecordOptions(base, override) {
+  if (!base && !override) return void 0;
+  return {
+    ...base,
+    ...override
+  };
+}
 var AWS_LIGHT_THEME = {
   background: "#ffffff",
   nodeColors: {
@@ -62375,6 +62382,64 @@ var AWS_LIGHT_THEME = {
   fontSize: 14,
   fontFamily: "Arial, sans-serif"
 };
+var AWS_DARK_THEME = {
+  background: "#1e1e1e",
+  nodeColors: {
+    Pass: {
+      fill: "#01579b",
+      stroke: "#4fc3f7"
+    },
+    Task: {
+      fill: "#e65100",
+      stroke: "#ffb74d"
+    },
+    Choice: {
+      fill: "#4a148c",
+      stroke: "#ce93d8"
+    },
+    Wait: {
+      fill: "#1b5e20",
+      stroke: "#81c784"
+    },
+    Succeed: {
+      fill: "#2e7d32",
+      stroke: "#a5d6a7"
+    },
+    Fail: {
+      fill: "#b71c1c",
+      stroke: "#ef5350"
+    },
+    Parallel: {
+      fill: "#880e4f",
+      stroke: "#f48fb1"
+    },
+    Map: {
+      fill: "#33691e",
+      stroke: "#aed581"
+    }
+  },
+  edgeColors: {
+    choice: "#ce93d8",
+    default: "#ba68c8",
+    error: "#ef5350",
+    normal: "#90a4ae",
+    retry: "#ffca28"
+  },
+  textColor: "#e0e0e0",
+  fontSize: 14,
+  fontFamily: "Arial, sans-serif"
+};
+function getTheme(theme, customColors) {
+  let baseTheme;
+  if (!theme || theme === "light") baseTheme = AWS_LIGHT_THEME;
+  else if (theme === "dark") baseTheme = AWS_DARK_THEME;
+  else baseTheme = theme;
+  if (customColors) return {
+    ...baseTheme,
+    nodeColors: mergeRecordOptions(baseTheme.nodeColors, customColors)
+  };
+  return baseTheme;
+}
 function getNodeStyle(params) {
   const { stateType, theme = AWS_LIGHT_THEME, customColors, stylePreset = "aws-standard" } = params;
   if (customColors?.[stateType]) return customColors[stateType];
@@ -63472,6 +63537,24 @@ for (let code = 65; code <= 90; code++) {
   if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
 }
 CHAR_WIDTHS[" "] = SPACE;
+var DARK_BACKGROUND_LUMINANCE = 0.5;
+function hexLuminance(color) {
+  const match2 = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!match2) return null;
+  const hex = match2[1];
+  const expanded = hex.length === 3 ? hex.split("").map((character) => character + character).join("") : hex;
+  const red = parseInt(expanded.slice(0, 2), 16);
+  const green = parseInt(expanded.slice(2, 4), 16);
+  const blue = parseInt(expanded.slice(4, 6), 16);
+  return (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+}
+function resolveViewerTheme(params) {
+  const { theme } = params;
+  if (theme === "dark") return "dark";
+  if (theme === void 0 || theme === "light") return "light";
+  const luminance = hexLuminance(theme.background);
+  return luminance !== null && luminance < DARK_BACKGROUND_LUMINANCE ? "dark" : "light";
+}
 var MERMAID_LABEL_ENTITIES = {
   "#": "#35;",
   '"': "#quot;",
@@ -63481,6 +63564,26 @@ var MERMAID_LABEL_ENTITIES = {
   "{": "#123;",
   "}": "#125;",
   "`": "#96;"
+};
+var STATE_TYPE_CLASS_NAMES = {
+  Succeed: "successState",
+  Fail: "failState",
+  Choice: "choiceState",
+  Task: "taskState",
+  Pass: "passState",
+  Wait: "waitState",
+  Parallel: "parallelState",
+  Map: "mapState"
+};
+var STATE_TYPE_STROKE_WIDTHS = {
+  Succeed: 3,
+  Fail: 3,
+  Choice: 2,
+  Task: 2,
+  Pass: 2,
+  Wait: 2,
+  Parallel: 2,
+  Map: 2
 };
 var DIFF_CLASS_DEFS = {
   added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
@@ -63515,16 +63618,20 @@ var MermaidRenderer = class {
   * Render nodes and edges to Mermaid syntax
   */
   render(params) {
-    const { asl, executionClasses, nodeAnnotations, showVariables, stateClasses } = params;
+    const { asl, customColors, executionClasses, layout, nodeAnnotations, showVariables, stateClasses, theme } = params;
     const lines = [];
     const { nodes, edges } = flattenMarkers({
       edges: params.edges,
       nodes: params.nodes
     });
+    const resolvedTheme = getTheme(theme, customColors);
+    const isDarkTheme = resolveViewerTheme({ theme }) === "dark";
     this.idMap = /* @__PURE__ */ new Map();
     this.usedIds = /* @__PURE__ */ new Set();
     nodes.forEach((node) => this.mermaidId(node.id));
+    if (isDarkTheme) lines.push("%%{init: {'theme':'dark'}}%%");
     lines.push("stateDiagram-v2");
+    lines.push(`    direction ${layout ?? "TB"}`);
     lines.push("");
     const startState = this.findStartState({
       asl,
@@ -63568,10 +63675,11 @@ var MermaidRenderer = class {
       });
     }
     lines.push("");
-    lines.push("    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px");
-    lines.push("    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px");
-    lines.push("    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px");
-    lines.push("    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px");
+    for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES)) {
+      const { fill, stroke } = resolvedTheme.nodeColors[stateType];
+      const strokeWidth = STATE_TYPE_STROKE_WIDTHS[stateType];
+      lines.push(`    classDef ${STATE_TYPE_CLASS_NAMES[stateType]} fill:${fill},stroke:${stroke},stroke-width:${strokeWidth}px`);
+    }
     if (stateClasses && Object.keys(stateClasses).length > 0) for (const status of Object.keys(DIFF_CLASS_DEFS)) lines.push(`    ${DIFF_CLASS_DEFS[status]}`);
     if (executionClasses && Object.keys(executionClasses).length > 0) for (const status of Object.keys(EXECUTION_CLASS_DEFS)) lines.push(`    ${EXECUTION_CLASS_DEFS[status]}`);
     lines.push("");
@@ -63587,20 +63695,8 @@ var MermaidRenderer = class {
         lines.push(`    class ${id} ${DIFF_CLASS_NAMES[diffStatus]}`);
         return;
       }
-      switch (node.type) {
-        case "Succeed":
-          lines.push(`    class ${id} successState`);
-          break;
-        case "Fail":
-          lines.push(`    class ${id} failState`);
-          break;
-        case "Choice":
-          lines.push(`    class ${id} choiceState`);
-          break;
-        case "Task":
-          lines.push(`    class ${id} taskState`);
-          break;
-      }
+      const className = STATE_TYPE_CLASS_NAMES[node.type];
+      if (className) lines.push(`    class ${id} ${className}`);
     });
     return {
       code: lines.join("\n"),
@@ -63985,9 +64081,12 @@ function generateMermaid(params) {
   });
   return new MermaidRenderer().render({
     asl: aslObj,
+    customColors: mergedOptions.customColors,
     edges: collapsedGraph.edges,
+    layout: mergedOptions.layout,
     nodes: collapsedGraph.nodes,
-    showVariables: mergedOptions.showVariables
+    showVariables: mergedOptions.showVariables,
+    theme: mergedOptions.theme
   });
 }
 function isAslDefinition(obj) {

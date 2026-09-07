@@ -2,6 +2,7 @@
 
 exports[`MermaidRenderer > Label escaping > should match the full escaped snapshot 1`] = `
 "stateDiagram-v2
+    direction TB
 
     [*] --> Start
     Check_1__Quoted___Tag__brace__tick__a___b: Check#35;1 #quot;Quoted#quot; #60;Tag#62;#123;brace#125;#96;tick#96;#59;a--#62;b
@@ -14,6 +15,11 @@ exports[`MermaidRenderer > Label escaping > should match the full escaped snapsh
     classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
     classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#689f38,stroke-width:2px
 
+    class Start passState
     class Check_1__Quoted___Tag__brace__tick__a___b successState"
 `;

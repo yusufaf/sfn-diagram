@@ -189,6 +189,83 @@ describe('MermaidRenderer', () => {
         });
     });
 
+    describe('Layout and theme options', () => {
+        it('should default to a TB direction when layout is not given', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('    direction TB');
+        });
+
+        it('should emit the requested layout direction', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, layout: 'LR' });
+
+            expect(result.code).toContain('    direction LR');
+        });
+
+        it('should derive classDef colours from the light theme by default', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px');
+            expect(result.code).not.toContain("%%{init:");
+        });
+
+        it('should switch classDef colours and emit a dark init directive for theme: dark', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, theme: 'dark' });
+
+            expect(result.code.startsWith("%%{init: {'theme':'dark'}}%%\n")).toBe(true);
+            expect(result.code).toContain('classDef taskState fill:#e65100,stroke:#ffb74d,stroke-width:2px');
+        });
+
+        it('should classify a dark CustomTheme by background luminance', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const customTheme = {
+                background: '#101820',
+                edgeColors: { choice: '#fff', default: '#fff', error: '#fff', normal: '#fff' },
+                fontFamily: 'Arial, sans-serif',
+                fontSize: 14,
+                nodeColors: {
+                    Pass: { fill: '#000', stroke: '#fff' },
+                    Task: { fill: '#111111', stroke: '#fff' },
+                    Choice: { fill: '#000', stroke: '#fff' },
+                    Wait: { fill: '#000', stroke: '#fff' },
+                    Succeed: { fill: '#000', stroke: '#fff' },
+                    Fail: { fill: '#000', stroke: '#fff' },
+                    Parallel: { fill: '#000', stroke: '#fff' },
+                    Map: { fill: '#000', stroke: '#fff' },
+                },
+                textColor: '#fff',
+            };
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl, theme: customTheme });
+
+            expect(result.code.startsWith("%%{init:")).toBe(true);
+            expect(result.code).toContain('classDef taskState fill:#111111,stroke:#fff,stroke-width:2px');
+        });
+
+        it('should style container and pass/wait states, not just the original four types', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('classDef parallelState');
+            expect(result.code).toContain('class ParallelExecution parallelState');
+        });
+    });
+
     describe('ID sanitization', () => {
         it('should handle special characters in state names', () => {
             const asl: AslDefinition = {
