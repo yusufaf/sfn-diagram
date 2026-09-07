@@ -8,9 +8,11 @@ import {
     AslValidationError,
 } from '../src';
 import { exportPng } from '../src/png';
+import { parseAsl } from '../src/AslParser';
+import { DagreLayout } from '../src/layout';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, StateNode } from '../src/types';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -51,6 +53,98 @@ describe('Integration Tests', () => {
                 expect(result.svg).not.toContain('NaN');
             }
         );
+
+        describe('nested container bounds', () => {
+            const bounds = (node: StateNode) => ({
+                bottom: (node.y || 0) + (node.height || 0) / 2,
+                left: (node.x || 0) - (node.width || 0) / 2,
+                right: (node.x || 0) + (node.width || 0) / 2,
+                top: (node.y || 0) - (node.height || 0) / 2,
+            });
+
+            const findNode = (nodes: StateNode[], id: string): StateNode => {
+                const node = nodes.find((candidate) => candidate.id === id);
+                if (!node) {
+                    throw new Error(`Expected node "${id}" in layout`);
+                }
+                return node;
+            };
+
+            const expectContained = (child: StateNode, parent: StateNode): void => {
+                const childBounds = bounds(child);
+                const parentBounds = bounds(parent);
+                expect(childBounds.left).toBeGreaterThanOrEqual(parentBounds.left);
+                expect(childBounds.right).toBeLessThanOrEqual(parentBounds.right);
+                expect(childBounds.top).toBeGreaterThanOrEqual(parentBounds.top);
+                expect(childBounds.bottom).toBeLessThanOrEqual(parentBounds.bottom);
+            };
+
+            it("a nested Map's box falls fully inside its parent Parallel's box", () => {
+                const { nodes, edges } = parseAsl({ definition: loadFixture('nested-map') });
+                const layout = new DagreLayout({}).calculate(nodes, edges);
+
+                expectContained(
+                    findNode(layout.nodes, 'ProcessBatch'),
+                    findNode(layout.nodes, 'FanOut')
+                );
+            });
+
+            it('resolves bounds two levels deep, from the innermost container out', () => {
+                // FanOut (Parallel) -> Outer (Parallel) -> Inner (Map) -> Leaf (Task).
+                // Exercises the recursive/memoized resolution itself, not just one
+                // level of nesting: Outer's box depends on Inner's already-resolved
+                // box, which in turn depends on Leaf's dagre-positioned box.
+                const doublyNested: AslDefinition = {
+                    StartAt: 'FanOut',
+                    States: {
+                        FanOut: {
+                            Branches: [
+                                {
+                                    StartAt: 'Outer',
+                                    States: {
+                                        Outer: {
+                                            Branches: [
+                                                {
+                                                    StartAt: 'Inner',
+                                                    States: {
+                                                        Inner: {
+                                                            End: true,
+                                                            ItemsPath: '$.items',
+                                                            Iterator: {
+                                                                StartAt: 'Leaf',
+                                                                States: {
+                                                                    Leaf: {
+                                                                        End: true,
+                                                                        Resource:
+                                                                            'arn:aws:lambda:us-east-1:123456789012:function:Leaf',
+                                                                        Type: 'Task',
+                                                                    },
+                                                                },
+                                                            },
+                                                            Type: 'Map',
+                                                        },
+                                                    },
+                                                },
+                                            ],
+                                            End: true,
+                                            Type: 'Parallel',
+                                        },
+                                    },
+                                },
+                            ],
+                            End: true,
+                            Type: 'Parallel',
+                        },
+                    },
+                };
+
+                const { nodes, edges } = parseAsl({ definition: doublyNested });
+                const layout = new DagreLayout({}).calculate(nodes, edges);
+
+                expectContained(findNode(layout.nodes, 'Outer'), findNode(layout.nodes, 'FanOut'));
+                expectContained(findNode(layout.nodes, 'Inner'), findNode(layout.nodes, 'Outer'));
+            });
+        });
 
         it('should apply theme option', () => {
             const aslDefinition = loadFixture('simple');
