@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.1...sfn-diagram-v1.6.2) (2026-09-07)
+
+
+### Bug Fixes
+
+* **ci:** reject non-core release tags in the docker workflow ([#137](https://github.com/yusufaf/sfn-diagram/issues/137)) ([fefea29](https://github.com/yusufaf/sfn-diagram/commit/fefea2932299cb49af92475bb529f5f0a7edbc7b))
+* **cli:** print help instead of hanging on a bare TTY invocation ([#208](https://github.com/yusufaf/sfn-diagram/issues/208)) ([53b7ef0](https://github.com/yusufaf/sfn-diagram/commit/53b7ef0b48d01fda3fd87376f4f77f7068c14d3c))
+* **layout:** give a container a minimum width that fits its header ([#139](https://github.com/yusufaf/sfn-diagram/issues/139)) ([8d14dd6](https://github.com/yusufaf/sfn-diagram/commit/8d14dd6bf002a90a1a48593e70cd7530f0dbd0dd))
+* **layout:** include nested containers when computing container bounds ([#209](https://github.com/yusufaf/sfn-diagram/issues/209)) ([8af5a07](https://github.com/yusufaf/sfn-diagram/commit/8af5a07f0ec6eb800dc0b8ec904d206348c91bbd))
+* **svg-renderer:** place edge labels on the drawn path, not on a control point ([#210](https://github.com/yusufaf/sfn-diagram/issues/210)) ([9815204](https://github.com/yusufaf/sfn-diagram/commit/9815204e86c16ab148214269a554b58491e3ed54))
+* **svg-renderer:** set font-family on every text element ([#207](https://github.com/yusufaf/sfn-diagram/issues/207)) ([b938553](https://github.com/yusufaf/sfn-diagram/commit/b938553fc94905d2cfbba30f4a52ab0c1f8e62cb))
+
 ## [1.6.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.0...sfn-diagram-v1.6.1) (2026-09-06)
 
 
