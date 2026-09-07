@@ -30,6 +30,8 @@ export {
     assembleCommentBody,
     buildAslFileSection,
     buildExecutionOverlaySection,
+    DEFAULT_DIAGRAM_OMISSION_NOTE,
+    DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE,
     DEFAULT_REPORT_FOOTER,
     DEFAULT_REPORT_HEADING,
     formatStateList,
@@ -47,6 +49,8 @@ export type {
     BuildExecutionOverlaySectionResult,
     ExecutionOverlaySection,
     OverlayCandidate,
+    RenderAslFileSectionOptions,
+    RenderExecutionOverlaySectionOptions,
 } from './buildReport';
 
 export {

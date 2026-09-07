@@ -1,8 +1,10 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AslFileSection, ExecutionOverlaySection } from 'sfn-diagram/ci'
 import type { AslDefinition } from 'sfn-diagram'
 import {
+    buildBoundedCommentBody,
     formatStateList,
     isAslDefinition,
     matchesPatterns,
@@ -69,6 +71,17 @@ const afterAsl: AslDefinition = {
         ShipOrder: { Type: 'Task', Resource: 'arn:aws:lambda:::function:ship', Next: 'OrderComplete' },
         OrderComplete: { Type: 'Succeed' },
     },
+}
+
+/** A single Pass-chain ASL definition whose Mermaid diagram grows with `stateCount`. */
+function makeLargeAsl(stateCount: number): AslDefinition {
+    const stateNames = Array.from({ length: stateCount }, (_, index) => `StateNumber${index}`)
+    const states: AslDefinition['States'] = {}
+    stateNames.forEach((name, index) => {
+        const next = stateNames[index + 1]
+        states[name] = next ? { Type: 'Pass', Next: next } : { Type: 'Succeed' }
+    })
+    return { StartAt: stateNames[0], States: states }
 }
 
 const encode = (asl: AslDefinition): string =>
@@ -501,5 +514,92 @@ describe('run', () => {
         )
         // Diff comment still posts; overlay section is simply absent.
         expect(createdBody(stub)).not.toContain('Execution overlay')
+    })
+
+    it('bounds a comment body that would otherwise exceed GitHub\'s 65,536-character limit', async () => {
+        setPullRequest()
+        const largeAsl = makeLargeAsl(800)
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: largeAsl },
+            files: [
+                { filename: 'flows/large-0.asl.json', status: 'added' },
+                { filename: 'flows/large-1.asl.json', status: 'added' },
+                { filename: 'flows/large-2.asl.json', status: 'added' },
+            ],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
+        const body = createdBody(stub)
+        expect(body.length).toBeLessThanOrEqual(65_536)
+        expect(body).toContain('Diagram omitted')
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('65,536'))
+    })
+})
+
+describe('buildBoundedCommentBody', () => {
+    const marker = '<!-- sfn-diagram-action:sfn-diagram-preview-->'
+
+    function makeSection(filename: string, mermaidLength: number): AslFileSection {
+        return {
+            afterAsl: null,
+            filename,
+            header: `### \`${filename}\`\n\n> ✨ **New file**\n\n`,
+            mermaidCode: 'A'.repeat(mermaidLength),
+            mermaidLabel: '📊 Diagram',
+            mermaidOpenByDefault: false,
+        }
+    }
+
+    it('returns the assembled body unchanged when everything fits', () => {
+        const sections = [makeSection('a.asl.json', 50), makeSection('b.asl.json', 50)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection: null, sections })
+
+        expect(result.omittedDiagrams).toEqual([])
+        expect(result.droppedSections).toBe(0)
+        expect(result.body).toContain('```mermaid')
+        expect(result.body).toContain('a.asl.json')
+        expect(result.body).toContain('b.asl.json')
+    })
+
+    it('omits the largest diagram first when over budget', () => {
+        const sections = [makeSection('small.asl.json', 100), makeSection('big.asl.json', 5000)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection: null, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(2000)
+        expect(result.omittedDiagrams).toEqual(['big.asl.json'])
+        expect(result.droppedSections).toBe(0)
+        expect(result.body).toContain('Diagram omitted')
+        expect(result.body).toContain('small.asl.json')
+        expect(result.body).toContain('```mermaid')
+    })
+
+    it('drops whole sections when omitting every diagram still does not fit', () => {
+        const sections = Array.from({ length: 30 }, (_, index) =>
+            makeSection(`file-${index}.asl.json`, 500),
+        )
+        const result = buildBoundedCommentBody({ marker, maxChars: 900, overlaySection: null, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(900)
+        expect(result.droppedSections).toBeGreaterThan(0)
+        expect(result.body).toContain('more changed file(s) omitted')
+    })
+
+    it('counts the overlay diagram toward the budget', () => {
+        const overlaySection: ExecutionOverlaySection = {
+            header: '### 🎬 Execution overlay\n\n',
+            mermaidCode: 'B'.repeat(5000),
+            mermaidLabel: '📊 Execution diagram',
+        }
+        const sections = [makeSection('a.asl.json', 100)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(2000)
+        expect(result.body).toContain('Execution overlay')
+        expect(result.body).toContain('Execution diagram omitted')
+        expect(result.body).toContain('a.asl.json')
+        expect(result.body).toContain('```mermaid')
     })
 })

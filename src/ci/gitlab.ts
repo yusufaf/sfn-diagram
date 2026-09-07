@@ -354,11 +354,19 @@ export async function runGitlabComment(
     const includeDiagrams = totalMermaidChars <= MAX_INLINE_MERMAID_CHARS;
 
     const bodySections = sections.map((section) =>
-        renderAslFileSection(section, { includeDiagram: includeDiagrams }),
+        renderAslFileSection(section, {
+            includeDiagram: includeDiagrams,
+            omissionNote:
+                '> 📎 Diagram omitted — see the diagram artifact attached to this pipeline',
+        }),
     );
     if (overlaySection) {
         bodySections.push(
-            renderExecutionOverlaySection(overlaySection, { includeDiagram: includeDiagrams }),
+            renderExecutionOverlaySection(overlaySection, {
+                includeDiagram: includeDiagrams,
+                omissionNote:
+                    "> 📎 Execution diagram omitted — GitLab's diagram budget was already used by the changed-file diagrams above",
+            }),
         );
     }
 

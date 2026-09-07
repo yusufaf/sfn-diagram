@@ -256,6 +256,16 @@ describe('renderAslFileSection', () => {
         expect(markdown).toContain('Diagram omitted');
         expect(markdown).toContain('✨ **New file**');
     });
+
+    it('honours a custom omissionNote and still emits the header', () => {
+        const markdown = renderAslFileSection(section!, {
+            includeDiagram: false,
+            omissionNote: '> 📎 See the attached artifact',
+        });
+        expect(markdown).not.toContain('```mermaid');
+        expect(markdown).toContain('> 📎 See the attached artifact');
+        expect(markdown).toContain('✨ **New file**');
+    });
 });
 
 describe('buildExecutionOverlaySection', () => {
@@ -336,6 +346,26 @@ describe('buildExecutionOverlaySection', () => {
         const markdown = renderExecutionOverlaySection(result.section!, { includeDiagram: false });
         expect(markdown).not.toContain('```mermaid');
         expect(markdown).toContain('Execution diagram omitted');
+        expect(markdown).toContain('Execution overlay');
+    });
+
+    it('honours a custom omissionNote and still emits the header', async () => {
+        const result = await buildExecutionOverlaySection({
+            candidates: [{ afterAsl, filename: 'a.asl.json' }],
+            fetchExecution: vi.fn().mockResolvedValue({
+                events: [],
+                executionArn: 'arn:aws:states:us-east-1:1:execution:x:run-1',
+                status: 'SUCCEEDED',
+            }),
+            mode: 'latest',
+            stateMachineArn: 'arn:aws:states:us-east-1:1:stateMachine:x',
+        });
+        const markdown = renderExecutionOverlaySection(result.section!, {
+            includeDiagram: false,
+            omissionNote: '> 📎 See the attached artifact',
+        });
+        expect(markdown).not.toContain('```mermaid');
+        expect(markdown).toContain('> 📎 See the attached artifact');
         expect(markdown).toContain('Execution overlay');
     });
 });

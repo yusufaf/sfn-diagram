@@ -153,6 +153,19 @@ export function buildAslFileSection(
     };
 }
 
+export const DEFAULT_DIAGRAM_OMISSION_NOTE =
+    '> 📎 Diagram omitted — the diagram was too large to inline';
+
+export const DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE =
+    '> 📎 Execution diagram omitted — the diagram was too large to inline';
+
+/** Options for {@link renderAslFileSection}. */
+export interface RenderAslFileSectionOptions {
+    includeDiagram: boolean;
+    /** Markdown line shown in place of the fenced diagram when includeDiagram is false. */
+    omissionNote?: string;
+}
+
 /**
  * Renders a file section to Markdown. Pass `includeDiagram: false` to drop
  * the fenced Mermaid block in favor of a placeholder line — for platforms
@@ -160,10 +173,10 @@ export function buildAslFileSection(
  */
 export function renderAslFileSection(
     section: AslFileSection,
-    options: { includeDiagram: boolean } = { includeDiagram: true },
+    options: RenderAslFileSectionOptions = { includeDiagram: true },
 ): string {
     if (!options.includeDiagram) {
-        return `${section.header}> 📎 Diagram omitted — see the diagram artifact attached to this pipeline\n`;
+        return `${section.header}${options.omissionNote ?? DEFAULT_DIAGRAM_OMISSION_NOTE}\n`;
     }
 
     const openAttribute = section.mermaidOpenByDefault ? ' open' : '';
@@ -283,6 +296,12 @@ export async function buildExecutionOverlaySection(
     };
 }
 
+/** Options for {@link renderExecutionOverlaySection}. */
+export interface RenderExecutionOverlaySectionOptions {
+    includeDiagram: boolean;
+    omissionNote?: string;
+}
+
 /**
  * Renders an execution-overlay section to Markdown. Pass `includeDiagram:
  * false` to drop the fenced Mermaid block once a report has crossed a
@@ -290,10 +309,10 @@ export async function buildExecutionOverlaySection(
  */
 export function renderExecutionOverlaySection(
     section: ExecutionOverlaySection,
-    options: { includeDiagram: boolean } = { includeDiagram: true }
+    options: RenderExecutionOverlaySectionOptions = { includeDiagram: true }
 ): string {
     if (!options.includeDiagram) {
-        return `${section.header}> 📎 Execution diagram omitted — GitLab's diagram budget was already used by the changed-file diagrams above\n`;
+        return `${section.header}${options.omissionNote ?? DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE}\n`;
     }
 
     return (

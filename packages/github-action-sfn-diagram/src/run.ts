@@ -11,13 +11,131 @@ import {
     renderAslFileSection,
     renderExecutionOverlaySection,
 } from 'sfn-diagram/ci'
-import type { AslFileSection, OverlayCandidate } from 'sfn-diagram/ci'
+import type { AslFileSection, ExecutionOverlaySection, OverlayCandidate } from 'sfn-diagram/ci'
 import type { AslDefinition } from 'sfn-diagram'
 import { fetchExecutionForOverlay } from './sfn.js'
 import type { ExecutionMode } from './sfn.js'
 
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
+
+/**
+ * GitHub rejects an issue/PR comment body longer than this with a raw 422.
+ * Measured against the fully assembled body, so no safety margin is needed.
+ */
+const MAX_COMMENT_CHARS = 65_536
+
+/** Shown in place of a dropped diagram, once inlining it would push the comment past GitHub's size limit. */
+const DIAGRAM_TOO_LARGE_NOTE =
+    "> 📎 **Diagram omitted** — inlining it would push this comment past GitHub's 65,536-character comment limit. " +
+    'Shrink it with the `hide-catch` or `collapse` inputs, or open the file\'s diagram locally with the `sfn-diagram` CLI.'
+
+/** Sentinel key for the execution-overlay renderable, distinguishable from a real filename. */
+const EXECUTION_OVERLAY_KEY = '\u0000execution-overlay'
+
+interface CommentRenderable {
+    key: string
+    mermaidLength: number
+    render: (includeDiagram: boolean) => string
+}
+
+export interface BuildBoundedCommentBodyParams {
+    marker: string
+    /** Defaults to MAX_COMMENT_CHARS; overridable so tests can use a small budget. */
+    maxChars?: number
+    omissionNote?: string
+    overlaySection: ExecutionOverlaySection | null
+    sections: AslFileSection[]
+}
+
+export interface BoundedCommentBody {
+    body: string
+    /** How many whole file sections had to be dropped (headers and all). */
+    droppedSections: number
+    /** Filenames whose diagram was dropped, largest first. */
+    omittedDiagrams: string[]
+}
+
+function assembleRenderables(params: {
+    extraSection?: string
+    marker: string
+    omitted: Set<string>
+    renderables: CommentRenderable[]
+}): string {
+    const { extraSection, marker, omitted, renderables } = params
+    const sections = renderables.map((renderable) => renderable.render(!omitted.has(renderable.key)))
+    if (extraSection) sections.push(extraSection)
+    return assembleCommentBody({ marker, sections })
+}
+
+function droppedSectionsNote(params: { droppedSections: number; maxChars: number }): string {
+    const { droppedSections, maxChars } = params
+    return `> ⚠️ **${droppedSections} more changed file(s) omitted** — the comment hit GitHub's ${maxChars}-character limit.`
+}
+
+/**
+ * Assembles a PR comment body that fits within GitHub's comment size limit, degrading
+ * gracefully rather than posting a body that gets rejected with a raw 422: first every
+ * diagram is inlined; if that doesn't fit, diagrams are omitted largest-first (in favor
+ * of a placeholder note) until it does; if even that isn't enough, whole file sections
+ * are dropped from the end until the body fits or nothing is left.
+ */
+export function buildBoundedCommentBody(params: BuildBoundedCommentBodyParams): BoundedCommentBody {
+    const { marker, maxChars = MAX_COMMENT_CHARS, omissionNote, overlaySection, sections } = params
+
+    const renderables: CommentRenderable[] = sections.map((section) => ({
+        key: section.filename,
+        mermaidLength: section.mermaidCode.length,
+        render: (includeDiagram) => renderAslFileSection(section, { includeDiagram, omissionNote }),
+    }))
+    if (overlaySection) {
+        renderables.push({
+            key: EXECUTION_OVERLAY_KEY,
+            mermaidLength: overlaySection.mermaidCode.length,
+            render: (includeDiagram) => renderExecutionOverlaySection(overlaySection, { includeDiagram, omissionNote }),
+        })
+    }
+
+    const omitted = new Set<string>()
+    const omittedDiagrams = (): string[] =>
+        [...renderables]
+            .sort((a, b) => b.mermaidLength - a.mermaidLength)
+            .filter((renderable) => omitted.has(renderable.key) && renderable.key !== EXECUTION_OVERLAY_KEY)
+            .map((renderable) => renderable.key)
+
+    let body = assembleRenderables({ marker, omitted, renderables })
+    if (body.length <= maxChars) {
+        return { body, droppedSections: 0, omittedDiagrams: [] }
+    }
+
+    const byMermaidLengthDesc = [...renderables].sort((a, b) => b.mermaidLength - a.mermaidLength)
+    for (const renderable of byMermaidLengthDesc) {
+        omitted.add(renderable.key)
+        body = assembleRenderables({ marker, omitted, renderables })
+        if (body.length <= maxChars) {
+            return { body, droppedSections: 0, omittedDiagrams: omittedDiagrams() }
+        }
+    }
+
+    let remaining = [...renderables]
+    let droppedSections = 0
+    while (remaining.length > 0) {
+        remaining = remaining.slice(0, -1)
+        droppedSections += 1
+        const note = droppedSectionsNote({ droppedSections, maxChars })
+        body = assembleRenderables({ extraSection: note, marker, omitted, renderables: remaining })
+        if (body.length <= maxChars) {
+            return { body, droppedSections, omittedDiagrams: omittedDiagrams() }
+        }
+    }
+
+    const note = droppedSectionsNote({ droppedSections: renderables.length, maxChars })
+    return {
+        body: assembleCommentBody({ marker, sections: [note] }),
+        droppedSections: renderables.length,
+        omittedDiagrams: omittedDiagrams(),
+    }
+}
 
 /** Items requested per page; the maximum the REST API accepts. */
 const LIST_PAGE_SIZE = 100
@@ -222,8 +340,12 @@ export async function run(): Promise<void> {
         if (section) sections.push(section)
     }
 
-    const bodySections = sections.map((section) => renderAslFileSection(section))
+    if (sections.length === 0) {
+        core.info('No valid ASL definitions found in changed files')
+        return
+    }
 
+    let overlaySection: ExecutionOverlaySection | null = null
     if (executionMode !== 'off') {
         const overlay = await buildExecutionOverlaySection({
             candidates: overlayCandidates,
@@ -236,36 +358,50 @@ export async function run(): Promise<void> {
             const logFn = overlay.log.level === 'warning' ? core.warning : core.info
             logFn(overlay.log.message)
         }
-        if (overlay.section) {
-            bodySections.push(renderExecutionOverlaySection(overlay.section))
-        }
-    }
-
-    if (bodySections.length === 0) {
-        core.info('No valid ASL definitions found in changed files')
-        return
+        overlaySection = overlay.section
     }
 
     const marker = `${COMMENT_PREFIX}${commentTag}-->`
-    const body = assembleCommentBody({ marker, sections: bodySections })
+    const { body, droppedSections, omittedDiagrams } = buildBoundedCommentBody({
+        marker,
+        omissionNote: DIAGRAM_TOO_LARGE_NOTE,
+        overlaySection,
+        sections,
+    })
+
+    if (omittedDiagrams.length > 0 || droppedSections > 0) {
+        core.warning(
+            `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` +
+                (omittedDiagrams.length > 0
+                    ? `; omitted the diagram(s) for ${omittedDiagrams.join(', ')}`
+                    : '') +
+                (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : '') +
+                '. Set `hide-catch: true` or `collapse: true` to shrink them.',
+        )
+    }
 
     const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo })
 
-    if (existing) {
-        await octokit.rest.issues.updateComment({
-            body,
-            comment_id: existing.id,
-            owner,
-            repo,
-        })
-        core.info(`Updated existing PR comment #${existing.id}`)
-    } else {
-        await octokit.rest.issues.createComment({
-            body,
-            issue_number: pullNumber,
-            owner,
-            repo,
-        })
-        core.info('Created new PR comment')
+    try {
+        if (existing) {
+            await octokit.rest.issues.updateComment({
+                body,
+                comment_id: existing.id,
+                owner,
+                repo,
+            })
+            core.info(`Updated existing PR comment #${existing.id}`)
+        } else {
+            await octokit.rest.issues.createComment({
+                body,
+                issue_number: pullNumber,
+                owner,
+                repo,
+            })
+            core.info('Created new PR comment')
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(`Failed to post PR comment (body length ${body.length}): ${message}`)
     }
 }
