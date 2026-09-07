@@ -37,6 +37,17 @@ const WITH_PARALLEL = {
     },
 }
 
+const TASK_WITH_LAMBDA = {
+    StartAt: 'InvokeLambda',
+    States: {
+        InvokeLambda: {
+            End: true,
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:ProcessData',
+            Type: 'Task',
+        },
+    },
+}
+
 const WITH_CATCH = {
     StartAt: 'RiskyTask',
     States: {
@@ -207,6 +218,57 @@ describe('SfnDiagram', () => {
                 <SfnDiagram catchHandling="hide" definition={WITH_CATCH} format="mermaid" />
             )
             expect(hidden.querySelector('pre')?.textContent).not.toContain('HandleError')
+        })
+    })
+
+    describe('Icon options', () => {
+        it('renders an image element only when showIcons is set', () => {
+            const { container: withoutIcons } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} />
+            )
+            expect(withoutIcons.querySelector('image')).toBeNull()
+
+            const { container: withIcons } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} showIcons />
+            )
+            expect(withIcons.querySelector('image')).not.toBeNull()
+        })
+
+        it('sizes the icon element from iconSize', () => {
+            const { container } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} iconSize={32} showIcons />
+            )
+            const image = container.querySelector('image')
+            expect(image?.getAttribute('width')).toBe('32')
+            expect(image?.getAttribute('height')).toBe('32')
+        })
+
+        it('positions the icon differently by iconPosition', () => {
+            const { container: left } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} iconPosition="left" showIcons />
+            )
+            const { container: top } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} iconPosition="top" showIcons />
+            )
+
+            const leftImage = left.querySelector('image')
+            const topImage = top.querySelector('image')
+
+            expect(topImage?.getAttribute('x')).not.toBe(leftImage?.getAttribute('x'))
+            expect(topImage?.getAttribute('y')).not.toBe(leftImage?.getAttribute('y'))
+        })
+
+        it('is a no-op in Mermaid output', () => {
+            const { container: without } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} format="mermaid" />
+            )
+            const { container: withIcons } = render(
+                <SfnDiagram definition={TASK_WITH_LAMBDA} format="mermaid" showIcons />
+            )
+
+            expect(withIcons.querySelector('pre')?.textContent).toBe(
+                without.querySelector('pre')?.textContent
+            )
         })
     })
 

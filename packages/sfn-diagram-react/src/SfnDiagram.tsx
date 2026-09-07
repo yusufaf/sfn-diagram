@@ -9,7 +9,11 @@ import {
 } from 'sfn-diagram'
 import type { DiagramOptions, ExecutionHistoryInput, LayoutDirection, ThemeOption } from 'sfn-diagram'
 
-export interface SfnDiagramProps extends Pick<DiagramOptions, 'catchHandling' | 'collapse'> {
+export interface SfnDiagramProps
+    extends Pick<
+        DiagramOptions,
+        'catchHandling' | 'collapse' | 'iconPosition' | 'iconSize' | 'showIcons'
+    > {
     className?: string
     definition: object | string
     format?: 'mermaid' | 'svg'
@@ -56,8 +60,11 @@ export function SfnDiagram({
     definition,
     format = 'svg',
     history,
+    iconPosition,
+    iconSize,
     layout = 'TB',
     onError,
+    showIcons,
     style,
     theme = 'light',
 }: SfnDiagramProps) {
@@ -68,7 +75,15 @@ export function SfnDiagram({
 
     const result = useMemo((): DiagramResult => {
         try {
-            const diagramOptions = omitUndefinedValues({ catchHandling, collapse, layout, theme })
+            const diagramOptions = omitUndefinedValues({
+                catchHandling,
+                collapse,
+                iconPosition,
+                iconSize,
+                layout,
+                showIcons,
+                theme,
+            })
             if (format === 'mermaid') {
                 const output = history
                     ? generateMermaidExecution({ aslDefinition: asl, history, ...diagramOptions })
@@ -82,7 +97,18 @@ export function SfnDiagram({
         } catch (err) {
             return { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
         }
-    }, [asl, catchHandling, collapse, format, history, layout, theme])
+    }, [
+        asl,
+        catchHandling,
+        collapse,
+        format,
+        history,
+        iconPosition,
+        iconSize,
+        layout,
+        showIcons,
+        theme,
+    ])
 
     // Reporting an error is a side effect, so it belongs in an effect rather than
     // the render body: StrictMode double-invokes render in development, which
