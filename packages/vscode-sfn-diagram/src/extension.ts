@@ -116,6 +116,21 @@ export function activate(context: vscode.ExtensionContext) {
             })
         })
     )
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (!event.affectsConfiguration(CONFIG_SECTION)) {
+                return
+            }
+            DiagramPanel.currentPanel?.applySettings({ colorScheme: readColorScheme(), settings: readSettings() })
+        })
+    )
+
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveColorTheme(() => {
+            DiagramPanel.currentPanel?.applySettings({ colorScheme: readColorScheme(), settings: readSettings() })
+        })
+    )
 }
 
 export function deactivate() {}
