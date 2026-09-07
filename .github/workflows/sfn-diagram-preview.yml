@@ -15,8 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       # The action's manifest is committed as action.template.yml, never as
       # action.yml — a real action.yml in this subdirectory makes GitHub treat the

@@ -22,10 +22,10 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with: { fetch-depth: 0 }   # needed to diff base vs head
       - uses: yusufaf/sfn-diagram-action@v1
 ```
+
+No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
 
 Inputs: `github-token` (defaults to `${{ github.token }}`), `asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `comment-tag` (marker used to find/update the comment, default `sfn-diagram-preview`), `hide-catch` (drop Catch branches, default `false`), `theme` (`light`/`dark`, default `light`), `layout` (`TB`/`LR`/`RL`/`BT`, default `TB`), and `collapse` (`true` to collapse every Parallel/Map container, or a comma-separated list of names, default empty). `hide-catch`, `layout`, `theme`, and `collapse` apply to new/deleted-file diagrams; a modified file's diff diagram honours `layout`/`theme` but ignores `hide-catch`/`collapse` — it renders a merged before/after graph with a per-state status map that dropping or collapsing states would desynchronise.
 

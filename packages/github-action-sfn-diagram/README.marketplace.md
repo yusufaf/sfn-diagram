@@ -57,11 +57,10 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0        # needed to diff base vs head
       - uses: yusufaf/sfn-diagram-action@v1
 ```
+
+No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
 
 Pin to the moving major tag `@v1` (recommended) or an exact release like `@v1.0.0`.
 
@@ -79,9 +78,6 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::111122223333:role/sfn-diagram-preview

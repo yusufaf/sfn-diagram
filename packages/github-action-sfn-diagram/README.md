@@ -21,18 +21,17 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0   # needed to diff base vs head
       - uses: yusufaf/sfn-diagram-action@v1
 ```
+
+No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
 
 > Consume the action from its standalone, Marketplace-published repo
 > [`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action),
 > pinned to the moving major tag `@v1` (or an exact release like `@v1.0.0`). That
 > repo is generated from this package — see [Releasing](#releasing) below.
 
-> The action needs `pull-requests: write` to post the comment, and the full history (`fetch-depth: 0`) to diff the base and head revisions. It only runs on `pull_request` events.
+> The action needs `pull-requests: write` to post the comment. It only runs on `pull_request` events.
 
 ## Inputs
 
