@@ -87,6 +87,20 @@ interface OctokitStubParams {
     files?: { filename: string; status: string }[]
 }
 
+/** Page size the action requests; the stub slices its fixtures to match. */
+const STUB_PAGE_SIZE = 100
+
+interface PageParams {
+    page?: number
+    per_page?: number
+}
+
+/** Serves a fixture array one page at a time, the way the REST API does. */
+function servePage<T>(items: T[], { page = 1, per_page = STUB_PAGE_SIZE }: PageParams) {
+    const start = (page - 1) * per_page
+    return { data: items.slice(start, start + per_page) }
+}
+
 function makeOctokit(params: OctokitStubParams = {}) {
     const { contentByRef = {}, existingComments = [], files = [] } = params
     return {
@@ -97,7 +111,9 @@ function makeOctokit(params: OctokitStubParams = {}) {
                 updateComment: vi.fn().mockResolvedValue({}),
             },
             pulls: {
-                listFiles: vi.fn().mockResolvedValue({ data: files }),
+                listFiles: vi
+                    .fn()
+                    .mockImplementation(async (pageParams: PageParams) => servePage(files, pageParams)),
             },
             repos: {
                 getContent: vi.fn().mockImplementation(async ({ ref }: { ref: string }) => {
@@ -278,6 +294,27 @@ describe('run', () => {
         expect(body).toContain('classDef diffAdded')
         expect(body).toContain('class FraudCheck diffAdded')
         expect(body).toContain('class CancelOrder diffRemoved')
+    })
+
+    it('reports on an ASL file that falls past the first page of changed files', async () => {
+        // GitHub's default page size for pulls.listFiles is 30; a PR touching more
+        // files than that silently lost anything after page 1.
+        setPullRequest()
+        const padding = Array.from({ length: 120 }, (_, index) => ({
+            filename: `src/unrelated-${index}.ts`,
+            status: 'modified',
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [...padding, { filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.pulls.listFiles).toHaveBeenCalledTimes(2)
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
+        expect(createdBody(stub)).toContain('flows/order.asl.json')
     })
 
     it('updates the existing comment instead of creating a new one', async () => {

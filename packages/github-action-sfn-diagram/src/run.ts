@@ -19,6 +19,23 @@ import type { ExecutionMode } from './sfn.js'
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
 
+/** Items requested per page; the maximum the REST API accepts. */
+const LIST_PAGE_SIZE = 100
+
+/**
+ * Bounds worst-case pagination to 500 items. Mirrors MAX_NOTE_LIST_PAGES in the
+ * GitLab integration: enough for any realistic PR, while keeping a pathological
+ * one from making unbounded API calls.
+ */
+const MAX_LIST_PAGES = 5
+
+interface ListChangedFilesParams {
+    octokit: ReturnType<typeof github.getOctokit>
+    owner: string
+    pullNumber: number
+    repo: string
+}
+
 interface GetFileAtRefParams {
     octokit: ReturnType<typeof github.getOctokit>
     owner: string
@@ -40,6 +57,32 @@ async function getFileAtRef(params: GetFileAtRefParams): Promise<string | null> 
     } catch {
         return null
     }
+}
+
+/**
+ * Every file in a pull request, paginated. GitHub returns 30 per page by default,
+ * so a single unpaginated call silently drops anything a large PR touches beyond
+ * the first page - including ASL files this action exists to report on.
+ */
+async function listChangedFiles(
+    params: ListChangedFilesParams,
+): Promise<{ filename: string; status: string }[]> {
+    const { octokit, owner, pullNumber, repo } = params
+    const collected: { filename: string; status: string }[] = []
+
+    for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+        const { data } = await octokit.rest.pulls.listFiles({
+            owner,
+            page,
+            per_page: LIST_PAGE_SIZE,
+            pull_number: pullNumber,
+            repo,
+        })
+        collected.push(...data)
+        if (data.length < LIST_PAGE_SIZE) break
+    }
+
+    return collected
 }
 
 export async function run(): Promise<void> {
@@ -84,11 +127,7 @@ export async function run(): Promise<void> {
 
     const octokit = github.getOctokit(token)
 
-    const { data: changedFiles } = await octokit.rest.pulls.listFiles({
-        owner,
-        pull_number: pullNumber,
-        repo,
-    })
+    const changedFiles = await listChangedFiles({ octokit, owner, pullNumber, repo })
 
     const aslFiles = changedFiles.filter(
         (file) => file.status !== 'unchanged' && matchesPatterns(file.filename, patterns),

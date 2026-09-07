@@ -64312,6 +64312,8 @@ async function fetchExecutionForOverlay(params) {
 // src/run.ts
 var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
 var EXECUTION_MODES = ["off", "latest", "latest-failed"];
+var LIST_PAGE_SIZE = 100;
+var MAX_LIST_PAGES = 5;
 async function getFileAtRef(params) {
   const { octokit, owner, path: path2, ref, repo } = params;
   try {
@@ -64322,6 +64324,22 @@ async function getFileAtRef(params) {
   } catch {
     return null;
   }
+}
+async function listChangedFiles(params) {
+  const { octokit, owner, pullNumber, repo } = params;
+  const collected = [];
+  for (let page = 1; page <= MAX_LIST_PAGES; page++) {
+    const { data: data2 } = await octokit.rest.pulls.listFiles({
+      owner,
+      page,
+      per_page: LIST_PAGE_SIZE,
+      pull_number: pullNumber,
+      repo
+    });
+    collected.push(...data2);
+    if (data2.length < LIST_PAGE_SIZE) break;
+  }
+  return collected;
 }
 async function run() {
   const token = core.getInput("github-token", { required: true });
@@ -64353,11 +64371,7 @@ async function run() {
   const baseSha = pr.base.sha;
   const headSha = pr.head.sha;
   const octokit = getOctokit(token);
-  const { data: changedFiles } = await octokit.rest.pulls.listFiles({
-    owner,
-    pull_number: pullNumber,
-    repo
-  });
+  const changedFiles = await listChangedFiles({ octokit, owner, pullNumber, repo });
   const aslFiles = changedFiles.filter(
     (file) => file.status !== "unchanged" && matchesPatterns(file.filename, patterns)
   );
