@@ -7,9 +7,9 @@ import {
     generateMermaidExecution,
     generateSvg,
 } from 'sfn-diagram'
-import type { ExecutionHistoryInput, LayoutDirection, ThemeOption } from 'sfn-diagram'
+import type { DiagramOptions, ExecutionHistoryInput, LayoutDirection, ThemeOption } from 'sfn-diagram'
 
-export interface SfnDiagramProps {
+export interface SfnDiagramProps extends Pick<DiagramOptions, 'catchHandling' | 'collapse'> {
     className?: string
     definition: object | string
     format?: 'mermaid' | 'svg'
@@ -32,8 +32,27 @@ type DiagramResult =
     | { type: 'mermaid'; code: string }
     | { type: 'svg'; svg: string }
 
+// Core's mergeOptions does `{ ...DEFAULT_DIAGRAM_OPTIONS, ...options }`, so a key
+// present with value `undefined` overrides the default rather than falling back to
+// it - most defaults tolerate that, but catchHandling's `mode === 'show'` check does
+// not, silently switching to 'hide'. Omitting unset keys here keeps every prop this
+// component forwards absent-when-not-passed instead of present-and-undefined.
+function omitUndefinedValues<Options extends Record<string, unknown>>(
+    options: Options
+): Partial<Options> {
+    const result: Partial<Options> = {}
+    for (const key of Object.keys(options) as (keyof Options)[]) {
+        if (options[key] !== undefined) {
+            result[key] = options[key]
+        }
+    }
+    return result
+}
+
 export function SfnDiagram({
+    catchHandling,
     className,
+    collapse,
     definition,
     format = 'svg',
     history,
@@ -49,7 +68,7 @@ export function SfnDiagram({
 
     const result = useMemo((): DiagramResult => {
         try {
-            const diagramOptions = { layout, theme }
+            const diagramOptions = omitUndefinedValues({ catchHandling, collapse, layout, theme })
             if (format === 'mermaid') {
                 const output = history
                     ? generateMermaidExecution({ aslDefinition: asl, history, ...diagramOptions })
@@ -63,7 +82,7 @@ export function SfnDiagram({
         } catch (err) {
             return { type: 'error', error: err instanceof Error ? err : new Error(String(err)) }
         }
-    }, [asl, format, history, layout, theme])
+    }, [asl, catchHandling, collapse, format, history, layout, theme])
 
     // Reporting an error is a side effect, so it belongs in an effect rather than
     // the render body: StrictMode double-invokes render in development, which

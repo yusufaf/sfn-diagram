@@ -13,6 +13,43 @@ const HELLO_WORLD = {
 
 const HELLO_WORLD_STR = JSON.stringify(HELLO_WORLD)
 
+const WITH_PARALLEL = {
+    StartAt: 'DoParallel',
+    States: {
+        DoParallel: {
+            Branches: [
+                {
+                    StartAt: 'BranchAWork',
+                    States: {
+                        BranchAWork: { End: true, Type: 'Pass' },
+                    },
+                },
+                {
+                    StartAt: 'BranchBWork',
+                    States: {
+                        BranchBWork: { End: true, Type: 'Pass' },
+                    },
+                },
+            ],
+            End: true,
+            Type: 'Parallel',
+        },
+    },
+}
+
+const WITH_CATCH = {
+    StartAt: 'RiskyTask',
+    States: {
+        HandleError: { Type: 'Fail' },
+        RiskyTask: {
+            Catch: [{ ErrorEquals: ['States.ALL'], Next: 'HandleError' }],
+            End: true,
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:Risky',
+            Type: 'Task',
+        },
+    },
+}
+
 const HISTORY = {
     events: [
         { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
@@ -110,6 +147,66 @@ describe('SfnDiagram', () => {
             const pre = container.querySelector('pre')
             expect(pre?.textContent).toContain('classDef execSucceeded')
             expect(pre?.textContent).toContain('class HelloWorld execSucceeded')
+        })
+    })
+
+    describe('Diagram options', () => {
+        it('collapses containers when collapse is true', () => {
+            const { container: expanded } = render(<SfnDiagram definition={WITH_PARALLEL} />)
+            const { container: collapsed } = render(
+                <SfnDiagram collapse definition={WITH_PARALLEL} />
+            )
+
+            const expandedCount = expanded.querySelectorAll('[data-state-id]').length
+            const collapsedCount = collapsed.querySelectorAll('[data-state-id]').length
+
+            expect(collapsedCount).toBeLessThan(expandedCount)
+        })
+
+        it('collapses only the named containers when collapse is an array', () => {
+            const { container: expanded } = render(<SfnDiagram definition={WITH_PARALLEL} />)
+            const { container: collapsed } = render(
+                <SfnDiagram collapse={['DoParallel']} definition={WITH_PARALLEL} />
+            )
+
+            const expandedCount = expanded.querySelectorAll('[data-state-id]').length
+            const collapsedCount = collapsed.querySelectorAll('[data-state-id]').length
+
+            expect(collapsedCount).toBeLessThan(expandedCount)
+        })
+
+        it('drops error edges when catchHandling is hide', () => {
+            const { container: shown } = render(<SfnDiagram definition={WITH_CATCH} />)
+            expect(shown.querySelector('[data-edge-id*="#error#"]')).not.toBeNull()
+
+            const { container: hidden } = render(
+                <SfnDiagram catchHandling="hide" definition={WITH_CATCH} />
+            )
+            expect(hidden.querySelector('[data-edge-id*="#error#"]')).toBeNull()
+        })
+
+        it('collapses containers in Mermaid output too', () => {
+            const { container: expanded } = render(
+                <SfnDiagram definition={WITH_PARALLEL} format="mermaid" />
+            )
+            const { container: collapsed } = render(
+                <SfnDiagram collapse definition={WITH_PARALLEL} format="mermaid" />
+            )
+
+            expect(expanded.querySelector('pre')?.textContent).toContain('BranchAWork')
+            expect(collapsed.querySelector('pre')?.textContent).not.toContain('BranchAWork')
+        })
+
+        it('drops error transitions in Mermaid output when catchHandling is hide', () => {
+            const { container: shown } = render(
+                <SfnDiagram definition={WITH_CATCH} format="mermaid" />
+            )
+            expect(shown.querySelector('pre')?.textContent).toContain('HandleError')
+
+            const { container: hidden } = render(
+                <SfnDiagram catchHandling="hide" definition={WITH_CATCH} format="mermaid" />
+            )
+            expect(hidden.querySelector('pre')?.textContent).not.toContain('HandleError')
         })
     })
 
