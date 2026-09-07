@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { CliError, parseArgs, run } from '../src/cli';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
@@ -398,6 +399,75 @@ describe('run', () => {
         expect(stdoutData).not.toContain('Branch1');
         expect(stdoutData).not.toContain('Branch2');
         expect(stdoutData).toContain('FanOut');
+    });
+});
+
+describe('stdin handling', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    const originalStdin = process.stdin;
+    let originalIsTTY: boolean | undefined;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        originalIsTTY = process.stdin.isTTY;
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
+        Object.defineProperty(process.stdin, 'isTTY', {
+            value: originalIsTTY,
+            configurable: true,
+        });
+    });
+
+    it('prints help and exits 2 on a bare invocation with a TTY, without reading stdin', async () => {
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+        const code = await run([]);
+
+        expect(code).toBe(2);
+        expect(stderrData).toContain('Usage:');
+    });
+
+    it('still reads stdin when input is piped (not a TTY)', async () => {
+        const asl = readFileSync(simpleFixture, 'utf-8');
+        Object.defineProperty(process, 'stdin', {
+            value: Readable.from([Buffer.from(asl)]),
+            configurable: true,
+        });
+
+        const code = await run([]);
+
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<svg');
+    });
+
+    it('reads stdin for an explicit "-" even on a TTY', async () => {
+        const asl = readFileSync(simpleFixture, 'utf-8');
+        Object.defineProperty(process, 'stdin', {
+            value: Readable.from([Buffer.from(asl)]),
+            configurable: true,
+        });
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+
+        const code = await run(['-']);
+
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<svg');
     });
 });
 
