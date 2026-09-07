@@ -378,6 +378,75 @@ describe('SfnDiagram', () => {
         })
     })
 
+    describe('HTML format', () => {
+        it('renders an iframe rather than a div or pre', () => {
+            const { container } = render(<SfnDiagram definition={HELLO_WORLD} format="html" />)
+            expect(container.querySelector('iframe')).toBeInTheDocument()
+            expect(container.querySelector('div')).toBeNull()
+            expect(container.querySelector('pre')).toBeNull()
+        })
+
+        it('embeds a full HTML document with the viewer stage as srcDoc', () => {
+            const { container } = render(<SfnDiagram definition={HELLO_WORLD} format="html" />)
+            const iframe = container.querySelector('iframe')
+            const srcDoc = iframe?.getAttribute('srcDoc') ?? iframe?.getAttribute('srcdoc')
+            expect(srcDoc).toContain('<!DOCTYPE html')
+            expect(srcDoc).toContain('data-sfn="stage"')
+        })
+
+        it('sandboxes the iframe and gives it a non-empty title', () => {
+            const { container } = render(<SfnDiagram definition={HELLO_WORLD} format="html" />)
+            const iframe = container.querySelector('iframe')
+            expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts')
+            expect(iframe?.getAttribute('title')).toBeTruthy()
+        })
+
+        it('forwards className and style to the iframe', () => {
+            const { container } = render(
+                <SfnDiagram
+                    className="my-diagram"
+                    definition={HELLO_WORLD}
+                    format="html"
+                    style={{ width: '500px' }}
+                />
+            )
+            const iframe = container.querySelector('iframe')
+            expect(iframe).toHaveClass('my-diagram')
+            expect(iframe).toHaveStyle({ width: '500px' })
+        })
+
+        it('reflects diagram options in the embedded document', () => {
+            const { container: withToggle } = render(
+                <SfnDiagram definition={WITH_PARALLEL} format="html" />
+            )
+            const { container: withoutToggle } = render(
+                <SfnDiagram collapse={false} definition={WITH_PARALLEL} format="html" />
+            )
+
+            const getSrcDoc = (container: HTMLElement): string | null | undefined => {
+                const iframe = container.querySelector('iframe')
+                return iframe?.getAttribute('srcDoc') ?? iframe?.getAttribute('srcdoc')
+            }
+
+            expect(getSrcDoc(withToggle)).toContain('data-sfn="collapse-toggle"')
+            expect(getSrcDoc(withoutToggle)).not.toContain('data-sfn="collapse-toggle"')
+        })
+
+        it('calls onError and renders null when combined with history', () => {
+            const onError = vi.fn()
+            const { container } = render(
+                <SfnDiagram
+                    definition={HELLO_WORLD}
+                    format="html"
+                    history={JSON.stringify(HISTORY)}
+                    onError={onError}
+                />
+            )
+            expect(container.firstChild).toBeNull()
+            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+        })
+    })
+
     describe('Error handling', () => {
         it('returns null and calls onError for invalid JSON string', () => {
             const onError = vi.fn()

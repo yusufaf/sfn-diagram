@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import {
     generateExecution,
+    generateHtml,
     generateMermaid,
     generateMermaidExecution,
     generateSvg,
@@ -26,21 +27,36 @@ export interface SfnDiagramProps
     > {
     className?: string
     definition: object | string
-    format?: 'mermaid' | 'svg'
+    /**
+     * Output format. `'svg'` and `'mermaid'` render static markup; `'html'` renders
+     * the interactive pan/zoom/search viewer in a sandboxed `<iframe srcDoc>` -
+     * an isolated document, so page CSS does not reach it and `onStateClick` does
+     * not fire from inside it. Cannot be combined with `history`.
+     * @default 'svg'
+     */
+    format?: 'html' | 'mermaid' | 'svg'
     /**
      * Optional execution history. When provided, the diagram is rendered as an
      * execution overlay: states are coloured by outcome, the taken path is
      * emphasized, and per-state duration / retry counts are annotated.
      * Accepts a GetExecutionHistory events array, the raw command output, or a
-     * JSON string of either.
+     * JSON string of either. Cannot be combined with `format="html"`.
      */
     history?: ExecutionHistoryInput
     onError?: (error: Error) => void
     style?: React.CSSProperties
+    /**
+     * Accessible title for the rendered iframe when `format` is `'html'`. Ignored
+     * for every other format. Set this when a page renders more than one diagram
+     * so screen readers can distinguish between them.
+     * @default 'Step Functions diagram'
+     */
+    title?: string
 }
 
 type DiagramResult =
     | { type: 'error'; error: Error }
+    | { type: 'html'; html: string }
     | { type: 'mermaid'; code: string }
     | { type: 'svg'; svg: string }
 
@@ -79,6 +95,7 @@ export function SfnDiagram({
     showVariables,
     style,
     theme = 'light',
+    title = 'Step Functions diagram',
 }: SfnDiagramProps) {
     const asl = useMemo(
         () => (typeof definition === 'string' ? definition : JSON.stringify(definition)),
@@ -100,6 +117,13 @@ export function SfnDiagram({
                 showVariables,
                 theme,
             })
+            if (format === 'html') {
+                if (history) {
+                    throw new Error('history and format="html" cannot be combined')
+                }
+                const output = generateHtml({ aslDefinition: asl, ...diagramOptions })
+                return { type: 'html', html: output.html }
+            }
             if (format === 'mermaid') {
                 const output = history
                     ? generateMermaidExecution({ aslDefinition: asl, history, ...diagramOptions })
@@ -158,6 +182,18 @@ export function SfnDiagram({
             <pre className={className} style={style}>
                 {result.code}
             </pre>
+        )
+    }
+
+    if (result.type === 'html') {
+        return (
+            <iframe
+                className={className}
+                sandbox="allow-scripts"
+                srcDoc={result.html}
+                style={style}
+                title={title}
+            />
         )
     }
 
