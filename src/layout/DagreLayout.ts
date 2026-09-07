@@ -6,17 +6,89 @@ import {
     CONTAINER_MAX_HEADER_WIDTH,
     CONTAINER_PADDING,
     getContainerHeaderFontSizes,
+    isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
-import type { StateNode, GraphEdge, DiagramOptions, CustomTheme } from '../types';
+import type { StateNode, GraphEdge, DiagramOptions, CustomTheme, LayoutDirection } from '../types';
 
 /** Self-loop arc geometry. Each additional loop on a node nests one step further out. */
 const LOOP_BASE_REACH = 40;
 const LOOP_REACH_STEP = 22;
 const LOOP_BASE_SPREAD = 12;
 const LOOP_SPREAD_STEP = 5;
+
+/** A node's box side, used to anchor an edge on whichever side the graph's flow crosses. */
+type FlowSide = 'top' | 'bottom' | 'left' | 'right';
+
+/** The side flow enters a node/container from, given the graph's layout direction. */
+function entrySideFor(rankdir: LayoutDirection): FlowSide {
+    switch (rankdir) {
+        case 'BT':
+            return 'bottom';
+        case 'LR':
+            return 'left';
+        case 'RL':
+            return 'right';
+        case 'TB':
+        default:
+            return 'top';
+    }
+}
+
+function oppositeSide(side: FlowSide): FlowSide {
+    switch (side) {
+        case 'top':
+            return 'bottom';
+        case 'bottom':
+            return 'top';
+        case 'left':
+            return 'right';
+        case 'right':
+            return 'left';
+    }
+}
+
+/** Parameters for {@link sidePoint}. */
+interface SidePointParams {
+    node: StateNode;
+    side: FlowSide;
+}
+
+/** The point at the middle of a node's box on the given side. */
+function sidePoint(params: SidePointParams): { x: number; y: number } {
+    const { node, side } = params;
+    const x = node.x || 0;
+    const y = node.y || 0;
+    const halfWidth = (node.width || 0) / 2;
+    const halfHeight = (node.height || 0) / 2;
+    switch (side) {
+        case 'top':
+            return { x, y: y - halfHeight };
+        case 'bottom':
+            return { x, y: y + halfHeight };
+        case 'left':
+            return { x: x - halfWidth, y };
+        case 'right':
+            return { x: x + halfWidth, y };
+    }
+}
+
+/** Parameters for {@link insetFromSide}. */
+interface InsetFromSideParams {
+    amount: number;
+    point: { x: number; y: number };
+    // Only ever called for the container header band, which lives on the top or
+    // bottom side (see isBottomHeaderLayout) - never left/right.
+    side: 'top' | 'bottom';
+}
+
+/** Nudge a top/bottom side point inward, toward the node's centre, by `amount`. */
+function insetFromSide(params: InsetFromSideParams): { x: number; y: number } {
+    const { amount, point, side } = params;
+    return side === 'top' ? { x: point.x, y: point.y + amount } : { x: point.x, y: point.y - amount };
+}
 
 export interface LayoutResult {
     // With points for routing; loopIndex is set only for self-loops, so the renderer
@@ -356,7 +428,13 @@ export class DagreLayout {
             const width = Math.max(childrenWidth, headerWidth);
             const height = maxY - minY + padding * 2 + headerHeight;
             const x = (minX + maxX) / 2;
-            const y = (minY + maxY) / 2 + headerHeight / 2;
+            // The header band sits at the top for TB/LR/RL, so the extra headerHeight
+            // room goes below the children (centre shifts down); under BT the band
+            // flips to the bottom, so that room has to go above them instead (centre
+            // shifts up) - see the same TB/BT split in calculateVisualEdgePoints.
+            const y = isBottomHeaderLayout(this.options.layout || 'TB')
+                ? (minY + maxY) / 2 - headerHeight / 2
+                : (minY + maxY) / 2 + headerHeight / 2;
 
             const result = {
                 ...container,
@@ -449,33 +527,40 @@ export class DagreLayout {
             ];
         }
 
-        // For container nodes, check if toNode is a child (branch start)
-        if (fromNode.isContainer && fromNode.children?.includes(edge.to)) {
-            // Edge from container to branch start: start below header
-            const headerHeight = CONTAINER_HEADER_HEIGHT;
-            const fromX = fromNode.x || 0;
-            const toX = toNode.x || 0;
-            const fromY = (fromNode.y || 0) - (fromNode.height || 0) / 2 + headerHeight;
-            const toY = (toNode.y || 0) - (toNode.height || 0) / 2;
+        // Anchor container-touching edges on whichever box side the graph's flow
+        // actually crosses, rather than always top/bottom - under LR/RL that side
+        // is left/right, so a fixed top/bottom anchor would cut diagonally across
+        // the container instead of meeting its entry/exit edge.
+        const rankdir = this.options.layout || 'TB';
+        const entrySide = entrySideFor(rankdir);
+        const exitSide = oppositeSide(entrySide);
 
-            // Create a path that goes from center of header down to the branch start
-            return [
-                { x: fromX, y: fromY },
-                { x: toX, y: toY },
-            ];
+        // For container nodes, check if toNode is a child (branch start)
+        if (isOpenContainer(fromNode) && fromNode.children?.includes(edge.to)) {
+            // Edge from container to branch start: begin on the container's entry
+            // side. The header band only occupies that side for TB/BT (it flips
+            // with them - see calculateContainerBounds); under LR/RL it stays a
+            // horizontal band across the top, clear of the left/right entry edge,
+            // so there's nothing to duck under there.
+            const rawFrom = sidePoint({ node: fromNode, side: entrySide });
+            // Ducking under the header only applies for TB/BT, where entrySide is
+            // 'top'/'bottom' - never for LR/RL, where it's 'left'/'right'. This
+            // check both selects that case and narrows entrySide to the type
+            // insetFromSide accepts.
+            const from =
+                entrySide === 'top' || entrySide === 'bottom'
+                    ? insetFromSide({ amount: CONTAINER_HEADER_HEIGHT, point: rawFrom, side: entrySide })
+                    : rawFrom;
+
+            return [from, sidePoint({ node: toNode, side: entrySide })];
         }
 
-        // For container to next state: draw from bottom center of container to top of next state
-        // Use container's X position (center) rather than toNode's X
-        const fromX = fromNode.x || 0;
-        const fromY = (fromNode.y || 0) + (fromNode.height || 0) / 2;
-        const toX = toNode.x || 0;
-        const toY = (toNode.y || 0) - (toNode.height || 0) / 2;
-
-        return [
-            { x: fromX, y: fromY },
-            { x: toX, y: toY },
-        ];
+        // Any other container-touching edge: the container's own `-> Next` edge,
+        // or a predecessor's edge arriving at the container. Leave the source on
+        // its own exit side and arrive on the target's entry side - whichever end
+        // is actually the container, this is the same rule ordinary ranked edges
+        // follow implicitly via dagre's rankdir.
+        return [sidePoint({ node: fromNode, side: exitSide }), sidePoint({ node: toNode, side: entrySide })];
     }
 
     /**

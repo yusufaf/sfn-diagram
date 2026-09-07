@@ -4,8 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import { SvgRenderer } from '../src/renderers';
-import { CONTAINER_HEADER_TEXT_HEIGHT, CONTAINER_PADDING } from '../src/constants';
-import type { AslDefinition, CustomTheme, StateNode } from '../src/types';
+import { CONTAINER_HEADER_HEIGHT, CONTAINER_HEADER_TEXT_HEIGHT, CONTAINER_PADDING } from '../src/constants';
+import type { AslDefinition, CustomTheme, LayoutDirection, StateNode } from '../src/types';
 
 /**
  * A container's header text is drawn by the renderer into a gap the layout leaves above
@@ -25,14 +25,33 @@ function loadFixture(name: string): AslDefinition {
     ) as AslDefinition;
 }
 
-function render(name: string, theme?: CustomTheme): { nodes: StateNode[]; svg: string } {
+function render(
+    name: string,
+    theme?: CustomTheme,
+    layoutDirection?: LayoutDirection
+): { nodes: StateNode[]; svg: string } {
     const { edges, nodes } = parseAsl({ definition: loadFixture(name) });
-    // Same options object to both: the layout resolves the theme to size a
-    // container's header-driven minimum width, and must agree with what the
-    // renderer actually draws that header at.
-    const options = theme ? { theme } : {};
+    // Same options object to both: the layout resolves the theme (and the
+    // direction, for the header band's side) to size and place a container's
+    // header, and must agree with what the renderer actually draws it at.
+    const options = {
+        ...(theme ? { theme } : {}),
+        ...(layoutDirection ? { layout: layoutDirection } : {}),
+    };
     const layout = new DagreLayout(options).calculate(nodes, edges);
     return { nodes: layout.nodes, svg: new SvgRenderer(options).render(layout).svg };
+}
+
+/** The container's header `<rect>` y attribute, in the group's own frame. */
+function headerRectY(svg: string, containerId: string): number {
+    const group = svg.match(
+        new RegExp(`<g class="container[^"]*" data-state-id="${containerId}"[^>]*>([\\s\\S]*?)</g>`)
+    );
+    expect(group).not.toBeNull();
+
+    const rects = [...group![1].matchAll(/<rect [^>]*\sy="(-?[\d.]+)"[^>]*height="([\d.]+)"/g)];
+    // The header rect is the second one drawn (the first is the full translucent box).
+    return parseFloat(rects[1][1]);
 }
 
 /** Header text lines of one container, as `{ y, fontSize }` in the group's own frame. */
@@ -189,5 +208,32 @@ describe('container header space', () => {
 
     it('still shows the sub-label the overlap used to hide', () => {
         expect(render('distributed-map').svg).toContain('Distributed');
+    });
+
+    it('moves the header band to the bottom under BT, and keeps the text clear of the last child row', () => {
+        const { nodes, svg } = render('parallel', undefined, 'BT');
+        const container = nodes.find((node) => node.isContainer)!;
+        const halfHeight = (container.height ?? 0) / 2;
+
+        // TB leaves the band's rect at -height/2 (the box's top); BT flips it to
+        // height/2 - CONTAINER_HEADER_HEIGHT (near the box's bottom) instead.
+        expect(headerRectY(svg, container.id)).toBeCloseTo(halfHeight - CONTAINER_HEADER_HEIGHT, 5);
+
+        const byId = new Map(nodes.map((node) => [node.id, node]));
+        const children = (container.children ?? [])
+            .map((id) => byId.get(id))
+            .filter((child): child is StateNode => child !== undefined);
+        const lastChildBottom = Math.max(
+            ...children.map((child) => (child.y ?? 0) + (child.height ?? 0) / 2)
+        );
+        const centre = container.y ?? 0;
+
+        for (const line of headerLines(svg, container.id)) {
+            const top = centre + line.y - line.fontSize / 2;
+            expect(
+                top,
+                `a header line of "${container.id}" reaches the last child under BT`
+            ).toBeGreaterThanOrEqual(lastChildBottom);
+        }
     });
 });

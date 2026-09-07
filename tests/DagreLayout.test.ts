@@ -5,6 +5,7 @@ import { DagreLayout } from '../src/layout';
 import type { StateNode, GraphEdge, AslDefinition } from '../src/types';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
+import { CONTAINER_HEADER_HEIGHT } from '../src/constants';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -386,6 +387,80 @@ describe('Self-loop edges', () => {
             expect(apex.x).toBeGreaterThan(node.x as number);
             expect(apex.y).toBeCloseTo(node.y as number, 5);
             expect(entry.x).toBeCloseTo(exit.x as number, 5);
+        }
+    });
+});
+
+describe('Container edge direction', () => {
+    // Under LR/RL the container's entry/exit sides are left/right, not top/bottom -
+    // a fixed vertical anchor would route these edges diagonally across the box.
+    it('routes the container -> branch-start edge off the container\'s entry side, ducking under the header on TB/BT', () => {
+        const asl = loadFixture('parallel');
+        const { nodes, edges } = parseAsl({ definition: asl });
+
+        for (const rankdir of ['TB', 'LR', 'RL', 'BT'] as const) {
+            const layout = new DagreLayout({ layout: rankdir });
+            const result = layout.calculate(nodes, edges);
+            const container = result.nodes.find((node) => node.id === 'ParallelExecution')!;
+            const entryEdge = result.edges.find(
+                (edge) => edge.from === 'ParallelExecution' && edge.to === 'Branch1',
+            )!;
+            const [start] = entryEdge.points!;
+
+            const containerX = container.x as number;
+            const containerY = container.y as number;
+            const halfWidth = (container.width as number) / 2;
+            const halfHeight = (container.height as number) / 2;
+
+            switch (rankdir) {
+                case 'TB':
+                    expect(start.y).toBeCloseTo(containerY - halfHeight + CONTAINER_HEADER_HEIGHT, 5);
+                    break;
+                case 'BT':
+                    expect(start.y).toBeCloseTo(containerY + halfHeight - CONTAINER_HEADER_HEIGHT, 5);
+                    break;
+                case 'LR':
+                    expect(start.x).toBeCloseTo(containerX - halfWidth, 5);
+                    break;
+                case 'RL':
+                    expect(start.x).toBeCloseTo(containerX + halfWidth, 5);
+                    break;
+            }
+        }
+    });
+
+    it('routes the container -> Next edge off the container\'s exit side (the opposite side from entry)', () => {
+        const asl = loadFixture('parallel');
+        const { nodes, edges } = parseAsl({ definition: asl });
+
+        for (const rankdir of ['TB', 'LR', 'RL', 'BT'] as const) {
+            const layout = new DagreLayout({ layout: rankdir });
+            const result = layout.calculate(nodes, edges);
+            const container = result.nodes.find((node) => node.id === 'ParallelExecution')!;
+            const nextEdge = result.edges.find(
+                (edge) => edge.from === 'ParallelExecution' && edge.to === 'FinalState',
+            )!;
+            const [start] = nextEdge.points!;
+
+            const containerX = container.x as number;
+            const containerY = container.y as number;
+            const halfWidth = (container.width as number) / 2;
+            const halfHeight = (container.height as number) / 2;
+
+            switch (rankdir) {
+                case 'TB':
+                    expect(start.y).toBeCloseTo(containerY + halfHeight, 5);
+                    break;
+                case 'BT':
+                    expect(start.y).toBeCloseTo(containerY - halfHeight, 5);
+                    break;
+                case 'LR':
+                    expect(start.x).toBeCloseTo(containerX + halfWidth, 5);
+                    break;
+                case 'RL':
+                    expect(start.x).toBeCloseTo(containerX - halfWidth, 5);
+                    break;
+            }
         }
     });
 });

@@ -572,6 +572,15 @@ describe('Integration Tests', () => {
 
                     expect(result.svg).toMatchSnapshot();
                 });
+
+                // 'simple' has no containers, so it alone never exercises container
+                // edge/header routing under a non-TB direction (#142).
+                it(`should produce consistent output for ${layout} layout with a container`, () => {
+                    const aslDefinition = loadFixture('parallel');
+                    const result = generateSvg({ aslDefinition, layout });
+
+                    expect(result.svg).toMatchSnapshot();
+                });
             });
         });
     });
