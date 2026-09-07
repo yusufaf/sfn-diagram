@@ -521,7 +521,7 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
 export function generateMermaidExecution(
     params: GenerateMermaidExecutionParams,
 ): MermaidExecutionOutput {
-    const { aslDefinition, history } = params;
+    const { aslDefinition, history, layout, theme } = params;
     const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
     const overlay = computeOverlay(history);
 
@@ -544,8 +544,10 @@ export function generateMermaidExecution(
         asl: aslObj,
         edges,
         executionClasses,
+        layout,
         nodeAnnotations,
         nodes,
+        theme,
     });
 
     return {

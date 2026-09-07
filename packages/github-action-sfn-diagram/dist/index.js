@@ -64027,7 +64027,7 @@ function byNodeId(byStateName, idsForName) {
   return result;
 }
 function generateMermaidExecution(params) {
-  const { aslDefinition, history } = params;
+  const { aslDefinition, history, layout, theme } = params;
   const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
   const overlay = computeOverlay(history);
   const { nodes, edges } = parseAsl({ definition: aslObj });
@@ -64047,8 +64047,10 @@ function generateMermaidExecution(params) {
     asl: aslObj,
     edges,
     executionClasses,
+    layout,
     nodeAnnotations,
-    nodes
+    nodes,
+    theme
   });
   return {
     code,

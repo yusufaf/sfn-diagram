@@ -31,7 +31,7 @@ describe('flattenMarkers', () => {
 
         const result = flattenMarkers({ edges, nodes });
 
-        expect(result.nodes.map((n) => n.id)).toEqual(['Terminal']);
+        expect(result.nodes.map((resultNode) => resultNode.id)).toEqual(['Terminal']);
         expect(result.edges).toEqual([]);
     });
 
@@ -56,7 +56,7 @@ describe('flattenMarkers', () => {
 
         const result = flattenMarkers({ edges, nodes });
 
-        expect(result.nodes.map((n) => n.id)).toEqual(['Container', 'Branch1', 'Branch2', 'Next']);
+        expect(result.nodes.map((resultNode) => resultNode.id)).toEqual(['Container', 'Branch1', 'Branch2', 'Next']);
         const rewired = result.edges.map((edge) => `${edge.from}->${edge.to}`);
         expect(rewired).toContain('Branch1->Next');
         expect(rewired).toContain('Branch2->Next');

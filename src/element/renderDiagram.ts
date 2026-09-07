@@ -49,7 +49,7 @@ export function renderDiagramString(params: RenderDiagramParams): RenderDiagramR
 
     if (format === 'mermaid') {
         const output = history
-            ? generateMermaidExecution({ aslDefinition: asl, history })
+            ? generateMermaidExecution({ aslDefinition: asl, history, layout, theme })
             : generateMermaid({ aslDefinition: asl, layout, theme });
         return { type: 'mermaid', code: output.code };
     }
