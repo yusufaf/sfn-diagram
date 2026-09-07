@@ -577,6 +577,14 @@ export interface GenerateMermaidParams extends DiagramOptions {
 export interface GenerateHtmlParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
+    /**
+     * Content-Security-Policy nonce to stamp on every embedded `<style>`/`<script>`
+     * tag, so the document runs under a host with a strict `script-src 'nonce-…'`
+     * policy (e.g. a VS Code webview). Must match `/^[A-Za-z0-9+/=_-]+$/` or an
+     * error is thrown. Omit for a document with no nonce attributes at all - the
+     * default, byte-identical to output produced before nonce support existed.
+     */
+    nonce?: string;
 }
 
 /** Parameters for the format-dispatching `generateDiagram`. */

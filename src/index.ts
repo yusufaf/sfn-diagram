@@ -286,7 +286,7 @@ function buildHtmlViews(params: {
 }
 
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
 
@@ -307,6 +307,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             collapsedSvg,
             edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
+            nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -336,7 +337,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
 
@@ -358,6 +359,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             collapsedSvg: embeddedCollapsedSvg,
             edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
+            nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
