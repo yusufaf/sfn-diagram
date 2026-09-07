@@ -64337,8 +64337,11 @@ async function listChangedFiles(params) {
       repo
     });
     collected.push(...data2);
-    if (data2.length < LIST_PAGE_SIZE) break;
+    if (data2.length < LIST_PAGE_SIZE) return collected;
   }
+  core.warning(
+    `Only the first ${collected.length} changed files were examined (page cap ${MAX_LIST_PAGES}); an ASL file beyond that is not reported on.`
+  );
   return collected;
 }
 async function findCommentByMarker(params) {
@@ -64353,8 +64356,11 @@ async function findCommentByMarker(params) {
     });
     const found = data2.find((comment) => comment.body?.startsWith(marker));
     if (found) return found;
-    if (data2.length < LIST_PAGE_SIZE) break;
+    if (data2.length < LIST_PAGE_SIZE) return void 0;
   }
+  core.warning(
+    `Stopped searching for a previous comment after ${MAX_LIST_PAGES} pages; a new comment will be posted even if one already exists.`
+  );
   return void 0;
 }
 async function run() {

@@ -343,6 +343,45 @@ describe('run', () => {
         expect(stub.rest.issues.createComment).not.toHaveBeenCalled()
     })
 
+    it('warns rather than silently truncating when the changed-files cap is hit', async () => {
+        setPullRequest()
+        const padding = Array.from({ length: 500 }, (_, index) => ({
+            filename: `src/unrelated-${index}.ts`,
+            status: 'modified',
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            files: [...padding, { filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.pulls.listFiles).toHaveBeenCalledTimes(5)
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('page cap 5'))
+    })
+
+    it('warns rather than silently giving up when the comment-search cap is hit', async () => {
+        setPullRequest()
+        const chatter = Array.from({ length: 500 }, (_, index) => ({
+            body: `unrelated comment ${index}`,
+            id: index + 1,
+        }))
+        const stub = makeOctokit({
+            contentByRef: { [BASE_SHA]: beforeAsl, [HEAD_SHA]: afterAsl },
+            existingComments: [...chatter, { body: `${MARKER}\nprevious run`, id: 999 }],
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(
+            expect.stringContaining('Stopped searching for a previous comment'),
+        )
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
+    })
+
     it('updates the existing comment instead of creating a new one', async () => {
         setPullRequest()
         const stub = makeOctokit({

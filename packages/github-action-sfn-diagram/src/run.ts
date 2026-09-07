@@ -87,8 +87,15 @@ async function listChangedFiles(
             repo,
         })
         collected.push(...data)
-        if (data.length < LIST_PAGE_SIZE) break
+        if (data.length < LIST_PAGE_SIZE) return collected
     }
+
+    // Reaching the cap with a full final page means there is more to fetch. Say so:
+    // silently truncating here is the same no-error, no-warning miss as #155, just
+    // at a higher threshold.
+    core.warning(
+        `Only the first ${collected.length} changed files were examined (page cap ${MAX_LIST_PAGES}); an ASL file beyond that is not reported on.`,
+    )
 
     return collected
 }
@@ -96,10 +103,12 @@ async function listChangedFiles(
 /**
  * The action's own comment from a previous run, found by its marker prefix.
  *
- * Paginated rather than first-page-only: a marker comment's created_at is set
- * once at creation and never bumped by a later update, so on a PR with enough
- * other discussion it drops off page 1 and the action posts a duplicate instead
- * of updating what is already there.
+ * Paginated rather than first-page-only: `issues.listComments` returns oldest
+ * first, so on a PR that already had a hundred-plus comments when this action
+ * first ran, the marker comment sits past page 1 and never gets found - and the
+ * action posts a duplicate instead of updating what is already there. Ascending
+ * order is also what makes forward paging safe here: a comment added mid-scan
+ * lands at the end, so it cannot shift an unread one onto a page already passed.
  */
 async function findCommentByMarker(
     params: FindCommentByMarkerParams,
@@ -116,8 +125,14 @@ async function findCommentByMarker(
         })
         const found = data.find((comment) => comment.body?.startsWith(marker))
         if (found) return found
-        if (data.length < LIST_PAGE_SIZE) break
+        if (data.length < LIST_PAGE_SIZE) return undefined
     }
+
+    // Gave up rather than ran out - without this the caller cannot tell the two
+    // apart, and posts a duplicate comment exactly as it did before #156.
+    core.warning(
+        `Stopped searching for a previous comment after ${MAX_LIST_PAGES} pages; a new comment will be posted even if one already exists.`,
+    )
 
     return undefined
 }
