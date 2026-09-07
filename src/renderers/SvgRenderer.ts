@@ -463,6 +463,7 @@ export class SvgRenderer {
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', subFontSize)
+                .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.7)
                 .text(subLabel);
         }
@@ -565,6 +566,7 @@ export class SvgRenderer {
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 2)
+                .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.7)
                 .text(secondLineText);
         }
@@ -581,6 +583,7 @@ export class SvgRenderer {
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 3)
+                .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.75)
                 .text(annotation);
         }
@@ -598,6 +601,7 @@ export class SvgRenderer {
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
                 .attr('font-size', this.theme.fontSize - 3)
+                .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.7)
                 .text(getAssignedVariablesLabel(node.assignedVariables));
         }
@@ -842,6 +846,7 @@ export class SvgRenderer {
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', edgeColor)
                 .attr('font-size', this.theme.fontSize - 2)
+                .attr('font-family', this.theme.fontFamily)
                 .text(edge.label);
 
             // The label is drawn over the midpoint of its own edge, exactly where a
