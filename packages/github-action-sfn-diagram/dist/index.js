@@ -63415,6 +63415,16 @@ for (let code = 65; code <= 90; code++) {
   if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
 }
 CHAR_WIDTHS[" "] = SPACE;
+var MERMAID_LABEL_ENTITIES = {
+  "#": "#35;",
+  '"': "#quot;",
+  ";": "#59;",
+  "<": "#60;",
+  ">": "#62;",
+  "{": "#123;",
+  "}": "#125;",
+  "`": "#96;"
+};
 var DIFF_CLASS_DEFS = {
   added: "classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px",
   modified: "classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px",
@@ -63560,10 +63570,16 @@ var MermaidRenderer = class {
     return candidate;
   }
   /**
-  * Escape label text for Mermaid
+  * Escape label text for Mermaid.
+  *
+  * Every replacement is a Mermaid numeric entity, each ending in the `;` this
+  * escapes - a sequential chain of `.replace()` calls would have the `;` rule
+  * mangle the entities the earlier rules just inserted, so this runs as one
+  * pass over a single character class instead. Encoding `>` also neutralises
+  * a literal `-->` inside a label, so no separate arrow rule is needed.
   */
   escapeLabel(label) {
-    return label.replace(/"/g, "'").replace(/\n/g, " ");
+    return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, " ");
   }
   /**
   * Find the start state from ASL definition or by analyzing edges

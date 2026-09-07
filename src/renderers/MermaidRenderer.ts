@@ -8,6 +8,23 @@ import type {
     ExecutionStateStatus,
 } from '../types';
 
+/**
+ * Mermaid numeric-entity escapes for characters that are significant to
+ * `stateDiagram-v2` syntax: `#` introduces an entity itself, `"` and `;` end a
+ * label or statement early, `<`/`>` and `{`/`}` are HTML/composite-state
+ * syntax, and a backtick can break Markdown-flavoured label rendering.
+ */
+const MERMAID_LABEL_ENTITIES: Record<string, string> = {
+    '#': '#35;',
+    '"': '#quot;',
+    ';': '#59;',
+    '<': '#60;',
+    '>': '#62;',
+    '{': '#123;',
+    '}': '#125;',
+    '`': '#96;',
+};
+
 /** Mermaid classDef declarations for diff highlighting, keyed by diff status. */
 const DIFF_CLASS_DEFS: Record<DiffStatus, string> = {
     added: 'classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px',
@@ -269,11 +286,16 @@ export class MermaidRenderer {
     }
 
     /**
-     * Escape label text for Mermaid
+     * Escape label text for Mermaid.
+     *
+     * Every replacement is a Mermaid numeric entity, each ending in the `;` this
+     * escapes - a sequential chain of `.replace()` calls would have the `;` rule
+     * mangle the entities the earlier rules just inserted, so this runs as one
+     * pass over a single character class instead. Encoding `>` also neutralises
+     * a literal `-->` inside a label, so no separate arrow rule is needed.
      */
     private escapeLabel(label: string): string {
-        // Remove or escape characters that might break Mermaid syntax
-        return label.replace(/"/g, "'").replace(/\n/g, ' ');
+        return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, ' ');
     }
 
     /**

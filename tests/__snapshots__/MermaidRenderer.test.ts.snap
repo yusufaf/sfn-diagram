@@ -1,0 +1,19 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MermaidRenderer > Label escaping > should match the full escaped snapshot 1`] = `
+"stateDiagram-v2
+
+    [*] --> Start
+    Check_1__Quoted___Tag__brace__tick__a___b: Check#35;1 #quot;Quoted#quot; #60;Tag#62;#123;brace#125;#96;tick#96;#59;a--#62;b
+
+    Start --> Check_1__Quoted___Tag__brace__tick__a___b
+
+    Check_1__Quoted___Tag__brace__tick__a___b --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#4caf50,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#f44336,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+
+    class Check_1__Quoted___Tag__brace__tick__a___b successState"
+`;

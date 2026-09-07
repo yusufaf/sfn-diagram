@@ -12,8 +12,8 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 "stateDiagram-v2
 
     [*] --> CheckValue
-    CheckValue --> HighValue: $.value > 10
-    CheckValue --> LowValue: $.value <= 10
+    CheckValue --> HighValue: $.value #62; 10
+    CheckValue --> LowValue: $.value #60;= 10
     CheckValue --> DefaultPath: Default
     HighValue --> Done
     LowValue --> Done
@@ -201,7 +201,7 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
     WaitState: WaitState (5s)
 
     WaitState --> CheckCondition
-    CheckCondition --> SuccessState: $.status == 'success'
+    CheckCondition --> SuccessState: $.status == #quot;success#quot;
     CheckCondition --> FailState: Default
 
     SuccessState --> [*]

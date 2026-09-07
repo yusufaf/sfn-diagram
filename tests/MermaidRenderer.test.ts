@@ -85,8 +85,10 @@ describe('MermaidRenderer', () => {
             const renderer = new MermaidRenderer();
             const result = renderer.render({ nodes, edges, asl });
 
+            // `;` is Mermaid-significant, so the label's own separator is escaped
+            // to `#59;` along with everything else escapeLabel handles.
             expect(result.code).toContain(
-                'Submit --> Submit: ↻ States.Timeout (4x); States.ALL (2x)',
+                'Submit --> Submit: ↻ States.Timeout (4x)#59; States.ALL (2x)',
             );
         });
     });
@@ -267,6 +269,67 @@ describe('MermaidRenderer', () => {
 
             expect(result.code).toContain('RiskyTask');
             expect(result.code).toContain('HandleError');
+        });
+    });
+
+    describe('Label escaping', () => {
+        // A state name carrying every Mermaid-significant character at once,
+        // plus a literal arrow sequence that must not be read as a transition.
+        const escapesAsl: AslDefinition = {
+            StartAt: 'Start',
+            States: {
+                Start: {
+                    Type: 'Pass',
+                    Next: 'Check#1 "Quoted" <Tag>{brace}`tick`;a-->b',
+                },
+                'Check#1 "Quoted" <Tag>{brace}`tick`;a-->b': {
+                    Type: 'Succeed',
+                },
+            },
+        };
+
+        it('should escape every Mermaid-significant character', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            expect(result.code).toContain(
+                'Check#35;1 #quot;Quoted#quot; #60;Tag#62;#123;brace#125;#96;tick#96;#59;a--#62;b',
+            );
+        });
+
+        it('should not let the escaped label contain a raw arrow, quote, or brace', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            // Isolate the state definition line so the assertion can't be satisfied
+            // by the `-->` transition syntax that legitimately appears elsewhere.
+            const definitionLine = result.code
+                .split('\n')
+                .find((line) => line.trim().startsWith('Check_1'));
+
+            expect(definitionLine).toBeDefined();
+            expect(definitionLine).not.toContain('-->');
+            expect(definitionLine).not.toContain('"');
+            expect(definitionLine).not.toContain('{');
+            expect(definitionLine).not.toContain('}');
+        });
+
+        it('should still collapse newlines to spaces', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Multi\nLine',
+                States: { 'Multi\nLine': { Type: 'Succeed' } },
+            };
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl });
+
+            expect(result.code).toContain('Multi Line');
+        });
+
+        it('should match the full escaped snapshot', () => {
+            const { nodes, edges } = parseAsl({ definition: escapesAsl });
+            const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
+
+            expect(result.code).toMatchSnapshot();
         });
     });
 });
