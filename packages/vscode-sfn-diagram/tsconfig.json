@@ -10,5 +10,6 @@
         "target": "ES2020",
         "types": ["node"]
     },
-    "include": ["src"]
+    "include": ["src"],
+    "exclude": ["out", "src/**/*.test.ts"]
 }
