@@ -62337,7 +62337,7 @@ var AWS_LIGHT_THEME = {
     },
     Task: {
       fill: "#fff3e0",
-      stroke: "#ef6c00"
+      stroke: "#d84315"
     },
     Choice: {
       fill: "#f3e5f5",
@@ -62349,11 +62349,11 @@ var AWS_LIGHT_THEME = {
     },
     Succeed: {
       fill: "#e8f5e8",
-      stroke: "#4caf50"
+      stroke: "#2e7d32"
     },
     Fail: {
       fill: "#ffebee",
-      stroke: "#f44336"
+      stroke: "#c62828"
     },
     Parallel: {
       fill: "#fce4ec",
@@ -62361,15 +62361,15 @@ var AWS_LIGHT_THEME = {
     },
     Map: {
       fill: "#f1f8e9",
-      stroke: "#689f38"
+      stroke: "#558b2f"
     }
   },
   edgeColors: {
     choice: "#7b1fa2",
     default: "#9c27b0",
-    error: "#f44336",
+    error: "#c62828",
     normal: "#546e7a",
-    retry: "#f9a825"
+    retry: "#8f6200"
   },
   textColor: "#212121",
   fontSize: 14,
