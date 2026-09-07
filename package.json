@@ -109,10 +109,11 @@
     }
   },
   "bin": {
-    "sfn-diagram": "dist/cli.js"
+    "sfn-diagram": "dist/bin.js"
   },
   "files": [
     "dist",
+    "!dist/cli.js",
     "custom-elements.json"
   ],
   "engines": {

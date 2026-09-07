@@ -120,7 +120,7 @@ jobs:
             exit 1
           }
 
-  # The standalone binaries (release-please.yml `binaries` job) bundle dist/cli.js
+  # The standalone binaries (release-please.yml `binaries` job) bundle dist/bin.js
   # with bun. Anything the CLI graph picks up that bun cannot bundle, or that
   # assumes a package.json next to the script, would otherwise only surface at
   # release time. Build one target here and run the same smoke test the release

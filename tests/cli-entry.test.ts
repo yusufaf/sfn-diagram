@@ -11,10 +11,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// These tests spawn the built CLI, so they need dist/cli.js. The build runs
+// These tests spawn the built bin, so they need dist/bin.js. The build runs
 // before tests in CI; locally, `pnpm run build` first or they are skipped.
+const binPath = resolve(__dirname, '..', 'dist', 'bin.js');
 const cliPath = resolve(__dirname, '..', 'dist', 'cli.js');
-const hasBuild = existsSync(cliPath);
+const hasBuild = existsSync(binPath);
 
 interface RunCliParams {
     args: string[];
@@ -58,7 +59,7 @@ function tryCreateSymlink({
     }
 }
 
-// dist/cli.js keeps its runtime dependencies external, so a symlink to it must
+// dist/bin.js keeps its runtime dependencies external, so a symlink to it must
 // live where Node's resolution can still walk up to the repo's node_modules:
 // under --preserve-symlinks-main, Node resolves those imports relative to the
 // symlink, not the real file, and a symlink in the OS temp dir cannot find them.
@@ -78,9 +79,9 @@ function withTempDir<T>(
 
 // Spawning Node on the bundle takes seconds on a loaded machine; the default
 // 5s budget is too tight.
-describe.skipIf(!hasBuild)('CLI entry guard', { timeout: 30_000 }, () => {
+describe.skipIf(!hasBuild)('CLI bin entry', { timeout: 30_000 }, () => {
     const expectedVersion = () => {
-        const direct = runCli({ args: ['--version'], entry: cliPath });
+        const direct = runCli({ args: ['--version'], entry: binPath });
         expect(direct.status, direct.stderr).toBe(0);
         return direct.stdout.trim();
     };
@@ -92,7 +93,7 @@ describe.skipIf(!hasBuild)('CLI entry guard', { timeout: 30_000 }, () => {
     it('runs when invoked through a symlink, the way npm links the bin', (context) => {
         withTempDir(symlinkParentDir, (tempDir) => {
             const linkPath = join(tempDir, 'sfn-diagram');
-            if (!tryCreateSymlink({ linkPath, target: cliPath })) {
+            if (!tryCreateSymlink({ linkPath, target: binPath })) {
                 context.skip();
                 return;
             }
@@ -105,7 +106,7 @@ describe.skipIf(!hasBuild)('CLI entry guard', { timeout: 30_000 }, () => {
     it('runs through a symlink under --preserve-symlinks-main', (context) => {
         withTempDir(symlinkParentDir, (tempDir) => {
             const linkPath = join(tempDir, 'sfn-diagram');
-            if (!tryCreateSymlink({ linkPath, target: cliPath })) {
+            if (!tryCreateSymlink({ linkPath, target: binPath })) {
                 context.skip();
                 return;
             }
@@ -115,13 +116,13 @@ describe.skipIf(!hasBuild)('CLI entry guard', { timeout: 30_000 }, () => {
                 nodeFlags: ['--preserve-symlinks-main'],
             });
             expect(result.status, result.stderr).toBe(0);
-            // The guard must fire; the version itself resolves package.json
-            // relative to the symlink here, so only check that it ran.
+            // The bin runs; the version itself resolves package.json relative
+            // to the symlink here, so only check that it printed something.
             expect(result.stdout.trim()).not.toBe('');
         });
     });
 
-    it('does nothing when imported rather than executed', () => {
+    it('does nothing when the library module is imported rather than executed', () => {
         withTempDir(tmpdir(), (tempDir) => {
             const importer = join(tempDir, 'importer.mjs');
             writeFileSync(
@@ -132,6 +133,19 @@ describe.skipIf(!hasBuild)('CLI entry guard', { timeout: 30_000 }, () => {
             const result = runCli({ args: ['--version'], entry: importer });
             expect(result.status, result.stderr).toBe(0);
             expect(result.stdout.trim()).toBe('imported');
+        });
+    });
+
+    it('runs when the bin entry is imported rather than executed', () => {
+        withTempDir(tmpdir(), (tempDir) => {
+            const importer = join(tempDir, 'importer.mjs');
+            writeFileSync(
+                importer,
+                `import ${JSON.stringify(pathToFileURL(binPath).href)};\n`,
+            );
+            const result = runCli({ args: ['--version'], entry: importer });
+            expect(result.status, result.stderr).toBe(0);
+            expect(result.stdout.trim()).toBe(expectedVersion());
         });
     });
 });
