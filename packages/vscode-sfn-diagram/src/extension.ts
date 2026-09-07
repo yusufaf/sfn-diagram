@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { isAslFileName } from './asl'
 import { DiagramPanel } from './DiagramPanel'
 import { CONFIG_SECTION, resolveColorScheme, resolveSettings } from './settings'
 import type { ResolvedTheme, SfnDiagramSettings } from './settings'
@@ -90,6 +91,29 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor && DiagramPanel.currentPanel) {
                 DiagramPanel.currentPanel.syncActiveEditor(editor.document.getText())
             }
+        })
+    )
+
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument((document) => {
+            const settings = readSettings()
+            if (!settings.autoPreview) {
+                return
+            }
+            // Skip virtual document schemes (e.g. `git:`, `output:`) so diffs and other
+            // read-only copies of an ASL file don't trigger a preview of their own.
+            if (document.uri.scheme !== 'file') {
+                return
+            }
+            if (!isAslFileName({ fileName: document.fileName })) {
+                return
+            }
+            DiagramPanel.createOrShow({
+                aslContent: document.getText(),
+                colorScheme: readColorScheme(),
+                preserveFocus: true,
+                settings,
+            })
         })
     )
 }
