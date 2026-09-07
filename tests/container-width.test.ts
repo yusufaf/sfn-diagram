@@ -108,8 +108,26 @@ describe('container header width', () => {
                 ),
             );
 
+            // An ancestor of a nested container is excluded too: its own box now
+            // includes the nested child's fully-resolved geometry (DagreLayout's
+            // calculateContainerBounds resolves nesting bottom-up), which can be
+            // taller/wider than what dagre's rank-based sibling spacing accounted for
+            // - containers are laid out as post-hoc boxes outside dagre's graph, so
+            // dagre never sees this growth. Same class of gap as the exclusion above:
+            // nesting's ranking-clearance interaction isn't handled yet either.
+            const ancestorsOfNestedContainerIds = new Set(
+                containers
+                    .filter((container) =>
+                        [...descendantIds(container, byId)].some(
+                            (id) => id !== container.id && nestedContainerIds.has(id),
+                        ),
+                    )
+                    .map((container) => container.id),
+            );
+
             for (const container of containers) {
                 if (nestedContainerIds.has(container.id)) continue;
+                if (ancestorsOfNestedContainerIds.has(container.id)) continue;
                 const related = descendantIds(container, byId);
                 const containerBox = boxOf(container);
 

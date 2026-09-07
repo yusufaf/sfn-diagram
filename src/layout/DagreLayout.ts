@@ -239,24 +239,76 @@ export class DagreLayout {
     }
 
     /**
-     * Calculate bounding boxes for container nodes based on their children positions
+     * Calculate bounding boxes for container nodes based on their children positions.
+     *
+     * `container.children` only lists the direct level - a nested Parallel/Map's own
+     * children are not repeated in its ancestor's list - so a container whose child is
+     * itself a container has to resolve that child's bounds first. Resolution is
+     * memoized and bottom-up (via recursion, guarded against a cyclic `children` graph)
+     * so a parent always sees its child containers' already-computed boxes, however
+     * deep the nesting goes.
      */
     private calculateContainerBounds(params: {
         containers: StateNode[];
         positionedNodeIndex: Map<string, StateNode>;
     }): StateNode[] {
         const { containers, positionedNodeIndex } = params;
+        const containerById = new Map(containers.map((container) => [container.id, container]));
+        const resolved = new Map<string, StateNode>();
+        // Tracks whether a resolved container's box reflects real descendant geometry
+        // (false for an empty container's default box) - see the skip below.
+        const hasGeometry = new Map<string, boolean>();
+        const inProgress = new Set<string>();
 
-        return containers.map((container) => {
-            // Resolve child nodes directly from the index (O(children)) and exclude
-            // end markers, which are just visual indicators.
+        const defaultBox = (container: StateNode): StateNode => ({
+            ...container,
+            height: 200,
+            width: 400,
+            x: 0,
+            y: 0,
+        });
+
+        const resolveContainer = (container: StateNode): StateNode => {
+            const cached = resolved.get(container.id);
+            if (cached) {
+                return cached;
+            }
+            if (inProgress.has(container.id)) {
+                // A cyclic `children` graph isn't expected from a well-formed ASL, but
+                // break the cycle with the container's default box rather than
+                // recursing forever.
+                const fallback = defaultBox(container);
+                resolved.set(container.id, fallback);
+                hasGeometry.set(container.id, false);
+                return fallback;
+            }
+            inProgress.add(container.id);
+
+            // Resolve child nodes and exclude end markers, which are just visual
+            // indicators. A child that is itself a container is resolved recursively
+            // via containerById so its bounds are known before this container's own
+            // bounds are computed from them.
             const children: StateNode[] = [];
             for (const childId of container.children || []) {
+                const childContainer = containerById.get(childId);
+                if (childContainer) {
+                    const resolvedChild = resolveContainer(childContainer);
+                    // An empty child container's box is parked at the origin - folding
+                    // it into this container's bbox would drag the whole box toward
+                    // (0, 0) instead of just omitting it, so skip it the same way an
+                    // empty container was always skipped before nesting was resolved.
+                    if (hasGeometry.get(childContainer.id) !== false) {
+                        children.push(resolvedChild);
+                    }
+                    continue;
+                }
                 const child = positionedNodeIndex.get(childId);
                 if (child && child.type !== 'BranchEnd' && child.type !== 'IteratorEnd') {
                     children.push(child);
                 }
             }
+
+            inProgress.delete(container.id);
 
             if (children.length === 0) {
                 // No children: fall back to a default box, still widened for the header
@@ -267,13 +319,10 @@ export class DagreLayout {
                     400,
                     Math.min(CONTAINER_MAX_HEADER_WIDTH, this.getContainerHeaderWidth(container)),
                 );
-                return {
-                    ...container,
-                    height: 200,
-                    width,
-                    x: 0,
-                    y: 0,
-                };
+                const result = { ...container, height: 200, width, x: 0, y: 0 };
+                resolved.set(container.id, result);
+                hasGeometry.set(container.id, false);
+                return result;
             }
 
             // Calculate bounding box from children positions.
@@ -309,14 +358,19 @@ export class DagreLayout {
             const x = (minX + maxX) / 2;
             const y = (minY + maxY) / 2 + headerHeight / 2;
 
-            return {
+            const result = {
                 ...container,
                 height,
                 width,
                 x,
                 y,
             };
-        });
+            resolved.set(container.id, result);
+            hasGeometry.set(container.id, true);
+            return result;
+        };
+
+        return containers.map(resolveContainer);
     }
 
     /**
