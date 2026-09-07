@@ -214,7 +214,7 @@ describe('MermaidRenderer', () => {
 
             const result = new MermaidRenderer().render({ nodes, edges, asl });
 
-            expect(result.code).toContain('classDef taskState fill:#fff3e0,stroke:#ef6c00,stroke-width:2px');
+            expect(result.code).toContain('classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px');
             expect(result.code).not.toContain("%%{init:");
         });
 
@@ -225,7 +225,7 @@ describe('MermaidRenderer', () => {
             const result = new MermaidRenderer().render({ nodes, edges, asl, theme: 'dark' });
 
             expect(result.code.startsWith("%%{init: {'theme':'dark'}}%%\n")).toBe(true);
-            expect(result.code).toContain('classDef taskState fill:#e65100,stroke:#ffb74d,stroke-width:2px');
+            expect(result.code).toContain('classDef taskState fill:#9c3400,stroke:#ffb74d,stroke-width:2px');
         });
 
         it('should classify a dark CustomTheme by background luminance', () => {
