@@ -6,7 +6,13 @@ import { applyCollapse } from '../src/graph';
 import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition, EdgeStyleOverride, GraphEdge, StateNode } from '../src/types';
+import type {
+    AslDefinition,
+    DiagramOptions,
+    EdgeStyleOverride,
+    GraphEdge,
+    StateNode,
+} from '../src/types';
 import type { LayoutResult } from '../src/layout/DagreLayout';
 
 const loadFixture = (name: string): AslDefinition => {
@@ -760,4 +766,53 @@ describe('collapsed containers', () => {
         expect(result.svg).toContain('2 states');
         expect(result.svg).toContain('stroke-dasharray');
     });
+});
+
+describe('Theme-driven node colors', () => {
+    const renderFixture = (params: { fixture?: string; options: DiagramOptions }): string => {
+        const { fixture = 'simple', options } = params;
+        const asl = loadFixture(fixture);
+        const { nodes, edges } = parseAsl({ definition: asl });
+        const layout = new DagreLayout(options).calculate(nodes, edges);
+        return new SvgRenderer(options).render(layout).svg;
+    };
+
+    const taskRect = (svg: string): string =>
+        svg.match(/<g class="node node-Task"[^>]*>[\s\S]*?<rect[^>]*>/)![0];
+
+    it('paints Task nodes with the dark theme fill and stroke', () => {
+        const svg = renderFixture({ options: { theme: 'dark' } });
+
+        expect(taskRect(svg)).toContain('fill="#9c3400"');
+        expect(taskRect(svg)).toContain('stroke="#ffb74d"');
+    });
+
+    it('paints Task nodes with the light theme fill and stroke', () => {
+        const svg = renderFixture({ options: { theme: 'light' } });
+
+        expect(taskRect(svg)).toContain('fill="#fff3e0"');
+        expect(taskRect(svg)).toContain('stroke="#d84315"');
+    });
+
+    it('honours customColors over the theme', () => {
+        const svg = renderFixture({
+            options: { customColors: { Task: { fill: '#ff0000', stroke: '#00ff00' } } },
+        });
+
+        expect(taskRect(svg)).toContain('fill="#ff0000"');
+        expect(taskRect(svg)).toContain('stroke="#00ff00"');
+    });
+
+    it('lets nodeOverrides win over the resolved theme', () => {
+        const svg = renderFixture({
+            options: {
+                nodeOverrides: { Process: { fill: '#c8e6c9', stroke: '#2e7d32' } },
+                theme: 'dark',
+            },
+        });
+
+        expect(taskRect(svg)).toContain('fill="#c8e6c9"');
+        expect(taskRect(svg)).toContain('stroke="#2e7d32"');
+    });
+
 });
