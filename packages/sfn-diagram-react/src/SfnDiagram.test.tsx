@@ -48,6 +48,18 @@ const TASK_WITH_LAMBDA = {
     },
 }
 
+const WITH_ASSIGN = {
+    StartAt: 'LoadTotal',
+    States: {
+        LoadTotal: {
+            Assign: { total: '$.total' },
+            Next: 'Done',
+            Type: 'Pass',
+        },
+        Done: { Type: 'Succeed' },
+    },
+}
+
 const WITH_CATCH = {
     StartAt: 'RiskyTask',
     States: {
@@ -269,6 +281,50 @@ describe('SfnDiagram', () => {
             expect(withIcons.querySelector('pre')?.textContent).toBe(
                 without.querySelector('pre')?.textContent
             )
+        })
+    })
+
+    describe('showVariables', () => {
+        it('shows the assigned-variable annotation by default', () => {
+            const { container } = render(<SfnDiagram definition={WITH_ASSIGN} />)
+            expect(container.querySelector('svg')?.innerHTML).toContain('$total')
+        })
+
+        it('hides the assigned-variable annotation when set to false', () => {
+            const { container } = render(
+                <SfnDiagram definition={WITH_ASSIGN} showVariables={false} />
+            )
+            expect(container.querySelector('svg')?.innerHTML).not.toContain('$total')
+        })
+
+        it('shows the assigned-variable annotation in Mermaid output by default', () => {
+            const { container } = render(
+                <SfnDiagram definition={WITH_ASSIGN} format="mermaid" />
+            )
+            expect(container.querySelector('pre')?.textContent).toContain('$total')
+        })
+
+        it('hides the assigned-variable annotation in Mermaid output when set to false', () => {
+            const { container } = render(
+                <SfnDiagram definition={WITH_ASSIGN} format="mermaid" showVariables={false} />
+            )
+            expect(container.querySelector('pre')?.textContent).not.toContain('$total')
+        })
+    })
+
+    describe('edgeStyle', () => {
+        it('draws a curved path by default', () => {
+            const { container } = render(<SfnDiagram definition={WITH_ASSIGN} />)
+            const pathD = container.querySelector('path[data-edge-id]')?.getAttribute('d')
+            expect(pathD).toContain('C')
+        })
+
+        it('draws a straight path with no cubic command when set to straight', () => {
+            const { container } = render(
+                <SfnDiagram definition={WITH_ASSIGN} edgeStyle="straight" />
+            )
+            const pathD = container.querySelector('path[data-edge-id]')?.getAttribute('d')
+            expect(pathD).not.toContain('C')
         })
     })
 

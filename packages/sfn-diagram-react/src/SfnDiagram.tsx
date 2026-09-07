@@ -12,7 +12,13 @@ import type { DiagramOptions, ExecutionHistoryInput, LayoutDirection, ThemeOptio
 export interface SfnDiagramProps
     extends Pick<
         DiagramOptions,
-        'catchHandling' | 'collapse' | 'iconPosition' | 'iconSize' | 'showIcons'
+        | 'catchHandling'
+        | 'collapse'
+        | 'edgeStyle'
+        | 'iconPosition'
+        | 'iconSize'
+        | 'showIcons'
+        | 'showVariables'
     > {
     className?: string
     definition: object | string
@@ -58,6 +64,7 @@ export function SfnDiagram({
     className,
     collapse,
     definition,
+    edgeStyle,
     format = 'svg',
     history,
     iconPosition,
@@ -65,6 +72,7 @@ export function SfnDiagram({
     layout = 'TB',
     onError,
     showIcons,
+    showVariables,
     style,
     theme = 'light',
 }: SfnDiagramProps) {
@@ -78,10 +86,12 @@ export function SfnDiagram({
             const diagramOptions = omitUndefinedValues({
                 catchHandling,
                 collapse,
+                edgeStyle,
                 iconPosition,
                 iconSize,
                 layout,
                 showIcons,
+                showVariables,
                 theme,
             })
             if (format === 'mermaid') {
@@ -101,12 +111,14 @@ export function SfnDiagram({
         asl,
         catchHandling,
         collapse,
+        edgeStyle,
         format,
         history,
         iconPosition,
         iconSize,
         layout,
         showIcons,
+        showVariables,
         theme,
     ])
 
