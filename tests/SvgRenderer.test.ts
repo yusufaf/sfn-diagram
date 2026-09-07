@@ -3,6 +3,7 @@ import { SvgRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
+import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition, EdgeStyleOverride, GraphEdge, StateNode } from '../src/types';
@@ -451,6 +452,77 @@ describe('SvgRenderer', () => {
             const result = renderer.render(positioned);
 
             expect(result.svg).toContain('<path');
+        });
+    });
+
+    describe('Edge label midpoint (curved and straight)', () => {
+        // A bent multi-point edge - straight enough for curveBasis to draw a visible
+        // curve, but also a case where a straight polyline's middle *vertex* isn't
+        // the middle of the drawn line either.
+        const bentEdge = (): GraphEdge & { points: Array<{ x: number; y: number }> } => ({
+            from: 'A',
+            id: 'A->B#normal#0',
+            to: 'B',
+            type: 'normal',
+            label: 'go',
+            points: [
+                { x: 0, y: 100 },
+                { x: 100, y: 0 },
+                { x: 260, y: 100 },
+            ],
+        });
+
+        const buildLayout = (): LayoutResult => ({
+            nodes: [
+                { id: 'A', label: 'A', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 0, y: 100, width: 120, height: 60 },
+                { id: 'B', label: 'B', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 260, y: 100, width: 120, height: 60 },
+            ],
+            edges: [bentEdge()],
+            graph: { height: 300, width: 400 },
+        });
+
+        const extractPathD = (svg: string): string =>
+            svg.match(/<path d="([^"]+)"[^>]*data-edge-id="A-&gt;B[^"]*"/)![1];
+
+        const extractLabelCenter = (svg: string): { x: number; y: number } => {
+            const match = svg.match(/<text x="([\d.-]+)" y="([\d.-]+)"[^>]*>go<\/text>/)!;
+            return { x: Number(match[1]), y: Number(match[2]) };
+        };
+
+        it('places the label on the drawn curve for edgeStyle "curved"', () => {
+            const result = new SvgRenderer({ edgeStyle: 'curved' }).render(buildLayout());
+
+            const pathD = extractPathD(result.svg);
+            const labelCenter = extractLabelCenter(result.svg);
+            const onCurve = pointAtHalfLength(parsePath(pathD));
+
+            expect(labelCenter.x).toBeCloseTo(onCurve.x, 5);
+            expect(labelCenter.y).toBeCloseTo(onCurve.y, 5);
+
+            // Regression check: the naive "middle control point" (the old behaviour)
+            // is nowhere near the curve here - confirms this fixture actually
+            // exercises the bug, not just a case where the two approaches coincide.
+            const naiveMidpoint = bentEdge().points[1];
+            const distanceFromNaive = Math.hypot(
+                labelCenter.x - naiveMidpoint.x,
+                labelCenter.y - naiveMidpoint.y
+            );
+            expect(distanceFromNaive).toBeGreaterThan(5);
+        });
+
+        it('places the label on the drawn line for the default (straight) edge style', () => {
+            const result = new SvgRenderer({}).render(buildLayout());
+
+            const pathD = extractPathD(result.svg);
+            const labelCenter = extractLabelCenter(result.svg);
+            const onLine = pointAtHalfLength(parsePath(pathD));
+
+            expect(labelCenter.x).toBeCloseTo(onLine.x, 5);
+            expect(labelCenter.y).toBeCloseTo(onLine.y, 5);
+
+            // The two legs (0,100)->(100,0) and (100,0)->(260,100) have unequal
+            // lengths, so the arc-length midpoint isn't the vertex at (100, 0).
+            expect(labelCenter).not.toEqual({ x: 100, y: 0 });
         });
     });
 

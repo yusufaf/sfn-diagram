@@ -5,6 +5,7 @@ import {
     getNodeSubLabelParts,
 } from '../constants/labels';
 import { isOpenContainer } from '../graph';
+import { parsePath, pointAtHalfLength } from '../utils/pathSample';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
     StateNode,
@@ -1010,14 +1011,24 @@ export class SvgRenderer {
     }
 
     /**
-     * Get the midpoint of a path for label placement
+     * Get the arc-length midpoint of a path for label placement - the point actually
+     * on the drawn curve, not the middle routing point dagre hands back. A `curved`
+     * edge is drawn with a basis spline (`curveBasis`), which does not pass through
+     * its interior control points at all, so indexing into `points` can land the
+     * label somewhere the stroke never visits; even for a linear edge, the middle
+     * *vertex* of a multi-bend polyline isn't the middle of the drawn line. Sampling
+     * the same path string the renderer actually draws (`this.pathGenerator`) keeps
+     * this in sync with the stroke by construction.
      */
     private getPathMidpoint(points: Array<{ x: number; y: number }>): {
         x: number;
         y: number;
     } {
-        const midIndex = Math.floor(points.length / 2);
-        return points[midIndex];
+        const pathData = this.pathGenerator(points);
+        if (!pathData) {
+            return { x: 0, y: 0 };
+        }
+        return pointAtHalfLength(parsePath(pathData));
     }
 
     /**
