@@ -3,7 +3,7 @@
 # Smoke-test a standalone CLI binary produced by scripts/build-binaries.mjs.
 #
 # Checks that the binary reports the package.json version, renders the same
-# SVG byte-for-byte as `node dist/cli.js`, reads ASL from stdin, and refuses
+# SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
 # `--format png` with the standalone pointer instead of a missing-module error.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only).
@@ -38,11 +38,11 @@ actual_version="$("$binary" --version)"
 [ "$actual_version" = "$expected_version" ] ||
     fail "binary reports version '$actual_version', package.json says '$expected_version'"
 
-echo "== svg parity with node dist/cli.js"
+echo "== svg parity with node dist/bin.js"
 "$binary" "$fixture" --format svg > "$tmp/binary.svg"
-node "$repo_root/dist/cli.js" "$fixture" --format svg > "$tmp/node.svg"
+node "$repo_root/dist/bin.js" "$fixture" --format svg > "$tmp/node.svg"
 cmp "$tmp/binary.svg" "$tmp/node.svg" ||
-    fail "binary SVG differs from node dist/cli.js SVG"
+    fail "binary SVG differs from node dist/bin.js SVG"
 
 echo "== mermaid from stdin"
 "$binary" - --format mermaid < "$fixture" | grep -q 'stateDiagram-v2' ||
@@ -71,7 +71,7 @@ case "$(basename "$binary")" in
                 debian:bookworm-slim \
                 "/b/$(basename "$binary")" /f/simple.asl.json --format svg \
                 | cmp - "$tmp/node.svg" ||
-                fail "binary output inside a Node-less container differs from node dist/cli.js"
+                fail "binary output inside a Node-less container differs from node dist/bin.js"
         else
             echo "== docker not available, skipping the Node-less container check"
         fi

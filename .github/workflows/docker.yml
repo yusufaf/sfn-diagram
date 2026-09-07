@@ -13,8 +13,12 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     # Only build for sfn-diagram releases (legacy v* or sfn-diagram-v* tags),
-    # never for github-action-sfn-diagram-v* releases of the other package.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !startsWith(github.event.release.tag_name, 'github-action'))
+    # never for another release-please component's tag (github-action-sfn-diagram-v*,
+    # sfn-diagram-react-v*, vscode-sfn-diagram-v*) - every one of those contains a
+    # hyphen before its own `-v`, which the legacy `v*` tags never do. See #127,
+    # where vscode-sfn-diagram-v0.1.1 slipped past a startsWith(tag, 'v') check that
+    # only excluded 'github-action'.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-'))
     permissions:
       contents: read
       packages: write
@@ -27,7 +31,11 @@ jobs:
       # Resolves the exact version plus its major and major.minor prefixes from
       # the tag, for both trigger types — so `docker/metadata-action` below can
       # emit all four tags the docs promise (latest, <major>, <major>.<minor>,
-      # <major>.<minor>.<patch>), not just the exact version and `latest`.
+      # <major>.<minor>.<patch>), not just the exact version and `latest`. Delegates
+      # to scripts/resolve-docker-tag.mjs (unit tested in tests/ci/resolveDockerTag.test.ts)
+      # which rejects anything but a core sfn-diagram tag outright, so a tag that
+      # slips past the job-level `if:` above (or a bad workflow_dispatch input) fails
+      # here instead of building and pushing an image under a mangled tag - see #127.
       - name: Resolve version and derived tags
         id: version
         run: |
@@ -36,13 +44,7 @@ jobs:
           else
             TAG="${{ github.event.release.tag_name }}"
           fi
-          VERSION="${TAG#sfn-diagram-v}"
-          VERSION="${VERSION#v}"
-          MAJOR="${VERSION%%.*}"
-          MINOR="${VERSION%.*}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
-          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3

@@ -1,6 +1,7 @@
 import { line, curveBasis } from 'd3-shape';
 import {
     fitSubLabel,
+    fitText,
     getAssignedVariablesLabel,
     getNodeSubLabelParts,
 } from '../constants/labels';
@@ -17,8 +18,10 @@ import type {
 import type { LayoutResult } from '../layout/DagreLayout';
 import {
     CONTAINER_HEADER_HEIGHT,
+    CONTAINER_HEADER_PADDING_X,
     CONTAINER_HEADER_TEXT_HEIGHT,
     CONTAINER_LINE_GAP_RATIO,
+    getContainerHeaderFontSizes,
 } from '../constants';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
@@ -32,12 +35,11 @@ const EDGE_HIT_AREA_WIDTH = 12;
 
 /**
  * Horizontal breathing room kept on each side of a node's sub-label, so a trimmed
- * label stops short of the border rather than touching it.
+ * label stops short of the border rather than touching it. A container's header text
+ * uses the shared CONTAINER_HEADER_PADDING_X instead, so the layout can size the box
+ * to agree with it.
  */
 const SUB_LABEL_PADDING = 8;
-
-/** Floor for the shrunk container sub-label, below which it stops being legible. */
-const MIN_SUB_LABEL_FONT_SIZE = 8;
 
 /** Node width assumed when neither the layout nor the options supply one. */
 const DEFAULT_NODE_WIDTH = 120;
@@ -394,22 +396,29 @@ export class SvgRenderer {
 
         const headerTop = -height / 2;
         const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
-        const nameFontSize = this.theme.fontSize;
-
-        // The sub-label shrinks into whatever room is left rather than being dropped: a
-        // large custom theme.fontSize would otherwise silently lose the Distributed
-        // marker, concurrency, tolerance and batching altogether. The two clamped lines
-        // (below) never overlap as long as this stays at or under
-        // `CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize` — each line's independent clamp
-        // then lands them exactly touching at worst. The MIN_SUB_LABEL_FONT_SIZE floor
-        // exists for legibility, but once nameFontSize leaves it less room than that
-        // floor, honouring the floor would push the sub-label past that touching point
-        // and into the name — so canFitSubLabel below drops the sub-label there instead.
-        const subFontSize = Math.max(
-            MIN_SUB_LABEL_FONT_SIZE,
-            Math.min(nameFontSize - 2, CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize)
+        // getContainerHeaderFontSizes shrinks subFontSize into whatever room is left
+        // rather than dropping it: a large custom theme.fontSize would otherwise
+        // silently lose the Distributed marker, concurrency, tolerance and batching
+        // altogether. The two clamped lines (below) never overlap as long as it stays
+        // at or under `CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize` — each line's
+        // independent clamp then lands them exactly touching at worst. Once
+        // nameFontSize leaves less room than MIN_SUB_LABEL_FONT_SIZE, honouring that
+        // floor would push the sub-label past that touching point and into the name —
+        // so canFitSubLabel drops the sub-label there instead.
+        const { canFitSubLabel, nameFontSize, subFontSize } = getContainerHeaderFontSizes(
+            this.theme.fontSize
         );
-        const canFitSubLabel = CONTAINER_HEADER_TEXT_HEIGHT - nameFontSize >= MIN_SUB_LABEL_FONT_SIZE;
+        const headerAvailableWidth = width - CONTAINER_HEADER_PADDING_X * 2;
+
+        // The layout already grew the box to fit the header's widest line up to
+        // CONTAINER_MAX_HEADER_WIDTH (see DagreLayout.calculateContainerBounds), so
+        // eliding here only fires past that cap, or when children forced the box
+        // narrower than the header needs in the first place.
+        const name = fitText({
+            availableWidth: headerAvailableWidth,
+            measure: (text) => estimateTextWidth(text, nameFontSize),
+            text: node.label,
+        });
 
         // Sub-label under the container name. The Distributed marker and
         // MaxConcurrency are always shown when present — a Distributed Map runs a
@@ -417,7 +426,7 @@ export class SvgRenderer {
         // read as a plain Map. The state type itself stays opt-in.
         const subLabel = canFitSubLabel
             ? fitSubLabel({
-                  availableWidth: width - SUB_LABEL_PADDING * 2,
+                  availableWidth: headerAvailableWidth,
                   measure: (text) => estimateTextWidth(text, subFontSize),
                   parts: getNodeSubLabelParts({
                       node,
@@ -452,7 +461,7 @@ export class SvgRenderer {
             .attr('fill', this.theme.textColor)
             .attr('font-size', nameFontSize)
             .attr('font-family', this.theme.fontFamily)
-            .text(node.label);
+            .text(name);
 
         if (subLabel) {
             containerGroup

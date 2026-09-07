@@ -565,7 +565,7 @@ jobs:
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
 
-      # The smoke test compares the binary's SVG against node dist/cli.js.
+      # The smoke test compares the binary's SVG against node dist/bin.js.
       - name: Build core
         run: pnpm run build
 
