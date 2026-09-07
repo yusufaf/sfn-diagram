@@ -70,7 +70,10 @@ export function activate(context: vscode.ExtensionContext) {
         if (aslContextUpdateTimer !== undefined) {
             clearTimeout(aslContextUpdateTimer)
         }
-        aslContextUpdateTimer = setTimeout(() => updateAslContext(editor), ASL_CONTEXT_UPDATE_DEBOUNCE_MS)
+        // Re-reads activeTextEditor when the timer fires, rather than closing over `editor`,
+        // so a tab switch during the debounce window updates the newly active editor instead
+        // of overwriting its context with a stale computation for the one edited earlier.
+        aslContextUpdateTimer = setTimeout(() => updateAslContext(vscode.window.activeTextEditor), ASL_CONTEXT_UPDATE_DEBOUNCE_MS)
     }
 
     context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => scheduleAslContextUpdate(document)))
