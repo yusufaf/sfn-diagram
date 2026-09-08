@@ -7,6 +7,35 @@ import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
 /** Node count at or below which the minimap starts collapsed. */
 const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
 
+/** Parameters for {@link minimapStartsCollapsed}. */
+export interface MinimapStartsCollapsedParams {
+    /**
+     * Node count from the rendered diagram's metadata. Omit (or pass `undefined`) when
+     * unknown - the minimap starts collapsed in that case too.
+     */
+    nodeCount?: number;
+}
+
+/**
+ * Decide whether the minimap should start collapsed for a diagram with `nodeCount`
+ * nodes: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD}, or when the
+ * count is unknown; open above it. Shared by {@link wrapSvgInInteractiveHtml} and
+ * `generateViewerUpdate`, so the threshold can't drift between the two.
+ *
+ * @param params - Threshold parameters
+ * @returns Whether the minimap should start collapsed
+ *
+ * @example
+ * ```typescript
+ * minimapStartsCollapsed({ nodeCount: 10 }); // => true
+ * minimapStartsCollapsed({ nodeCount: 30 }); // => false
+ * ```
+ */
+export function minimapStartsCollapsed(params: MinimapStartsCollapsedParams): boolean {
+    const { nodeCount } = params;
+    return nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
+}
+
 /** Parameters for {@link buildViewerBody}. */
 export interface BuildViewerBodyParams {
     /**
@@ -78,6 +107,57 @@ function namespaceMarkerIds(svg: string, prefix: string): string {
     );
 }
 
+/** Parameters for {@link buildViewerContent}. */
+export interface BuildViewerContentParams {
+    /**
+     * Whether the minimap should start hidden when the collapsed view (below) is the
+     * active one. Only meaningful alongside `collapsedSvg`; defaults to `minimapCollapsed`
+     * when omitted.
+     */
+    collapsedMinimapCollapsed?: boolean;
+    /**
+     * A second, fully-collapsed rendering of the same diagram. When provided, both
+     * `svg` and this are embedded (as two `data-sfn-view` wrapper divs, `svg` shown
+     * first). Omit for a single view (unchanged behavior).
+     */
+    collapsedSvg?: string;
+    /** Whether to start the minimap collapsed. */
+    minimapCollapsed: boolean;
+    /** The rendered SVG (or other) markup to embed as the stage content. */
+    svg: string;
+}
+
+/**
+ * Build the markup that fills the `data-sfn="content"` node: the diagram itself, or -
+ * when a collapsed rendering is supplied - both views wrapped in `data-sfn-view`
+ * siblings the collapse toggle (`attachViewer`, in `viewerController.ts`) flips
+ * between.
+ *
+ * Extracted so a running viewer can re-render just this fragment and hand it to
+ * {@link ViewerHandle.setContent}, without rebuilding the surrounding toolbar/panel/
+ * stage chrome {@link buildViewerBody} also produces.
+ *
+ * @param params - Content parameters
+ * @returns HTML fragment to place inside `data-sfn="content"`
+ *
+ * @example
+ * ```typescript
+ * const contentHtml = buildViewerContent({ minimapCollapsed: true, svg });
+ * ```
+ */
+export function buildViewerContent(params: BuildViewerContentParams): string {
+    const { collapsedMinimapCollapsed = params.minimapCollapsed, collapsedSvg, minimapCollapsed, svg } = params;
+    const hasCollapse = collapsedSvg !== undefined;
+
+    // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
+    // (attachViewer, in viewerController.ts) flips `hidden` between them. Otherwise
+    // the content node holds the SVG directly, exactly as before. The collapsed view's
+    // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
+    return hasCollapse
+        ? `<div data-sfn-view="expanded" data-sfn-minimap-auto="${minimapCollapsed ? '1' : '0'}">${svg}</div><div data-sfn-view="collapsed" data-sfn-minimap-auto="${collapsedMinimapCollapsed ? '1' : '0'}" hidden>${namespaceMarkerIds(collapsedSvg!, 'collapsed')}</div>`
+        : svg;
+}
+
 /**
  * Build the viewer chrome markup - toolbar, optional detail panel, stage, and
  * minimap - around already-rendered diagram markup. Shared by
@@ -110,13 +190,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
 </aside>\n`
         : '';
 
-    // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
-    // (attachViewer, in viewerController.ts) flips `hidden` between them. Otherwise
-    // the content node holds the SVG directly, exactly as before. The collapsed view's
-    // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
-    const contentInner = hasCollapse
-        ? `<div data-sfn-view="expanded" data-sfn-minimap-auto="${minimapCollapsed ? '1' : '0'}">${svg}</div><div data-sfn-view="collapsed" data-sfn-minimap-auto="${collapsedMinimapCollapsed ? '1' : '0'}" hidden>${namespaceMarkerIds(collapsedSvg, 'collapsed')}</div>`
-        : svg;
+    const contentInner = buildViewerContent({ collapsedMinimapCollapsed, collapsedSvg, minimapCollapsed, svg });
 
     const collapseToggleMarkup = hasCollapse
         ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers">Collapse</button>'
@@ -235,11 +309,11 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
     } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
-    const minimapCollapsed = nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
+    const minimapCollapsed = minimapStartsCollapsed({ nodeCount });
     const collapsedMinimapCollapsed =
         collapsedNodeCount === undefined
             ? minimapCollapsed
-            : collapsedNodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
+            : minimapStartsCollapsed({ nodeCount: collapsedNodeCount });
     const nonceAttr = nonceAttribute(nonce);
 
     const stateDataScript = hasStateData

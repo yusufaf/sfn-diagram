@@ -632,6 +632,7 @@ export type {
     CatchHandling,
 } from './types';
 
+export { buildViewerContent } from './renderers';
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslValidationError, validateAsl } from './AslParser';
