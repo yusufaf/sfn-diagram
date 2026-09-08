@@ -745,3 +745,292 @@ describe('edge detail panel inside a Parallel container', () => {
         ).toBe(0);
     });
 });
+
+describe('keyboard navigation', () => {
+    // Its own page: focus-moving assertions are order-dependent, and the shared
+    // `page` above is reused (and left in an unpredictable focus state) by every
+    // preceding test.
+    let kbPage: Page;
+
+    const kbParallelDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        kbPage = await browser.newPage();
+        await kbPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: kbParallelDefinition, collapse: false });
+        await kbPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await kbPage.close();
+    });
+
+    it('makes every state group with panel data a focusable, labelled button', async () => {
+        // Scoped past the minimap thumbnail: it clones the whole diagram (including
+        // whatever attributes are on it by the time it's built) purely for a scaled-down
+        // visual overview, so its copies must not become duplicate tab stops - see the
+        // dedicated minimap assertion below.
+        const groups = await kbPage.$$eval('[data-sfn="content"] [data-state-id]', (elements) =>
+            elements.map((element) => ({
+                ariaLabel: element.getAttribute('aria-label'),
+                id: element.getAttribute('data-state-id'),
+                role: element.getAttribute('role'),
+                tabindex: element.getAttribute('tabindex'),
+                titleText: element.querySelector('title')?.textContent ?? null,
+            })),
+        );
+
+        const marker = groups.find((group) => (group.id ?? '').includes('__branch'));
+        expect(marker).toBeDefined();
+        expect(marker!.tabindex).toBeNull();
+
+        const real = groups.filter((group) => group !== marker);
+        expect(real.length).toBeGreaterThan(0);
+        for (const group of real) {
+            expect(group.tabindex).toBe('0');
+            expect(group.role).toBe('button');
+            expect(group.ariaLabel).toBe(group.titleText);
+        }
+    });
+
+    it('makes exactly one focusable element per edge, not one per hit-area/label pair', async () => {
+        const counts = await kbPage.evaluate(() => {
+            const byId = new Map<string, number>();
+            document
+                .querySelectorAll('[data-sfn="content"] [data-edge-id]')
+                .forEach((element) => {
+                    if (element.getAttribute('tabindex') !== '0') return;
+                    const id = element.getAttribute('data-edge-id')!;
+                    byId.set(id, (byId.get(id) ?? 0) + 1);
+                });
+            return Array.from(byId.values());
+        });
+        expect(counts.length).toBeGreaterThan(0);
+        expect(counts.every((count) => count === 1)).toBe(true);
+    });
+
+    it('excludes the minimap thumbnail clone from the tab order entirely', async () => {
+        // buildMinimapThumbnail() clones the live SVG for a scaled-down overview, so
+        // by the time it runs, the clone would otherwise carry every tabindex/role/
+        // aria-label this module just added to the real diagram - duplicate, invisible-
+        // at-scale tab stops a keyboard user could tab into.
+        const minimapFocusable = await kbPage.$$eval(
+            '#sfn-minimap-thumb [tabindex], #sfn-minimap-thumb [role], #sfn-minimap-thumb [aria-label]',
+            (elements) => elements.length,
+        );
+        expect(minimapFocusable).toBe(0);
+        expect(
+            await kbPage.$eval('#sfn-minimap', (element) => element.getAttribute('aria-hidden')),
+        ).toBe('true');
+    });
+
+    /** Tab from the search box until focus lands on an element matching `attribute`. */
+    async function tabUntil(attribute: string): Promise<string | null> {
+        let value: string | null = null;
+        for (let attempt = 0; attempt < 15 && value === null; attempt++) {
+            await kbPage.keyboard.press('Tab');
+            value = await kbPage.evaluate(
+                (name) => document.activeElement?.getAttribute(name) ?? null,
+                attribute,
+            );
+        }
+        return value;
+    }
+
+    it('opens the panel via Enter on a focused node', async () => {
+        await kbPage.focus('#sfn-search');
+        const stateId = await tabUntil('data-state-id');
+        expect(stateId).not.toBeNull();
+
+        await kbPage.keyboard.press('Enter');
+
+        expect(
+            await kbPage.$eval('[data-sfn="panel"]', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(true);
+        expect(await kbPage.$eval('[data-sfn="panel-title"]', (element) => element.textContent)).toBe(
+            stateId,
+        );
+
+        await kbPage.keyboard.press('Escape');
+    });
+
+    it('opens the edge panel via Space on a focused edge, without scrolling the page', async () => {
+        await kbPage.focus('#sfn-search');
+        const edgeId = await tabUntil('data-edge-id');
+        expect(edgeId).not.toBeNull();
+
+        const scrollBefore = await kbPage.evaluate(() => window.scrollY);
+        await kbPage.keyboard.press('Space');
+        const scrollAfter = await kbPage.evaluate(() => window.scrollY);
+        expect(scrollAfter).toBe(scrollBefore);
+
+        expect(
+            await kbPage.$eval('[data-sfn="panel"]', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(true);
+        expect(await kbPage.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBeGreaterThan(
+            0,
+        );
+
+        await kbPage.keyboard.press('Escape');
+    });
+
+    it('moves focus into the panel on Enter, gives it dialog semantics, and restores focus on Escape', async () => {
+        await kbPage.focus('#sfn-search');
+        const stateId = await tabUntil('data-state-id');
+        expect(stateId).not.toBeNull();
+
+        await kbPage.keyboard.press('Enter');
+
+        const focusedInPanel = await kbPage.evaluate(() => {
+            const panel = document.querySelector('[data-sfn="panel"]')!;
+            return panel === document.activeElement || panel.contains(document.activeElement);
+        });
+        expect(focusedInPanel).toBe(true);
+
+        const dialogInfo = await kbPage.evaluate(() => {
+            const panel = document.querySelector('[data-sfn="panel"]')!;
+            const labelledbyId = panel.getAttribute('aria-labelledby');
+            const labelElement = labelledbyId ? document.getElementById(labelledbyId) : null;
+            return {
+                labelText: labelElement?.textContent ?? null,
+                role: panel.getAttribute('role'),
+            };
+        });
+        expect(dialogInfo.role).toBe('dialog');
+        expect(dialogInfo.labelText).toBe(stateId);
+
+        await kbPage.keyboard.press('Escape');
+
+        expect(
+            await kbPage.evaluate(() => document.activeElement?.getAttribute('data-state-id')),
+        ).toBe(stateId);
+    });
+
+    it('does not move focus into the panel on a mouse click', async () => {
+        const target = await kbPage.$eval('[data-state-id="Done"]', (element) => {
+            const rect = element.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+        await kbPage.mouse.move(target.x, target.y);
+        await kbPage.mouse.down();
+        await kbPage.mouse.up();
+
+        expect(
+            await kbPage.$eval('[data-sfn="panel"]', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(true);
+        const focusedInPanel = await kbPage.evaluate(() => {
+            const panel = document.querySelector('[data-sfn="panel"]')!;
+            return panel === document.activeElement || panel.contains(document.activeElement);
+        });
+        expect(focusedInPanel).toBe(false);
+
+        await kbPage.keyboard.press('Escape');
+    });
+
+    it('does not steal focus back to a stale trigger when Escape is pressed while typing in search', async () => {
+        // Open the panel via keyboard once (so a `panelTrigger` is recorded), close it,
+        // then re-focus search and press Escape there. The root keydown handler closes
+        // the panel again on every Escape - unconditionally re-focusing panelTrigger
+        // there (instead of restoring focus only when it was actually inside the
+        // panel) would otherwise yank focus out of the search box the user is in.
+        await kbPage.focus('#sfn-search');
+        const stateId = await tabUntil('data-state-id');
+        expect(stateId).not.toBeNull();
+        await kbPage.keyboard.press('Enter');
+        await kbPage.keyboard.press('Escape');
+
+        await kbPage.focus('#sfn-search');
+        await kbPage.type('#sfn-search', 'Done');
+        await kbPage.keyboard.press('Escape');
+
+        const activeStateId = await kbPage.evaluate(() =>
+            document.activeElement?.getAttribute('data-state-id'),
+        );
+        expect(activeStateId).not.toBe(stateId);
+        expect(await kbPage.$eval('#sfn-search', (element) => (element as HTMLInputElement).value)).toBe(
+            '',
+        );
+    });
+
+    it('keeps Tab focus inside the panel while it is open', async () => {
+        await kbPage.focus('#sfn-search');
+        const stateId = await tabUntil('data-state-id');
+        expect(stateId).not.toBeNull();
+        await kbPage.keyboard.press('Enter');
+
+        for (let index = 0; index < 3; index++) {
+            await kbPage.keyboard.press('Tab');
+            const stillInPanel = await kbPage.evaluate(() => {
+                const panel = document.querySelector('[data-sfn="panel"]')!;
+                return panel.contains(document.activeElement);
+            });
+            expect(stillInPanel).toBe(true);
+        }
+
+        await kbPage.keyboard.down('Shift');
+        await kbPage.keyboard.press('Tab');
+        await kbPage.keyboard.up('Shift');
+        const stillInPanelAfterShiftTab = await kbPage.evaluate(() => {
+            const panel = document.querySelector('[data-sfn="panel"]')!;
+            return panel.contains(document.activeElement);
+        });
+        expect(stillInPanelAfterShiftTab).toBe(true);
+
+        await kbPage.keyboard.press('Escape');
+        const stillInPanelAfterEscape = await kbPage.evaluate(() => {
+            const panel = document.querySelector('[data-sfn="panel"]')!;
+            return panel.contains(document.activeElement);
+        });
+        expect(stillInPanelAfterEscape).toBe(false);
+    });
+
+    it('recentres via the pan model instead of scrolling the stage element when focus lands off-screen', async () => {
+        // The toolbar zoom-in button scales without adjusting translate (transform-origin
+        // 0 0), so zooming in pushes most of the diagram out of the stage's visible area -
+        // exactly the scenario a browser's native "scroll the focused element into view"
+        // would otherwise fight the translate-based pan model over.
+        for (let zoomClick = 0; zoomClick < 15; zoomClick++) {
+            await kbPage.click('[data-sfn-zoom="in"]');
+        }
+
+        await kbPage.focus('#sfn-search');
+        let recentred = false;
+        for (let attempt = 0; attempt < 60 && !recentred; attempt++) {
+            const before = await kbPage.$eval(
+                '[data-sfn="content"]',
+                (element) => (element as HTMLElement).style.transform,
+            );
+            await kbPage.keyboard.press('Tab');
+            const after = await kbPage.$eval(
+                '[data-sfn="content"]',
+                (element) => (element as HTMLElement).style.transform,
+            );
+            recentred = after !== before;
+        }
+        expect(recentred).toBe(true);
+
+        const scroll = await kbPage.$eval('[data-sfn="stage"]', (element) => ({
+            left: element.scrollLeft,
+            top: element.scrollTop,
+        }));
+        expect(scroll).toEqual({ left: 0, top: 0 });
+    });
+});

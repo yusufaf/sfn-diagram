@@ -20,6 +20,13 @@ function hook(root: ParentNode, name: string): HTMLElement | null {
     return root.querySelector('[data-sfn="' + name + '"]');
 }
 
+// Module-scope rather than per-attachViewer-call: it hands out a unique suffix for a
+// panel-title id across every viewer instance on one page. Safe as a plain counter -
+// the compiled bundle wraps this whole module in a per-document IIFE (see
+// buildViewerScript), and the custom element imports the module once per page, so
+// there is exactly one counter per document either way.
+let viewerInstanceCount = 0;
+
 /** Parameters for {@link attachViewer}. */
 export interface AttachViewerParams {
     /**
@@ -167,9 +174,25 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     // --- detail panel (optional) ---------------------------------------------------
 
-    let openPanel: (stateId: string) => void = () => {};
-    let openEdgePanel: (edgeId: string) => void = () => {};
+    /** How a node/edge was selected - shared by {@link openPanel} and {@link openEdgePanel}. */
+    interface SelectionOptions {
+        /**
+         * Move keyboard focus into the panel once it opens. `true` for a keyboard
+         * activation (Enter/Space); `false` for a pointer click - yanking focus into
+         * the panel on every mouse click would be a hostile surprise for a mouse user.
+         */
+        moveFocus: boolean;
+        /** The element that triggered this selection, so focus can return to it on close. */
+        trigger: Element;
+    }
+
+    let openPanel: (stateId: string, options: SelectionOptions) => void = () => {};
+    let openEdgePanel: (edgeId: string, options: SelectionOptions) => void = () => {};
     let closePanel: () => void = () => {};
+
+    // The element to return focus to on close - set by every open, read only when
+    // focus actually made it into the panel (see closePanel).
+    let panelTrigger: Element | null = null;
 
     // Every path carrying the selected edge's id, so the highlight can be lifted again
     // without re-querying — an id may contain characters that need CSS escaping, and an
@@ -211,6 +234,22 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         const panelClose = hook(root, 'panel-close');
 
         if (panel && panelTitle && panelBody && panelClose) {
+            // Reuses the standalone document's own `id="sfn-panel-title"` (legacyIds)
+            // when present, and otherwise mints one unique to this instance - keeps
+            // `elementRuntime.test.ts`'s no-duplicate-ids guarantee even with several
+            // `<sfn-diagram>` elements sharing a page.
+            const titleId = panelTitle.id || 'sfn-panel-title-' + ++viewerInstanceCount;
+            panelTitle.id = titleId;
+            panel.setAttribute('aria-labelledby', titleId);
+            // Defensive, alongside the static markup in buildViewerBody - covers the
+            // pre-existing-markup progressive-enhancement path too.
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('tabindex', '-1');
+
+            const focusPanel = (): void => {
+                panel.focus({ preventScroll: true });
+            };
+
             const SUMMARY_FIELDS = ['Type', 'Resource', 'Next', 'Retry', 'Catch', 'Assign'] as const;
             const EDGE_FIELDS = ['from', 'to', 'type', 'condition', 'label'] as const;
             // The panel's own labels, not content — the record keys are lowercase, but a
@@ -263,11 +302,25 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             };
 
             closePanel = () => {
+                // Read before removing sfn-open: that class drives `display: none` in
+                // CSS, and a browser force-blurs a focused element the instant it (or an
+                // ancestor) leaves layout - by the next line, activeElement would already
+                // have moved to <body>, not the panel.
+                const activeElement = ownerDoc?.activeElement ?? null;
                 panel.classList.remove('sfn-open');
                 clearEdgeSelection();
+                if (
+                    activeElement &&
+                    panel.contains(activeElement) &&
+                    panelTrigger &&
+                    panelTrigger.isConnected
+                ) {
+                    (panelTrigger as HTMLElement | SVGElement).focus({ preventScroll: true });
+                }
+                panelTrigger = null;
             };
 
-            openPanel = (stateId: string) => {
+            openPanel = (stateId: string, options: SelectionOptions) => {
                 const state = stateData?.[stateId] as unknown as Record<string, unknown> | undefined;
                 // Virtual nodes (branch/iterator end markers, Distributed Map satellites)
                 // have no ASL of their own, so there is nothing to show. Close rather than
@@ -285,9 +338,11 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                     rows.push(fieldRow(field, summarize(state[field])));
                 }
                 showPanel(stateId, rows, state);
+                panelTrigger = options.trigger;
+                if (options.moveFocus) focusPanel();
             };
 
-            openEdgePanel = (edgeId: string) => {
+            openEdgePanel = (edgeId: string, options: SelectionOptions) => {
                 const edge = edgeData?.[edgeId] as unknown as Record<string, unknown> | undefined;
                 // An id with no entry still opens: the title alone is the `edgeOverrides`
                 // key the reader came for, and staying silent would look like a dead click.
@@ -303,29 +358,144 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                     edgeId,
                     edge ? [String(edge.from), String(edge.to)] : [],
                 );
+                panelTrigger = options.trigger;
+                if (options.moveFocus) focusPanel();
             };
 
             on(panelClose, 'click', closePanel);
+
+            const PANEL_FOCUSABLE_SELECTOR =
+                'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
+            // Bound to the panel itself, so a mouse user who never enters it is never
+            // trapped - it only engages once focus is actually inside. The panel is
+            // visually non-modal (the diagram stays interactive beside it), so this is
+            // the only thing standing in for a native <dialog>'s focus containment.
+            on(panel, 'keydown', (event) => {
+                const keyboardEvent = event as KeyboardEvent;
+                if (keyboardEvent.key !== 'Tab') return;
+
+                const focusable = Array.from(
+                    panel.querySelectorAll<HTMLElement>(PANEL_FOCUSABLE_SELECTOR),
+                );
+                if (focusable.length === 0) {
+                    keyboardEvent.preventDefault();
+                    focusPanel();
+                    return;
+                }
+
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                const active = ownerDoc?.activeElement;
+
+                if (keyboardEvent.shiftKey) {
+                    if (active === first || active === panel) {
+                        keyboardEvent.preventDefault();
+                        last.focus({ preventScroll: true });
+                    }
+                } else if (active === last) {
+                    keyboardEvent.preventDefault();
+                    first.focus({ preventScroll: true });
+                }
+            });
+
+            // Makes every selectable state/edge a keyboard tab stop with an accessible
+            // name, scoped to `content` so both the expanded and collapsed views (when
+            // both exist) get the treatment - the hidden one is untabbable anyway, so
+            // this needs no re-run when the collapse toggle switches which view shows.
+            const applySelectableSemantics = (): void => {
+                for (const group of Array.from(content.querySelectorAll('[data-state-id]'))) {
+                    const stateId = group.getAttribute('data-state-id');
+                    if (!stateId || !(stateId in (stateData ?? {}))) continue;
+                    const label = group.querySelector('title')?.textContent || stateId;
+                    group.setAttribute('tabindex', '0');
+                    group.setAttribute('role', 'button');
+                    group.setAttribute('aria-label', label);
+                }
+
+                // Prefer the hit area (a comfortable target already used for pointer
+                // selection); fall back to the drawn path only when none was rendered
+                // (edgeHitAreas off). Either way, de-duplicated by id so a labelled
+                // edge's separate label rect/text never becomes a second tab stop.
+                const hitAreas = content.querySelectorAll('[data-edge-hit-area]');
+                const edgeElements = hitAreas.length ? hitAreas : content.querySelectorAll('path[data-edge-id]');
+                const seenEdgeIds = new Set<string>();
+                for (const element of Array.from(edgeElements)) {
+                    const edgeId = element.getAttribute('data-edge-id');
+                    if (!edgeId || seenEdgeIds.has(edgeId)) continue;
+                    seenEdgeIds.add(edgeId);
+                    const label = element.querySelector('title')?.textContent || edgeId;
+                    element.setAttribute('tabindex', '0');
+                    element.setAttribute('role', 'button');
+                    element.setAttribute('aria-label', label);
+                }
+            };
+            applySelectableSemantics();
         }
     }
 
-    function handleStageClick(target: EventTarget | null): void {
+    /** Parameters for {@link selectFromTarget}. */
+    interface SelectFromTargetParams {
+        /** Whether this selection should move keyboard focus into the panel once it opens. */
+        moveFocus: boolean;
+        /** The event target to resolve a node/edge from - a pointer or keyboard event's. */
+        target: EventTarget | null;
+    }
+
+    function selectFromTarget(params: SelectFromTargetParams): void {
+        const { moveFocus, target } = params;
         if (!hasPanelData) return;
         const element = target instanceof Element ? target : null;
         // A node wins over an edge: node groups are the larger target, and an edge path
         // never sits inside one, so a hit on both means the pointer was over the node.
         const group = element ? element.closest('[data-state-id]') : null;
         if (group) {
-            openPanel(group.getAttribute('data-state-id')!);
+            openPanel(group.getAttribute('data-state-id')!, { moveFocus, trigger: group });
             return;
         }
         const edgePath = hasEdgeData && element ? element.closest('[data-edge-id]') : null;
-        if (edgePath) openEdgePanel(edgePath.getAttribute('data-edge-id')!);
-        else closePanel();
+        if (edgePath) {
+            openEdgePanel(edgePath.getAttribute('data-edge-id')!, { moveFocus, trigger: edgePath });
+        } else {
+            closePanel();
+        }
     }
 
     on(root, 'keydown', (event) => {
         if ((event as KeyboardEvent).key === 'Escape') closePanel();
+    });
+
+    on(stage, 'keydown', (event) => {
+        const keyboardEvent = event as KeyboardEvent;
+        if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
+        // Space would otherwise scroll the stage (an overflow: hidden container still
+        // honours the default scroll action a native button would suppress on its own).
+        keyboardEvent.preventDefault();
+        selectFromTarget({ moveFocus: true, target: event.target });
+    });
+
+    // `[data-sfn="stage"]` is `overflow: hidden`, which a browser still scrolls
+    // programmatically to reveal a newly focused descendant - fighting the
+    // translate-based pan model this viewer uses instead (and desyncing the minimap,
+    // which tracks that translate). Tabbing to a node/edge therefore resets any such
+    // scroll immediately and, if the element still isn't visible, re-centres it the
+    // same way search already does.
+    on(stage, 'focusin', (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const group = target?.closest('[data-state-id], [data-edge-id]');
+        if (!group) return;
+
+        stage.scrollLeft = 0;
+        stage.scrollTop = 0;
+
+        const stageRect = stage.getBoundingClientRect();
+        const groupRect = group.getBoundingClientRect();
+        const isVisible =
+            groupRect.left >= stageRect.left &&
+            groupRect.right <= stageRect.right &&
+            groupRect.top >= stageRect.top &&
+            groupRect.bottom <= stageRect.bottom;
+        if (!isVisible) centerOn(group);
     });
 
     // --- pan / zoom -------------------------------------------------------------
@@ -390,7 +560,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         dragging = false;
         stage.classList.remove('sfn-dragging');
         stage.releasePointerCapture(pointerEvent.pointerId);
-        if (travel <= CLICK_SLOP) handleStageClick(downTarget);
+        if (travel <= CLICK_SLOP) selectFromTarget({ moveFocus: false, target: downTarget });
         downTarget = null;
     });
 
@@ -525,6 +695,20 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             // an arrowhead, which doesn't matter at thumbnail scale.
             for (const node of Array.from(clone.querySelectorAll('text, image, title, desc, defs'))) {
                 node.remove();
+            }
+            // The clone is taken from the live SVG *after* applySelectableSemantics has
+            // already run on it, so without this it would carry every tabindex/role/
+            // aria-label onto a scaled-down, decorative copy - duplicate tab stops a
+            // keyboard user could land on. The minimap div itself is aria-hidden, which
+            // keeps this out of the accessibility tree but does nothing about
+            // keyboard focus, so tabindex has to go explicitly.
+            for (const node of [
+                clone,
+                ...Array.from(clone.querySelectorAll('[tabindex], [role], [aria-label]')),
+            ]) {
+                node.removeAttribute('tabindex');
+                node.removeAttribute('role');
+                node.removeAttribute('aria-label');
             }
             minimapThumb.textContent = ''; // clear a previous thumbnail before rebuilding
             minimapThumb.appendChild(clone);

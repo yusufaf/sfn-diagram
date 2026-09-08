@@ -117,7 +117,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <span class="sfn-divider"></span>
   <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}
 </div>
-${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
 
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */

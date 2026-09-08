@@ -218,7 +218,9 @@ describe('generateHtml', () => {
             states.Done = { Type: 'Succeed' };
 
             const result = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
-            expect(result.html).toContain('id="sfn-minimap" data-sfn="minimap"><div id="sfn-minimap-thumb"');
+            expect(result.html).toContain(
+                'id="sfn-minimap" data-sfn="minimap" aria-hidden="true"><div id="sfn-minimap-thumb"',
+            );
             expect(result.html).not.toContain('id="sfn-minimap" class="sfn-minimap-collapsed"');
         });
 
