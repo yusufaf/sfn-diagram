@@ -123,6 +123,27 @@ const HISTORY = {
     ],
 }
 
+const ASSIGN_HISTORY = {
+    events: [
+        { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+        {
+            id: 2,
+            previousEventId: 1,
+            type: 'PassStateEntered',
+            timestamp: '2024-01-01T00:00:00.100Z',
+            stateEnteredEventDetails: { name: 'LoadTotal' },
+        },
+        {
+            id: 3,
+            previousEventId: 2,
+            type: 'PassStateExited',
+            timestamp: '2024-01-01T00:00:00.200Z',
+            stateExitedEventDetails: { name: 'LoadTotal' },
+        },
+        { id: 4, previousEventId: 3, type: 'ExecutionSucceeded', timestamp: '2024-01-01T00:00:00.300Z' },
+    ],
+}
+
 describe('SfnDiagram', () => {
     describe('SVG format', () => {
         it('renders SVG container for valid definition object', () => {
@@ -199,6 +220,23 @@ describe('SfnDiagram', () => {
             const pre = container.querySelector('pre')
             expect(pre?.textContent).toContain('classDef execSucceeded')
             expect(pre?.textContent).toContain('class HelloWorld execSucceeded')
+        })
+
+        it('ignores every forwarded diagram option in the Mermaid execution overlay', () => {
+            // generateMermaidExecution's params are aslDefinition, history, layout,
+            // and theme only - unlike the plain Mermaid path (generateMermaid),
+            // it silently drops showVariables (and catchHandling, collapse,
+            // edgeStyle, ...). Asserting that here turns the gap into a documented,
+            // enforced contract instead of a silent one.
+            const { container } = render(
+                <SfnDiagram
+                    definition={WITH_ASSIGN}
+                    format="mermaid"
+                    history={JSON.stringify(ASSIGN_HISTORY)}
+                    showVariables={false}
+                />
+            )
+            expect(container.querySelector('pre')?.textContent).toContain('$total')
         })
     })
 

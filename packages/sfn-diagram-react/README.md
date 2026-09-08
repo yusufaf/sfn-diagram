@@ -62,6 +62,13 @@ JSON string of either. In the browser, pass the JSON string.
 overlaying an execution onto a diff. Combining them calls `onError` and renders `null`,
 the same way any other invalid input is handled.
 
+**`format="mermaid"` combined with `history` ignores every other diagram option** —
+`catchHandling`, `collapse`, `edgeStyle`, `showVariables`, and the rest. Core's
+Mermaid execution-overlay function (`generateMermaidExecution`) accepts only the ASL
+definition, `history`, `layout`, and `theme`; unlike the plain Mermaid path
+(`generateMermaid`), which honours the full option set. The SVG execution overlay is
+unaffected — it honours every option.
+
 ### Interactive viewer (`format="html"`)
 
 Set `format="html"` to render the full interactive pan/zoom/search viewer instead of
@@ -171,12 +178,12 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | Prop | Type | Default | Applies to | Description |
 | --- | --- | --- | --- | --- |
 | `before` | `object \| string` | — | svg, mermaid | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
-| `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
+| `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid¹ | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
-| `collapse` | `string[] \| boolean` | — | svg, mermaid | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
+| `collapse` | `string[] \| boolean` | — | svg, mermaid¹ | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
 | `definition` | `object \| string` | — (required) | all | ASL definition as an object or JSON string. |
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
-| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg, mermaid | Edge path rendering style. |
+| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg, mermaid¹ | Edge path rendering style. |
 | `format` | `'svg' \| 'mermaid' \| 'html'` | `'svg'` | — | Output format. See [Interactive viewer](#interactive-viewer-formathtml) for `'html'`. |
 | `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | svg, mermaid | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
 | `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
@@ -186,10 +193,15 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `onError` | `(error: Error) => void` | — | all | Called when the definition fails to parse/render. |
 | `onStateClick` | `(params: { event, stateId }) => void` | — | svg only | See [`onStateClick`](#onstateclick). |
 | `showIcons` | `boolean` | `false` | svg only | Whether to display AWS service icons on Task state nodes. |
-| `showVariables` | `boolean` | `true` | svg, mermaid | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
+| `showVariables` | `boolean` | `true` | svg, mermaid¹ | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
 | `style` | `React.CSSProperties` | — | all | Applied to the wrapper element. |
 | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid | Diagram theme. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
+
+¹ Ignored when `format="mermaid"` is combined with `history` — see
+[Execution overlay](#execution-overlay). Applies normally to plain `format="mermaid"`
+(no `history`). `format="mermaid"` diff mode (the `before` prop) is a separate
+carve-out with its own rule — see [Diff mode](#diff-mode).
 
 When the definition is invalid the component renders `null` and (if provided) calls
 `onError`.
