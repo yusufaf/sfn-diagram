@@ -339,7 +339,7 @@ describe('Integration Tests', () => {
         });
     });
 
-    describe('exportPng', () => {
+    describe('exportPng', { timeout: 15000 }, () => {
         it('should export PNG from ASL definition', async () => {
             const aslDefinition = loadFixture('simple');
             const result = await exportPng({ aslDefinition });
@@ -365,7 +365,23 @@ describe('Integration Tests', () => {
 
             expect(result.buffer).toBeDefined();
         });
-    }, 15000); // Increase timeout for PNG tests
+
+        it('should scale output dimensions', async () => {
+            const aslDefinition = loadFixture('simple');
+            const base = await exportPng({ aslDefinition });
+            const scaled = await exportPng({ aslDefinition, scale: 2 });
+
+            expect(scaled.width).toBe(base.width * 2);
+            expect(scaled.height).toBe(base.height * 2);
+        });
+
+        it('should support the resvg engine explicitly', async () => {
+            const aslDefinition = loadFixture('simple');
+            const result = await exportPng({ aslDefinition, engine: 'resvg' });
+
+            expect(result.buffer).toBeDefined();
+        });
+    });
 
     describe('generateFromAwsResponse', () => {
         it('should generate diagram from AWS SDK response', () => {
