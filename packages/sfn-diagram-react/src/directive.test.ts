@@ -9,14 +9,17 @@ const DIST = join(__dirname, '..', 'dist')
 const built = (fileName: string): string => readFileSync(join(DIST, fileName), 'utf-8')
 
 describe("'use client' directive", () => {
-    // The component uses hooks, so it cannot be a React Server Component. Without
+    // Both modules use hooks, so neither can be a React Server Component. Without
     // this directive a Next.js App Router consumer has to wrap it in their own
     // client boundary or the build throws.
-    it('is the first statement of the component source', () => {
-        const source = readFileSync(join(__dirname, 'SfnDiagram.tsx'), 'utf-8')
+    it.each(['SfnDiagram.tsx', 'useSfnDiagram.ts'])(
+        'is the first statement of %s',
+        (fileName) => {
+            const source = readFileSync(join(__dirname, fileName), 'utf-8')
 
-        expect(source.trimStart().startsWith("'use client'")).toBe(true)
-    })
+            expect(source.trimStart().startsWith("'use client'")).toBe(true)
+        }
+    )
 
     // Rolldown strips the source directive when it bundles, so tsdown re-emits it
     // as a JS banner. The built file is what a consumer's bundler actually reads.
