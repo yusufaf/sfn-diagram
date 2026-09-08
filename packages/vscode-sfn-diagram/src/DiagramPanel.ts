@@ -41,6 +41,13 @@ export class DiagramPanel {
 
         if (DiagramPanel.currentPanel) {
             DiagramPanel.currentPanel._panel.reveal(column, preserveFocus)
+            // Re-applies the freshly-read settings/colorScheme too (not just aslContent) -
+            // the caller already paid for reading them, and re-running the preview command
+            // on an already-open panel should reflect any settings.json edit made since the
+            // separate onDidChangeConfiguration listener last synced it, same as if the
+            // panel had been closed and reopened. applySettings respects layout/theme
+            // toolbar overrides exactly as it does when called from that listener.
+            DiagramPanel.currentPanel.applySettings({ colorScheme, settings })
             DiagramPanel.currentPanel.update(aslContent)
             return
         }

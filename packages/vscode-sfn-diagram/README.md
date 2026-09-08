@@ -48,7 +48,7 @@ To overlay a real run, run **Step Functions: Preview Execution Overlay** and pic
 
 ## Settings
 
-All settings live under `sfnDiagram.*` and apply as the default for new previews (the toolbar can still override layout/theme for the current session). Changing a setting live-applies to an already-open preview.
+All settings live under `sfnDiagram.*` and apply as the default for new previews. Changing a setting live-applies to an already-open preview - except `layout`/`theme` once the toolbar has overridden either for the current session; that override wins until the preview is closed and reopened.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
