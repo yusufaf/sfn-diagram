@@ -25,6 +25,8 @@ export class DiagramPanel {
     /** Whether the webview is currently showing the error document, not a diagram. */
     private _showingError = false
     private readonly _refreshDebouncer: Debouncer<string>
+    /** A debounced refresh's content, held back while the panel is hidden. */
+    private _pendingContent: string | undefined
 
     static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
         const column = vscode.window.activeTextEditor
@@ -56,6 +58,18 @@ export class DiagramPanel {
         this.update(aslContent)
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables)
+
+        this._panel.onDidChangeViewState(
+            () => {
+                if (this._panel.visible && this._pendingContent !== undefined) {
+                    const content = this._pendingContent
+                    this._pendingContent = undefined
+                    this._performRefresh(content)
+                }
+            },
+            null,
+            this._disposables
+        )
 
         this._panel.webview.onDidReceiveMessage(
             (message: { command: string; value: string }) => {
@@ -143,12 +157,10 @@ export class DiagramPanel {
     }
 
     /**
-     * Render a debounced keystroke's content and patch it into the live viewer.
-     * Falls back to a full {@link update} when the diagram is showing an execution
-     * overlay or the error document, when rendering fails, or when the diagram just
-     * gained a collapse toggle it didn't have a moment ago (the toolbar's toggle
-     * button lives outside the `data-sfn="content"` node an incremental update
-     * patches, so a genuinely new button can't be added that way - see webview/render.ts).
+     * Handle a debounced keystroke. Skips the render entirely while the panel is
+     * hidden - there is no visible viewer to patch, and `retainContextWhenHidden`
+     * means the eventual reveal doesn't need one replayed - remembering the content
+     * so `onDidChangeViewState` can render it once the panel becomes visible again.
      */
     private _refresh(aslContent: string) {
         if (aslContent === this._lastContent) {
@@ -156,6 +168,23 @@ export class DiagramPanel {
         }
         this._lastContent = aslContent
 
+        if (!this._panel.visible) {
+            this._pendingContent = aslContent
+            return
+        }
+
+        this._performRefresh(aslContent)
+    }
+
+    /**
+     * Render a debounced keystroke's content and patch it into the live viewer.
+     * Falls back to a full {@link update} when the diagram is showing an execution
+     * overlay or the error document, when rendering fails, or when the diagram just
+     * gained a collapse toggle it didn't have a moment ago (the toolbar's toggle
+     * button lives outside the `data-sfn="content"` node an incremental update
+     * patches, so a genuinely new button can't be added that way - see webview/render.ts).
+     */
+    private _performRefresh(aslContent: string) {
         if (this._history !== undefined || this._showingError) {
             this.update(aslContent)
             return
