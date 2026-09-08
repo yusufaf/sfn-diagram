@@ -1,3 +1,5 @@
+import { loadOptionalPeer } from './loadOptionalPeer';
+
 /** Minimal signature of the node-html-to-image default export used here. */
 type NodeHtmlToImage = (options: {
     html: string;
@@ -14,17 +16,15 @@ type NodeHtmlToImage = (options: {
  * genuinely missing.
  */
 async function loadRenderer(): Promise<NodeHtmlToImage> {
-    try {
-        const mod = (await import('node-html-to-image')) as
-            | { default: NodeHtmlToImage }
-            | NodeHtmlToImage;
-        return (typeof mod === 'function' ? mod : mod.default) as NodeHtmlToImage;
-    } catch {
-        throw new Error(
-            "PNG export requires the optional peer dependency 'node-html-to-image'. " +
-                'Install it with: npm install node-html-to-image'
-        );
-    }
+    return loadOptionalPeer({
+        load: async () => {
+            const mod = (await import('node-html-to-image')) as
+                | { default: NodeHtmlToImage }
+                | NodeHtmlToImage;
+            return (typeof mod === 'function' ? mod : mod.default) as NodeHtmlToImage;
+        },
+        packageName: 'node-html-to-image',
+    });
 }
 
 /** Parameters for {@link renderHtmlToImagePng}. */
@@ -32,11 +32,11 @@ export interface RenderHtmlToImagePngParams {
     /** Background color, or 'transparent' to render on a transparent background. */
     backgroundColor?: string;
 
-    /** JPEG-only quality knob forwarded to Puppeteer; PNG output ignores it. */
-    pngQuality?: number;
-
     /** Height of the SVG in pixels. */
     height: number;
+
+    /** JPEG-only quality knob forwarded to Puppeteer; PNG output ignores it. */
+    pngQuality?: number;
 
     /** SVG markup string. */
     svg: string;
@@ -91,8 +91,8 @@ function wrapSvgInHtml(params: { backgroundColor: string; height: number; svg: s
 export async function renderHtmlToImagePng(
     params: RenderHtmlToImagePngParams
 ): Promise<{ buffer: Buffer; height: number; width: number }> {
-    const { svg, width, height, backgroundColor = 'transparent', pngQuality = 90 } = params;
-    const html = wrapSvgInHtml({ svg, width, height, backgroundColor });
+    const { svg, width, height, backgroundColor, pngQuality = 90 } = params;
+    const html = wrapSvgInHtml({ svg, width, height, backgroundColor: backgroundColor || 'transparent' });
 
     const nodeHtmlToImage = await loadRenderer();
     const buffer = await nodeHtmlToImage({

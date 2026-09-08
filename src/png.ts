@@ -20,6 +20,7 @@
  */
 import { generateSvg } from './index';
 import { PngExporter } from './exporters';
+import { embedIcons } from './utils/iconEmbedder';
 import type { ExportPngParams, PngOutput } from './types';
 
 export { PngExporter } from './exporters';
@@ -57,6 +58,14 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
     } = params;
     const svgOutput = generateSvg({ aslDefinition, ...svgOptions });
 
+    // resvg (the default engine) does not fetch remote <image href> icons the
+    // way the html-to-image engine's headless Chromium did - inline them as
+    // data URIs first so showIcons keeps working after the engine switch.
+    const svg =
+        svgOptions.showIcons && (engine ?? 'resvg') === 'resvg'
+            ? await embedIcons({ svg: svgOutput.svg })
+            : svgOutput.svg;
+
     const exporter = new PngExporter({
         backgroundColor,
         engine,
@@ -68,7 +77,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
     });
     return exporter.convert({
         height: svgOutput.height,
-        svg: svgOutput.svg,
+        svg,
         width: svgOutput.width,
     });
 }

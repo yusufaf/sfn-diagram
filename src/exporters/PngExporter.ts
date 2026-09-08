@@ -4,7 +4,16 @@ import { renderResvgPng } from './resvgEngine';
 
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
-    /** Height of the SVG in pixels */
+    /**
+     * Height of the SVG in pixels.
+     *
+     * Only enforced on the `html-to-image` engine, which lays the SVG out in a
+     * fixed-size HTML page. The `resvg` engine (the default) computes height
+     * itself from the SVG's own aspect ratio at the requested `width`, so the
+     * returned {@link PngOutput.height} can differ from this value if the two
+     * disagree - pass a `height` consistent with the SVG's intrinsic aspect
+     * ratio when it matters.
+     */
     height: number;
     /** SVG markup string */
     svg: string;
@@ -19,9 +28,10 @@ export interface ConvertParams {
  * `engine: 'html-to-image'` to opt into the Puppeteer-based fallback engine
  * instead.
  *
- * Note: External images (like AWS service icons from CDN) are not fetched by
- * either engine. Use `embedIcons` to inline them as data URIs first, or use
- * SVG output for best results when showIcons is enabled.
+ * Note: neither engine fetches external images (like AWS service icons from
+ * a CDN) itself - `exportPng` (the `sfn-diagram/png` subpath) inlines them as
+ * data URIs first via `embedIcons` when `showIcons` is set and the engine is
+ * `resvg`. A caller using `PngExporter` directly must do the same.
  */
 export class PngExporter {
     private options: PngExporterOptions;

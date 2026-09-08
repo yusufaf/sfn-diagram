@@ -89,6 +89,10 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     if (params.fontFiles || params.fontDirs || params.fontFamily) {
         return {
             defaultFontFamily: params.fontFamily,
+            // fontDirs are best-effort search paths, so a stale/nonexistent one
+            // is silently pruned. fontFiles is a specific, deliberate request -
+            // pass it through verbatim so a genuine typo surfaces as resvg's own
+            // error rather than being silently dropped.
             fontDirs: (params.fontDirs ?? []).filter(fileExists),
             fontFiles: params.fontFiles,
             loadSystemFonts: true,

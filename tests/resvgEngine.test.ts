@@ -47,4 +47,10 @@ describe('renderResvgPng', { timeout: 15000 }, () => {
 
         expect(white.buffer.equals(transparent.buffer)).toBe(false);
     });
+
+    it.each([0, -1])('rejects a non-positive scale (%s)', async (scale) => {
+        await expect(renderResvgPng({ svg: textSvg(true), width: 200, scale })).rejects.toThrow(
+            /scale.*positive/i
+        );
+    });
 });

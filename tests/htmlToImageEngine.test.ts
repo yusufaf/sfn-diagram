@@ -14,6 +14,12 @@ describe('renderHtmlToImagePng', () => {
         );
     });
 
+    it('renders opaque when backgroundColor is omitted, matching the historical default', async () => {
+        await renderHtmlToImagePng({ svg: '<svg></svg>', width: 200, height: 100 });
+
+        expect(nodeHtmlToImage).toHaveBeenCalledWith(expect.objectContaining({ transparent: false }));
+    });
+
     it('marks the render transparent when backgroundColor is transparent', async () => {
         await renderHtmlToImagePng({
             svg: '<svg></svg>',

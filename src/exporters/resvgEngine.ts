@@ -1,3 +1,4 @@
+import { loadOptionalPeer } from './loadOptionalPeer';
 import { resolvePngFontOptions } from './pngFonts';
 
 /** Minimal signature of the `@resvg/resvg-js` module used here. */
@@ -25,15 +26,11 @@ interface ResvgModule {
  * is genuinely missing.
  */
 async function loadResvg(): Promise<ResvgModule> {
-    try {
-        return (await import('@resvg/resvg-js')) as unknown as ResvgModule;
-    } catch {
-        throw new Error(
-            "PNG export requires the optional peer dependency '@resvg/resvg-js'. " +
-                'Install it with: npm install @resvg/resvg-js ' +
-                "(or pass engine: 'html-to-image' to use the Puppeteer-based fallback instead)."
-        );
-    }
+    return loadOptionalPeer({
+        hint: " (or pass engine: 'html-to-image' to use the Puppeteer-based fallback instead).",
+        load: async () => (await import('@resvg/resvg-js')) as unknown as ResvgModule,
+        packageName: '@resvg/resvg-js',
+    });
 }
 
 /** Parameters for {@link renderResvgPng}. */
@@ -75,6 +72,9 @@ export async function renderResvgPng(
     params: RenderResvgPngParams
 ): Promise<{ buffer: Buffer; height: number; width: number }> {
     const { backgroundColor, fontDirs, fontFamily, fontFiles, scale = 1, svg, width } = params;
+    if (scale <= 0) {
+        throw new Error(`PNG export 'scale' must be a positive number, got ${scale}.`);
+    }
     const { renderAsync } = await loadResvg();
 
     const font = resolvePngFontOptions({ fontDirs, fontFamily, fontFiles });
