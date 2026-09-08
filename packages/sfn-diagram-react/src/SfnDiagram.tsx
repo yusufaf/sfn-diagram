@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSfnDiagram } from './useSfnDiagram'
 import type { SfnDiagramResult, UseSfnDiagramParams } from './useSfnDiagram'
 
@@ -33,15 +33,37 @@ export interface OnStateClickParams {
     stateId: string
 }
 
-export function SfnDiagram({
-    className,
-    onError,
-    onStateClick,
-    style,
-    title = 'Step Functions diagram',
-    ...diagramParams
-}: SfnDiagramProps) {
+/**
+ * Imperative handle exposed via `ref` on {@link SfnDiagram}. There is no
+ * programmatic zoom/pan control - core has no public API for it yet (the
+ * interactive viewer's controller is not exported from a public subpath) -
+ * this handle only surfaces the rendered markup.
+ */
+export interface SfnDiagramHandle {
+    /** The rendered SVG markup for `format="svg"`, or `null` for every other format (including an errored render). */
+    getSvg(): string | null
+}
+
+export const SfnDiagram = forwardRef<SfnDiagramHandle, SfnDiagramProps>(function SfnDiagram(
+    {
+        className,
+        onError,
+        onStateClick,
+        style,
+        title = 'Step Functions diagram',
+        ...diagramParams
+    },
+    ref
+) {
     const result = useSfnDiagram(diagramParams)
+
+    useImperativeHandle(
+        ref,
+        (): SfnDiagramHandle => ({
+            getSvg: () => (result.type === 'svg' ? result.svg : null),
+        }),
+        [result]
+    )
 
     // A direct click target can be a descendant (the label text, an icon) rather
     // than the node group itself, so `closest` is required - reading `event.target`
@@ -108,4 +130,4 @@ export function SfnDiagram({
             style={style}
         />
     )
-}
+})

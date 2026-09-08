@@ -1,7 +1,8 @@
 import { fireEvent, render } from '@testing-library/react'
-import { StrictMode } from 'react'
+import { createRef, StrictMode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
+import type { SfnDiagramHandle } from './SfnDiagram'
 
 const HELLO_WORLD = {
     Comment: 'Hello World',
@@ -609,6 +610,29 @@ describe('SfnDiagram', () => {
             const expandedCount = expanded.querySelectorAll('[data-state-id]').length
             const collapsedCount = collapsed.querySelectorAll('[data-state-id]').length
             expect(collapsedCount).toBeLessThan(expandedCount)
+        })
+    })
+
+    describe('imperative handle', () => {
+        it('getSvg returns the rendered SVG markup for format="svg"', () => {
+            const ref = createRef<SfnDiagramHandle>()
+            render(<SfnDiagram definition={HELLO_WORLD} ref={ref} />)
+
+            expect(ref.current?.getSvg()).toContain('<svg')
+        })
+
+        it('getSvg returns null for format="mermaid"', () => {
+            const ref = createRef<SfnDiagramHandle>()
+            render(<SfnDiagram definition={HELLO_WORLD} format="mermaid" ref={ref} />)
+
+            expect(ref.current?.getSvg()).toBeNull()
+        })
+
+        it('getSvg returns null for format="html"', () => {
+            const ref = createRef<SfnDiagramHandle>()
+            render(<SfnDiagram definition={HELLO_WORLD} format="html" ref={ref} />)
+
+            expect(ref.current?.getSvg()).toBeNull()
         })
     })
 
