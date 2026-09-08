@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SfnDiagram > Diff mode > emits classDef diff classes in the Mermaid diff 1`] = `
+"stateDiagram-v2
+    direction TB
+
+    [*] --> StateA
+    StateA --> StateC
+
+    StateC --> [*]
+    StateB --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px
+
+    class StateA diffModified
+    class StateC diffAdded
+    class StateB diffRemoved"
+`;
