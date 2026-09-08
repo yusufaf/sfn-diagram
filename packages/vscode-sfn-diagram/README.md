@@ -29,6 +29,7 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 - **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in a floating toolbar that re-render instantly.
 - The preview updates automatically as you edit the underlying file.
 - **Execution overlay**: paint a real execution's history onto the diagram — succeeded / failed / caught / not-reached states light up, with a colour legend in the toolbar and a one-click **Clear overlay**. Pan/zoom/search/detail all keep working with the overlay active.
+- Configurable defaults for theme, layout, icons, container collapsing, and auto-preview — see [Settings](#settings).
 
 ## Usage
 
@@ -45,6 +46,18 @@ To overlay a real run, run **Step Functions: Preview Execution Overlay** and pic
 | `sfn-diagram.preview` | Preview Step Functions Diagram |
 | `sfn-diagram.previewExecution` | Preview Execution Overlay |
 | `sfn-diagram.clearExecution` | Clear Execution Overlay |
+
+## Settings
+
+All settings live under `sfnDiagram.*` and apply as the default for new previews. Changing a setting live-applies to an already-open preview - except `layout`/`theme` once the toolbar has overridden either for the current session; that override wins until the preview is closed and reopened.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sfnDiagram.theme` | `"auto" \| "dark" \| "light"` | `"auto"` | Default color theme. `"auto"` follows the current VS Code color theme. |
+| `sfnDiagram.layout` | `"TB" \| "LR" \| "RL" \| "BT"` | `"TB"` | Default layout direction. |
+| `sfnDiagram.showIcons` | `boolean` | `false` | Show AWS service icons on Task nodes (fetched from the jsDelivr CDN — requires network access). |
+| `sfnDiagram.collapseContainers` | `boolean` | `false` | Collapse Parallel and Map containers into a single placeholder node. |
+| `sfnDiagram.autoPreview` | `boolean` | `false` | Automatically open the diagram preview when a `.asl.json` or `.asl` file is opened. A lone `.asl` file opened with no workspace folder won't trigger this, since VS Code has no language association for `.asl` outside a workspace. |
 
 ## Install from source
 

@@ -9,7 +9,7 @@ import { minimatch } from 'minimatch';
 import { generateMermaid } from '../index';
 import { generateMermaidDiff } from '../diff';
 import { generateMermaidExecution } from '../execution';
-import type { AslDefinition, CatchHandling } from '../types';
+import type { AslDefinition, CatchHandling, LayoutDirection, ThemeOption } from '../types';
 import type {
     ExecutionMode,
     FetchExecutionForOverlayParams,
@@ -78,6 +78,16 @@ export interface AslFileSection {
     mermaidOpenByDefault: boolean;
 }
 
+/** Render options forwarded to the underlying Mermaid generators for one file's section. */
+export interface BuildAslFileSectionOptions {
+    /** Drop error-handler (Catch) branches. Plain (added/deleted) diagrams only — a diff diagram is unaffected. */
+    catchHandling?: CatchHandling;
+    /** Collapse Parallel/Map containers: `true` for all, or the named ones. Plain diagrams only. */
+    collapse?: boolean | string[];
+    layout?: LayoutDirection;
+    theme?: ThemeOption;
+}
+
 /**
  * Builds one report section for a changed ASL file: a plain diagram for an
  * added or deleted file, or a diff-highlighted diagram plus a change-summary
@@ -85,7 +95,7 @@ export interface AslFileSection {
  */
 export function buildAslFileSection(
     change: AslFileChange,
-    options: { catchHandling?: CatchHandling } = {},
+    options: BuildAslFileSectionOptions = {},
 ): AslFileSection | null {
     const { afterAsl, beforeAsl, filename } = change;
 
@@ -123,11 +133,15 @@ export function buildAslFileSection(
         };
     }
 
-    // generateMermaidDiff takes no DiagramOptions — `catchHandling` has no effect
-    // on a diff section, only on the plain (added/deleted) branches above.
+    // A diff renders a merged before/after graph with a per-state status map;
+    // dropping (catchHandling) or collapsing states would desynchronise that
+    // map, so only layout/theme reach a diff section — catchHandling/collapse
+    // have no effect here, only on the plain (added/deleted) branches above.
     const diff = generateMermaidDiff({
         after: afterAsl as AslDefinition,
         before: beforeAsl as AslDefinition,
+        layout: options.layout,
+        theme: options.theme,
     });
     const { added, modified, removed, unchanged } = diff.metadata;
 
@@ -153,6 +167,19 @@ export function buildAslFileSection(
     };
 }
 
+export const DEFAULT_DIAGRAM_OMISSION_NOTE =
+    '> 📎 Diagram omitted — the diagram was too large to inline';
+
+export const DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE =
+    '> 📎 Execution diagram omitted — the diagram was too large to inline';
+
+/** Options for {@link renderAslFileSection}. */
+export interface RenderAslFileSectionOptions {
+    includeDiagram: boolean;
+    /** Markdown line shown in place of the fenced diagram when includeDiagram is false. */
+    omissionNote?: string;
+}
+
 /**
  * Renders a file section to Markdown. Pass `includeDiagram: false` to drop
  * the fenced Mermaid block in favor of a placeholder line — for platforms
@@ -160,10 +187,10 @@ export function buildAslFileSection(
  */
 export function renderAslFileSection(
     section: AslFileSection,
-    options: { includeDiagram: boolean } = { includeDiagram: true },
+    options: RenderAslFileSectionOptions = { includeDiagram: true },
 ): string {
     if (!options.includeDiagram) {
-        return `${section.header}> 📎 Diagram omitted — see the diagram artifact attached to this pipeline\n`;
+        return `${section.header}${options.omissionNote ?? DEFAULT_DIAGRAM_OMISSION_NOTE}\n`;
     }
 
     const openAttribute = section.mermaidOpenByDefault ? ' open' : '';
@@ -283,6 +310,12 @@ export async function buildExecutionOverlaySection(
     };
 }
 
+/** Options for {@link renderExecutionOverlaySection}. */
+export interface RenderExecutionOverlaySectionOptions {
+    includeDiagram: boolean;
+    omissionNote?: string;
+}
+
 /**
  * Renders an execution-overlay section to Markdown. Pass `includeDiagram:
  * false` to drop the fenced Mermaid block once a report has crossed a
@@ -290,10 +323,10 @@ export async function buildExecutionOverlaySection(
  */
 export function renderExecutionOverlaySection(
     section: ExecutionOverlaySection,
-    options: { includeDiagram: boolean } = { includeDiagram: true }
+    options: RenderExecutionOverlaySectionOptions = { includeDiagram: true }
 ): string {
     if (!options.includeDiagram) {
-        return `${section.header}> 📎 Execution diagram omitted — GitLab's diagram budget was already used by the changed-file diagrams above\n`;
+        return `${section.header}${options.omissionNote ?? DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE}\n`;
     }
 
     return (

@@ -1,5 +1,18 @@
 import * as vscode from 'vscode'
+import { isAslFileName } from './asl'
 import { DiagramPanel } from './DiagramPanel'
+import { CONFIG_SECTION, resolveColorScheme, resolveSettings } from './settings'
+import type { ResolvedTheme, SfnDiagramSettings } from './settings'
+
+/** Reads the extension's current settings from VS Code configuration. */
+function readSettings(): SfnDiagramSettings {
+    return resolveSettings({ configuration: vscode.workspace.getConfiguration(CONFIG_SECTION) })
+}
+
+/** Reads the current VS Code color scheme (light or dark). */
+function readColorScheme(): ResolvedTheme {
+    return resolveColorScheme({ colorThemeKind: vscode.window.activeColorTheme.kind })
+}
 
 /** Reads a text document's content, preferring the active editor for the ASL definition. */
 async function resolveAslContent(): Promise<string | undefined> {
@@ -28,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (aslContent === undefined) {
                 return
             }
-            DiagramPanel.createOrShow(context.extensionUri, aslContent)
+            DiagramPanel.createOrShow({ aslContent, colorScheme: readColorScheme(), settings: readSettings() })
         })
     )
 
@@ -50,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
             const bytes = await vscode.workspace.fs.readFile(uris[0])
             const history = new TextDecoder().decode(bytes)
 
-            DiagramPanel.createOrShow(context.extensionUri, aslContent)
+            DiagramPanel.createOrShow({ aslContent, colorScheme: readColorScheme(), settings: readSettings() })
             DiagramPanel.currentPanel?.setHistory(history)
         })
     )
@@ -78,6 +91,44 @@ export function activate(context: vscode.ExtensionContext) {
             if (editor && DiagramPanel.currentPanel) {
                 DiagramPanel.currentPanel.syncActiveEditor(editor.document.getText())
             }
+        })
+    )
+
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument((document) => {
+            const settings = readSettings()
+            if (!settings.autoPreview) {
+                return
+            }
+            // Skip virtual document schemes (e.g. `git:`, `output:`) so diffs and other
+            // read-only copies of an ASL file don't trigger a preview of their own.
+            if (document.uri.scheme !== 'file') {
+                return
+            }
+            if (!isAslFileName({ fileName: document.fileName })) {
+                return
+            }
+            DiagramPanel.createOrShow({
+                aslContent: document.getText(),
+                colorScheme: readColorScheme(),
+                preserveFocus: true,
+                settings,
+            })
+        })
+    )
+
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (!event.affectsConfiguration(CONFIG_SECTION)) {
+                return
+            }
+            DiagramPanel.currentPanel?.applySettings({ colorScheme: readColorScheme(), settings: readSettings() })
+        })
+    )
+
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveColorTheme(() => {
+            DiagramPanel.currentPanel?.applySettings({ colorScheme: readColorScheme(), settings: readSettings() })
         })
     )
 }

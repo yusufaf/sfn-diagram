@@ -182,6 +182,20 @@ describe('Icon Rendering', () => {
         });
     });
 
+    describe('Accessibility', () => {
+        it('marks icons as decorative and hidden from assistive tech', () => {
+            const { svg } = generateSvg({
+                aslDefinition: lambdaStateMachine,
+                showIcons: true,
+            });
+
+            const imageMatch = svg.match(/<image[^>]*>/);
+            expect(imageMatch).not.toBeNull();
+            expect(imageMatch![0]).toContain('role="presentation"');
+            expect(imageMatch![0]).toContain('aria-hidden="true"');
+        });
+    });
+
     describe('Custom icon resolver', () => {
         it('should use custom resolver URLs', () => {
             const customResolver = (service: string) => {

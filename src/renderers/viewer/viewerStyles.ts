@@ -170,13 +170,18 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
      rendered, and the id alone is also on the label and on inert static output. */
   [data-edge-hit-area] { cursor: pointer; }
   .sfn-dim { opacity: .15; pointer-events: none; }
-  .sfn-hit > :first-child { outline: 3px solid ${palette.accent}; }
+  /* A node/container group's first child is now its accessible <title> (see
+     SvgRenderer), which the outline must skip past onto the actually-drawn shape.
+     The ":not(title)" half keeps this working for pre-existing server-rendered SVG
+     from an older version - the <sfn-diagram interactive> progressive-enhancement
+     path can upgrade markup that predates per-node titles entirely. */
+  .sfn-hit > title + *, .sfn-hit > :first-child:not(title) { outline: 3px solid ${palette.accent}; }
   /* CSS properties beat SVG presentation attributes, so these win over the stroke and
      width the renderer wrote inline without needing !important. Restricted to the drawn
      path: the class also lands on the hit-area copy (a 12px slab) and, on a labelled
      edge, on the label's own rect and text, which a 3px stroke would render illegible. */
   path.sfn-edge-selected:not([data-edge-hit-area]) { stroke: ${palette.accent}; stroke-width: 3; }
-  .sfn-edge-endpoint > :first-child { outline: 2px dashed ${palette.accent}; }
+  .sfn-edge-endpoint > title + *, .sfn-edge-endpoint > :first-child:not(title) { outline: 2px dashed ${palette.accent}; }
   [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
     box-shadow: -2px 0 8px rgba(0,0,0,.12); }
@@ -199,5 +204,17 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="minimap-thumb"] { position: absolute; inset: 0; cursor: pointer; }
   [data-sfn="minimap-thumb"] svg { display: block; }
   [data-sfn="minimap-viewport"] { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
+  [data-sfn="toolbar"] button:focus-visible, [data-sfn="panel-close"]:focus-visible { outline: 2px solid ${palette.accent}; outline-offset: 1px; }
+  /* The outline goes on the drawn shape, not the group itself - the group's first
+     child is now its accessible <title> (see SvgRenderer), which has no visible box
+     to draw an outline around. */
+  [data-state-id]:focus-visible { outline: none; }
+  [data-state-id]:focus-visible > title + * { outline: 3px solid ${palette.accent}; }
+  /* An edge hit area is an invisible, oversized stroke - an outline would trace that
+     oversized shape rather than the drawn line, so the visible edge is restyled instead. */
+  [data-edge-hit-area]:focus-visible { outline: none; stroke: ${palette.accent}; stroke-opacity: .4; }
+  /* Panel focus is programmatic (see the keyboard-open flow) - the dialog opening at
+     all is the affordance, so a ring around the whole 360px panel is just noise. */
+  [data-sfn="panel"]:focus { outline: none; }
 `;
 }

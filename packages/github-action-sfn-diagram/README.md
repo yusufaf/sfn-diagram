@@ -21,18 +21,17 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0   # needed to diff base vs head
       - uses: yusufaf/sfn-diagram-action@v1
 ```
+
+No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
 
 > Consume the action from its standalone, Marketplace-published repo
 > [`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action),
 > pinned to the moving major tag `@v1` (or an exact release like `@v1.0.0`). That
 > repo is generated from this package — see [Releasing](#releasing) below.
 
-> The action needs `pull-requests: write` to post the comment, and the full history (`fetch-depth: 0`) to diff the base and head revisions. It only runs on `pull_request` events.
+> The action needs `pull-requests: write` to post the comment. It only runs on `pull_request` events.
 
 ## Inputs
 
@@ -41,11 +40,36 @@ jobs:
 | `github-token` | `${{ github.token }}` | Token used to post/update the PR comment |
 | `asl-glob` | `**/*.asl.json,**/*.asl` | Comma-separated glob patterns matching ASL files |
 | `comment-tag` | `sfn-diagram-preview` | Marker used to find and update an existing comment |
+| `hide-catch` | `false` | Drop error-handler (Catch) branches from the rendered diagrams. Applies to new/deleted-file diagrams only; a modified file's diff diagram is unaffected |
+| `theme` | `light` | Colour theme driving the Mermaid `classDef` styling: `light` or `dark` |
+| `layout` | `TB` | Graph layout direction emitted as the Mermaid direction statement: `TB`, `LR`, `RL`, or `BT` |
+| `collapse` | `''` | Collapse Parallel/Map containers into a single placeholder node. `true` collapses every container; a comma-separated list of state names collapses only those. Applies to new/deleted-file diagrams only |
 | `execution-mode` | `off` | `off`, `latest`, or `latest-failed` — overlay a real execution (needs AWS creds; only when exactly one ASL file changed) |
 | `state-machine-arn` | `''` | State machine ARN to fetch executions for (required unless `execution-mode: off`) |
 | `aws-region` | `''` | Region for the SFN client (defaults to the environment, e.g. `AWS_REGION`) |
 
 When `execution-mode` is enabled, add an AWS auth step (e.g. `aws-actions/configure-aws-credentials`) before this action and grant `states:ListExecutions` + `states:GetExecutionHistory`. See the Marketplace README for a full workflow example.
+
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `changed-count` | Number of changed ASL files matched by `asl-glob` (`0` when none, or when the event is not a pull request) |
+| `changed-files` | JSON array of the changed ASL file paths (added, modified, or removed); `"[]"` when none |
+| `comment-id` | ID of the PR comment created or updated by this run; empty when no comment was posted |
+| `comment-url` | HTML URL of the PR comment created or updated by this run; empty when no comment was posted |
+
+Give the step an `id` to read its outputs downstream, e.g. to skip a later step when nothing changed:
+
+```yaml
+- name: Preview Step Functions diagrams
+  id: preview
+  uses: yusufaf/sfn-diagram-action@v1
+
+- name: Notify on diagram changes
+  if: steps.preview.outputs.changed-count != '0'
+  run: echo "${{ steps.preview.outputs.changed-count }} ASL file(s) changed"
+```
 
 ## Development
 

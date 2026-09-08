@@ -1,8 +1,10 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AslFileSection, ExecutionOverlaySection } from 'sfn-diagram/ci'
 import type { AslDefinition } from 'sfn-diagram'
 import {
+    buildBoundedCommentBody,
     formatStateList,
     isAslDefinition,
     matchesPatterns,
@@ -14,6 +16,7 @@ vi.mock('@actions/core', () => ({
     getInput: vi.fn(),
     info: vi.fn(),
     setFailed: vi.fn(),
+    setOutput: vi.fn(),
     warning: vi.fn(),
 }))
 
@@ -71,6 +74,60 @@ const afterAsl: AslDefinition = {
     },
 }
 
+const withCatchAsl: AslDefinition = {
+    StartAt: 'Risky',
+    States: {
+        Risky: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:::function:risky',
+            Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Handle' }],
+            End: true,
+        },
+        Handle: { Type: 'Fail', Error: 'Boom' },
+    },
+}
+
+const parallelAsl: AslDefinition = {
+    StartAt: 'Groups',
+    States: {
+        Groups: {
+            Type: 'Parallel',
+            End: true,
+            Branches: [
+                { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+                { StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } },
+            ],
+        },
+    },
+}
+
+const twoParallelAsl: AslDefinition = {
+    StartAt: 'GroupA',
+    States: {
+        GroupA: {
+            Type: 'Parallel',
+            Next: 'GroupB',
+            Branches: [{ StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } }],
+        },
+        GroupB: {
+            Type: 'Parallel',
+            End: true,
+            Branches: [{ StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } }],
+        },
+    },
+}
+
+/** A single Pass-chain ASL definition whose Mermaid diagram grows with `stateCount`. */
+function makeLargeAsl(stateCount: number): AslDefinition {
+    const stateNames = Array.from({ length: stateCount }, (_, index) => `StateNumber${index}`)
+    const states: AslDefinition['States'] = {}
+    stateNames.forEach((name, index) => {
+        const next = stateNames[index + 1]
+        states[name] = next ? { Type: 'Pass', Next: next } : { Type: 'Succeed' }
+    })
+    return { StartAt: stateNames[0], States: states }
+}
+
 const encode = (asl: AslDefinition): string =>
     Buffer.from(JSON.stringify(asl)).toString('base64')
 
@@ -106,13 +163,17 @@ function makeOctokit(params: OctokitStubParams = {}) {
     return {
         rest: {
             issues: {
-                createComment: vi.fn().mockResolvedValue({}),
+                createComment: vi.fn().mockResolvedValue({
+                    data: { html_url: 'https://github.com/acme/workflows/pull/42#issuecomment-1', id: 1 },
+                }),
                 listComments: vi
                     .fn()
                     .mockImplementation(async (pageParams: PageParams) =>
                         servePage(existingComments, pageParams),
                     ),
-                updateComment: vi.fn().mockResolvedValue({}),
+                updateComment: vi.fn().mockResolvedValue({
+                    data: { html_url: 'https://github.com/acme/workflows/pull/42#issuecomment-999', id: 999 },
+                }),
             },
             pulls: {
                 listFiles: vi
@@ -149,6 +210,10 @@ function setPullRequest(): void {
 const createdBody = (stub: OctokitStub): string =>
     stub.rest.issues.createComment.mock.calls[0][0].body as string
 
+/** Last value set for a given `core.setOutput` key (later writes win, matching the runner). */
+const outputValue = (name: string): string | undefined =>
+    vi.mocked(core.setOutput).mock.calls.filter(([key]) => key === name).at(-1)?.[1] as string | undefined
+
 beforeEach(() => {
     vi.clearAllMocks()
     github.context.payload = {}
@@ -156,6 +221,15 @@ beforeEach(() => {
         name === 'github-token' ? 'test-token' : '',
     )
 })
+
+/** Wraps the default `core.getInput` stub, overriding just the named inputs. */
+function withInputs(overrides: Record<string, string>): void {
+    vi.mocked(core.getInput).mockImplementation((name: string) => {
+        if (name in overrides) return overrides[name]
+        if (name === 'github-token') return 'test-token'
+        return ''
+    })
+}
 
 describe('matchesPatterns', () => {
     const patterns = ['**/*.asl.json', '**/*.asl']
@@ -501,5 +575,310 @@ describe('run', () => {
         )
         // Diff comment still posts; overlay section is simply absent.
         expect(createdBody(stub)).not.toContain('Execution overlay')
+    })
+
+    it('bounds a comment body that would otherwise exceed GitHub\'s 65,536-character limit', async () => {
+        setPullRequest()
+        const largeAsl = makeLargeAsl(800)
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: largeAsl },
+            files: [
+                { filename: 'flows/large-0.asl.json', status: 'added' },
+                { filename: 'flows/large-1.asl.json', status: 'added' },
+                { filename: 'flows/large-2.asl.json', status: 'added' },
+            ],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(stub.rest.issues.createComment).toHaveBeenCalledTimes(1)
+        const body = createdBody(stub)
+        expect(body.length).toBeLessThanOrEqual(65_536)
+        expect(body).toContain('Diagram omitted')
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('65,536'))
+    })
+})
+
+describe('buildBoundedCommentBody', () => {
+    const marker = '<!-- sfn-diagram-action:sfn-diagram-preview-->'
+
+    function makeSection(filename: string, mermaidLength: number): AslFileSection {
+        return {
+            afterAsl: null,
+            filename,
+            header: `### \`${filename}\`\n\n> ✨ **New file**\n\n`,
+            mermaidCode: 'A'.repeat(mermaidLength),
+            mermaidLabel: '📊 Diagram',
+            mermaidOpenByDefault: false,
+        }
+    }
+
+    it('returns the assembled body unchanged when everything fits', () => {
+        const sections = [makeSection('a.asl.json', 50), makeSection('b.asl.json', 50)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection: null, sections })
+
+        expect(result.omittedDiagrams).toEqual([])
+        expect(result.droppedSections).toBe(0)
+        expect(result.body).toContain('```mermaid')
+        expect(result.body).toContain('a.asl.json')
+        expect(result.body).toContain('b.asl.json')
+    })
+
+    it('omits the largest diagram first when over budget', () => {
+        const sections = [makeSection('small.asl.json', 100), makeSection('big.asl.json', 5000)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection: null, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(2000)
+        expect(result.omittedDiagrams).toEqual(['big.asl.json'])
+        expect(result.droppedSections).toBe(0)
+        expect(result.body).toContain('Diagram omitted')
+        expect(result.body).toContain('small.asl.json')
+        expect(result.body).toContain('```mermaid')
+    })
+
+    it('drops whole sections when omitting every diagram still does not fit', () => {
+        const sections = Array.from({ length: 30 }, (_, index) =>
+            makeSection(`file-${index}.asl.json`, 500),
+        )
+        const result = buildBoundedCommentBody({ marker, maxChars: 900, overlaySection: null, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(900)
+        expect(result.droppedSections).toBeGreaterThan(0)
+        expect(result.body).toContain('more changed file(s) omitted')
+    })
+
+    it('counts the overlay diagram toward the budget', () => {
+        const overlaySection: ExecutionOverlaySection = {
+            header: '### 🎬 Execution overlay\n\n',
+            mermaidCode: 'B'.repeat(5000),
+            mermaidLabel: '📊 Execution diagram',
+        }
+        const sections = [makeSection('a.asl.json', 100)]
+        const result = buildBoundedCommentBody({ marker, maxChars: 2000, overlaySection, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(2000)
+        expect(result.body).toContain('Execution overlay')
+        expect(result.body).toContain('Execution diagram omitted')
+        expect(result.body).toContain('a.asl.json')
+        expect(result.body).toContain('```mermaid')
+        // The overlay is the only thing omitted here (a.asl.json's diagram still fits) -
+        // omittedDiagrams deliberately excludes the overlay's synthetic key, so callers
+        // must be able to tell it was affected some other way.
+        expect(result.executionOverlayOmitted).toBe(true)
+        expect(result.omittedDiagrams).toEqual([])
+        expect(result.droppedSections).toBe(0)
+    })
+
+    it('excludes the overlay from droppedSections when both it and a file section are dropped', () => {
+        const overlaySection: ExecutionOverlaySection = {
+            header: '### 🎬 Execution overlay\n\n',
+            mermaidCode: 'B'.repeat(500),
+            mermaidLabel: '📊 Execution diagram',
+        }
+        const sections = Array.from({ length: 5 }, (_, index) => makeSection(`file-${index}.asl.json`, 500))
+        const result = buildBoundedCommentBody({ marker, maxChars: 700, overlaySection, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(700)
+        expect(result.executionOverlayOmitted).toBe(true)
+        // droppedSections must count only real file sections - the note text in the
+        // comment body says "N more changed file(s) omitted", so folding the overlay
+        // into that count would overstate how many files were actually dropped.
+        expect(result.droppedSections).toBeGreaterThan(0)
+        expect(result.body).toContain(`${result.droppedSections} more changed file(s) omitted`)
+    })
+})
+
+describe('run - diagram-rendering inputs', () => {
+    it('drops Catch branches from a plain diagram when hide-catch is true', async () => {
+        setPullRequest()
+        withInputs({ 'hide-catch': 'true' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: withCatchAsl },
+            files: [{ filename: 'flows/risky.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).not.toContain('Handle')
+    })
+
+    it('applies theme to a plain diagram', async () => {
+        setPullRequest()
+        withInputs({ theme: 'dark' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).toContain('classDef successState fill:#14532d')
+    })
+
+    it('applies layout to a plain diagram', async () => {
+        setPullRequest()
+        withInputs({ layout: 'LR' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).toContain('direction LR')
+    })
+
+    it('collapses every container when collapse is true', async () => {
+        setPullRequest()
+        withInputs({ collapse: 'true' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: parallelAsl },
+            files: [{ filename: 'flows/parallel.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        const body = createdBody(stub)
+        expect(body).not.toContain('BranchA')
+        expect(body).not.toContain('BranchB')
+    })
+
+    it('warns and falls back to light for an unrecognised theme value', async () => {
+        setPullRequest()
+        withInputs({ theme: 'purple' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('light, dark'))
+        expect(createdBody(stub)).toContain('classDef successState fill:#e8f5e8')
+    })
+
+    it('warns and falls back to false for an unrecognised hide-catch value', async () => {
+        setPullRequest()
+        withInputs({ 'hide-catch': 'yes' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: withCatchAsl },
+            files: [{ filename: 'flows/risky.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('hide-catch value "yes"'))
+    })
+
+    it('collapses only the named containers when collapse is a comma-separated list', async () => {
+        setPullRequest()
+        withInputs({ collapse: 'GroupA' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: twoParallelAsl },
+            files: [{ filename: 'flows/two-groups.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        const body = createdBody(stub)
+        expect(body).not.toContain('BranchA')
+        expect(body).toContain('BranchB')
+    })
+})
+
+describe('run - outputs', () => {
+    it('sets zero outputs when the event is not a pull request', async () => {
+        await run()
+
+        expect(outputValue('changed-count')).toBe('0')
+        expect(outputValue('changed-files')).toBe('[]')
+        expect(outputValue('comment-id')).toBe('')
+        expect(outputValue('comment-url')).toBe('')
+    })
+
+    it('sets zero outputs when no changed files match the ASL globs', async () => {
+        setPullRequest()
+        const stub = makeOctokit({ files: [{ filename: 'src/app.ts', status: 'modified' }] })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('changed-count')).toBe('0')
+        expect(outputValue('changed-files')).toBe('[]')
+        expect(outputValue('comment-id')).toBe('')
+        expect(outputValue('comment-url')).toBe('')
+        expect(github.getOctokit).toHaveBeenCalled()
+    })
+
+    it('reflects a matched-but-unparseable file in changed-count/changed-files, but posts no comment', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: {},
+            files: [{ filename: 'flows/bad.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('changed-count')).toBe('1')
+        expect(JSON.parse(outputValue('changed-files') ?? '[]')).toEqual(['flows/bad.asl.json'])
+        expect(outputValue('comment-id')).toBe('')
+        expect(stub.rest.issues.createComment).not.toHaveBeenCalled()
+    })
+
+    it('sets comment-id/comment-url from the API response when a comment is created', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('comment-id')).toBe('1')
+        expect(outputValue('comment-url')).toBe('https://github.com/acme/workflows/pull/42#issuecomment-1')
+    })
+
+    it('sets comment-id/comment-url from the API response when a comment is updated', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            existingComments: [{ body: `${MARKER}\nold`, id: 999 }],
+            files: [{ filename: 'flows/new.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(outputValue('comment-id')).toBe('999')
+        expect(outputValue('comment-url')).toBe('https://github.com/acme/workflows/pull/42#issuecomment-999')
+    })
+
+    it('sets changed-files to a JSON array of both changed paths, in order', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: afterAsl },
+            files: [
+                { filename: 'flows/a.asl.json', status: 'added' },
+                { filename: 'flows/b.asl.json', status: 'added' },
+            ],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(JSON.parse(outputValue('changed-files') ?? '[]')).toEqual([
+            'flows/a.asl.json',
+            'flows/b.asl.json',
+        ])
     })
 })

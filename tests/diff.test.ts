@@ -271,4 +271,20 @@ describe('generateMermaidDiff', () => {
         expect(plain.code).not.toContain('diffModified')
         expect(plain.code).not.toContain('diffRemoved')
     })
+
+    it('is byte-identical when layout/theme are omitted', () => {
+        const withOptions = generateMermaidDiff({ after: modifiedAsl, before: baseAsl })
+        const without = generateMermaidDiff({
+            after: modifiedAsl,
+            before: baseAsl,
+            layout: undefined,
+            theme: undefined,
+        })
+        expect(without.code).toBe(withOptions.code)
+    })
+
+    it('honours layout', () => {
+        const result = generateMermaidDiff({ after: modifiedAsl, before: baseAsl, layout: 'LR' })
+        expect(result.code).toContain('direction LR')
+    })
 })

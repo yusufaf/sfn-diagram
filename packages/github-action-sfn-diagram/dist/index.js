@@ -28532,7 +28532,7 @@ var require_core = __commonJS({
 Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
     }
     exports2.getBooleanInput = getBooleanInput;
-    function setOutput(name, value) {
+    function setOutput2(name, value) {
       const filePath = process.env["GITHUB_OUTPUT"] || "";
       if (filePath) {
         return (0, file_command_1.issueFileCommand)("OUTPUT", (0, file_command_1.prepareKeyValueMessage)(name, value));
@@ -28540,7 +28540,7 @@ Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
       process.stdout.write(os.EOL);
       (0, command_1.issueCommand)("set-output", { name }, (0, utils_1.toCommandValue)(value));
     }
-    exports2.setOutput = setOutput;
+    exports2.setOutput = setOutput2;
     function setCommandEcho(enabled) {
       (0, command_1.issue)("echo", enabled ? "on" : "off");
     }
@@ -63745,7 +63745,9 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   backgroundColor: "transparent",
   nodeOverrides: void 0,
   edgeOverrides: void 0,
-  nodeAnnotations: void 0
+  nodeAnnotations: void 0,
+  diagramDescription: void 0,
+  diagramTitle: void 0
 };
 function mergeOptions(options = {}) {
   return {
@@ -63804,15 +63806,17 @@ function buildStatusMap(diff) {
   return statusByState;
 }
 function generateMermaidDiff(params) {
-  const { after: afterArg, before: beforeArg } = params;
+  const { after: afterArg, before: beforeArg, layout, theme } = params;
   const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
   const { added, mergedAsl, modified, removed, unchanged } = diff;
   const { edges, nodes } = parseAsl({ definition: mergedAsl });
   const { code, metadata } = new MermaidRenderer().render({
     asl: mergedAsl,
     edges,
+    layout,
     nodes,
-    stateClasses: buildStatusMap(diff)
+    stateClasses: buildStatusMap(diff),
+    theme
   });
   return {
     code,
@@ -64154,7 +64158,9 @@ function buildAslFileSection(change, options = {}) {
   }
   const diff = generateMermaidDiff({
     after: afterAsl,
-    before: beforeAsl
+    before: beforeAsl,
+    layout: options.layout,
+    theme: options.theme
   });
   const { added, modified, removed, unchanged } = diff.metadata;
   const rows = [];
@@ -64178,7 +64184,7 @@ ${rows.join("\n")}
   };
 }
 function renderAslFileSection(section, options = { includeDiagram: true }) {
-  if (!options.includeDiagram) return `${section.header}> \u{1F4CE} Diagram omitted \u2014 see the diagram artifact attached to this pipeline
+  if (!options.includeDiagram) return `${section.header}${options.omissionNote ?? "> \u{1F4CE} Diagram omitted \u2014 the diagram was too large to inline"}
 `;
   const openAttribute = section.mermaidOpenByDefault ? " open" : "";
   return `${section.header}<details${openAttribute}>
@@ -64256,7 +64262,7 @@ async function buildExecutionOverlaySection(params) {
   } };
 }
 function renderExecutionOverlaySection(section, options = { includeDiagram: true }) {
-  if (!options.includeDiagram) return `${section.header}> \u{1F4CE} Execution diagram omitted \u2014 GitLab's diagram budget was already used by the changed-file diagrams above
+  if (!options.includeDiagram) return `${section.header}${options.omissionNote ?? "> \u{1F4CE} Execution diagram omitted \u2014 the diagram was too large to inline"}
 `;
   return `${section.header}<details open>
 <summary>${section.mermaidLabel}</summary>
@@ -64317,6 +64323,80 @@ async function fetchExecutionForOverlay(params) {
 // src/run.ts
 var COMMENT_PREFIX = "<!-- sfn-diagram-action:";
 var EXECUTION_MODES = ["off", "latest", "latest-failed"];
+var DIAGRAM_THEMES = ["light", "dark"];
+var LAYOUT_DIRECTIONS = ["TB", "LR", "RL", "BT"];
+var MAX_COMMENT_CHARS = 65536;
+var DIAGRAM_TOO_LARGE_NOTE = "> \u{1F4CE} **Diagram omitted** \u2014 inlining it would push this comment past GitHub's 65,536-character comment limit. Shrink it with the `hide-catch` or `collapse` inputs, or open the file's diagram locally with the `sfn-diagram` CLI.";
+var EXECUTION_OVERLAY_KEY = "\0execution-overlay";
+function assembleRenderables(params) {
+  const { extraSection, marker, omitted, renderables } = params;
+  const sections = renderables.map((renderable) => renderable.render(!omitted.has(renderable.key)));
+  if (extraSection) sections.push(extraSection);
+  return assembleCommentBody({ marker, sections });
+}
+function droppedSectionsNote(params) {
+  const { droppedSections, maxChars } = params;
+  return `> \u26A0\uFE0F **${droppedSections} more changed file(s) omitted** \u2014 the comment hit GitHub's ${maxChars}-character limit.`;
+}
+function buildBoundedCommentBody(params) {
+  const { marker, maxChars = MAX_COMMENT_CHARS, omissionNote, overlaySection, sections } = params;
+  const renderables = sections.map((section) => ({
+    key: section.filename,
+    mermaidLength: section.mermaidCode.length,
+    render: (includeDiagram) => renderAslFileSection(section, { includeDiagram, omissionNote })
+  }));
+  if (overlaySection) {
+    renderables.push({
+      key: EXECUTION_OVERLAY_KEY,
+      mermaidLength: overlaySection.mermaidCode.length,
+      render: (includeDiagram) => renderExecutionOverlaySection(overlaySection, { includeDiagram, omissionNote })
+    });
+  }
+  const omitted = /* @__PURE__ */ new Set();
+  const omittedDiagrams = () => [...renderables].sort((a5, b5) => b5.mermaidLength - a5.mermaidLength).filter((renderable) => omitted.has(renderable.key) && renderable.key !== EXECUTION_OVERLAY_KEY).map((renderable) => renderable.key);
+  const executionOverlayOmitted = () => omitted.has(EXECUTION_OVERLAY_KEY);
+  let body = assembleRenderables({ marker, omitted, renderables });
+  if (body.length <= maxChars) {
+    return { body, droppedSections: 0, executionOverlayOmitted: false, omittedDiagrams: [] };
+  }
+  const byMermaidLengthDesc = [...renderables].sort((a5, b5) => b5.mermaidLength - a5.mermaidLength);
+  for (const renderable of byMermaidLengthDesc) {
+    omitted.add(renderable.key);
+    body = assembleRenderables({ marker, omitted, renderables });
+    if (body.length <= maxChars) {
+      return {
+        body,
+        droppedSections: 0,
+        executionOverlayOmitted: executionOverlayOmitted(),
+        omittedDiagrams: omittedDiagrams()
+      };
+    }
+  }
+  let remaining = [...renderables];
+  let droppedSections = 0;
+  let overlayDropped = executionOverlayOmitted();
+  while (remaining.length > 0) {
+    const removed = remaining[remaining.length - 1];
+    remaining = remaining.slice(0, -1);
+    if (removed.key === EXECUTION_OVERLAY_KEY) {
+      overlayDropped = true;
+    } else {
+      droppedSections += 1;
+    }
+    const note2 = droppedSectionsNote({ droppedSections, maxChars });
+    body = assembleRenderables({ extraSection: note2, marker, omitted, renderables: remaining });
+    if (body.length <= maxChars) {
+      return { body, droppedSections, executionOverlayOmitted: overlayDropped, omittedDiagrams: omittedDiagrams() };
+    }
+  }
+  const note = droppedSectionsNote({ droppedSections, maxChars });
+  return {
+    body: assembleCommentBody({ marker, sections: [note] }),
+    droppedSections,
+    executionOverlayOmitted: overlayDropped,
+    omittedDiagrams: omittedDiagrams()
+  };
+}
 var LIST_PAGE_SIZE = 100;
 var MAX_LIST_PAGES = 5;
 async function getFileAtRef(params) {
@@ -64368,6 +64448,57 @@ async function findCommentByMarker(params) {
   );
   return void 0;
 }
+function splitTrimmedList(value, options = {}) {
+  const parts = value.split(",").map((part) => part.trim());
+  return options.filterEmpty ? parts.filter((part) => part.length > 0) : parts;
+}
+function parseCollapseNames(value) {
+  return splitTrimmedList(value, { filterEmpty: true });
+}
+function resolveDiagramOptions() {
+  const hideCatchRaw = core.getInput("hide-catch").trim().toLowerCase();
+  let hideCatch = false;
+  if (hideCatchRaw !== "" && hideCatchRaw !== "false") {
+    if (hideCatchRaw === "true") {
+      hideCatch = true;
+    } else {
+      core.warning(`Unrecognised hide-catch value "${hideCatchRaw}"; expected "true" or "false". Falling back to false.`);
+    }
+  }
+  const themeRaw = core.getInput("theme").trim().toLowerCase();
+  let theme = "light";
+  if (themeRaw !== "" && themeRaw !== "light") {
+    if (DIAGRAM_THEMES.includes(themeRaw)) {
+      theme = themeRaw;
+    } else {
+      core.warning(`Unknown theme "${themeRaw}"; expected one of ${DIAGRAM_THEMES.join(", ")}. Falling back to light.`);
+    }
+  }
+  const layoutRaw = core.getInput("layout").trim().toUpperCase();
+  let layout = "TB";
+  if (layoutRaw !== "" && layoutRaw !== "TB") {
+    if (LAYOUT_DIRECTIONS.includes(layoutRaw)) {
+      layout = layoutRaw;
+    } else {
+      core.warning(`Unknown layout "${layoutRaw}"; expected one of ${LAYOUT_DIRECTIONS.join(", ")}. Falling back to TB.`);
+    }
+  }
+  const collapseRaw = core.getInput("collapse").trim();
+  const collapse = collapseRaw === "" || collapseRaw.toLowerCase() === "false" ? void 0 : collapseRaw.toLowerCase() === "true" ? true : parseCollapseNames(collapseRaw);
+  return {
+    catchHandling: hideCatch ? "hide" : void 0,
+    collapse,
+    layout,
+    theme
+  };
+}
+function setActionOutputs(params) {
+  const { changedFiles, commentId, commentUrl } = params;
+  core.setOutput("changed-count", String(changedFiles.length));
+  core.setOutput("changed-files", JSON.stringify(changedFiles));
+  core.setOutput("comment-id", commentId === void 0 ? "" : String(commentId));
+  core.setOutput("comment-url", commentUrl ?? "");
+}
 async function run() {
   const token = core.getInput("github-token", { required: true });
   const aslGlobRaw = core.getInput("asl-glob") || "**/*.asl.json,**/*.asl";
@@ -64385,8 +64516,10 @@ async function run() {
     core.warning("execution-mode is set but state-machine-arn is empty; skipping the execution overlay.");
     executionMode = "off";
   }
-  const patterns = aslGlobRaw.split(",").map((pattern) => pattern.trim());
+  const diagramOptions = resolveDiagramOptions();
+  const patterns = splitTrimmedList(aslGlobRaw);
   const { context: context3 } = github_exports;
+  setActionOutputs({ changedFiles: [] });
   if (!context3.payload.pull_request) {
     core.info("Not a pull_request event \u2014 skipping");
     return;
@@ -64402,6 +64535,8 @@ async function run() {
   const aslFiles = changedFiles.filter(
     (file) => file.status !== "unchanged" && matchesPatterns(file.filename, patterns)
   );
+  const aslFilenames = aslFiles.map((file) => file.filename);
+  setActionOutputs({ changedFiles: aslFilenames });
   if (aslFiles.length === 0) {
     core.info("No ASL files changed in this PR");
     return;
@@ -64421,10 +64556,14 @@ async function run() {
     if (afterAsl) {
       overlayCandidates.push({ afterAsl, filename });
     }
-    const section = buildAslFileSection({ afterAsl, beforeAsl, filename });
+    const section = buildAslFileSection({ afterAsl, beforeAsl, filename }, diagramOptions);
     if (section) sections.push(section);
   }
-  const bodySections = sections.map((section) => renderAslFileSection(section));
+  if (sections.length === 0) {
+    core.info("No valid ASL definitions found in changed files");
+    return;
+  }
+  let overlaySection = null;
   if (executionMode !== "off") {
     const overlay = await buildExecutionOverlaySection({
       candidates: overlayCandidates,
@@ -64437,33 +64576,44 @@ async function run() {
       const logFn = overlay.log.level === "warning" ? core.warning : core.info;
       logFn(overlay.log.message);
     }
-    if (overlay.section) {
-      bodySections.push(renderExecutionOverlaySection(overlay.section));
-    }
-  }
-  if (bodySections.length === 0) {
-    core.info("No valid ASL definitions found in changed files");
-    return;
+    overlaySection = overlay.section;
   }
   const marker = `${COMMENT_PREFIX}${commentTag}-->`;
-  const body = assembleCommentBody({ marker, sections: bodySections });
+  const { body, droppedSections, executionOverlayOmitted, omittedDiagrams } = buildBoundedCommentBody({
+    marker,
+    omissionNote: DIAGRAM_TOO_LARGE_NOTE,
+    overlaySection,
+    sections
+  });
+  if (omittedDiagrams.length > 0 || droppedSections > 0 || executionOverlayOmitted) {
+    core.warning(
+      `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` + (omittedDiagrams.length > 0 ? `; omitted the diagram(s) for ${omittedDiagrams.join(", ")}` : "") + (executionOverlayOmitted ? "; omitted the execution overlay diagram" : "") + (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : "") + ". Set `hide-catch: true` or `collapse: true` to shrink them."
+    );
+  }
   const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo });
-  if (existing) {
-    await octokit.rest.issues.updateComment({
-      body,
-      comment_id: existing.id,
-      owner,
-      repo
-    });
-    core.info(`Updated existing PR comment #${existing.id}`);
-  } else {
-    await octokit.rest.issues.createComment({
-      body,
-      issue_number: pullNumber,
-      owner,
-      repo
-    });
-    core.info("Created new PR comment");
+  try {
+    if (existing) {
+      const { data: comment } = await octokit.rest.issues.updateComment({
+        body,
+        comment_id: existing.id,
+        owner,
+        repo
+      });
+      setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url });
+      core.info(`Updated existing PR comment #${existing.id}`);
+    } else {
+      const { data: comment } = await octokit.rest.issues.createComment({
+        body,
+        issue_number: pullNumber,
+        owner,
+        repo
+      });
+      setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url });
+      core.info("Created new PR comment");
+    }
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : String(error2);
+    throw new Error(`Failed to post PR comment (body length ${body.length}): ${message}`);
   }
 }
 
