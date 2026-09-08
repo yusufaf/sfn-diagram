@@ -44,9 +44,9 @@ function buildLegendHtml(executionMetadata: ExecutionMetadata): string {
 }
 
 /**
- * Render the host toolbar's markup: a Layout dropdown, a Theme dropdown, - when
- * an execution overlay is active - a status legend with a Clear-overlay button, and a
- * hidden status chip (`buildUpdateBridgeScript` toggles it) that surfaces a debounced
+ * Render the host toolbar's markup: a Layout dropdown, a Theme dropdown, a status
+ * legend with a Clear-overlay button when an execution overlay is active, and a hidden
+ * status chip (`buildUpdateBridgeScript` toggles it) that surfaces a debounced
  * keystroke's render error without replacing the last good diagram.
  *
  * Every control is a plain, un-styled-attribute element hooked with `data-host="…"`;
