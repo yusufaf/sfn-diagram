@@ -244,6 +244,43 @@ describe('generateHtml', () => {
     });
 });
 
+describe('nonce', () => {
+    it('stamps every script and style tag with the given nonce', () => {
+        const result = generateHtml({ aslDefinition: asl, nonce: 'abc123' });
+
+        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        expect(scriptTags.length).toBeGreaterThan(0);
+        expect(styleTags.length).toBeGreaterThan(0);
+        for (const tag of [...scriptTags, ...styleTags]) {
+            expect(tag).toContain('nonce="abc123"');
+        }
+    });
+
+    it('omits nonce attributes entirely when not provided, byte-compatible with prior output', () => {
+        const result = generateHtml({ aslDefinition: asl });
+        expect(result.html).not.toContain('nonce=');
+    });
+
+    it('throws on a nonce containing characters that could break out of the attribute', () => {
+        expect(() => generateHtml({ aslDefinition: asl, nonce: 'a"><script>' })).toThrow(
+            /nonce/i,
+        );
+    });
+
+    it('behaves identically for generateHtmlAsync', async () => {
+        const result = await generateHtmlAsync({ aslDefinition: asl, nonce: 'abc123' });
+
+        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        expect(scriptTags.length).toBeGreaterThan(0);
+        expect(styleTags.length).toBeGreaterThan(0);
+        for (const tag of [...scriptTags, ...styleTags]) {
+            expect(tag).toContain('nonce="abc123"');
+        }
+    });
+});
+
 describe('accessibility', () => {
     it('labels the zoom controls', () => {
         const result = generateHtml({ aslDefinition: asl });

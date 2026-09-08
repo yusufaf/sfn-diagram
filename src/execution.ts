@@ -1,13 +1,16 @@
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type {
+    AslDefinition,
     EdgeStyleOverride,
     ExecutionHistoryInput,
+    ExecutionHtmlOutput,
     ExecutionMetadataSummary,
     ExecutionOutput,
     ExecutionOverlay,
     ExecutionStateResult,
     ExecutionStateStatus,
     ExecutionStatus,
+    GenerateExecutionHtmlParams,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
     MermaidExecutionOutput,
@@ -16,8 +19,16 @@ import type {
 import { parseAsl } from './AslParser';
 import { buildIdResolver } from './graph';
 import { DagreLayout } from './layout';
-import { SvgRenderer, MermaidRenderer } from './renderers';
+import {
+    SvgRenderer,
+    MermaidRenderer,
+    collectEdgeData,
+    collectStateData,
+    resolveViewerTheme,
+    wrapSvgInInteractiveHtml,
+} from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
+import { embedIcons } from './utils/iconEmbedder';
 
 /** Node fill/stroke applied per execution status, mirroring diff's DIFF_COLORS. */
 const EXECUTION_COLORS: Record<ExecutionStateStatus, Partial<NodeStyle>> = {
@@ -503,6 +514,105 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
         },
         svg: svgOutput.svg,
         width: svgOutput.width,
+    };
+}
+
+/**
+ * Generate a self-contained interactive HTML execution overlay: the same viewer
+ * {@link generateHtml} produces (pan/zoom, search, minimap, click-a-state/edge detail
+ * panel), wrapped around {@link generateExecution}'s coloured, taken-path-emphasized
+ * SVG rather than a plain diagram.
+ *
+ * @param params.aslDefinition - ASL definition as an object or JSON string
+ * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
+ * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
+ * @param params - Any additional {@link DiagramOptions}
+ * @returns {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
+ *
+ * @example
+ * ```typescript
+ * import { generateExecutionHtml } from 'sfn-diagram';
+ * const { html } = generateExecutionHtml({ aslDefinition: asl, history: events });
+ * ```
+ *
+ * @remarks
+ * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons, so
+ * the document is not fully offline. Use {@link generateExecutionHtmlAsync} to inline
+ * those icons as data URIs.
+ *
+ * `collapse` is not yet supported on this path: {@link generateExecution} does not
+ * apply it, so the document ships one view only, with no collapse/expand toggle -
+ * unlike {@link generateHtml}, which renders both an expanded and a collapsed view
+ * for the toggle to switch between. Adding it needs the per-node execution-status
+ * overrides this function computes to be remapped onto whatever collapsed placeholder
+ * node absorbs them, which {@link generateExecution} does not do.
+ */
+export function generateExecutionHtml(params: GenerateExecutionHtmlParams): ExecutionHtmlOutput {
+    const { aslDefinition, nonce, ...executionOptions } = params;
+    const aslObj: AslDefinition =
+        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
+
+    return {
+        height: result.height,
+        html: wrapSvgInInteractiveHtml({
+            edgeData: collectEdgeData({ definition: aslObj, options: executionOptions }),
+            nodeCount: result.metadata.nodeCount,
+            nonce,
+            stateData: collectStateData({ definition: aslObj }),
+            svg: result.svg,
+            theme: resolveViewerTheme({ theme: executionOptions.theme }),
+        }),
+        metadata: result.metadata,
+        width: result.width,
+    };
+}
+
+/**
+ * Generate a fully offline interactive HTML execution overlay from an ASL definition
+ * and execution history.
+ *
+ * Identical to {@link generateExecutionHtml}, except AWS service icons are fetched
+ * once and inlined as base64 data URIs, so the document has no external references
+ * even with `showIcons: true`.
+ *
+ * @param params.aslDefinition - ASL definition as an object or JSON string
+ * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
+ * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
+ * @param params - Any additional {@link DiagramOptions}
+ * @returns Promise resolving to {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
+ *
+ * @example
+ * ```typescript
+ * import { generateExecutionHtmlAsync } from 'sfn-diagram';
+ * const { html } = await generateExecutionHtmlAsync({
+ *     aslDefinition: asl,
+ *     history: events,
+ *     showIcons: true,
+ * });
+ * ```
+ */
+export async function generateExecutionHtmlAsync(
+    params: GenerateExecutionHtmlParams,
+): Promise<ExecutionHtmlOutput> {
+    const { aslDefinition, nonce, ...executionOptions } = params;
+    const aslObj: AslDefinition =
+        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
+    const embeddedSvg = await embedIcons({ svg: result.svg });
+
+    return {
+        height: result.height,
+        html: wrapSvgInInteractiveHtml({
+            edgeData: collectEdgeData({ definition: aslObj, options: executionOptions }),
+            nodeCount: result.metadata.nodeCount,
+            nonce,
+            stateData: collectStateData({ definition: aslObj }),
+            svg: embeddedSvg,
+            theme: resolveViewerTheme({ theme: executionOptions.theme }),
+        }),
+        metadata: result.metadata,
+        width: result.width,
     };
 }
 

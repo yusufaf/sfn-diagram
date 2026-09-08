@@ -38,6 +38,23 @@ export interface BuildViewerBodyParams {
     svg: string;
 }
 
+/** Characters a content-security-policy nonce may contain (base64 alphabet, plus `-`/`_`). */
+const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]+$/;
+
+/**
+ * Build the ` nonce="…"` attribute fragment for a `<style>`/`<script>` tag, or `''`
+ * when no nonce was supplied - the exact same document as before nonce support
+ * existed. Validates against {@link NONCE_PATTERN} first, so a value that could break
+ * out of the attribute (e.g. containing `"` or `>`) throws instead of being embedded.
+ */
+function nonceAttribute(nonce?: string): string {
+    if (nonce === undefined) return '';
+    if (!NONCE_PATTERN.test(nonce)) {
+        throw new Error('nonce must contain only letters, digits, "+", "/", "=", "-", or "_"');
+    }
+    return ` nonce="${nonce}"`;
+}
+
 /**
  * `generateSvg()` emits fixed `id="arrowhead-{type}"` marker defs and matching
  * `url(#arrowhead-{type})` references - fine for one diagram, but the expanded and
@@ -153,6 +170,14 @@ export interface WrapSvgInInteractiveHtmlParams {
      */
     nodeCount?: number;
     /**
+     * Content-Security-Policy nonce to stamp on the document's `<style>` tag and every
+     * `<script>` tag, so the document runs under a host with a strict
+     * `script-src 'nonce-…'` policy (e.g. a VS Code webview). Must match
+     * `/^[A-Za-z0-9+/=_-]+$/`; omit for a document with no nonce attributes at all
+     * (the default, byte-identical to output produced before nonce support existed).
+     */
+    nonce?: string;
+    /**
      * Raw ASL for each state, keyed by graph node id (as produced by
      * `collectStateData`), which matches the `data-state-id` on the rendered node.
      * Enables the click-a-state detail panel; omit it to render the viewer without one.
@@ -203,6 +228,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         collapsedSvg,
         edgeData,
         nodeCount,
+        nonce,
         stateData,
         svg,
         theme = 'light',
@@ -214,12 +240,13 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         collapsedNodeCount === undefined
             ? minimapCollapsed
             : collapsedNodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
+    const nonceAttr = nonceAttribute(nonce);
 
     const stateDataScript = hasStateData
-        ? `<script type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
+        ? `<script${nonceAttr} type="application/json" id="sfn-state-data">${serializeStateData({ stateData })}</script>\n`
         : '';
     const edgeDataScript = hasEdgeData
-        ? `<script type="application/json" id="sfn-edge-data">${serializeEdgeData({ edgeData })}</script>\n`
+        ? `<script${nonceAttr} type="application/json" id="sfn-edge-data">${serializeEdgeData({ edgeData })}</script>\n`
         : '';
 
     const body = buildViewerBody({
@@ -237,11 +264,11 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sfn-diagram</title>
-<style>${buildViewerStyles({ theme })}</style>
+<style${nonceAttr}>${buildViewerStyles({ theme })}</style>
 </head>
 <body>
 ${body}
-${stateDataScript}${edgeDataScript}<script>${buildViewerScript({ hasEdgeData, hasStateData })}</script>
+${stateDataScript}${edgeDataScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasStateData })}</script>
 </body>
 </html>`;
 }

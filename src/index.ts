@@ -291,7 +291,7 @@ function buildHtmlViews(params: {
 }
 
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
 
@@ -312,6 +312,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             collapsedSvg,
             edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
+            nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -341,7 +342,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
 
@@ -363,6 +364,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             collapsedSvg: embeddedCollapsedSvg,
             edgeData: collectEdgeData({ definition: aslObj, options }),
             nodeCount: svgOutput.metadata.nodeCount,
+            nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -613,11 +615,13 @@ export type {
     // Execution overlay
     EdgeStyleOverride,
     ExecutionHistoryInput,
+    ExecutionHtmlOutput,
     ExecutionOutput,
     ExecutionOverlay,
     ExecutionStateResult,
     ExecutionStateStatus,
     ExecutionStatus,
+    GenerateExecutionHtmlParams,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
     MermaidExecutionOutput,
@@ -634,11 +638,15 @@ export type {
 } from './types';
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
+export { resolveViewerTheme } from './renderers';
+export type { ViewerTheme } from './renderers';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
 export {
     generateExecution,
+    generateExecutionHtml,
+    generateExecutionHtmlAsync,
     generateMermaidExecution,
     parseExecutionHistory,
 } from './execution';
