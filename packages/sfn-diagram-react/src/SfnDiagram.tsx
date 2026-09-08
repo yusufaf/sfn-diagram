@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
+    generateDiff,
     generateExecution,
     generateHtml,
     generateMermaid,
+    generateMermaidDiff,
     generateMermaidExecution,
     generateSvg,
 } from 'sfn-diagram'
@@ -25,6 +27,19 @@ export interface SfnDiagramProps
         | 'showVariables'
         | 'theme'
     > {
+    /**
+     * When set, `definition` is treated as the *after* side of a diff and `before`
+     * as the *original* side: the rendered diagram highlights added, modified, and
+     * removed states rather than the plain machine. Accepts an ASL object or a
+     * JSON string. Cannot be combined with `history` or `format="html"` - core has
+     * no diff API for either combination.
+     *
+     * The Mermaid diff (`generateMermaidDiff`) ignores every option in this
+     * component's `Pick<DiagramOptions, ...>` list - `layout`, `theme`, and the
+     * rest - since core's diff-specific function accepts only the two
+     * definitions. The SVG diff honours them.
+     */
+    before?: object | string
     className?: string
     definition: object | string
     /**
@@ -76,6 +91,15 @@ type DiagramResult =
     | { type: 'mermaid'; code: string }
     | { type: 'svg'; svg: string }
 
+interface ToAslStringParams {
+    definition: object | string
+}
+
+function toAslString(params: ToAslStringParams): string {
+    const { definition } = params
+    return typeof definition === 'string' ? definition : JSON.stringify(definition)
+}
+
 // Core's mergeOptions does `{ ...DEFAULT_DIAGRAM_OPTIONS, ...options }`, so a key
 // present with value `undefined` overrides the default rather than falling back to
 // it - most defaults tolerate that, but catchHandling's `mode === 'show'` check does
@@ -94,6 +118,7 @@ function omitUndefinedValues<Options extends Record<string, unknown>>(
 }
 
 export function SfnDiagram({
+    before,
     catchHandling,
     className,
     collapse,
@@ -114,9 +139,10 @@ export function SfnDiagram({
     theme = 'light',
     title = 'Step Functions diagram',
 }: SfnDiagramProps) {
-    const asl = useMemo(
-        () => (typeof definition === 'string' ? definition : JSON.stringify(definition)),
-        [definition]
+    const asl = useMemo(() => toAslString({ definition }), [definition])
+    const beforeAsl = useMemo(
+        () => (before === undefined ? undefined : toAslString({ definition: before })),
+        [before]
     )
 
     const result = useMemo((): DiagramResult => {
@@ -134,6 +160,20 @@ export function SfnDiagram({
                 showVariables,
                 theme,
             })
+            if (beforeAsl !== undefined) {
+                if (history) {
+                    throw new Error('history and before cannot be combined')
+                }
+                if (format === 'html') {
+                    throw new Error('before and format="html" cannot be combined')
+                }
+                if (format === 'mermaid') {
+                    const output = generateMermaidDiff({ after: asl, before: beforeAsl })
+                    return { type: 'mermaid', code: output.code }
+                }
+                const output = generateDiff({ after: asl, before: beforeAsl, ...diagramOptions })
+                return { type: 'svg', svg: output.svg }
+            }
             if (format === 'html') {
                 if (history) {
                     throw new Error('history and format="html" cannot be combined')
@@ -156,6 +196,7 @@ export function SfnDiagram({
         }
     }, [
         asl,
+        beforeAsl,
         catchHandling,
         collapse,
         edgeOverrides,

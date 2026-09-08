@@ -73,6 +73,34 @@ const WITH_CATCH = {
     },
 }
 
+const DIFF_BEFORE = {
+    StartAt: 'StateA',
+    States: {
+        StateA: { Next: 'StateB', Type: 'Pass' },
+        StateB: { Type: 'Succeed' },
+    },
+}
+
+const DIFF_AFTER = {
+    StartAt: 'StateA',
+    States: {
+        StateA: { Next: 'StateC', Type: 'Pass' },
+        StateC: { Type: 'Succeed' },
+    },
+}
+
+const WITH_PARALLEL_PLUS_EXTRA = {
+    StartAt: 'DoParallel',
+    States: {
+        DoParallel: {
+            Branches: WITH_PARALLEL.States.DoParallel.Branches,
+            Next: 'ExtraStep',
+            Type: 'Parallel',
+        },
+        ExtraStep: { Type: 'Succeed' },
+    },
+}
+
 const HISTORY = {
     events: [
         { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
@@ -510,6 +538,77 @@ describe('SfnDiagram', () => {
             fireEvent.click(container.querySelector('iframe') as Element)
 
             expect(onStateClick).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('Diff mode', () => {
+        it('colours added and removed states in the SVG diff', () => {
+            const { container } = render(
+                <SfnDiagram before={DIFF_BEFORE} definition={DIFF_AFTER} />
+            )
+            const svg = container.querySelector('svg')
+            expect(svg?.innerHTML).toContain('#c8e6c9')
+            expect(svg?.innerHTML).toContain('#ffcdd2')
+        })
+
+        it('emits classDef diff classes in the Mermaid diff', () => {
+            const { container } = render(
+                <SfnDiagram before={DIFF_BEFORE} definition={DIFF_AFTER} format="mermaid" />
+            )
+            const code = container.querySelector('pre')?.textContent
+            expect(code).toContain('classDef diffAdded')
+            expect(code).toContain('classDef diffRemoved')
+            expect(code).toMatchSnapshot()
+        })
+
+        it('calls onError and renders null when combined with history', () => {
+            const onError = vi.fn()
+            const { container } = render(
+                <SfnDiagram
+                    before={DIFF_BEFORE}
+                    definition={DIFF_AFTER}
+                    history={JSON.stringify(HISTORY)}
+                    onError={onError}
+                />
+            )
+            expect(container.firstChild).toBeNull()
+            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+        })
+
+        it('calls onError and renders null when combined with format="html"', () => {
+            const onError = vi.fn()
+            const { container } = render(
+                <SfnDiagram
+                    before={DIFF_BEFORE}
+                    definition={DIFF_AFTER}
+                    format="html"
+                    onError={onError}
+                />
+            )
+            expect(container.firstChild).toBeNull()
+            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+        })
+
+        it('applies diagram options to the SVG diff', () => {
+            const { container: expanded } = render(
+                <SfnDiagram before={WITH_PARALLEL} definition={WITH_PARALLEL_PLUS_EXTRA} />
+            )
+            const { container: collapsed } = render(
+                <SfnDiagram
+                    before={WITH_PARALLEL}
+                    collapse
+                    definition={WITH_PARALLEL_PLUS_EXTRA}
+                />
+            )
+
+            // The added-state colour proves the diff is actually applied, not just
+            // a plain render of `definition` with `before` silently ignored.
+            expect(expanded.querySelector('svg')?.innerHTML).toContain('#c8e6c9')
+            expect(collapsed.querySelector('svg')?.innerHTML).toContain('#c8e6c9')
+
+            const expandedCount = expanded.querySelectorAll('[data-state-id]').length
+            const collapsedCount = collapsed.querySelectorAll('[data-state-id]').length
+            expect(collapsedCount).toBeLessThan(expandedCount)
         })
     })
 
