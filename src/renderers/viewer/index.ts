@@ -6,7 +6,7 @@ export type { SerializeForScriptBlockParams } from './scriptJson';
 export { collectStateData, serializeStateData } from './stateData';
 export type { CollectStateDataParams, SerializeStateDataParams } from './stateData';
 export { attachViewer } from './viewerController';
-export type { AttachViewerParams, ViewerHandle } from './viewerController';
+export type { AttachViewerParams, SetViewerContentParams, ViewerHandle } from './viewerController';
 export { buildViewerScript } from './viewerScript';
 export type { BuildViewerScriptParams } from './viewerScript';
 export { buildViewerBody, buildViewerContent, minimapStartsCollapsed, wrapSvgInInteractiveHtml } from './viewerShell';
