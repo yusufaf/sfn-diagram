@@ -1,10 +1,11 @@
+import { resolveViewerTheme } from 'sfn-diagram'
 import type { ExecutionOutput, LayoutDirection, ThemeOption } from 'sfn-diagram'
 
 /** Execution overlay summary, as reported by `generateExecution`/`generateExecutionHtml`. */
 export type ExecutionMetadata = ExecutionOutput['metadata']
 
 /** Parameters for {@link buildHostToolbarHtml}. */
-export interface BuildHostToolbarParams {
+export interface BuildHostToolbarHtmlParams {
     /** Execution overlay summary. Present only while an overlay is active. */
     executionMetadata?: ExecutionMetadata
     /** Currently selected graph layout direction, preselected in the Layout dropdown. */
@@ -59,9 +60,12 @@ function buildLegendHtml(executionMetadata: ExecutionMetadata): string {
  * const toolbar = buildHostToolbarHtml({ layout: 'TB', theme: 'dark' })
  * ```
  */
-export function buildHostToolbarHtml(params: BuildHostToolbarParams): string {
+export function buildHostToolbarHtml(params: BuildHostToolbarHtmlParams): string {
     const { executionMetadata, layout, theme } = params
-    const themeValue = theme === 'light' ? 'light' : 'dark'
+    // Matches the actual rendered chrome theme, including a CustomTheme classified by
+    // background luminance - a plain `theme === 'light'` check falls through every
+    // CustomTheme to 'dark' regardless of its actual colors.
+    const themeValue = resolveViewerTheme({ theme })
     const layoutOptions = LAYOUT_OPTIONS.map(
         (option) =>
             `<option value="${option.value}"${selectedAttribute(option.value, layout)}>${option.label}</option>`,

@@ -29,6 +29,12 @@ describe('buildContentSecurityPolicy', () => {
     it("defaults every other directive to 'none'", () => {
         expect(buildContentSecurityPolicy(params)).toContain("default-src 'none';")
     })
+
+    it('rejects a nonce that could break out of the script-src directive', () => {
+        expect(() => buildContentSecurityPolicy({ ...params, nonce: "x'; script-src *" })).toThrow(
+            /nonce must contain only/,
+        )
+    })
 })
 
 describe('buildContentSecurityPolicyMeta', () => {

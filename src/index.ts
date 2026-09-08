@@ -633,6 +633,8 @@ export type {
 } from './types';
 
 export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
+export { resolveViewerTheme } from './renderers';
+export type { ViewerTheme } from './renderers';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
