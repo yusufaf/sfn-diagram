@@ -1,6 +1,31 @@
-import { generateExecutionHtml, generateHtml } from 'sfn-diagram'
-import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
+import { generateExecutionHtml, generateHtml, generateViewerUpdate } from 'sfn-diagram'
+import type { LayoutDirection, ThemeOption, ViewerUpdate } from 'sfn-diagram'
 import type { ExecutionMetadata } from './hostToolbar'
+
+/** Parameters for {@link hasCollapseToggle}. */
+export interface HasCollapseToggleParams {
+    /** A rendered viewer document, from `renderPreview` or `generateHtml`. */
+    html: string
+}
+
+/**
+ * Whether a rendered viewer document embeds a collapse toggle - i.e. the diagram has a
+ * Parallel/Map container worth collapsing. Used to detect when a debounced refresh must
+ * fall back to a full document replace: the toggle button lives in the toolbar chrome,
+ * outside the `data-sfn="content"` node `ViewerHandle.setContent` patches, so gaining or
+ * losing one mid-edit can't be handled by an incremental update alone.
+ *
+ * @param params - Detection parameters
+ * @returns Whether `html` contains the collapse-toggle hook
+ *
+ * @example
+ * ```typescript
+ * hasCollapseToggle({ html: renderPreview(params).html }) // => true for a Parallel/Map diagram
+ * ```
+ */
+export function hasCollapseToggle(params: HasCollapseToggleParams): boolean {
+    return params.html.includes('data-sfn-collapse-toggle')
+}
 
 /** Parameters for {@link renderPreview}. */
 export interface RenderPreviewParams {
@@ -27,6 +52,8 @@ export interface RenderPreviewParams {
 export interface RenderedPreview {
     /** Execution overlay summary. Present only when `history` was given. */
     executionMetadata?: ExecutionMetadata
+    /** Whether `html` embeds a collapse toggle. See {@link hasCollapseToggle}. */
+    hasCollapsedView: boolean
     /** The interactive viewer document. */
     html: string
 }
@@ -63,7 +90,7 @@ export function renderPreview(params: RenderPreviewParams): RenderedPreview {
             ...collapseOption,
             ...showIconsOption,
         })
-        return { executionMetadata: metadata, html }
+        return { executionMetadata: metadata, hasCollapsedView: hasCollapseToggle({ html }), html }
     }
 
     const { html } = generateHtml({
@@ -74,5 +101,49 @@ export function renderPreview(params: RenderPreviewParams): RenderedPreview {
         ...collapseOption,
         ...showIconsOption,
     })
-    return { html }
+    return { hasCollapsedView: hasCollapseToggle({ html }), html }
+}
+
+/** Parameters for {@link renderPreviewUpdate}. */
+export interface RenderPreviewUpdateParams {
+    /** ASL definition, as a JSON string (matches what the editor buffer holds). */
+    aslContent: string
+    /** Collapse selection forwarded to the underlying renderer. Omit for its default. */
+    collapse?: boolean
+    /** Graph layout direction. */
+    layout: LayoutDirection
+    /** Whether to render AWS service icons. Omit for the renderer's default. */
+    showIcons?: boolean
+    /** Diagram theme. */
+    theme: ThemeOption
+}
+
+/**
+ * Render just the diagram content for an already-open preview - the debounced
+ * keystroke path. No nonce (the content carries no `<script>`/`<style>` of its own)
+ * and no `history`: the execution-overlay path stays on the full-document render via
+ * {@link renderPreview}.
+ *
+ * @param params - Render parameters
+ * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it
+ * @throws {SyntaxError} If `aslContent` is not valid JSON
+ *
+ * @example
+ * ```typescript
+ * const update = renderPreviewUpdate({ aslContent, layout: 'TB', theme: 'dark' })
+ * webview.postMessage(buildUpdateContentMessage({ update }))
+ * ```
+ */
+export function renderPreviewUpdate(params: RenderPreviewUpdateParams): ViewerUpdate {
+    const { aslContent, collapse, layout, showIcons, theme } = params
+    const collapseOption = collapse !== undefined ? { collapse } : {}
+    const showIconsOption = showIcons !== undefined ? { showIcons } : {}
+
+    return generateViewerUpdate({
+        aslDefinition: aslContent,
+        layout,
+        theme,
+        ...collapseOption,
+        ...showIconsOption,
+    })
 }
