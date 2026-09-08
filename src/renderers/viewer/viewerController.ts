@@ -427,21 +427,31 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                     group.setAttribute('aria-label', label);
                 }
 
-                // Prefer the hit area (a comfortable target already used for pointer
-                // selection); fall back to the drawn path only when none was rendered
-                // (edgeHitAreas off). Either way, de-duplicated by id so a labelled
-                // edge's separate label rect/text never becomes a second tab stop.
-                const hitAreas = content.querySelectorAll('[data-edge-hit-area]');
-                const edgeElements = hitAreas.length ? hitAreas : content.querySelectorAll('path[data-edge-id]');
-                const seenEdgeIds = new Set<string>();
-                for (const element of Array.from(edgeElements)) {
-                    const edgeId = element.getAttribute('data-edge-id');
-                    if (!edgeId || seenEdgeIds.has(edgeId)) continue;
-                    seenEdgeIds.add(edgeId);
-                    const label = element.querySelector('title')?.textContent || edgeId;
-                    element.setAttribute('tabindex', '0');
-                    element.setAttribute('role', 'button');
-                    element.setAttribute('aria-label', label);
+                // Expanded and collapsed views each need their own edge dedup pass -
+                // an edge can carry the same data-edge-id in both views, and dedup was
+                // previously done across the whole of `content`, so whichever view's
+                // elements the query happened to visit first silently claimed every id
+                // and the other view's matching edges never became tab stops.
+                const viewRoots = content.querySelectorAll('[data-sfn-view]');
+                for (const viewRoot of viewRoots.length ? Array.from(viewRoots) : [content]) {
+                    // Prefer the hit area (a comfortable target already used for pointer
+                    // selection); fall back to the drawn path only when none was rendered
+                    // (edgeHitAreas off). Either way, de-duplicated by id so a labelled
+                    // edge's separate label rect/text never becomes a second tab stop.
+                    const hitAreas = viewRoot.querySelectorAll('[data-edge-hit-area]');
+                    const edgeElements = hitAreas.length
+                        ? hitAreas
+                        : viewRoot.querySelectorAll('path[data-edge-id]');
+                    const seenEdgeIds = new Set<string>();
+                    for (const element of Array.from(edgeElements)) {
+                        const edgeId = element.getAttribute('data-edge-id');
+                        if (!edgeId || seenEdgeIds.has(edgeId)) continue;
+                        seenEdgeIds.add(edgeId);
+                        const label = element.querySelector('title')?.textContent || edgeId;
+                        element.setAttribute('tabindex', '0');
+                        element.setAttribute('role', 'button');
+                        element.setAttribute('aria-label', label);
+                    }
                 }
             };
             applySelectableSemantics();

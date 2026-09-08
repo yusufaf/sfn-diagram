@@ -63746,8 +63746,8 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   nodeOverrides: void 0,
   edgeOverrides: void 0,
   nodeAnnotations: void 0,
-  diagramTitle: void 0,
-  diagramDescription: void 0
+  diagramDescription: void 0,
+  diagramTitle: void 0
 };
 function mergeOptions(options = {}) {
   return {

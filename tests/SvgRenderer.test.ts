@@ -709,6 +709,22 @@ describe('SvgRenderer', () => {
             expect(match![1]).not.toContain('<title>');
         });
 
+        it("titles an edge into a branch end marker with the container's label, not the marker's internal id", () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="Branch1-&gt;ParallelExecution__branch0__end[^"]*"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('<title>Branch1 to ParallelExecution</title>');
+        });
+
         it('titles a labelled edge with its endpoints and condition, escaped', () => {
             const asl = loadFixture('choice');
             const { nodes, edges } = parseAsl({ definition: asl });

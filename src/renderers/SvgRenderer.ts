@@ -112,6 +112,10 @@ export class SvgRenderer {
     // the top of render() even though every call site constructs a fresh renderer per
     // render, so a reused instance can never see a stale entry.
     private edgeMidpointCache = new Map<string, { x: number; y: number }>();
+    // Branch/iterator end marker id -> its owning container's label. edgeAccessibleTitle
+    // uses this so an edge ending at a marker announces the container it feeds into
+    // rather than the marker's internal synthetic id. Populated at the top of render().
+    private markerContainerLabels = new Map<string, string>();
 
     constructor(options: DiagramOptions) {
         this.options = options;
@@ -133,6 +137,16 @@ export class SvgRenderer {
      */
     render(layout: LayoutResult): SvgOutput {
         this.edgeMidpointCache.clear();
+        this.markerContainerLabels.clear();
+        const nodesByIdForMarkers = new Map(layout.nodes.map((node) => [node.id, node]));
+        for (const node of layout.nodes) {
+            for (const childId of node.children ?? []) {
+                const child = nodesByIdForMarkers.get(childId);
+                if (child && isMarkerNode(child)) {
+                    this.markerContainerLabels.set(childId, node.label);
+                }
+            }
+        }
 
         // Nested self-loop labels stagger along a shared axis, so every loop on a node
         // has to step by the same amount - see selfLoopLabelCenter. Measured once here
@@ -337,7 +351,10 @@ export class SvgRenderer {
      */
     private edgeAccessibleTitle(edge: GraphEdge): string {
         const detail = edge.label ?? edge.condition;
-        const base = `${edge.from} to ${edge.to}`;
+        // An edge into a branch/iterator end marker has nothing meaningful to announce
+        // at that internal synthetic id - name the container it feeds into instead.
+        const to = this.markerContainerLabels.get(edge.to) ?? edge.to;
+        const base = `${edge.from} to ${to}`;
         return detail ? `${base}: ${detail}` : base;
     }
 

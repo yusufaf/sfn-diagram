@@ -464,6 +464,18 @@ describe('collapse toggle runtime', () => {
         expect(buttonLabel).toBe('Expand');
     });
 
+    it('keeps the collapsed view keyboard-navigable for an edge id shared with the expanded view', async () => {
+        // FanOut->Done exists in both the expanded and collapsed SVGs under the same
+        // data-edge-id - a global, content-wide dedup pass would only make it a tab
+        // stop in whichever view's DOM query visits it first (the expanded view,
+        // rendered first), leaving the now-visible collapsed view's copy untabbable.
+        const collapsedEdgeTabIndexes = await collapsePage.$$eval(
+            '[data-sfn-view="collapsed"] [data-edge-id="FanOut->Done#normal#0"]',
+            (elements) => elements.map((element) => element.getAttribute('tabindex')),
+        );
+        expect(collapsedEdgeTabIndexes).toContain('0');
+    });
+
     it('search after toggling only matches states in the now-visible view', async () => {
         await collapsePage.focus('#sfn-search');
         await collapsePage.type('#sfn-search', 'FanOut');
