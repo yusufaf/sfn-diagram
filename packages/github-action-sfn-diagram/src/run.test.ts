@@ -662,6 +662,30 @@ describe('buildBoundedCommentBody', () => {
         expect(result.body).toContain('Execution diagram omitted')
         expect(result.body).toContain('a.asl.json')
         expect(result.body).toContain('```mermaid')
+        // The overlay is the only thing omitted here (a.asl.json's diagram still fits) -
+        // omittedDiagrams deliberately excludes the overlay's synthetic key, so callers
+        // must be able to tell it was affected some other way.
+        expect(result.executionOverlayOmitted).toBe(true)
+        expect(result.omittedDiagrams).toEqual([])
+        expect(result.droppedSections).toBe(0)
+    })
+
+    it('excludes the overlay from droppedSections when both it and a file section are dropped', () => {
+        const overlaySection: ExecutionOverlaySection = {
+            header: '### 🎬 Execution overlay\n\n',
+            mermaidCode: 'B'.repeat(500),
+            mermaidLabel: '📊 Execution diagram',
+        }
+        const sections = Array.from({ length: 5 }, (_, index) => makeSection(`file-${index}.asl.json`, 500))
+        const result = buildBoundedCommentBody({ marker, maxChars: 700, overlaySection, sections })
+
+        expect(result.body.length).toBeLessThanOrEqual(700)
+        expect(result.executionOverlayOmitted).toBe(true)
+        // droppedSections must count only real file sections - the note text in the
+        // comment body says "N more changed file(s) omitted", so folding the overlay
+        // into that count would overstate how many files were actually dropped.
+        expect(result.droppedSections).toBeGreaterThan(0)
+        expect(result.body).toContain(`${result.droppedSections} more changed file(s) omitted`)
     })
 })
 
@@ -737,6 +761,20 @@ describe('run - diagram-rendering inputs', () => {
 
         expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('light, dark'))
         expect(createdBody(stub)).toContain('classDef successState fill:#e8f5e8')
+    })
+
+    it('warns and falls back to false for an unrecognised hide-catch value', async () => {
+        setPullRequest()
+        withInputs({ 'hide-catch': 'yes' })
+        const stub = makeOctokit({
+            contentByRef: { [HEAD_SHA]: withCatchAsl },
+            files: [{ filename: 'flows/risky.asl.json', status: 'added' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('hide-catch value "yes"'))
     })
 
     it('collapses only the named containers when collapse is a comma-separated list', async () => {

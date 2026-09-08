@@ -57,8 +57,10 @@ export interface BuildBoundedCommentBodyParams {
 
 export interface BoundedCommentBody {
     body: string
-    /** How many whole file sections had to be dropped (headers and all). */
+    /** How many whole file sections had to be dropped (headers and all) - excludes the execution overlay, tracked separately below. */
     droppedSections: number
+    /** True if the execution-overlay diagram was omitted or its whole section dropped to fit the comment. */
+    executionOverlayOmitted: boolean
     /** Filenames whose diagram was dropped, largest first. */
     omittedDiagrams: string[]
 }
@@ -109,10 +111,14 @@ export function buildBoundedCommentBody(params: BuildBoundedCommentBodyParams): 
             .sort((a, b) => b.mermaidLength - a.mermaidLength)
             .filter((renderable) => omitted.has(renderable.key) && renderable.key !== EXECUTION_OVERLAY_KEY)
             .map((renderable) => renderable.key)
+    // Separate from omittedDiagrams(), which deliberately excludes the overlay so its
+    // synthetic key never appears in a "diagram(s) for ..." filename list - callers
+    // that need to know the overlay itself was affected read this instead.
+    const executionOverlayOmitted = (): boolean => omitted.has(EXECUTION_OVERLAY_KEY)
 
     let body = assembleRenderables({ marker, omitted, renderables })
     if (body.length <= maxChars) {
-        return { body, droppedSections: 0, omittedDiagrams: [] }
+        return { body, droppedSections: 0, executionOverlayOmitted: false, omittedDiagrams: [] }
     }
 
     const byMermaidLengthDesc = [...renderables].sort((a, b) => b.mermaidLength - a.mermaidLength)
@@ -120,26 +126,41 @@ export function buildBoundedCommentBody(params: BuildBoundedCommentBodyParams): 
         omitted.add(renderable.key)
         body = assembleRenderables({ marker, omitted, renderables })
         if (body.length <= maxChars) {
-            return { body, droppedSections: 0, omittedDiagrams: omittedDiagrams() }
+            return {
+                body,
+                droppedSections: 0,
+                executionOverlayOmitted: executionOverlayOmitted(),
+                omittedDiagrams: omittedDiagrams(),
+            }
         }
     }
 
+    // droppedSections counts only real file sections - the overlay isn't a "changed
+    // file" and is reported through executionOverlayOmitted instead, so the note/warning
+    // text stays accurate whichever of the two (or both) ended up dropped here.
     let remaining = [...renderables]
     let droppedSections = 0
+    let overlayDropped = executionOverlayOmitted()
     while (remaining.length > 0) {
+        const removed = remaining[remaining.length - 1]
         remaining = remaining.slice(0, -1)
-        droppedSections += 1
+        if (removed.key === EXECUTION_OVERLAY_KEY) {
+            overlayDropped = true
+        } else {
+            droppedSections += 1
+        }
         const note = droppedSectionsNote({ droppedSections, maxChars })
         body = assembleRenderables({ extraSection: note, marker, omitted, renderables: remaining })
         if (body.length <= maxChars) {
-            return { body, droppedSections, omittedDiagrams: omittedDiagrams() }
+            return { body, droppedSections, executionOverlayOmitted: overlayDropped, omittedDiagrams: omittedDiagrams() }
         }
     }
 
-    const note = droppedSectionsNote({ droppedSections: renderables.length, maxChars })
+    const note = droppedSectionsNote({ droppedSections, maxChars })
     return {
         body: assembleCommentBody({ marker, sections: [note] }),
-        droppedSections: renderables.length,
+        droppedSections,
+        executionOverlayOmitted: overlayDropped,
         omittedDiagrams: omittedDiagrams(),
     }
 }
@@ -262,17 +283,28 @@ async function findCommentByMarker(
     return undefined
 }
 
+/** Split a comma-separated value into trimmed segments, optionally dropping empty ones. */
+function splitTrimmedList(value: string, options: { filterEmpty?: boolean } = {}): string[] {
+    const parts = value.split(',').map((part) => part.trim())
+    return options.filterEmpty ? parts.filter((part) => part.length > 0) : parts
+}
+
 /** Split a `collapse: Name1,Name2` value into trimmed, non-empty state names. */
 function parseCollapseNames(value: string): string[] {
-    return value
-        .split(',')
-        .map((name) => name.trim())
-        .filter((name) => name.length > 0)
+    return splitTrimmedList(value, { filterEmpty: true })
 }
 
 /** Reads the diagram-rendering inputs, warning and falling back to the default on an unrecognised value. */
 function resolveDiagramOptions(): BuildAslFileSectionOptions {
-    const hideCatch = core.getInput('hide-catch').trim().toLowerCase() === 'true'
+    const hideCatchRaw = core.getInput('hide-catch').trim().toLowerCase()
+    let hideCatch = false
+    if (hideCatchRaw !== '' && hideCatchRaw !== 'false') {
+        if (hideCatchRaw === 'true') {
+            hideCatch = true
+        } else {
+            core.warning(`Unrecognised hide-catch value "${hideCatchRaw}"; expected "true" or "false". Falling back to false.`)
+        }
+    }
 
     const themeRaw = core.getInput('theme').trim().toLowerCase()
     let theme: 'light' | 'dark' = 'light'
@@ -346,7 +378,7 @@ export async function run(): Promise<void> {
 
     const diagramOptions = resolveDiagramOptions()
 
-    const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
+    const patterns = splitTrimmedList(aslGlobRaw)
     const { context } = github
 
     setActionOutputs({ changedFiles: [] })
@@ -437,19 +469,20 @@ export async function run(): Promise<void> {
     }
 
     const marker = `${COMMENT_PREFIX}${commentTag}-->`
-    const { body, droppedSections, omittedDiagrams } = buildBoundedCommentBody({
+    const { body, droppedSections, executionOverlayOmitted, omittedDiagrams } = buildBoundedCommentBody({
         marker,
         omissionNote: DIAGRAM_TOO_LARGE_NOTE,
         overlaySection,
         sections,
     })
 
-    if (omittedDiagrams.length > 0 || droppedSections > 0) {
+    if (omittedDiagrams.length > 0 || droppedSections > 0 || executionOverlayOmitted) {
         core.warning(
             `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` +
                 (omittedDiagrams.length > 0
                     ? `; omitted the diagram(s) for ${omittedDiagrams.join(', ')}`
                     : '') +
+                (executionOverlayOmitted ? '; omitted the execution overlay diagram' : '') +
                 (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : '') +
                 '. Set `hide-catch: true` or `collapse: true` to shrink them.',
         )

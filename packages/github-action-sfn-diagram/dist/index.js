@@ -64352,33 +64352,46 @@ function buildBoundedCommentBody(params) {
   }
   const omitted = /* @__PURE__ */ new Set();
   const omittedDiagrams = () => [...renderables].sort((a5, b5) => b5.mermaidLength - a5.mermaidLength).filter((renderable) => omitted.has(renderable.key) && renderable.key !== EXECUTION_OVERLAY_KEY).map((renderable) => renderable.key);
+  const executionOverlayOmitted = () => omitted.has(EXECUTION_OVERLAY_KEY);
   let body = assembleRenderables({ marker, omitted, renderables });
   if (body.length <= maxChars) {
-    return { body, droppedSections: 0, omittedDiagrams: [] };
+    return { body, droppedSections: 0, executionOverlayOmitted: false, omittedDiagrams: [] };
   }
   const byMermaidLengthDesc = [...renderables].sort((a5, b5) => b5.mermaidLength - a5.mermaidLength);
   for (const renderable of byMermaidLengthDesc) {
     omitted.add(renderable.key);
     body = assembleRenderables({ marker, omitted, renderables });
     if (body.length <= maxChars) {
-      return { body, droppedSections: 0, omittedDiagrams: omittedDiagrams() };
+      return {
+        body,
+        droppedSections: 0,
+        executionOverlayOmitted: executionOverlayOmitted(),
+        omittedDiagrams: omittedDiagrams()
+      };
     }
   }
   let remaining = [...renderables];
   let droppedSections = 0;
+  let overlayDropped = executionOverlayOmitted();
   while (remaining.length > 0) {
+    const removed = remaining[remaining.length - 1];
     remaining = remaining.slice(0, -1);
-    droppedSections += 1;
+    if (removed.key === EXECUTION_OVERLAY_KEY) {
+      overlayDropped = true;
+    } else {
+      droppedSections += 1;
+    }
     const note2 = droppedSectionsNote({ droppedSections, maxChars });
     body = assembleRenderables({ extraSection: note2, marker, omitted, renderables: remaining });
     if (body.length <= maxChars) {
-      return { body, droppedSections, omittedDiagrams: omittedDiagrams() };
+      return { body, droppedSections, executionOverlayOmitted: overlayDropped, omittedDiagrams: omittedDiagrams() };
     }
   }
-  const note = droppedSectionsNote({ droppedSections: renderables.length, maxChars });
+  const note = droppedSectionsNote({ droppedSections, maxChars });
   return {
     body: assembleCommentBody({ marker, sections: [note] }),
-    droppedSections: renderables.length,
+    droppedSections,
+    executionOverlayOmitted: overlayDropped,
     omittedDiagrams: omittedDiagrams()
   };
 }
@@ -64433,11 +64446,23 @@ async function findCommentByMarker(params) {
   );
   return void 0;
 }
+function splitTrimmedList(value, options = {}) {
+  const parts = value.split(",").map((part) => part.trim());
+  return options.filterEmpty ? parts.filter((part) => part.length > 0) : parts;
+}
 function parseCollapseNames(value) {
-  return value.split(",").map((name) => name.trim()).filter((name) => name.length > 0);
+  return splitTrimmedList(value, { filterEmpty: true });
 }
 function resolveDiagramOptions() {
-  const hideCatch = core.getInput("hide-catch").trim().toLowerCase() === "true";
+  const hideCatchRaw = core.getInput("hide-catch").trim().toLowerCase();
+  let hideCatch = false;
+  if (hideCatchRaw !== "" && hideCatchRaw !== "false") {
+    if (hideCatchRaw === "true") {
+      hideCatch = true;
+    } else {
+      core.warning(`Unrecognised hide-catch value "${hideCatchRaw}"; expected "true" or "false". Falling back to false.`);
+    }
+  }
   const themeRaw = core.getInput("theme").trim().toLowerCase();
   let theme = "light";
   if (themeRaw !== "" && themeRaw !== "light") {
@@ -64490,7 +64515,7 @@ async function run() {
     executionMode = "off";
   }
   const diagramOptions = resolveDiagramOptions();
-  const patterns = aslGlobRaw.split(",").map((pattern) => pattern.trim());
+  const patterns = splitTrimmedList(aslGlobRaw);
   const { context: context3 } = github_exports;
   setActionOutputs({ changedFiles: [] });
   if (!context3.payload.pull_request) {
@@ -64552,15 +64577,15 @@ async function run() {
     overlaySection = overlay.section;
   }
   const marker = `${COMMENT_PREFIX}${commentTag}-->`;
-  const { body, droppedSections, omittedDiagrams } = buildBoundedCommentBody({
+  const { body, droppedSections, executionOverlayOmitted, omittedDiagrams } = buildBoundedCommentBody({
     marker,
     omissionNote: DIAGRAM_TOO_LARGE_NOTE,
     overlaySection,
     sections
   });
-  if (omittedDiagrams.length > 0 || droppedSections > 0) {
+  if (omittedDiagrams.length > 0 || droppedSections > 0 || executionOverlayOmitted) {
     core.warning(
-      `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` + (omittedDiagrams.length > 0 ? `; omitted the diagram(s) for ${omittedDiagrams.join(", ")}` : "") + (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : "") + ". Set `hide-catch: true` or `collapse: true` to shrink them."
+      `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` + (omittedDiagrams.length > 0 ? `; omitted the diagram(s) for ${omittedDiagrams.join(", ")}` : "") + (executionOverlayOmitted ? "; omitted the execution overlay diagram" : "") + (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : "") + ". Set `hide-catch: true` or `collapse: true` to shrink them."
     );
   }
   const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo });
