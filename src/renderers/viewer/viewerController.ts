@@ -728,6 +728,15 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             collapseToggle.hidden = true;
         }
 
+        // Same rule the collapse-toggle click handler applies (line ~683): a freshly
+        // swapped-in view can cross the auto-hide node-count threshold in either
+        // direction, so the minimap's visibility must be re-derived from the view now
+        // actually on screen rather than left at whatever it was for the old content.
+        const activeView = expandedView && !expandedView.hidden ? expandedView : collapsedView;
+        if (activeView) {
+            applyMinimapAutoVisibility(activeView.dataset.sfnMinimapAuto === '1');
+        }
+
         searchables = computeSearchables();
         // Rebuilt from a clean clone before search/selection reapply their own classes
         // to the live SVG - runSearch's `.sfn-dim`/`.sfn-hit` and restoreSelection's

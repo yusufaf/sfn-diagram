@@ -512,6 +512,66 @@ describe('minimap auto-visibility across the collapse toggle', () => {
     });
 });
 
+describe('minimap auto-visibility across a setContent update', () => {
+    let setContentPage: Page;
+
+    const smallParallelDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch0', States: { Branch0: { Type: 'Task', Resource: 'arn:b0', End: true } } },
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    const manyBranchesDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: Array.from({ length: 15 }, (_unused, index) => ({
+                    StartAt: `Branch${index}`,
+                    States: {
+                        [`Branch${index}`]: { Type: 'Task', Resource: `arn:b${index}`, End: true },
+                    },
+                })),
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        setContentPage = await browser.newPage();
+        await setContentPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: smallParallelDefinition });
+        await setContentPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await setContentPage.close();
+    });
+
+    const minimapCollapsed = (): Promise<boolean> =>
+        setContentPage.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+
+    it('auto-shows the minimap when an update grows the active (expanded) view past the threshold', async () => {
+        expect(await minimapCollapsed()).toBe(true);
+
+        await setContentPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, generateViewerUpdate({ aslDefinition: manyBranchesDefinition }) as unknown as Record<string, unknown>);
+
+        expect(await minimapCollapsed()).toBe(false);
+    });
+});
+
 describe('edge detail panel on a Choice diagram', () => {
     let choicePage: Page;
 

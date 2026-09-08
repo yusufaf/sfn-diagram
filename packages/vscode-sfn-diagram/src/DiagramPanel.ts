@@ -27,6 +27,16 @@ export class DiagramPanel {
     private readonly _refreshDebouncer: Debouncer<string>
     /** A debounced refresh's content, held back while the panel is hidden. */
     private _pendingContent: string | undefined
+    /**
+     * The most recently `scheduleRefresh`d content, while its debounce is still
+     * pending. `_lastContent` only advances once that debounce actually fires (or a
+     * full `update()` runs), so anything reading "the current truth" between a
+     * keystroke and its debounced refresh - the toolbar message handler below,
+     * `setHistory` - must prefer this over `_lastContent` or it renders stale,
+     * pre-keystroke content and (via `update`'s `cancel()`) drops the pending edit
+     * entirely rather than just deferring it.
+     */
+    private _scheduledContent: string | undefined
 
     static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
         const column = vscode.window.activeTextEditor
@@ -82,11 +92,16 @@ export class DiagramPanel {
                 } else {
                     return
                 }
-                this.update(this._lastContent)
+                this.update(this.currentContent())
             },
             null,
             this._disposables
         )
+    }
+
+    /** The freshest known content: a still-pending debounced edit, or the last rendered one. */
+    private currentContent(): string {
+        return this._scheduledContent ?? this._lastContent
     }
 
     /**
@@ -96,7 +111,7 @@ export class DiagramPanel {
      */
     setHistory(history: string | undefined) {
         this._history = history
-        this.update(this._lastContent)
+        this.update(this.currentContent())
     }
 
     /** Whether an execution overlay is currently active. */
@@ -118,6 +133,12 @@ export class DiagramPanel {
 
     update(aslContent: string) {
         this._refreshDebouncer.cancel()
+        this._scheduledContent = undefined
+        // A full render is always for `aslContent`, a specific document's content - any
+        // patch still queued for a *different* one (set while the panel was hidden, see
+        // `_refresh`) is now stale and would otherwise get applied to the wrong diagram
+        // once the panel becomes visible again.
+        this._pendingContent = undefined
         this._lastContent = aslContent
         const nonce = createNonce()
         const cspSource = this._panel.webview.cspSource
@@ -153,6 +174,7 @@ export class DiagramPanel {
      * {@link update}'s full `webview.html` replace, which loses all of that.
      */
     scheduleRefresh(aslContent: string) {
+        this._scheduledContent = aslContent
         this._refreshDebouncer.schedule(aslContent)
     }
 
@@ -163,6 +185,10 @@ export class DiagramPanel {
      * so `onDidChangeViewState` can render it once the panel becomes visible again.
      */
     private _refresh(aslContent: string) {
+        // The debounce fired, so this content is no longer merely "scheduled" - either
+        // it gets rendered below or deferred into `_pendingContent`, but either way
+        // `currentContent()` must fall back to `_lastContent` again from here on.
+        this._scheduledContent = undefined
         if (aslContent === this._lastContent) {
             return
         }
