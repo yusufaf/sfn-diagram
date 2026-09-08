@@ -11,13 +11,159 @@ import {
     renderAslFileSection,
     renderExecutionOverlaySection,
 } from 'sfn-diagram/ci'
-import type { AslFileSection, OverlayCandidate } from 'sfn-diagram/ci'
-import type { AslDefinition } from 'sfn-diagram'
+import type {
+    AslFileSection,
+    BuildAslFileSectionOptions,
+    ExecutionOverlaySection,
+    OverlayCandidate,
+} from 'sfn-diagram/ci'
+import type { AslDefinition, LayoutDirection } from 'sfn-diagram'
 import { fetchExecutionForOverlay } from './sfn.js'
 import type { ExecutionMode } from './sfn.js'
 
 const COMMENT_PREFIX = '<!-- sfn-diagram-action:'
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed']
+const DIAGRAM_THEMES = ['light', 'dark'] as const
+const LAYOUT_DIRECTIONS: LayoutDirection[] = ['TB', 'LR', 'RL', 'BT']
+
+/**
+ * GitHub rejects an issue/PR comment body longer than this with a raw 422.
+ * Measured against the fully assembled body, so no safety margin is needed.
+ */
+const MAX_COMMENT_CHARS = 65_536
+
+/** Shown in place of a dropped diagram, once inlining it would push the comment past GitHub's size limit. */
+const DIAGRAM_TOO_LARGE_NOTE =
+    "> 📎 **Diagram omitted** — inlining it would push this comment past GitHub's 65,536-character comment limit. " +
+    'Shrink it with the `hide-catch` or `collapse` inputs, or open the file\'s diagram locally with the `sfn-diagram` CLI.'
+
+/** Sentinel key for the execution-overlay renderable, distinguishable from a real filename. */
+const EXECUTION_OVERLAY_KEY = '\u0000execution-overlay'
+
+interface CommentRenderable {
+    key: string
+    mermaidLength: number
+    render: (includeDiagram: boolean) => string
+}
+
+export interface BuildBoundedCommentBodyParams {
+    marker: string
+    /** Defaults to MAX_COMMENT_CHARS; overridable so tests can use a small budget. */
+    maxChars?: number
+    omissionNote?: string
+    overlaySection: ExecutionOverlaySection | null
+    sections: AslFileSection[]
+}
+
+export interface BoundedCommentBody {
+    body: string
+    /** How many whole file sections had to be dropped (headers and all) - excludes the execution overlay, tracked separately below. */
+    droppedSections: number
+    /** True if the execution-overlay diagram was omitted or its whole section dropped to fit the comment. */
+    executionOverlayOmitted: boolean
+    /** Filenames whose diagram was dropped, largest first. */
+    omittedDiagrams: string[]
+}
+
+function assembleRenderables(params: {
+    extraSection?: string
+    marker: string
+    omitted: Set<string>
+    renderables: CommentRenderable[]
+}): string {
+    const { extraSection, marker, omitted, renderables } = params
+    const sections = renderables.map((renderable) => renderable.render(!omitted.has(renderable.key)))
+    if (extraSection) sections.push(extraSection)
+    return assembleCommentBody({ marker, sections })
+}
+
+function droppedSectionsNote(params: { droppedSections: number; maxChars: number }): string {
+    const { droppedSections, maxChars } = params
+    return `> ⚠️ **${droppedSections} more changed file(s) omitted** — the comment hit GitHub's ${maxChars}-character limit.`
+}
+
+/**
+ * Assembles a PR comment body that fits within GitHub's comment size limit, degrading
+ * gracefully rather than posting a body that gets rejected with a raw 422: first every
+ * diagram is inlined; if that doesn't fit, diagrams are omitted largest-first (in favor
+ * of a placeholder note) until it does; if even that isn't enough, whole file sections
+ * are dropped from the end until the body fits or nothing is left.
+ */
+export function buildBoundedCommentBody(params: BuildBoundedCommentBodyParams): BoundedCommentBody {
+    const { marker, maxChars = MAX_COMMENT_CHARS, omissionNote, overlaySection, sections } = params
+
+    const renderables: CommentRenderable[] = sections.map((section) => ({
+        key: section.filename,
+        mermaidLength: section.mermaidCode.length,
+        render: (includeDiagram) => renderAslFileSection(section, { includeDiagram, omissionNote }),
+    }))
+    if (overlaySection) {
+        renderables.push({
+            key: EXECUTION_OVERLAY_KEY,
+            mermaidLength: overlaySection.mermaidCode.length,
+            render: (includeDiagram) => renderExecutionOverlaySection(overlaySection, { includeDiagram, omissionNote }),
+        })
+    }
+
+    const omitted = new Set<string>()
+    const omittedDiagrams = (): string[] =>
+        [...renderables]
+            .sort((a, b) => b.mermaidLength - a.mermaidLength)
+            .filter((renderable) => omitted.has(renderable.key) && renderable.key !== EXECUTION_OVERLAY_KEY)
+            .map((renderable) => renderable.key)
+    // Separate from omittedDiagrams(), which deliberately excludes the overlay so its
+    // synthetic key never appears in a "diagram(s) for ..." filename list - callers
+    // that need to know the overlay itself was affected read this instead.
+    const executionOverlayOmitted = (): boolean => omitted.has(EXECUTION_OVERLAY_KEY)
+
+    let body = assembleRenderables({ marker, omitted, renderables })
+    if (body.length <= maxChars) {
+        return { body, droppedSections: 0, executionOverlayOmitted: false, omittedDiagrams: [] }
+    }
+
+    const byMermaidLengthDesc = [...renderables].sort((a, b) => b.mermaidLength - a.mermaidLength)
+    for (const renderable of byMermaidLengthDesc) {
+        omitted.add(renderable.key)
+        body = assembleRenderables({ marker, omitted, renderables })
+        if (body.length <= maxChars) {
+            return {
+                body,
+                droppedSections: 0,
+                executionOverlayOmitted: executionOverlayOmitted(),
+                omittedDiagrams: omittedDiagrams(),
+            }
+        }
+    }
+
+    // droppedSections counts only real file sections - the overlay isn't a "changed
+    // file" and is reported through executionOverlayOmitted instead, so the note/warning
+    // text stays accurate whichever of the two (or both) ended up dropped here.
+    let remaining = [...renderables]
+    let droppedSections = 0
+    let overlayDropped = executionOverlayOmitted()
+    while (remaining.length > 0) {
+        const removed = remaining[remaining.length - 1]
+        remaining = remaining.slice(0, -1)
+        if (removed.key === EXECUTION_OVERLAY_KEY) {
+            overlayDropped = true
+        } else {
+            droppedSections += 1
+        }
+        const note = droppedSectionsNote({ droppedSections, maxChars })
+        body = assembleRenderables({ extraSection: note, marker, omitted, renderables: remaining })
+        if (body.length <= maxChars) {
+            return { body, droppedSections, executionOverlayOmitted: overlayDropped, omittedDiagrams: omittedDiagrams() }
+        }
+    }
+
+    const note = droppedSectionsNote({ droppedSections, maxChars })
+    return {
+        body: assembleCommentBody({ marker, sections: [note] }),
+        droppedSections,
+        executionOverlayOmitted: overlayDropped,
+        omittedDiagrams: omittedDiagrams(),
+    }
+}
 
 /** Items requested per page; the maximum the REST API accepts. */
 const LIST_PAGE_SIZE = 100
@@ -137,6 +283,79 @@ async function findCommentByMarker(
     return undefined
 }
 
+/** Split a comma-separated value into trimmed segments, optionally dropping empty ones. */
+function splitTrimmedList(value: string, options: { filterEmpty?: boolean } = {}): string[] {
+    const parts = value.split(',').map((part) => part.trim())
+    return options.filterEmpty ? parts.filter((part) => part.length > 0) : parts
+}
+
+/** Split a `collapse: Name1,Name2` value into trimmed, non-empty state names. */
+function parseCollapseNames(value: string): string[] {
+    return splitTrimmedList(value, { filterEmpty: true })
+}
+
+/** Reads the diagram-rendering inputs, warning and falling back to the default on an unrecognised value. */
+function resolveDiagramOptions(): BuildAslFileSectionOptions {
+    const hideCatchRaw = core.getInput('hide-catch').trim().toLowerCase()
+    let hideCatch = false
+    if (hideCatchRaw !== '' && hideCatchRaw !== 'false') {
+        if (hideCatchRaw === 'true') {
+            hideCatch = true
+        } else {
+            core.warning(`Unrecognised hide-catch value "${hideCatchRaw}"; expected "true" or "false". Falling back to false.`)
+        }
+    }
+
+    const themeRaw = core.getInput('theme').trim().toLowerCase()
+    let theme: 'light' | 'dark' = 'light'
+    if (themeRaw !== '' && themeRaw !== 'light') {
+        if ((DIAGRAM_THEMES as readonly string[]).includes(themeRaw)) {
+            theme = themeRaw as 'light' | 'dark'
+        } else {
+            core.warning(`Unknown theme "${themeRaw}"; expected one of ${DIAGRAM_THEMES.join(', ')}. Falling back to light.`)
+        }
+    }
+
+    const layoutRaw = core.getInput('layout').trim().toUpperCase()
+    let layout: LayoutDirection = 'TB'
+    if (layoutRaw !== '' && layoutRaw !== 'TB') {
+        if ((LAYOUT_DIRECTIONS as string[]).includes(layoutRaw)) {
+            layout = layoutRaw as LayoutDirection
+        } else {
+            core.warning(`Unknown layout "${layoutRaw}"; expected one of ${LAYOUT_DIRECTIONS.join(', ')}. Falling back to TB.`)
+        }
+    }
+
+    const collapseRaw = core.getInput('collapse').trim()
+    const collapse: boolean | string[] | undefined =
+        collapseRaw === '' || collapseRaw.toLowerCase() === 'false'
+            ? undefined
+            : collapseRaw.toLowerCase() === 'true'
+              ? true
+              : parseCollapseNames(collapseRaw)
+
+    return {
+        catchHandling: hideCatch ? 'hide' : undefined,
+        collapse,
+        layout,
+        theme,
+    }
+}
+
+interface SetActionOutputsParams {
+    changedFiles: string[]
+    commentId?: number
+    commentUrl?: string
+}
+
+function setActionOutputs(params: SetActionOutputsParams): void {
+    const { changedFiles, commentId, commentUrl } = params
+    core.setOutput('changed-count', String(changedFiles.length))
+    core.setOutput('changed-files', JSON.stringify(changedFiles))
+    core.setOutput('comment-id', commentId === undefined ? '' : String(commentId))
+    core.setOutput('comment-url', commentUrl ?? '')
+}
+
 export async function run(): Promise<void> {
     const token = core.getInput('github-token', { required: true })
     const aslGlobRaw = core.getInput('asl-glob') || '**/*.asl.json,**/*.asl'
@@ -157,8 +376,12 @@ export async function run(): Promise<void> {
         executionMode = 'off'
     }
 
-    const patterns = aslGlobRaw.split(',').map((pattern) => pattern.trim())
+    const diagramOptions = resolveDiagramOptions()
+
+    const patterns = splitTrimmedList(aslGlobRaw)
     const { context } = github
+
+    setActionOutputs({ changedFiles: [] })
 
     if (!context.payload.pull_request) {
         core.info('Not a pull_request event — skipping')
@@ -184,6 +407,8 @@ export async function run(): Promise<void> {
     const aslFiles = changedFiles.filter(
         (file) => file.status !== 'unchanged' && matchesPatterns(file.filename, patterns),
     )
+    const aslFilenames = aslFiles.map((file) => file.filename)
+    setActionOutputs({ changedFiles: aslFilenames })
 
     if (aslFiles.length === 0) {
         core.info('No ASL files changed in this PR')
@@ -218,12 +443,16 @@ export async function run(): Promise<void> {
             overlayCandidates.push({ afterAsl, filename })
         }
 
-        const section = buildAslFileSection({ afterAsl, beforeAsl, filename })
+        const section = buildAslFileSection({ afterAsl, beforeAsl, filename }, diagramOptions)
         if (section) sections.push(section)
     }
 
-    const bodySections = sections.map((section) => renderAslFileSection(section))
+    if (sections.length === 0) {
+        core.info('No valid ASL definitions found in changed files')
+        return
+    }
 
+    let overlaySection: ExecutionOverlaySection | null = null
     if (executionMode !== 'off') {
         const overlay = await buildExecutionOverlaySection({
             candidates: overlayCandidates,
@@ -236,36 +465,53 @@ export async function run(): Promise<void> {
             const logFn = overlay.log.level === 'warning' ? core.warning : core.info
             logFn(overlay.log.message)
         }
-        if (overlay.section) {
-            bodySections.push(renderExecutionOverlaySection(overlay.section))
-        }
-    }
-
-    if (bodySections.length === 0) {
-        core.info('No valid ASL definitions found in changed files')
-        return
+        overlaySection = overlay.section
     }
 
     const marker = `${COMMENT_PREFIX}${commentTag}-->`
-    const body = assembleCommentBody({ marker, sections: bodySections })
+    const { body, droppedSections, executionOverlayOmitted, omittedDiagrams } = buildBoundedCommentBody({
+        marker,
+        omissionNote: DIAGRAM_TOO_LARGE_NOTE,
+        overlaySection,
+        sections,
+    })
+
+    if (omittedDiagrams.length > 0 || droppedSections > 0 || executionOverlayOmitted) {
+        core.warning(
+            `The comment exceeded GitHub's ${MAX_COMMENT_CHARS.toLocaleString()}-character limit` +
+                (omittedDiagrams.length > 0
+                    ? `; omitted the diagram(s) for ${omittedDiagrams.join(', ')}`
+                    : '') +
+                (executionOverlayOmitted ? '; omitted the execution overlay diagram' : '') +
+                (droppedSections > 0 ? `; dropped ${droppedSections} whole file section(s)` : '') +
+                '. Set `hide-catch: true` or `collapse: true` to shrink them.',
+        )
+    }
 
     const existing = await findCommentByMarker({ marker, octokit, owner, pullNumber, repo })
 
-    if (existing) {
-        await octokit.rest.issues.updateComment({
-            body,
-            comment_id: existing.id,
-            owner,
-            repo,
-        })
-        core.info(`Updated existing PR comment #${existing.id}`)
-    } else {
-        await octokit.rest.issues.createComment({
-            body,
-            issue_number: pullNumber,
-            owner,
-            repo,
-        })
-        core.info('Created new PR comment')
+    try {
+        if (existing) {
+            const { data: comment } = await octokit.rest.issues.updateComment({
+                body,
+                comment_id: existing.id,
+                owner,
+                repo,
+            })
+            setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url })
+            core.info(`Updated existing PR comment #${existing.id}`)
+        } else {
+            const { data: comment } = await octokit.rest.issues.createComment({
+                body,
+                issue_number: pullNumber,
+                owner,
+                repo,
+            })
+            setActionOutputs({ changedFiles: aslFilenames, commentId: comment.id, commentUrl: comment.html_url })
+            core.info('Created new PR comment')
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(`Failed to post PR comment (body length ${body.length}): ${message}`)
     }
 }

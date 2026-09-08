@@ -693,6 +693,12 @@ export interface GenerateMermaidDiffParams {
 
     /** The old (base) ASL definition */
     before: AslDefinition | string;
+
+    /** Graph layout direction */
+    layout?: LayoutDirection;
+
+    /** Color theme */
+    theme?: ThemeOption;
 }
 
 // Execution Overlay Types

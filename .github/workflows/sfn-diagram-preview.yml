@@ -15,8 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       # The action's manifest is committed as action.template.yml, never as
       # action.yml — a real action.yml in this subdirectory makes GitHub treat the
@@ -29,7 +27,20 @@ jobs:
             > packages/github-action-sfn-diagram/action.yml
 
       - name: Preview Step Functions diagrams
+        id: preview
         uses: ./packages/github-action-sfn-diagram
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           asl-glob: '**/*.asl.json,**/*.asl'
+          hide-catch: 'true'
+          theme: 'dark'
+          layout: 'LR'
+
+      - name: Assert the action's outputs are readable downstream
+        run: |
+          echo "changed-count: ${{ steps.preview.outputs.changed-count }}"
+          echo "changed-files: ${{ steps.preview.outputs.changed-files }}"
+          echo "comment-id:    ${{ steps.preview.outputs.comment-id }}"
+          echo "comment-url:   ${{ steps.preview.outputs.comment-url }}"
+          test -n "${{ steps.preview.outputs.changed-count }}"
+          echo '${{ steps.preview.outputs.changed-files }}' | jq -e 'type == "array"'
