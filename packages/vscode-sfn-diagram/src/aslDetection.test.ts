@@ -57,6 +57,10 @@ describe('isAslFilename', () => {
         expect(isAslFilename({ filename: '/repo/examples/order.asl.json' })).toBe(true)
     })
 
+    it('accepts a Windows-style full path', () => {
+        expect(isAslFilename({ filename: 'C:\\repo\\workflows\\order.asl.json' })).toBe(true)
+    })
+
     it('accepts a plain .asl filename', () => {
         expect(isAslFilename({ filename: 'order.asl' })).toBe(true)
     })

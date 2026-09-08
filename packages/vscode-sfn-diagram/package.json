@@ -23,7 +23,12 @@
         "diagram",
         "state-machine"
     ],
-    "activationEvents": ["onLanguage:json", "onLanguage:jsonc"],
+    "activationEvents": [
+        "onLanguage:json",
+        "onLanguage:jsonc",
+        "workspaceContains:**/*.asl.json",
+        "workspaceContains:**/*.asl"
+    ],
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
@@ -43,6 +48,54 @@
                 "category": "Step Functions"
             }
         ],
+        "configuration": {
+            "title": "Step Functions Diagram",
+            "properties": {
+                "sfnDiagram.autoPreview": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Automatically open the diagram preview when a Step Functions definition (.asl.json or .asl) is opened.",
+                    "scope": "window"
+                },
+                "sfnDiagram.collapseContainers": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Collapse Parallel and Map containers into a single placeholder node, keeping large state machines readable.",
+                    "scope": "window"
+                },
+                "sfnDiagram.layout": {
+                    "type": "string",
+                    "default": "TB",
+                    "enum": ["TB", "LR", "RL", "BT"],
+                    "enumDescriptions": [
+                        "Top to bottom",
+                        "Left to right",
+                        "Right to left",
+                        "Bottom to top"
+                    ],
+                    "description": "Default layout direction for new previews. The preview toolbar can override this for the current session.",
+                    "scope": "window"
+                },
+                "sfnDiagram.showIcons": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show AWS service icons on Task nodes. Icons are fetched from the jsDelivr CDN, so this requires network access.",
+                    "scope": "window"
+                },
+                "sfnDiagram.theme": {
+                    "type": "string",
+                    "default": "auto",
+                    "enum": ["auto", "dark", "light"],
+                    "enumDescriptions": [
+                        "Follow the current VS Code color theme",
+                        "AWS dark theme",
+                        "AWS light theme"
+                    ],
+                    "description": "Default color theme for new previews. The preview toolbar can override this for the current session.",
+                    "scope": "window"
+                }
+            }
+        },
         "menus": {
             "editor/title": [
                 {
