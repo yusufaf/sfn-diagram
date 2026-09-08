@@ -729,9 +729,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         }
 
         searchables = computeSearchables();
+        // Rebuilt from a clean clone before search/selection reapply their own classes
+        // to the live SVG - runSearch's `.sfn-dim`/`.sfn-hit` and restoreSelection's
+        // `.sfn-edge-selected` would otherwise get baked into the thumbnail clone too.
+        rebuildMinimapThumbnail();
         runSearch();
         restoreSelection();
-        rebuildMinimapThumbnail();
         if (viewportAdjusted) apply();
         else fit();
     }

@@ -29,8 +29,10 @@ import { DagreLayout } from './layout';
 import {
     SvgRenderer,
     MermaidRenderer,
+    buildViewerContent,
     collectEdgeData,
     collectStateData,
+    minimapStartsCollapsed,
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
 } from './renderers';
@@ -40,12 +42,14 @@ import type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateHtmlParams,
+    GenerateViewerUpdateParams,
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
     HtmlOutput,
+    ViewerUpdate,
     AslDefinition,
 } from './types';
 
@@ -285,20 +289,34 @@ function buildHtmlViews(params: {
     return { collapsedSvgOutput, svgOutput };
 }
 
+/**
+ * Render the expanded view plus (via {@link buildHtmlViews}) the collapsed one, then
+ * apply the "is the collapsed view worth shipping" nodeCount guard: a requested target
+ * can resolve to an `effectiveTargets` entry whose own closure is still empty (a
+ * container with no descendants), which would otherwise ship a second view identical
+ * to the first behind a toggle button that does nothing.
+ *
+ * Shared by {@link generateHtml} and {@link generateViewerUpdate} so the two can never
+ * disagree on when a diagram gets a collapse toggle.
+ */
+function buildHtmlViewParts(params: {
+    aslObj: AslDefinition;
+    options: Omit<GenerateHtmlParams, 'aslDefinition'>;
+}): { collapsedSvg?: string; collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
+    const { collapsedSvgOutput, svgOutput } = buildHtmlViews(params);
+    const collapsedSvg =
+        collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
+            ? collapsedSvgOutput.svg
+            : undefined;
+    return { collapsedSvg, collapsedSvgOutput, svgOutput };
+}
+
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
 
-    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options });
-    // The nodeCount comparison stays as a final guard: a requested target can
-    // resolve to an `effectiveTargets` entry whose own closure is still empty
-    // (a container with no descendants), which would otherwise ship a second
-    // view identical to the first behind a toggle button that does nothing.
-    const collapsedSvg =
-        collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
-            ? collapsedSvgOutput.svg
-            : undefined;
+    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({ aslObj, options });
 
     return {
         height: svgOutput.height,
@@ -314,6 +332,46 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
         }),
         metadata: svgOutput.metadata,
         width: svgOutput.width,
+    };
+}
+
+/**
+ * Render diagram content a running interactive viewer can swap in, without rebuilding
+ * the surrounding document. Counterpart to {@link generateHtml} for hosts that keep one
+ * viewer alive across re-renders (e.g. the VS Code preview) and want to patch it in
+ * place — via `ViewerHandle.setContent` — rather than replace the whole document on
+ * every edit.
+ *
+ * @param params - ASL definition plus the same options as {@link generateSvg}.
+ * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it.
+ *
+ * @example
+ * ```typescript
+ * import { generateViewerUpdate } from 'sfn-diagram';
+ * const update = generateViewerUpdate({ aslDefinition: asl });
+ * webview.postMessage({ command: 'updateContent', ...update });
+ * ```
+ */
+export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
+    const { aslDefinition, ...options } = params;
+    const aslObj: AslDefinition =
+        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+
+    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({ aslObj, options });
+
+    return {
+        contentHtml: buildViewerContent({
+            collapsedMinimapCollapsed: collapsedSvg
+                ? minimapStartsCollapsed({ nodeCount: collapsedSvgOutput?.metadata.nodeCount })
+                : undefined,
+            collapsedSvg,
+            minimapCollapsed: minimapStartsCollapsed({ nodeCount: svgOutput.metadata.nodeCount }),
+            svg: svgOutput.svg,
+        }),
+        edgeData: collectEdgeData({ definition: aslObj, options }),
+        hasCollapsedView: collapsedSvg !== undefined,
+        metadata: svgOutput.metadata,
+        stateData: collectStateData({ definition: aslObj }),
     };
 }
 
@@ -603,6 +661,8 @@ export type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateHtmlParams,
+    GenerateViewerUpdateParams,
+    ViewerUpdate,
     GenerateDiagramParams,
     GenerateDiffParams,
     GenerateMermaidDiffParams,
