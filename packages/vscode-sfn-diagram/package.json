@@ -61,6 +61,7 @@
     "scripts": {
         "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap",
         "dev": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap --watch",
+        "test": "vitest run",
         "typecheck": "tsc --noEmit",
         "package": "vsce package --no-dependencies",
         "publish:openvsx": "ovsx publish"
@@ -72,7 +73,8 @@
         "esbuild": "^0.25.0",
         "ovsx": "^0.10.0",
         "sfn-diagram": "workspace:*",
-        "typescript": "^5.9.2"
+        "typescript": "^5.9.2",
+        "vitest": "^3.2.6"
     },
     "license": "MIT",
     "repository": {
