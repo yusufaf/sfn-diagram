@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ASL_CONTEXT_KEY, ASL_FILENAME_PATTERN } from './aslDetection'
 
@@ -26,7 +27,10 @@ interface ExtensionManifest {
     contributes: ExtensionContributes
 }
 
-const manifestPath = new URL('../package.json', import.meta.url)
+// __dirname (not import.meta.url) - this package's tsconfig targets `module: commonjs`,
+// and using it here keeps this file eligible for `tsc --noEmit`, which errors (TS1343)
+// on import.meta under commonjs.
+const manifestPath = join(__dirname, '../package.json')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ExtensionManifest
 
 const EXPECTED_WHEN =

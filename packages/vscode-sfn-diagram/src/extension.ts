@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { ASL_CONTEXT_KEY, isAslDocument } from './aslDetection'
+import { ASL_CONTEXT_KEY, isAslFilename, looksLikeAslContent } from './aslDetection'
 import { DiagramPanel } from './DiagramPanel'
 
 const ASL_CONTEXT_UPDATE_DEBOUNCE_MS = 300
@@ -20,7 +20,10 @@ function updateAslContext(editor: vscode.TextEditor | undefined): void {
     }
 
     const filename = editor.document.uri.path.split('/').pop() ?? ''
-    const value = isAslDocument({ filename, text: editor.document.getText() })
+    // The filename check is cheap; only materialize the document's full text (this
+    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
+    // when the filename alone doesn't already answer the question.
+    const value = isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
 
     if (value === lastAslContextValue) {
         return
