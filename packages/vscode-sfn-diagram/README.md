@@ -24,7 +24,7 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 ## Features
 
 - **Live preview** of the state machine as an SVG diagram in a side panel.
-- Opens from the command palette or a button in the editor title bar for `.json` / `.asl` files.
+- Opens from the command palette for any file, or from a button in the editor title bar for `*.asl.json` and `*.asl` files — and for any other `.json` file whose top level looks like an ASL definition (a `StartAt` string and a `States` object).
 - **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in the preview toolbar that re-render instantly.
 - The preview updates automatically as you edit the underlying file.
 - **Execution overlay**: paint a real execution's history onto the diagram — succeeded / failed / caught / not-reached states light up, with a colour legend in the toolbar and a one-click **Clear overlay**.
@@ -32,7 +32,7 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 
 ## Usage
 
-1. Open a Step Functions ASL file (`.json` or `.asl`).
+1. Open a Step Functions ASL file (`*.asl.json`, `*.asl`, or any `.json` file containing an ASL definition).
 2. Run **Step Functions: Preview Step Functions Diagram** from the command palette (`Ctrl/Cmd+Shift+P`), or click the diagram button in the editor title bar.
 3. Use the toolbar dropdowns to change layout and theme.
 
