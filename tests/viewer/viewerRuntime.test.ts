@@ -1033,4 +1033,34 @@ describe('keyboard navigation', () => {
         }));
         expect(scroll).toEqual({ left: 0, top: 0 });
     });
+
+    it('recentres on an off-screen edge too, not only on nodes', async () => {
+        // Edges carry no group `transform` the way nodes do (their `d` points are
+        // already absolute), so a centring implementation keyed off that attribute
+        // alone would silently no-op for an edge - the earlier "recentres..." test
+        // can pass on a node tab stop alone and never catch that gap.
+        for (let zoomClick = 0; zoomClick < 15; zoomClick++) {
+            await kbPage.click('[data-sfn-zoom="in"]');
+        }
+
+        await kbPage.focus('#sfn-search');
+        let recentred = false;
+        for (let attempt = 0; attempt < 60 && !recentred; attempt++) {
+            const before = await kbPage.$eval(
+                '[data-sfn="content"]',
+                (element) => (element as HTMLElement).style.transform,
+            );
+            await kbPage.keyboard.press('Tab');
+            const isEdge = await kbPage.evaluate(() =>
+                document.activeElement?.hasAttribute('data-edge-id'),
+            );
+            if (!isEdge) continue;
+            const after = await kbPage.$eval(
+                '[data-sfn="content"]',
+                (element) => (element as HTMLElement).style.transform,
+            );
+            recentred = after !== before;
+        }
+        expect(recentred).toBe(true);
+    });
 });

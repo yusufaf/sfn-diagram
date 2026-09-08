@@ -152,16 +152,30 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         apply();
     }
 
-    // Read the group's own translate() rather than measuring it: getBBox() reports
-    // pre-transform geometry and the stage applies its own CSS transform on top.
+    // A node/container group's own translate() gives its centre directly - reading it
+    // is cheaper and exact, unlike getBBox() (pre-transform geometry, plus the stage's
+    // own CSS transform sits on top). An edge path carries no such transform - its `d`
+    // points are already absolute in the same coordinate space - so its own bounding
+    // box *is* that space, and centring it needs no transform parsing at all.
     function nodeCenter(group: Element): { x: number; y: number } | null {
-        const transform = group.getAttribute('transform') || '';
-        const match = transform.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
-        if (!match) return null;
         const svg = activeSvg();
         const viewBox = (svg?.getAttribute('viewBox') || '0 0 0 0').split(/[ ,]+/).map(parseFloat);
-        // Node coordinates are in viewBox space; shift by its origin to get content-box pixels.
-        return { x: parseFloat(match[1]) - viewBox[0], y: parseFloat(match[2]) - viewBox[1] };
+
+        const transform = group.getAttribute('transform') || '';
+        const match = transform.match(/translate\(\s*(-?[\d.]+)[ ,]+(-?[\d.]+)/);
+        if (match) {
+            // Node coordinates are in viewBox space; shift by its origin to get content-box pixels.
+            return { x: parseFloat(match[1]) - viewBox[0], y: parseFloat(match[2]) - viewBox[1] };
+        }
+
+        if (typeof (group as SVGGraphicsElement).getBBox === 'function') {
+            const box = (group as SVGGraphicsElement).getBBox();
+            return {
+                x: box.x + box.width / 2 - viewBox[0],
+                y: box.y + box.height / 2 - viewBox[1],
+            };
+        }
+        return null;
     }
 
     function centerOn(group: Element): void {
