@@ -23,17 +23,18 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 
 ## Features
 
-- **Live preview** of the state machine as an SVG diagram in a side panel.
+- **Interactive preview** of the state machine — the same pan/zoom/search/minimap viewer as `sfn-diagram --format html`, not a static SVG in a scroll box.
 - Opens from the command palette or a button in the editor title bar for `.json` / `.asl` files.
-- **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in the preview toolbar that re-render instantly.
+- **Pan and zoom** by dragging or scrolling, with Fit/Reset controls; **search** (`/`) highlights matching states and cycles through hits; the **minimap** (`m`) navigates large diagrams; **click a state or edge** to open a detail panel with its raw ASL, or an edge's endpoints/type/condition. A **collapse toggle** appears when the diagram has a Parallel/Map container to fold.
+- **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in a floating toolbar that re-render instantly.
 - The preview updates automatically as you edit the underlying file.
-- **Execution overlay**: paint a real execution's history onto the diagram — succeeded / failed / caught / not-reached states light up, with a colour legend in the toolbar and a one-click **Clear overlay**.
+- **Execution overlay**: paint a real execution's history onto the diagram — succeeded / failed / caught / not-reached states light up, with a colour legend in the toolbar and a one-click **Clear overlay**. Pan/zoom/search/detail all keep working with the overlay active.
 
 ## Usage
 
 1. Open a Step Functions ASL file (`.json` or `.asl`).
 2. Run **Step Functions: Preview Step Functions Diagram** from the command palette (`Ctrl/Cmd+Shift+P`), or click the diagram button in the editor title bar.
-3. Use the toolbar dropdowns to change layout and theme.
+3. Use the floating toolbar to change layout and theme; pan, zoom, search, and click into states/edges directly on the diagram.
 
 To overlay a real run, run **Step Functions: Preview Execution Overlay** and pick an execution-history JSON file (a `GetExecutionHistory` response, `{ events: [...] }`, or a raw `HistoryEvent[]`). The run's path lights up on top of the definition; **Clear Execution Overlay** (or the toolbar button) returns to the plain diagram.
 
