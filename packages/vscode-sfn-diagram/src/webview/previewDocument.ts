@@ -3,6 +3,7 @@ import { buildContentSecurityPolicyMeta } from './csp'
 import { injectBeforeBodyEnd, injectIntoHead } from './documentSurgery'
 import { buildHostBridgeScript, buildHostToolbarHtml, buildHostToolbarStyles } from './hostToolbar'
 import type { ExecutionMetadata } from './hostToolbar'
+import { buildUpdateBridgeScript } from './updateBridge'
 
 /** Parameters for {@link buildPreviewDocument}. */
 export interface BuildPreviewDocumentParams {
@@ -53,7 +54,8 @@ export function buildPreviewDocument(params: BuildPreviewDocumentParams): string
 
     const toolbarMarkup = `<style nonce="${nonce}">${buildHostToolbarStyles()}</style>
 ${buildHostToolbarHtml({ executionMetadata, layout, theme })}
-<script nonce="${nonce}">${buildHostBridgeScript()}</script>`
+<script nonce="${nonce}">${buildHostBridgeScript()}</script>
+<script nonce="${nonce}">${buildUpdateBridgeScript()}</script>`
 
     return injectBeforeBodyEnd({ html: withCsp, markup: `\n${toolbarMarkup}\n` })
 }

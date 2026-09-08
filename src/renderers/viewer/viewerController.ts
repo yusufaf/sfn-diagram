@@ -48,12 +48,28 @@ export interface AttachViewerParams {
     stateData?: Record<string, AslState>;
 }
 
+/** Parameters for {@link ViewerHandle.setContent}. */
+export interface SetViewerContentParams {
+    /** Freshly-rendered markup for the `data-sfn="content"` node, from `buildViewerContent`. */
+    contentHtml: string;
+    /** Viewer-facing detail for each edge in the new content, keyed by `data-edge-id`. */
+    edgeData?: Record<string, ViewerEdge>;
+    /** Raw ASL for each state in the new content, keyed by state name. */
+    stateData?: Record<string, AslState>;
+}
+
 /** Handle returned by {@link attachViewer} for cleanup and imperative control. */
 export interface ViewerHandle {
     /** Remove every event listener this viewer attached. Idempotent. */
     destroy(): void;
     /** Recentre and rescale the diagram to fit the stage. */
     fit(): void;
+    /**
+     * Swap in a freshly-rendered diagram in place, preserving pan/zoom, search query,
+     * minimap visibility, which view (expanded/collapsed) is active, and an open detail
+     * panel whose subject still exists.
+     */
+    setContent(params: SetViewerContentParams): void;
 }
 
 /**
@@ -77,9 +93,14 @@ export interface ViewerHandle {
  * ```
  */
 export function attachViewer(params: AttachViewerParams): ViewerHandle {
-    const { edgeData, root, stateData } = params;
-    const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
-    const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
+    const { root } = params;
+    let stateData = params.stateData;
+    let edgeData = params.edgeData;
+    let hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
+    let hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
+    // Whether the panel markup exists at all - decided once from the initial render and
+    // never revisited, since setContent only ever swaps `content`'s innerHTML, never the
+    // toolbar/panel chrome outside it.
     const hasPanelData = hasStateData || hasEdgeData;
 
     // `Document.ownerDocument` is always null, so normalize both cases to "the
@@ -91,12 +112,16 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     const zoomLabel = hook(root, 'zoom-label');
     if (!stage || !content || !zoomLabel) {
         // Markup wasn't built (or hasn't upgraded yet) - nothing to attach to.
-        return { destroy: () => {}, fit: () => {} };
+        return { destroy: () => {}, fit: () => {}, setContent: () => {} };
     }
 
     let scale = 1;
     let translateX = 0;
     let translateY = 0;
+    // Set on the viewer's first pan/zoom/wheel/button interaction. Once true, setContent
+    // keeps the current viewport instead of re-fitting - a user who has already framed
+    // the diagram themselves should not be yanked back to a fit view by every keystroke.
+    let viewportAdjusted = false;
     const MIN_SCALE = 0.05;
     const MAX_SCALE = 8;
     // Blocks that need to react to every pan/zoom (the minimap viewport rect) push a
@@ -204,6 +229,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     let openEdgePanel: (edgeId: string, options: SelectionOptions) => void = () => {};
     let closePanel: () => void = () => {};
 
+    // The currently-selected state or edge, if any - restored by setContent after a
+    // content swap, and cleared whenever the panel closes.
+    let selection: { id: string; kind: 'edge' | 'state' } | null = null;
     // The element to return focus to on close - set by every open, read only when
     // focus actually made it into the panel (see closePanel).
     let panelTrigger: Element | null = null;
@@ -323,6 +351,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                 const activeElement = ownerDoc?.activeElement ?? null;
                 panel.classList.remove('sfn-open');
                 clearEdgeSelection();
+                selection = null;
                 if (
                     activeElement &&
                     panel.contains(activeElement) &&
@@ -352,6 +381,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                     rows.push(fieldRow(field, summarize(state[field])));
                 }
                 showPanel(stateId, rows, state);
+                selection = { id: stateId, kind: 'state' };
                 panelTrigger = options.trigger;
                 if (options.moveFocus) focusPanel();
             };
@@ -372,6 +402,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                     edgeId,
                     edge ? [String(edge.from), String(edge.to)] : [],
                 );
+                selection = { id: edgeId, kind: 'edge' };
                 panelTrigger = options.trigger;
                 if (options.moveFocus) focusPanel();
             };
@@ -545,6 +576,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             translateX = mx - (mx - translateX) * (next / scale);
             translateY = my - (my - translateY) * (next / scale);
             scale = next;
+            viewportAdjusted = true;
             apply();
         },
         { passive: false },
@@ -573,6 +605,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             stage.classList.add('sfn-dragging');
             translateX += dx;
             translateY += dy;
+            viewportAdjusted = true;
             apply();
         }
         lastX = pointerEvent.clientX;
@@ -592,10 +625,10 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     const zoomOut = hook(root, 'zoom-out');
     const zoomFit = hook(root, 'zoom-fit');
     const zoomReset = hook(root, 'zoom-reset');
-    if (zoomIn) on(zoomIn, 'click', () => { scale = Math.min(MAX_SCALE, scale * 1.2); apply(); });
-    if (zoomOut) on(zoomOut, 'click', () => { scale = Math.max(MIN_SCALE, scale / 1.2); apply(); });
-    if (zoomFit) on(zoomFit, 'click', fit);
-    if (zoomReset) on(zoomReset, 'click', () => { scale = 1; translateX = 0; translateY = 0; apply(); });
+    if (zoomIn) on(zoomIn, 'click', () => { scale = Math.min(MAX_SCALE, scale * 1.2); viewportAdjusted = true; apply(); });
+    if (zoomOut) on(zoomOut, 'click', () => { scale = Math.max(MIN_SCALE, scale / 1.2); viewportAdjusted = true; apply(); });
+    if (zoomFit) on(zoomFit, 'click', () => { viewportAdjusted = true; fit(); });
+    if (zoomReset) on(zoomReset, 'click', () => { scale = 1; translateX = 0; translateY = 0; viewportAdjusted = true; apply(); });
 
     // --- search -------------------------------------------------------------------
 
@@ -769,6 +802,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             const contentY = (clientY - box.top - geometry.offsetY) / geometry.scale;
             translateX = stage!.clientWidth / 2 - contentX * scale;
             translateY = stage!.clientHeight / 2 - contentY * scale;
+            viewportAdjusted = true;
             apply();
         };
 
@@ -846,11 +880,15 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // against the now-active view since both derive from it.
 
     const collapseToggle = hook(root, 'collapse-toggle');
-    const expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
-    const collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
+    // Re-resolved by setContent after a content swap - a `let` rather than a `const` so
+    // the click handler below (attached once, here) keeps seeing whichever views are
+    // currently in the DOM instead of the ones present at attach time.
+    let expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
+    let collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
 
-    if (collapseToggle && expandedView && collapsedView) {
+    if (collapseToggle) {
         on(collapseToggle, 'click', () => {
+            if (!expandedView || !collapsedView) return;
             expandedView.hidden = !expandedView.hidden;
             collapsedView.hidden = !collapsedView.hidden;
             collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
@@ -870,6 +908,73 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         });
     }
 
+    // Re-open the previously-selected state/edge against the new data, or close the
+    // panel when its subject no longer exists (renamed or removed mid-edit).
+    function restoreSelection(): void {
+        if (!selection) return;
+        // Not a user interaction, so focus never moves - the trigger only needs to be a
+        // connected element for `SelectionOptions`' sake; nothing later reads it unless
+        // focus actually lands in the panel, which moveFocus: false guarantees it won't.
+        const options: SelectionOptions = { moveFocus: false, trigger: stage! };
+        if (selection.kind === 'state') {
+            // openPanel already closes when the id has no entry in the new stateData.
+            openPanel(selection.id, options);
+        } else if (edgeData?.[selection.id] !== undefined) {
+            openEdgePanel(selection.id, options);
+        } else {
+            closePanel();
+        }
+    }
+
+    /**
+     * Swap in a freshly-rendered diagram in place. See {@link ViewerHandle.setContent}.
+     */
+    function setContent(setContentParams: SetViewerContentParams): void {
+        const { contentHtml, edgeData: nextEdgeData, stateData: nextStateData } = setContentParams;
+        const collapsedWasActive = collapsedView !== null && !collapsedView.hidden;
+
+        stateData = nextStateData;
+        edgeData = nextEdgeData;
+        hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
+        hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
+
+        clearEdgeSelection();
+        content!.innerHTML = contentHtml;
+
+        expandedView = content!.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
+        collapsedView = content!.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
+
+        if (expandedView && collapsedView) {
+            expandedView.hidden = collapsedWasActive;
+            collapsedView.hidden = !collapsedWasActive;
+            if (collapseToggle) {
+                collapseToggle.hidden = false;
+                collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
+            }
+        } else if (collapseToggle) {
+            collapseToggle.hidden = true;
+        }
+
+        // Same rule the collapse-toggle click handler applies (line ~683): a freshly
+        // swapped-in view can cross the auto-hide node-count threshold in either
+        // direction, so the minimap's visibility must be re-derived from the view now
+        // actually on screen rather than left at whatever it was for the old content.
+        const activeView = expandedView && !expandedView.hidden ? expandedView : collapsedView;
+        if (activeView) {
+            applyMinimapAutoVisibility(activeView.dataset.sfnMinimapAuto === '1');
+        }
+
+        searchables = computeSearchables();
+        // Rebuilt from a clean clone before search/selection reapply their own classes
+        // to the live SVG - runSearch's `.sfn-dim`/`.sfn-hit` and restoreSelection's
+        // `.sfn-edge-selected` would otherwise get baked into the thumbnail clone too.
+        rebuildMinimapThumbnail();
+        runSearch();
+        restoreSelection();
+        if (viewportAdjusted) apply();
+        else fit();
+    }
+
     fit();
 
     return {
@@ -878,5 +983,6 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
             cleanups.length = 0;
         },
         fit,
+        setContent,
     };
 }

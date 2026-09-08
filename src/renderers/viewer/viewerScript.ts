@@ -32,6 +32,12 @@ function readBlob(variableName: string, elementId: string): string {
  * parsing each embedded data blob first when its flag is set. No external references,
  * so the document stays self-contained and works from `file://`.
  *
+ * Also listens for a `sfn-set-content` `CustomEvent` on `document`, dispatching its
+ * `detail` straight to the viewer's `setContent`. A host embedding this document (e.g.
+ * a VS Code webview) can dispatch that event to patch the live diagram in place -
+ * rebuilding just the diagram, not the whole page - without this script needing to
+ * know anything about the host's own message transport.
+ *
  * @param params - Script parameters
  * @param params.hasEdgeData - Whether to wire up the click-an-edge panel
  * @param params.hasStateData - Whether to wire up the click-a-state panel
@@ -58,7 +64,10 @@ export function buildViewerScript(params: BuildViewerScriptParams): string {
 (function () {
 ${VIEWER_CONTROLLER_BUNDLE}
 ${reads}
-  attachViewer({ ${attachArgs.join(', ')} });
+  var handle = attachViewer({ ${attachArgs.join(', ')} });
+  document.addEventListener('sfn-set-content', function (event) {
+    handle.setContent(event.detail);
+  });
 })();
 `;
 }

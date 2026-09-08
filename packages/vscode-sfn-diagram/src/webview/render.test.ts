@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateExecution } from 'sfn-diagram'
-import { renderPreview } from './render'
+import { hasCollapseToggle, renderPreview, renderPreviewUpdate } from './render'
 
 const simpleAsl = JSON.stringify({
     StartAt: 'A',
@@ -60,11 +60,13 @@ describe('renderPreview', () => {
     it('includes the collapse-toggle hook for a diagram with a container', () => {
         const result = renderPreview({ aslContent: parallelAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
         expect(result.html).toContain('data-sfn-collapse-toggle')
+        expect(result.hasCollapsedView).toBe(true)
     })
 
     it('omits the collapse-toggle hook for a diagram with no container', () => {
         const result = renderPreview({ aslContent: simpleAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
         expect(result.html).not.toContain('data-sfn-collapse-toggle')
+        expect(result.hasCollapsedView).toBe(false)
     })
 
     it('renders the execution overlay and reports metadata matching generateExecution', () => {
@@ -100,6 +102,49 @@ describe('renderPreview', () => {
     it('throws on malformed JSON input', () => {
         expect(() =>
             renderPreview({ aslContent: '{not valid json', layout: 'TB', nonce: 'n1', theme: 'dark' }),
+        ).toThrow()
+    })
+})
+
+describe('hasCollapseToggle', () => {
+    it('is true for a rendered document with a collapse toggle', () => {
+        const { html } = renderPreview({ aslContent: parallelAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
+        expect(hasCollapseToggle({ html })).toBe(true)
+    })
+
+    it('is false for a rendered document with no collapse toggle', () => {
+        const { html } = renderPreview({ aslContent: simpleAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
+        expect(hasCollapseToggle({ html })).toBe(false)
+    })
+})
+
+describe('renderPreviewUpdate', () => {
+    it('renders content-only markup with no history and no execution overlay concerns', () => {
+        const update = renderPreviewUpdate({ aslContent: simpleAsl, layout: 'TB', theme: 'dark' })
+        expect(update.contentHtml).toContain('data-state-id="A"')
+        expect(update.stateData).toEqual({ A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } })
+    })
+
+    it('forwards layout, theme, showIcons, and collapse to the underlying renderer', () => {
+        const update = renderPreviewUpdate({
+            aslContent: parallelAsl,
+            collapse: false,
+            layout: 'LR',
+            showIcons: false,
+            theme: 'light',
+        })
+        expect(update.hasCollapsedView).toBe(false)
+    })
+
+    it('reports hasCollapsedView parity with renderPreview', () => {
+        const preview = renderPreview({ aslContent: parallelAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
+        const update = renderPreviewUpdate({ aslContent: parallelAsl, layout: 'TB', theme: 'dark' })
+        expect(update.hasCollapsedView).toBe(preview.hasCollapsedView)
+    })
+
+    it('throws on malformed JSON input', () => {
+        expect(() =>
+            renderPreviewUpdate({ aslContent: '{not valid json', layout: 'TB', theme: 'dark' }),
         ).toThrow()
     })
 })

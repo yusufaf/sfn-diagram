@@ -52,6 +52,14 @@ describe('buildPreviewDocument', () => {
         expect(document.match(/acquireVsCodeApi\(\)/g)).toHaveLength(1)
     })
 
+    it('includes the update bridge script, nonce-stamped, and the status chip hook', () => {
+        const document = buildDocument()
+        expect(document).toContain('sfn-set-content')
+        expect(document).toContain('data-host="status"')
+        const updateBridgeScript = (document.match(/<script[^>]*>[^<]*sfn-set-content[\s\S]*?<\/script>/) ?? [])[0]
+        expect(updateBridgeScript).toContain(`nonce="${NONCE}"`)
+    })
+
     it('preselects the current layout and theme in the host pill', () => {
         const document = buildDocument({ layout: 'LR', theme: 'light' })
         expect(document).toMatch(/<option value="LR" selected>/)

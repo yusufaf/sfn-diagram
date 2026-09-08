@@ -45,8 +45,10 @@ function buildLegendHtml(executionMetadata: ExecutionMetadata): string {
 }
 
 /**
- * Render the host toolbar's markup: a Layout dropdown, a Theme dropdown, and - when
- * an execution overlay is active - a status legend with a Clear-overlay button.
+ * Render the host toolbar's markup: a Layout dropdown, a Theme dropdown, a status
+ * legend with a Clear-overlay button when an execution overlay is active, and a hidden
+ * status chip (`buildUpdateBridgeScript` toggles it) that surfaces a debounced
+ * keystroke's render error without replacing the last good diagram.
  *
  * Every control is a plain, un-styled-attribute element hooked with `data-host="…"`;
  * {@link buildHostBridgeScript} wires them up with `addEventListener` rather than
@@ -84,6 +86,7 @@ export function buildHostToolbarHtml(params: BuildHostToolbarHtmlParams): string
     </select>
   </label>
   ${executionMetadata ? buildLegendHtml(executionMetadata) : ''}
+  <span class="sfn-host-status" data-host="status" hidden></span>
 </div>`
 }
 
@@ -141,6 +144,9 @@ export function buildHostToolbarStyles(): string {
   padding: 3px 8px;
 }
 .sfn-host-legend button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+.sfn-host-status {
+  color: var(--vscode-inputValidation-warningForeground, #b89500);
+}
 `
 }
 

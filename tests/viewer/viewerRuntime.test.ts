@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
-import { generateHtml } from '../../src';
+import { generateHtml, generateViewerUpdate } from '../../src';
+import type { ViewerUpdate } from '../../src';
 import type { AslDefinition } from '../../src/types';
 
 /**
@@ -564,6 +565,66 @@ describe('minimap auto-visibility across the collapse toggle', () => {
     });
 });
 
+describe('minimap auto-visibility across a setContent update', () => {
+    let setContentPage: Page;
+
+    const smallParallelDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch0', States: { Branch0: { Type: 'Task', Resource: 'arn:b0', End: true } } },
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    const manyBranchesDefinition: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: Array.from({ length: 15 }, (_unused, index) => ({
+                    StartAt: `Branch${index}`,
+                    States: {
+                        [`Branch${index}`]: { Type: 'Task', Resource: `arn:b${index}`, End: true },
+                    },
+                })),
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        setContentPage = await browser.newPage();
+        await setContentPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: smallParallelDefinition });
+        await setContentPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await setContentPage.close();
+    });
+
+    const minimapCollapsed = (): Promise<boolean> =>
+        setContentPage.$eval('#sfn-minimap', (element) => element.classList.contains('sfn-minimap-collapsed'));
+
+    it('auto-shows the minimap when an update grows the active (expanded) view past the threshold', async () => {
+        expect(await minimapCollapsed()).toBe(true);
+
+        await setContentPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, generateViewerUpdate({ aslDefinition: manyBranchesDefinition }) as unknown as Record<string, unknown>);
+
+        expect(await minimapCollapsed()).toBe(false);
+    });
+});
+
 describe('edge detail panel on a Choice diagram', () => {
     let choicePage: Page;
 
@@ -755,6 +816,326 @@ describe('edge detail panel inside a Parallel container', () => {
         expect(
             await containerPage.$$eval('.sfn-edge-selected', (elements) => elements.length),
         ).toBe(0);
+    });
+});
+
+/**
+ * Runtime tests for `ViewerHandle.setContent`, driven the same way a host (the VS
+ * Code preview) does: dispatching `sfn-set-content` on `document` with a
+ * `generateViewerUpdate` payload as its `detail`.
+ */
+
+const editedAlphaResourceDef: AslDefinition = {
+    StartAt: 'Alpha',
+    States: {
+        Alpha: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:alpha-v2',
+            Retry: [{ ErrorEquals: ['States.TaskFailed'], MaxAttempts: 3 }],
+            Next: 'Beta',
+        },
+        Beta: { Type: 'Task', Resource: 'arn:aws:states:::sqs:sendMessage', Next: 'Gamma' },
+        Gamma: { Type: 'Succeed' },
+    },
+};
+
+const betaRemovedDef: AslDefinition = {
+    StartAt: 'Alpha',
+    States: {
+        Alpha: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:alpha',
+            Next: 'Gamma',
+        },
+        Gamma: { Type: 'Succeed' },
+    },
+};
+
+const largeDef: AslDefinition = (() => {
+    const states: AslDefinition['States'] = {};
+    for (let index = 0; index < 19; index++) {
+        states[`Step${index}`] = { Type: 'Pass', Next: `Step${index + 1}` };
+    }
+    states.Step19 = { Type: 'Succeed' };
+    return { StartAt: 'Step0', States: states };
+})();
+
+describe('setContent via sfn-set-content', () => {
+    let contentPage: Page;
+
+    beforeEach(async () => {
+        contentPage = await browser.newPage();
+        await contentPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await contentPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterEach(async () => {
+        await contentPage.close();
+    });
+
+    async function dispatchSetContent(update: ViewerUpdate): Promise<void> {
+        await contentPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+    }
+
+    async function centerOfState(stateId: string): Promise<{ x: number; y: number }> {
+        return contentPage.evaluate((id) => {
+            const element = document.querySelector(`[data-state-id="${id}"]`);
+            const rect = element!.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }, stateId);
+    }
+
+    async function pointOnEdgeInContent(edgeId: string): Promise<{ x: number; y: number }> {
+        return contentPage.evaluate((id) => {
+            const path = Array.from(document.querySelectorAll('[data-edge-id]')).find(
+                (element) => element.getAttribute('data-edge-id') === id,
+            ) as SVGPathElement;
+            const point = path.getPointAtLength(path.getTotalLength() / 2);
+            const matrix = path.getScreenCTM()!;
+            return {
+                x: point.x * matrix.a + point.y * matrix.c + matrix.e,
+                y: point.x * matrix.b + point.y * matrix.d + matrix.f,
+            };
+        }, edgeId);
+    }
+
+    async function clickInContentAt(x: number, y: number): Promise<void> {
+        await contentPage.mouse.move(x, y);
+        await contentPage.mouse.down();
+        await contentPage.mouse.up();
+    }
+
+    it('preserves pan/zoom across an update once the viewport has been touched', async () => {
+        await contentPage.click('[data-sfn-zoom="in"]');
+        const target = await centerOfState('Beta');
+        await contentPage.mouse.move(target.x, target.y);
+        await contentPage.mouse.down();
+        await contentPage.mouse.move(target.x + 60, target.y + 40, { steps: 8 });
+        await contentPage.mouse.up();
+
+        const transformBefore = await contentPage.$eval(
+            '#sfn-content',
+            (element) => (element as HTMLElement).style.transform,
+        );
+        const zoomBefore = await contentPage.$eval('#sfn-zoom-label', (element) => element.textContent);
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
+
+        expect(
+            await contentPage.$eval('#sfn-content', (element) => (element as HTMLElement).style.transform),
+        ).toBe(transformBefore);
+        expect(await contentPage.$eval('#sfn-zoom-label', (element) => element.textContent)).toBe(zoomBefore);
+    });
+
+    it('re-fits to the new diagram when the viewport was never touched', async () => {
+        const transformBefore = await contentPage.$eval(
+            '#sfn-content',
+            (element) => (element as HTMLElement).style.transform,
+        );
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: largeDef }));
+
+        const transformAfter = await contentPage.$eval(
+            '#sfn-content',
+            (element) => (element as HTMLElement).style.transform,
+        );
+        expect(transformAfter).not.toBe(transformBefore);
+    });
+
+    it('preserves the search query and recomputes hits after an update', async () => {
+        await contentPage.focus('#sfn-search');
+        await contentPage.type('#sfn-search', 'be');
+        expect(await contentPage.$eval('#sfn-search-count', (element) => element.textContent)).toBe('1 / 1');
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
+
+        expect(await contentPage.$eval('#sfn-search', (element) => (element as HTMLInputElement).value)).toBe(
+            'be',
+        );
+        expect(await contentPage.$eval('#sfn-search-count', (element) => element.textContent)).toBe('1 / 1');
+        expect(
+            await contentPage.$$eval('.sfn-hit', (elements) =>
+                elements.map((element) => element.getAttribute('data-state-id')),
+            ),
+        ).toEqual(['Beta']);
+        expect(await contentPage.$$eval('.sfn-dim', (elements) => elements.length)).toBe(2);
+    });
+
+    it('keeps the detail panel open on the same state, showing the refreshed ASL', async () => {
+        const target = await centerOfState('Alpha');
+        await clickInContentAt(target.x, target.y);
+        expect(await contentPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            true,
+        );
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
+
+        expect(await contentPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            true,
+        );
+        expect(await contentPage.$eval('#sfn-panel-title', (element) => element.textContent)).toBe('Alpha');
+        expect(
+            await contentPage.$eval('#sfn-panel-json', (element) => element.textContent?.includes('alpha-v2')),
+        ).toBe(true);
+    });
+
+    it('closes the detail panel when its state is removed by the update', async () => {
+        const target = await centerOfState('Beta');
+        await clickInContentAt(target.x, target.y);
+        expect(await contentPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            true,
+        );
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: betaRemovedDef }));
+
+        expect(await contentPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+    });
+
+    it('closes the edge detail panel and clears the highlight when the edge is removed', async () => {
+        const target = await pointOnEdgeInContent('Alpha->Beta#normal#0');
+        await clickInContentAt(target.x, target.y);
+        expect(await contentPage.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(2);
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: betaRemovedDef }));
+
+        expect(await contentPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+        expect(await contentPage.$$eval('.sfn-edge-selected', (elements) => elements.length)).toBe(0);
+    });
+
+    it('still opens the panel on a click after an update, proving delegated listeners survived the swap', async () => {
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
+
+        const target = await centerOfState('Gamma');
+        await clickInContentAt(target.x, target.y);
+
+        expect(await contentPage.$eval('#sfn-panel-title', (element) => element.textContent)).toBe('Gamma');
+    });
+
+    it('rebuilds the minimap thumbnail and preserves its open/closed state across an update', async () => {
+        expect(
+            await contentPage.$eval('#sfn-minimap', (element) =>
+                element.classList.contains('sfn-minimap-collapsed'),
+            ),
+        ).toBe(true);
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
+
+        // Still auto-collapsed: a small diagram, and the minimap was never manually toggled.
+        expect(
+            await contentPage.$eval('#sfn-minimap', (element) =>
+                element.classList.contains('sfn-minimap-collapsed'),
+            ),
+        ).toBe(true);
+
+        await contentPage.click('[data-sfn-minimap-toggle]');
+        expect(
+            await contentPage.$eval('#sfn-minimap', (element) =>
+                element.classList.contains('sfn-minimap-collapsed'),
+            ),
+        ).toBe(false);
+
+        await dispatchSetContent(generateViewerUpdate({ aslDefinition: definition }));
+
+        // The manual choice persists across the update.
+        expect(
+            await contentPage.$eval('#sfn-minimap', (element) =>
+                element.classList.contains('sfn-minimap-collapsed'),
+            ),
+        ).toBe(false);
+        expect(
+            await contentPage.$eval('#sfn-minimap-thumb', (element) => !!element.querySelector('svg')),
+        ).toBe(true);
+    });
+
+    describe('with a collapse toggle', () => {
+        const parallelDefinition: AslDefinition = {
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const parallelDefinitionEdited: AslDefinition = {
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        {
+                            StartAt: 'Branch1',
+                            States: { Branch1: { Type: 'Task', Resource: 'arn:b1-v2', End: true } },
+                        },
+                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const flatDefinition: AslDefinition = { StartAt: 'Solo', States: { Solo: { Type: 'Succeed' } } };
+
+        let toggleContentPage: Page;
+
+        beforeEach(async () => {
+            toggleContentPage = await browser.newPage();
+            await toggleContentPage.setViewport({ width: 1280, height: 800 });
+            const { html } = generateHtml({ aslDefinition: parallelDefinition });
+            await toggleContentPage.setContent(html, { waitUntil: 'load' });
+        }, 60_000);
+
+        afterEach(async () => {
+            await toggleContentPage.close();
+        });
+
+        async function dispatchOnToggle(update: ViewerUpdate): Promise<void> {
+            await toggleContentPage.evaluate((detail) => {
+                document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+            }, update as unknown as Record<string, unknown>);
+        }
+
+        it('stays on the collapsed view across an update, keeping the toggle label', async () => {
+            await toggleContentPage.click('[data-sfn-collapse-toggle]');
+            expect(await toggleContentPage.$eval('[data-sfn-collapse-toggle]', (element) => element.textContent)).toBe(
+                'Expand',
+            );
+
+            await dispatchOnToggle(generateViewerUpdate({ aslDefinition: parallelDefinitionEdited }));
+
+            expect(
+                await toggleContentPage.$eval('[data-sfn-view="collapsed"]', (element) => (element as HTMLElement).hidden),
+            ).toBe(false);
+            expect(
+                await toggleContentPage.$eval('[data-sfn-view="expanded"]', (element) => (element as HTMLElement).hidden),
+            ).toBe(true);
+            expect(await toggleContentPage.$eval('[data-sfn-collapse-toggle]', (element) => element.textContent)).toBe(
+                'Expand',
+            );
+        });
+
+        it('hides the collapse toggle when the updated diagram has no container', async () => {
+            await dispatchOnToggle(generateViewerUpdate({ aslDefinition: flatDefinition }));
+
+            expect(
+                await toggleContentPage.$eval(
+                    '[data-sfn-collapse-toggle]',
+                    (element) => (element as HTMLElement).hidden,
+                ),
+            ).toBe(true);
+        });
     });
 });
 

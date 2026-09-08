@@ -3,6 +3,7 @@ import type {
     GetExecutionHistoryCommandOutput,
     HistoryEvent,
 } from '@aws-sdk/client-sfn';
+import type { ViewerEdge } from '../renderers/viewer/edgeData';
 
 // ASL Definition Types
 /** The set of Amazon States Language state types a state machine can contain. */
@@ -640,6 +641,34 @@ export interface GenerateHtmlParams extends DiagramOptions {
      * default, byte-identical to output produced before nonce support existed.
      */
     nonce?: string;
+}
+
+/** Parameters for `generateViewerUpdate`. */
+export interface GenerateViewerUpdateParams extends DiagramOptions {
+    /** ASL definition as object or JSON string. */
+    aslDefinition: AslDefinition | string;
+}
+
+/**
+ * Diagram content a running interactive viewer can swap in, without rebuilding the
+ * surrounding document. Produced by `generateViewerUpdate`, and matches the shape
+ * `ViewerHandle.setContent` (in `sfn-diagram/renderers`) expects.
+ */
+export interface ViewerUpdate {
+    /** Markup for the viewer's `data-sfn="content"` node, from `buildViewerContent`. */
+    contentHtml: string;
+
+    /** Viewer-facing detail for each edge, keyed by edge id. */
+    edgeData: Record<string, ViewerEdge>;
+
+    /** Whether `contentHtml` embeds a second, collapsed view behind a toggle. */
+    hasCollapsedView: boolean;
+
+    /** Metadata about the rendered diagram (the expanded view's, when both are shipped). */
+    metadata: SvgOutput['metadata'];
+
+    /** Raw ASL for each state, keyed by state name. */
+    stateData: Record<string, AslState>;
 }
 
 /** Parameters for the format-dispatching `generateDiagram`. */
