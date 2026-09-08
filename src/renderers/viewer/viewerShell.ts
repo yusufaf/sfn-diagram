@@ -84,7 +84,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
     const hasCollapse = collapsedSvg !== undefined;
 
     const panelMarkup = panel
-        ? `<aside${id('panel')} data-sfn="panel">
+        ? `<aside${id('panel')} data-sfn="panel" role="dialog" tabindex="-1">
   <div${id('panel-head')} data-sfn="panel-head">
     <span${id('panel-title')} data-sfn="panel-title"></span>
     <button${id('panel-close')} data-sfn="panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
@@ -102,22 +102,22 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         : svg;
 
     const collapseToggleMarkup = hasCollapse
-        ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers">Collapse</button>'
+        ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers" aria-expanded="true">Collapse</button>'
         : '';
 
     return `<div${id('toolbar')} data-sfn="toolbar">
-  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out">-</button>
-  <span${id('zoom-label')} data-sfn="zoom-label">100%</span>
-  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in">+</button>
+  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out" aria-label="Zoom out">-</button>
+  <span${id('zoom-label')} data-sfn="zoom-label" role="status" aria-live="polite">100%</span>
+  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
   <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
   <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="Reset">Reset</button>
   <span class="sfn-divider"></span>
   <input${id('search')} data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
-  <span${id('search-count')} data-sfn="search-count"></span>
+  <span${id('search-count')} data-sfn="search-count" role="status" aria-live="polite"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)">Map</button>${collapseToggleMarkup}
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}
 </div>
-${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
 
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */

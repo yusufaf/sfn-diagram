@@ -4,6 +4,7 @@ import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
 import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
+import { generateSvg } from '../src';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type {
@@ -604,6 +605,174 @@ describe('SvgRenderer', () => {
             const result = renderer.render(positioned);
 
             expect(result.metadata.edgeCount).toBe(2);
+        });
+    });
+
+    describe('Accessibility semantics', () => {
+        it('marks the root svg as a graphics document with a title and desc', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const openTag = svg.match(/^<svg[^>]*>/)![0];
+            expect(openTag).toContain('role="graphics-document"');
+            expect(openTag).toContain('aria-label="AWS Step Functions state machine diagram"');
+
+            expect(svg).toContain(
+                '<title>AWS Step Functions state machine diagram</title><desc>3 states, 2 transitions.</desc>',
+            );
+        });
+
+        it('uses a supplied diagramTitle/diagramDescription verbatim, with escaping', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({
+                diagramDescription: 'Handles <urgent> & routine orders',
+                diagramTitle: 'Order processing <v2>',
+            });
+            const { svg } = renderer.render(positioned);
+
+            const openTag = svg.match(/^<svg[^>]*>/)![0];
+            expect(openTag).toContain('aria-label="Order processing &lt;v2&gt;"');
+            expect(svg).toContain(
+                '<title>Order processing &lt;v2&gt;</title><desc>Handles &lt;urgent&gt; &amp; routine orders</desc>',
+            );
+        });
+
+        it('defaults generateSvg\'s diagramTitle from the ASL Comment', () => {
+            const asl = loadFixture('choice');
+            const { svg } = generateSvg({ aslDefinition: asl });
+
+            expect(svg).toContain('aria-label="State machine with Choice state"');
+        });
+
+        it('lets an explicit diagramTitle beat the ASL Comment', () => {
+            const asl = loadFixture('choice');
+            const { svg } = generateSvg({ aslDefinition: asl, diagramTitle: 'Custom title' });
+
+            expect(svg).toContain('aria-label="Custom title"');
+        });
+
+        it('gives every node group a title of its label and type, as the first child', () => {
+            const asl = loadFixture('choice');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<g class="node node-Choice" data-state-id="CheckValue"[^>]*>(.*?)<\/g>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1].startsWith('<title>CheckValue (Choice)</title>')).toBe(true);
+        });
+
+        it('gives a container group a title of its label and type, as the first child', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<g class="container container-Parallel" data-state-id="ParallelExecution"[^>]*>(.*?)<\/g>/,
+            );
+            expect(match).not.toBeNull();
+            expect(
+                match![1].startsWith('<title>ParallelExecution (Parallel)</title>'),
+            ).toBe(true);
+        });
+
+        it('hides branch/iterator end marker nodes from assistive tech, with no title', () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(/<g class="node node-BranchEnd"[^>]*>(.*?)<\/g>/);
+            expect(match).not.toBeNull();
+            expect(match![0]).toContain('aria-hidden="true"');
+            expect(match![1]).not.toContain('<title>');
+        });
+
+        it("titles an edge into a branch end marker with the container's label, not the marker's internal id", () => {
+            const asl = loadFixture('parallel');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="Branch1-&gt;ParallelExecution__branch0__end[^"]*"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('<title>Branch1 to ParallelExecution</title>');
+        });
+
+        it('titles a labelled edge with its endpoints and condition, escaped', () => {
+            const asl = loadFixture('choice');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="CheckValue-&gt;HighValue#choice#0"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe(
+                '<title>CheckValue to HighValue: $.value &gt; 10</title>',
+            );
+        });
+
+        it('titles an unlabelled edge with just its endpoints', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({});
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({});
+            const { svg } = renderer.render(positioned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="Start-&gt;Process#normal#0"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('<title>Start to Process</title>');
+        });
+
+        it('titles both the drawn path and its hit area when edgeHitAreas is on', () => {
+            const asl = loadFixture('simple');
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const layout = new DagreLayout({ edgeHitAreas: true });
+            const positioned = layout.calculate(nodes, edges);
+
+            const renderer = new SvgRenderer({ edgeHitAreas: true });
+            const { svg } = renderer.render(positioned);
+
+            const hitMatch = svg.match(
+                /<path d="[^"]*" data-edge-id="Start-&gt;Process#normal#0" data-edge-hit-area=""[^>]*>(.*?)<\/path>/,
+            );
+            expect(hitMatch).not.toBeNull();
+            expect(hitMatch![1]).toBe('<title>Start to Process</title>');
         });
     });
 

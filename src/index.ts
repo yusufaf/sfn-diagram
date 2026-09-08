@@ -69,6 +69,8 @@ import type {
  * @param params.showStateTypes - Whether to display state types on nodes (default: false)
  * @param params.includeComments - Whether to use state comments as labels (default: true)
  * @param params.customColors - Override colors for specific state types
+ * @param params.diagramTitle - Accessible name for the diagram (default: the ASL's top-level `Comment`)
+ * @param params.diagramDescription - Accessible description for the diagram (default: a state/transition count summary)
  *
  * @returns SVG output containing the diagram string, dimensions, and metadata
  *
@@ -113,7 +115,10 @@ import type {
 export function generateSvg(params: GenerateSvgParams): SvgOutput {
     const { aslDefinition, ...options } = params;
     const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
-    const mergedOptions = mergeOptions(options);
+    const mergedOptions = mergeOptions({
+        ...options,
+        diagramTitle: options.diagramTitle ?? aslObj.Comment,
+    });
 
     // Parse ASL to graph
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
