@@ -2,6 +2,8 @@
 .vscodeignore
 src/
 tsconfig.json
+vitest.config.ts
+**/*.test.ts
 node_modules/
 
 # Build and editor artifacts that must never reach the published package.

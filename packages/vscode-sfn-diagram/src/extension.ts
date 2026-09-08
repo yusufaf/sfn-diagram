@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { isAslFileName } from './asl'
+import { ASL_CONTEXT_KEY, isAslFilename, looksLikeAslContent } from './aslDetection'
 import { DiagramPanel } from './DiagramPanel'
 import { CONFIG_SECTION, resolveColorScheme, resolveSettings } from './settings'
 import type { ResolvedTheme, SfnDiagramSettings } from './settings'
@@ -12,6 +12,37 @@ function readSettings(): SfnDiagramSettings {
 /** Reads the current VS Code color scheme (light or dark). */
 function readColorScheme(): ResolvedTheme {
     return resolveColorScheme({ colorThemeKind: vscode.window.activeColorTheme.kind })
+}
+
+const ASL_CONTEXT_UPDATE_DEBOUNCE_MS = 300
+
+let lastAslContextValue: boolean | undefined
+
+/**
+ * Recomputes whether the given editor's document looks like an ASL definition and, if
+ * the result changed, updates the `sfnDiagram.isAslDocument` context key used by the
+ * `editor/title` menu's `when` clause.
+ *
+ * Does nothing when `editor` is `undefined` (for example while the preview webview has
+ * focus) so the title-bar buttons do not flicker away from an already-open ASL tab.
+ */
+function updateAslContext(editor: vscode.TextEditor | undefined): void {
+    if (editor === undefined) {
+        return
+    }
+
+    const filename = editor.document.uri.path.split('/').pop() ?? ''
+    // The filename check is cheap; only materialize the document's full text (this
+    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
+    // when the filename alone doesn't already answer the question.
+    const value = isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
+
+    if (value === lastAslContextValue) {
+        return
+    }
+
+    lastAslContextValue = value
+    void vscode.commands.executeCommand('setContext', ASL_CONTEXT_KEY, value)
 }
 
 /** Reads a text document's content, preferring the active editor for the ASL definition. */
@@ -35,6 +66,33 @@ async function resolveAslContent(): Promise<string | undefined> {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+    updateAslContext(vscode.window.activeTextEditor)
+
+    let aslContextUpdateTimer: ReturnType<typeof setTimeout> | undefined
+    context.subscriptions.push({
+        dispose: () => {
+            if (aslContextUpdateTimer !== undefined) {
+                clearTimeout(aslContextUpdateTimer)
+            }
+        },
+    })
+
+    const scheduleAslContextUpdate = (document: vscode.TextDocument): void => {
+        const editor = vscode.window.activeTextEditor
+        if (!editor || document !== editor.document) {
+            return
+        }
+        if (aslContextUpdateTimer !== undefined) {
+            clearTimeout(aslContextUpdateTimer)
+        }
+        // Re-reads activeTextEditor when the timer fires, rather than closing over `editor`,
+        // so a tab switch during the debounce window updates the newly active editor instead
+        // of overwriting its context with a stale computation for the one edited earlier.
+        aslContextUpdateTimer = setTimeout(() => updateAslContext(vscode.window.activeTextEditor), ASL_CONTEXT_UPDATE_DEBOUNCE_MS)
+    }
+
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((document) => scheduleAslContextUpdate(document)))
+
     context.subscriptions.push(
         vscode.commands.registerCommand('sfn-diagram.preview', async () => {
             const aslContent = await resolveAslContent()
@@ -76,6 +134,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument((event) => {
+            scheduleAslContextUpdate(event.document)
+
             if (!DiagramPanel.currentPanel) {
                 return
             }
@@ -88,6 +148,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
+            updateAslContext(editor)
+
             if (editor && DiagramPanel.currentPanel) {
                 DiagramPanel.currentPanel.syncActiveEditor(editor.document.getText())
             }
@@ -105,7 +167,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (document.uri.scheme !== 'file') {
                 return
             }
-            if (!isAslFileName({ fileName: document.fileName })) {
+            if (!isAslFilename({ filename: document.fileName })) {
                 return
             }
             DiagramPanel.createOrShow({

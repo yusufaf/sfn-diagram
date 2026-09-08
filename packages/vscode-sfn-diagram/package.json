@@ -100,12 +100,12 @@
             "editor/title": [
                 {
                     "command": "sfn-diagram.preview",
-                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "when": "resourceFilename =~ /\\.asl\\.json$/i || resourceExtname == .asl || (resourceExtname == .json && sfnDiagram.isAslDocument)",
                     "group": "navigation"
                 },
                 {
                     "command": "sfn-diagram.previewExecution",
-                    "when": "resourceExtname == .json || resourceExtname == .asl",
+                    "when": "resourceFilename =~ /\\.asl\\.json$/i || resourceExtname == .asl || (resourceExtname == .json && sfnDiagram.isAslDocument)",
                     "group": "navigation"
                 }
             ]
@@ -116,7 +116,6 @@
         "dev": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap --watch",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
-        "test": "vitest run",
         "package": "vsce package --no-dependencies",
         "publish:openvsx": "ovsx publish"
     },

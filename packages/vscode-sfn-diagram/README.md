@@ -24,7 +24,7 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 ## Features
 
 - **Interactive preview** of the state machine — the same pan/zoom/search/minimap viewer as `sfn-diagram --format html`, not a static SVG in a scroll box.
-- Opens from the command palette or a button in the editor title bar for `.json` / `.asl` files.
+- Opens from the command palette for any file, or from a button in the editor title bar for `*.asl.json` and `*.asl` files — and for any other `.json` file whose top level looks like an ASL definition (a `StartAt` string and a `States` object).
 - **Pan and zoom** by dragging or scrolling, with Fit/Reset controls; **search** (`/`) highlights matching states and cycles through hits; the **minimap** (`m`) navigates large diagrams; **click a state or edge** to open a detail panel with its raw ASL, or an edge's endpoints/type/condition. A **collapse toggle** appears when the diagram has a Parallel/Map container to fold.
 - **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in a floating toolbar that re-render instantly.
 - The preview updates automatically as you edit the underlying file.
@@ -33,7 +33,7 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 
 ## Usage
 
-1. Open a Step Functions ASL file (`.json` or `.asl`).
+1. Open a Step Functions ASL file (`*.asl.json`, `*.asl`, or any `.json` file containing an ASL definition).
 2. Run **Step Functions: Preview Step Functions Diagram** from the command palette (`Ctrl/Cmd+Shift+P`), or click the diagram button in the editor title bar.
 3. Use the floating toolbar to change layout and theme; pan, zoom, search, and click into states/edges directly on the diagram.
 
