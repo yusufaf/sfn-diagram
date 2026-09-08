@@ -685,10 +685,10 @@ export async function run(argv: string[]): Promise<number> {
     }
     if (args.format === 'png' && readBuildInfo()?.standalone) {
         process.stderr.write(
-            '--format png is not available in the standalone binary: PNG export ' +
-                'needs a headless browser. Use the npm package ' +
-                '(npx --package sfn-diagram --package node-html-to-image sfn-diagram …) ' +
-                'or the Docker image (ghcr.io/yusufaf/sfn-diagram), which bundles Chromium.\n',
+            '--format png is not available in the standalone binary: the native ' +
+                'rasterizer it needs cannot be bundled into a single-file executable. ' +
+                'Use the npm package instead ' +
+                '(npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …).\n',
         );
         return 1;
     }

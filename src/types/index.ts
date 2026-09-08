@@ -413,7 +413,12 @@ export interface DiagramOptions {
     padding?: number;
 
     /**
-     * PNG export quality from 1-100
+     * PNG export quality from 1-100.
+     *
+     * Has no effect on the default `resvg` engine (PNG is lossless, and resvg
+     * exposes no compression knob) or on the `html-to-image` fallback engine
+     * (its `quality` option is JPEG-only). Retained for backward compatibility.
+     * Use {@link PngExportOptions.scale} to control output resolution instead.
      * @default 90
      */
     pngQuality?: number;
@@ -553,6 +558,42 @@ export interface MermaidOutput {
     };
 }
 
+/** Engine used to rasterize the SVG to PNG. */
+export type PngEngine = 'html-to-image' | 'resvg';
+
+/** Node-only PNG rasterization options (the `sfn-diagram/png` subpath). */
+export interface PngExportOptions {
+    /**
+     * Rasterization engine. `resvg` is a native, browser-free renderer;
+     * `html-to-image` launches headless Chromium via Puppeteer and is kept
+     * as an opt-in fallback.
+     * @default 'resvg'
+     */
+    engine?: PngEngine;
+
+    /**
+     * Directories to search for font files. `resvg` only.
+     */
+    fontDirs?: string[];
+
+    /**
+     * Font family to use for text rendering, overriding automatic detection.
+     * `resvg` only.
+     */
+    fontFamily?: string;
+
+    /**
+     * Explicit font files to load. `resvg` only.
+     */
+    fontFiles?: string[];
+
+    /**
+     * Multiplier applied to the diagram's rendered size. `resvg` only.
+     * @default 1
+     */
+    scale?: number;
+}
+
 /** PNG image output */
 export interface PngOutput {
     /** PNG image data as a Buffer */
@@ -608,10 +649,13 @@ export interface GenerateDiagramParams extends DiagramOptions {
 }
 
 /** Parameters for `exportPng` (from the `sfn-diagram/png` subpath). */
-export interface ExportPngParams extends DiagramOptions {
+export interface ExportPngParams extends DiagramOptions, PngExportOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
 }
+
+/** Constructor options for {@link PngExporter}. */
+export type PngExporterOptions = DiagramOptions & PngExportOptions;
 
 /** Parameters for `extractAslFromTemplate` (from the `sfn-diagram/cfn` subpath). */
 export interface ExtractAslFromTemplateParams {

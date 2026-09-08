@@ -21,10 +21,10 @@ Generate diagrams from AWS Step Functions ASL (Amazon States Language) definitio
 npm install sfn-diagram
 ```
 
-The core package pulls in **no browser engine** — SVG and Mermaid generation stay lightweight. PNG export relies on a headless browser, provided by the optional peer dependency `node-html-to-image`. Install it only if you use `sfn-diagram/png`:
+The core package pulls in **no browser engine or native rasterizer** — SVG and Mermaid generation stay lightweight. PNG export uses `@resvg/resvg-js`, a native, browser-free renderer, provided by an optional peer dependency. Install it only if you use `sfn-diagram/png`:
 
 ```bash
-npm install sfn-diagram node-html-to-image
+npm install sfn-diagram @resvg/resvg-js
 ```
 
 Not a Node project? The CLI also ships as standalone binaries for Linux, macOS, and Windows on every [release](https://github.com/yusufaf/sfn-diagram/releases), or via Homebrew (`brew install yusufaf/tap/sfn-diagram`), and as a [Docker image](https://sfn.yusufaf.dev/guides/cli/#docker). See [using sfn-diagram from other languages](https://sfn.yusufaf.dev/guides/other-languages/).
