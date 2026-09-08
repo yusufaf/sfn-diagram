@@ -1,22 +1,40 @@
 import * as vscode from 'vscode'
-import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
+import type { LayoutDirection } from 'sfn-diagram'
 import { createDebouncer, type Debouncer } from './debounce'
 import { buildErrorDocument } from './webview/errorDocument'
 import { buildRenderErrorMessage, buildUpdateContentMessage } from './webview/messages'
 import { createNonce } from './webview/nonce'
 import { buildPreviewDocument } from './webview/previewDocument'
 import { renderPreview, renderPreviewUpdate } from './webview/render'
+import { toDiagramOptions } from './settings'
+import type { ResolvedTheme, SfnDiagramSettings } from './settings'
 
 /** Milliseconds to wait after the last keystroke before refreshing the preview. */
 const REFRESH_DEBOUNCE_MS = 200
+
+export interface CreateOrShowParams {
+    aslContent: string
+    colorScheme: ResolvedTheme
+    preserveFocus?: boolean
+    settings: SfnDiagramSettings
+}
+
+export interface ApplySettingsParams {
+    colorScheme: ResolvedTheme
+    settings: SfnDiagramSettings
+}
 
 export class DiagramPanel {
     static currentPanel: DiagramPanel | undefined
 
     private readonly _panel: vscode.WebviewPanel
     private _disposables: vscode.Disposable[] = []
-    private _layout: LayoutDirection = 'TB'
-    private _theme: ThemeOption = 'dark'
+    private _collapse: boolean | undefined
+    private _layout: LayoutDirection
+    private _showIcons: boolean
+    private _theme: ResolvedTheme
+    private _layoutOverridden = false
+    private _themeOverridden = false
     private _lastContent = ''
     /** Raw execution-history JSON (kept as a string per the ExecutionHistoryInput type gotcha). */
     private _history: string | undefined
@@ -38,13 +56,21 @@ export class DiagramPanel {
      */
     private _scheduledContent: string | undefined
 
-    static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
+    static createOrShow(params: CreateOrShowParams) {
+        const { aslContent, colorScheme, preserveFocus, settings } = params
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn! + 1
             : vscode.ViewColumn.Two
 
         if (DiagramPanel.currentPanel) {
-            DiagramPanel.currentPanel._panel.reveal(column)
+            DiagramPanel.currentPanel._panel.reveal(column, preserveFocus)
+            // Re-applies the freshly-read settings/colorScheme too (not just aslContent) -
+            // the caller already paid for reading them, and re-running the preview command
+            // on an already-open panel should reflect any settings.json edit made since the
+            // separate onDidChangeConfiguration listener last synced it, same as if the
+            // panel had been closed and reopened. applySettings respects layout/theme
+            // toolbar overrides exactly as it does when called from that listener.
+            DiagramPanel.currentPanel.applySettings({ colorScheme, settings })
             DiagramPanel.currentPanel.update(aslContent)
             return
         }
@@ -52,19 +78,24 @@ export class DiagramPanel {
         const panel = vscode.window.createWebviewPanel(
             'sfnDiagramPreview',
             'Step Functions Preview',
-            column,
+            { preserveFocus, viewColumn: column },
             { enableScripts: true, retainContextWhenHidden: true }
         )
 
-        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent)
+        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent, colorScheme, settings)
     }
 
-    private constructor(panel: vscode.WebviewPanel, aslContent: string) {
+    private constructor(panel: vscode.WebviewPanel, aslContent: string, colorScheme: ResolvedTheme, settings: SfnDiagramSettings) {
         this._panel = panel
         this._refreshDebouncer = createDebouncer({
             delayMs: REFRESH_DEBOUNCE_MS,
             run: (content) => this._refresh(content),
         })
+        const diagramOptions = toDiagramOptions({ colorScheme, settings })
+        this._collapse = diagramOptions.collapse
+        this._layout = diagramOptions.layout
+        this._showIcons = diagramOptions.showIcons
+        this._theme = diagramOptions.theme
         this.update(aslContent)
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables)
@@ -85,8 +116,10 @@ export class DiagramPanel {
             (message: { command: string; value: string }) => {
                 if (message.command === 'setLayout') {
                     this._layout = message.value as LayoutDirection
+                    this._layoutOverridden = true
                 } else if (message.command === 'setTheme') {
-                    this._theme = message.value as ThemeOption
+                    this._theme = message.value as ResolvedTheme
+                    this._themeOverridden = true
                 } else if (message.command === 'clearExecution') {
                     this._history = undefined
                 } else {
@@ -102,6 +135,32 @@ export class DiagramPanel {
     /** The freshest known content: a still-pending debounced edit, or the last rendered one. */
     private currentContent(): string {
         return this._scheduledContent ?? this._lastContent
+    }
+
+    /**
+     * Applies a configuration or color-theme change to an already-open preview.
+     *
+     * A layout or theme picked from the toolbar for the current session is left
+     * alone, so an unrelated settings change doesn't clobber it.
+     *
+     * @param params - Parameters object.
+     * @param params.colorScheme - The current VS Code color scheme.
+     * @param params.settings - The freshly-resolved extension settings.
+     * @example
+     * DiagramPanel.currentPanel?.applySettings({ colorScheme, settings })
+     */
+    applySettings(params: ApplySettingsParams): void {
+        const { colorScheme, settings } = params
+        const diagramOptions = toDiagramOptions({ colorScheme, settings })
+        this._collapse = diagramOptions.collapse
+        this._showIcons = diagramOptions.showIcons
+        if (!this._layoutOverridden) {
+            this._layout = diagramOptions.layout
+        }
+        if (!this._themeOverridden) {
+            this._theme = diagramOptions.theme
+        }
+        this.update(this._lastContent)
     }
 
     /**
@@ -145,9 +204,11 @@ export class DiagramPanel {
         try {
             const rendered = renderPreview({
                 aslContent,
+                collapse: this._collapse,
                 history: this._history,
                 layout: this._layout,
                 nonce,
+                showIcons: this._showIcons,
                 theme: this._theme,
             })
             this._panel.webview.html = buildPreviewDocument({
@@ -217,7 +278,13 @@ export class DiagramPanel {
         }
 
         try {
-            const update = renderPreviewUpdate({ aslContent, layout: this._layout, theme: this._theme })
+            const update = renderPreviewUpdate({
+                aslContent,
+                collapse: this._collapse,
+                layout: this._layout,
+                showIcons: this._showIcons,
+                theme: this._theme,
+            })
             if (update.hasCollapsedView && !this._hasCollapsedView) {
                 this.update(aslContent)
                 return

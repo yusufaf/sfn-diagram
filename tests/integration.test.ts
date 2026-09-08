@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
     generateSvg,
     generateMermaid,
@@ -339,7 +339,7 @@ describe('Integration Tests', () => {
         });
     });
 
-    describe('exportPng', () => {
+    describe('exportPng', { timeout: 15000 }, () => {
         it('should export PNG from ASL definition', async () => {
             const aslDefinition = loadFixture('simple');
             const result = await exportPng({ aslDefinition });
@@ -365,7 +365,45 @@ describe('Integration Tests', () => {
 
             expect(result.buffer).toBeDefined();
         });
-    }, 15000); // Increase timeout for PNG tests
+
+        it('should scale output dimensions', async () => {
+            const aslDefinition = loadFixture('simple');
+            const base = await exportPng({ aslDefinition });
+            const scaled = await exportPng({ aslDefinition, scale: 2 });
+
+            expect(scaled.width).toBe(base.width * 2);
+            expect(scaled.height).toBe(base.height * 2);
+        });
+
+        it('should support the resvg engine explicitly', async () => {
+            const aslDefinition = loadFixture('simple');
+            const result = await exportPng({ aslDefinition, engine: 'resvg' });
+
+            expect(result.buffer).toBeDefined();
+        });
+
+        it('should inline showIcons icons before rasterizing on the resvg engine', async () => {
+            // resvg cannot fetch remote <image href> icons - exportPng must embed
+            // them as data URIs first. Stub fetch so the test does no network I/O.
+            const onePixelPng = Buffer.from(
+                '89504e470d0a1a0a0000000d494844520000000100000001080600000' +
+                    '01f15c4890000000a4944415478da6360000002000105ea02de0000000049454e44ae426082',
+                'hex'
+            );
+            const fetchSpy = vi
+                .spyOn(globalThis, 'fetch')
+                .mockResolvedValue({ arrayBuffer: async () => onePixelPng, ok: true } as Response);
+
+            const aslDefinition = loadFixture('services');
+            const withIcons = await exportPng({ aslDefinition, showIcons: true });
+            const withoutIcons = await exportPng({ aslDefinition, showIcons: false });
+
+            expect(fetchSpy).toHaveBeenCalled();
+            expect(withIcons.buffer.equals(withoutIcons.buffer)).toBe(false);
+
+            fetchSpy.mockRestore();
+        });
+    });
 
     describe('generateFromAwsResponse', () => {
         it('should generate diagram from AWS SDK response', () => {

@@ -162,6 +162,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   | Inspect an edge | click any transition (or its label) — the same panel shows the edge's id, its endpoints, its kind (`normal`/`error`/`choice`/`default`/`retry`) and, for a Choice branch, the condition that produced it. The edge and both endpoints highlight while it's open |
   | Expand/Collapse | when the diagram has a Parallel or Map state, a toggle button switches between the expanded and fully-collapsed view |
   | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
+  | Keyboard | `Tab` reaches every state and transition; `Enter`/`Space` opens the detail panel and moves focus into it; `Esc` closes it and returns focus to what opened it. `/` focuses search, `m` toggles the minimap |
 
   Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
   target states from your own scripts or styles. Edges carry `data-edge-id` the same

@@ -24,15 +24,16 @@ codium --install-extension yusufaf.vscode-sfn-diagram
 ## Features
 
 - **Interactive preview** of the state machine — the same pan/zoom/search/minimap viewer as `sfn-diagram --format html`, not a static SVG in a scroll box.
-- Opens from the command palette or a button in the editor title bar for `.json` / `.asl` files.
+- Opens from the command palette for any file, or from a button in the editor title bar for `*.asl.json` and `*.asl` files — and for any other `.json` file whose top level looks like an ASL definition (a `StartAt` string and a `States` object).
 - **Pan and zoom** by dragging or scrolling, with Fit/Reset controls; **search** (`/`) highlights matching states and cycles through hits; the **minimap** (`m`) navigates large diagrams; **click a state or edge** to open a detail panel with its raw ASL, or an edge's endpoints/type/condition. A **collapse toggle** appears when the diagram has a Parallel/Map container to fold.
 - **Layout** (Top→Bottom, Left→Right, Right→Left, Bottom→Top) and **Theme** (light/dark) selectors in a floating toolbar that re-render instantly.
 - The preview updates automatically as you edit the underlying file — debounced shortly after you stop typing, patching just the diagram in place rather than reloading the whole panel, so your pan/zoom position, search query, and any open detail panel survive across edits. A transient parse error while you're mid-edit shows a small status note in the toolbar instead of replacing the diagram; it clears on the next successful render.
 - **Execution overlay**: paint a real execution's history onto the diagram — succeeded / failed / caught / not-reached states light up, with a colour legend in the toolbar and a one-click **Clear overlay**. Pan/zoom/search/detail all keep working with the overlay active.
+- Configurable defaults for theme, layout, icons, container collapsing, and auto-preview — see [Settings](#settings).
 
 ## Usage
 
-1. Open a Step Functions ASL file (`.json` or `.asl`).
+1. Open a Step Functions ASL file (`*.asl.json`, `*.asl`, or any `.json` file containing an ASL definition).
 2. Run **Step Functions: Preview Step Functions Diagram** from the command palette (`Ctrl/Cmd+Shift+P`), or click the diagram button in the editor title bar.
 3. Use the floating toolbar to change layout and theme; pan, zoom, search, and click into states/edges directly on the diagram.
 
@@ -45,6 +46,18 @@ To overlay a real run, run **Step Functions: Preview Execution Overlay** and pic
 | `sfn-diagram.preview` | Preview Step Functions Diagram |
 | `sfn-diagram.previewExecution` | Preview Execution Overlay |
 | `sfn-diagram.clearExecution` | Clear Execution Overlay |
+
+## Settings
+
+All settings live under `sfnDiagram.*` and apply as the default for new previews. Changing a setting live-applies to an already-open preview - except `layout`/`theme` once the toolbar has overridden either for the current session; that override wins until the preview is closed and reopened.
+
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sfnDiagram.theme` | `"auto" \| "dark" \| "light"` | `"auto"` | Default color theme. `"auto"` follows the current VS Code color theme. |
+| `sfnDiagram.layout` | `"TB" \| "LR" \| "RL" \| "BT"` | `"TB"` | Default layout direction. |
+| `sfnDiagram.showIcons` | `boolean` | `false` | Show AWS service icons on Task nodes (fetched from the jsDelivr CDN — requires network access). |
+| `sfnDiagram.collapseContainers` | `boolean` | `false` | Collapse Parallel and Map containers into a single placeholder node. |
+| `sfnDiagram.autoPreview` | `boolean` | `false` | Automatically open the diagram preview when a `.asl.json` or `.asl` file is opened. A lone `.asl` file opened with no workspace folder won't trigger this, since VS Code has no language association for `.asl` outside a workspace. |
 
 ## Install from source
 

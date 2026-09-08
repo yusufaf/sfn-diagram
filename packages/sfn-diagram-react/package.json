@@ -64,7 +64,7 @@
     "homepage": "https://sfn.yusufaf.dev/ecosystem/react/",
     "peerDependencies": {
         "react": "^18.0.0 || ^19.0.0",
-        "sfn-diagram": "^1.1.1"
+        "sfn-diagram": "^1.6.0"
     },
     "devDependencies": {
         "@arethetypeswrong/cli": "^0.18.2",

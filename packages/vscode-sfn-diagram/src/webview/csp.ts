@@ -6,6 +6,19 @@ export interface BuildContentSecurityPolicyParams {
     nonce: string
 }
 
+// Mirrors core's own guard (src/renderers/viewer/viewerShell.ts) on the identical
+// value: createNonce() only ever emits alphanumeric characters today, so this can't
+// fire yet, but the nonce lands unescaped inside an HTML attribute here too - a
+// future caller-supplied nonce must not be able to break out of it.
+const NONCE_PATTERN = /^[A-Za-z0-9+/=_-]+$/
+
+function validatedNonce(nonce: string): string {
+    if (!NONCE_PATTERN.test(nonce)) {
+        throw new Error('nonce must contain only letters, digits, "+", "/", "=", "-", or "_"')
+    }
+    return nonce
+}
+
 /**
  * Build the Content-Security-Policy string for the interactive-viewer webview.
  *
@@ -24,7 +37,7 @@ export interface BuildContentSecurityPolicyParams {
  */
 export function buildContentSecurityPolicy(params: BuildContentSecurityPolicyParams): string {
     const { cspSource, nonce } = params
-    return `default-src 'none'; img-src ${cspSource} https://cdn.jsdelivr.net data:; script-src 'nonce-${nonce}'; style-src ${cspSource} 'unsafe-inline';`
+    return `default-src 'none'; img-src ${cspSource} https://cdn.jsdelivr.net data:; script-src 'nonce-${validatedNonce(nonce)}'; style-src ${cspSource} 'unsafe-inline';`
 }
 
 /**

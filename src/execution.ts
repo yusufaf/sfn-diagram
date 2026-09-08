@@ -539,6 +539,13 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
  * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons, so
  * the document is not fully offline. Use {@link generateExecutionHtmlAsync} to inline
  * those icons as data URIs.
+ *
+ * `collapse` is not yet supported on this path: {@link generateExecution} does not
+ * apply it, so the document ships one view only, with no collapse/expand toggle -
+ * unlike {@link generateHtml}, which renders both an expanded and a collapsed view
+ * for the toggle to switch between. Adding it needs the per-node execution-status
+ * overrides this function computes to be remapped onto whatever collapsed placeholder
+ * node absorbs them, which {@link generateExecution} does not do.
  */
 export function generateExecutionHtml(params: GenerateExecutionHtmlParams): ExecutionHtmlOutput {
     const { aslDefinition, nonce, ...executionOptions } = params;

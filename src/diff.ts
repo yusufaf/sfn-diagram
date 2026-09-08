@@ -268,7 +268,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
  * @returns {@link MermaidDiffOutput} with Mermaid code and a per-category state summary
  */
 export function generateMermaidDiff(params: GenerateMermaidDiffParams): MermaidDiffOutput {
-    const { after: afterArg, before: beforeArg } = params;
+    const { after: afterArg, before: beforeArg, layout, theme } = params;
 
     const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
@@ -278,8 +278,10 @@ export function generateMermaidDiff(params: GenerateMermaidDiffParams): MermaidD
     const { code, metadata } = renderer.render({
         asl: mergedAsl,
         edges,
+        layout,
         nodes,
         stateClasses: buildStatusMap(diff),
+        theme,
     });
 
     return {

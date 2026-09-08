@@ -218,7 +218,9 @@ describe('generateHtml', () => {
             states.Done = { Type: 'Succeed' };
 
             const result = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
-            expect(result.html).toContain('id="sfn-minimap" data-sfn="minimap"><div id="sfn-minimap-thumb"');
+            expect(result.html).toContain(
+                'id="sfn-minimap" data-sfn="minimap" aria-hidden="true"><div id="sfn-minimap-thumb"',
+            );
             expect(result.html).not.toContain('id="sfn-minimap" class="sfn-minimap-collapsed"');
         });
 
@@ -276,6 +278,66 @@ describe('nonce', () => {
         for (const tag of [...scriptTags, ...styleTags]) {
             expect(tag).toContain('nonce="abc123"');
         }
+    });
+});
+
+describe('accessibility', () => {
+    it('labels the zoom controls', () => {
+        const result = generateHtml({ aslDefinition: asl });
+        expect(result.html).toContain('aria-label="Zoom out"');
+        expect(result.html).toContain('aria-label="Zoom in"');
+    });
+
+    it('announces the zoom label and search count as live regions', () => {
+        const result = generateHtml({ aslDefinition: asl });
+        expect(result.html).toMatch(
+            /<span[^>]*data-sfn="zoom-label"[^>]*role="status"[^>]*aria-live="polite"[^>]*>/,
+        );
+        expect(result.html).toMatch(
+            /<span[^>]*data-sfn="search-count"[^>]*role="status"[^>]*aria-live="polite"[^>]*>/,
+        );
+    });
+
+    it('reflects the minimap\'s initial visibility as aria-pressed', () => {
+        // asl has 2 states, well under the auto-visible threshold - minimap starts
+        // collapsed (hidden), so the toggle is not "pressed".
+        const collapsed = generateHtml({ aslDefinition: asl });
+        expect(collapsed.html).toContain('data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="false"');
+
+        const states: AslDefinition['States'] = {};
+        for (let index = 0; index < 30; index++) {
+            const isLast = index === 29;
+            states[`Step${index}`] = {
+                Type: 'Pass',
+                Next: isLast ? 'Done' : `Step${index + 1}`,
+            };
+        }
+        states.Done = { Type: 'Succeed' };
+        const open = generateHtml({ aslDefinition: { StartAt: 'Step0', States: states } });
+        expect(open.html).toContain('data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="true"');
+    });
+
+    it('marks the collapse toggle as expanded while the expanded view shows', () => {
+        const parallelAsl: AslDefinition = {
+            StartAt: 'FanOut',
+            States: {
+                FanOut: {
+                    Type: 'Parallel',
+                    Branches: [
+                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    ],
+                    Next: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        expect(result.html).toMatch(/data-sfn-collapse-toggle[^>]*aria-expanded="true"/);
+    });
+
+    it('gives the detail panel dialog semantics', () => {
+        const result = generateHtml({ aslDefinition: asl });
+        expect(result.html).toMatch(/<aside[^>]*role="dialog"[^>]*tabindex="-1"[^>]*>/);
     });
 });
 

@@ -31,7 +31,11 @@ export function hasCollapseToggle(params: HasCollapseToggleParams): boolean {
 export interface RenderPreviewParams {
     /** ASL definition, as a JSON string (matches what the editor buffer holds). */
     aslContent: string
-    /** Collapse selection forwarded to the underlying renderer. Omit for its default. */
+    /**
+     * Collapse selection forwarded to the underlying renderer. Omit for its default.
+     * Has no effect when `history` is set - `generateExecutionHtml` does not yet
+     * support `collapse` (see its JSDoc `@remarks`).
+     */
     collapse?: boolean
     /**
      * Raw execution-history JSON. When present, renders the execution overlay via

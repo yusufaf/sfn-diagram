@@ -23,6 +23,32 @@ inputs:
     description: 'Unique tag used to find and update an existing PR comment'
     required: false
     default: 'sfn-diagram-preview'
+  hide-catch:
+    description: >-
+      Drop error-handler (Catch) branches from the rendered diagrams — useful for
+      shrinking a large diagram. Applies to new/deleted-file diagrams only; a
+      modified file's diff diagram is unaffected. Set to 'true' to enable.
+    required: false
+    default: 'false'
+  theme:
+    description: >-
+      Colour theme driving the Mermaid classDef styling: 'light' (default) or 'dark'.
+    required: false
+    default: 'light'
+  layout:
+    description: >-
+      Graph layout direction emitted as the Mermaid direction statement:
+      'TB' (default), 'LR', 'RL', or 'BT'.
+    required: false
+    default: 'TB'
+  collapse:
+    description: >-
+      Collapse Parallel/Map containers into a single placeholder node. 'true'
+      collapses every container; a comma-separated list of state names collapses
+      only those; empty (default) collapses nothing. Applies to new/deleted-file
+      diagrams only.
+    required: false
+    default: ''
   execution-mode:
     description: >-
       Optionally overlay a real execution onto the changed diagram.
@@ -42,6 +68,16 @@ inputs:
     description: 'AWS region for the Step Functions client (defaults to the SDK/environment resolution, e.g. AWS_REGION)'
     required: false
     default: ''
+
+outputs:
+  changed-count:
+    description: 'Number of changed ASL files matched by asl-glob (0 when none, or when the event is not a pull request)'
+  changed-files:
+    description: 'JSON array of the changed ASL file paths (added, modified, or removed); "[]" when none'
+  comment-id:
+    description: 'ID of the PR comment created or updated by this run; empty when no comment was posted'
+  comment-url:
+    description: 'HTML URL of the PR comment created or updated by this run; empty when no comment was posted'
 
 runs:
   using: 'node24'

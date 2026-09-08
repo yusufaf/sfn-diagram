@@ -947,11 +947,11 @@ describe('standalone binary build info', () => {
         expect(stdoutData).toBe('9.9.9\n');
     });
 
-    it('refuses --format png with a pointer to the npm package and Docker image', async () => {
+    it('refuses --format png with a pointer to the npm package', async () => {
         const code = await run([simpleFixture, '--format', 'png', '-o', 'out.png']);
         expect(code).toBe(1);
         expect(stderrData).toContain('not available in the standalone binary');
-        expect(stderrData).toContain('ghcr.io/yusufaf/sfn-diagram');
+        expect(stderrData).toContain('@resvg/resvg-js');
     });
 
     it('still renders SVG', async () => {

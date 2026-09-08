@@ -14,6 +14,8 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
         | 'nodeOverrides'
         | 'edgeOverrides'
         | 'nodeAnnotations'
+        | 'diagramDescription'
+        | 'diagramTitle'
     >
 > & {
     width: number | undefined;
@@ -24,6 +26,8 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     nodeOverrides: DiagramOptions['nodeOverrides'];
     edgeOverrides: DiagramOptions['edgeOverrides'];
     nodeAnnotations: DiagramOptions['nodeAnnotations'];
+    diagramDescription: DiagramOptions['diagramDescription'];
+    diagramTitle: DiagramOptions['diagramTitle'];
 } = {
     // Output format
     format: 'svg',
@@ -70,6 +74,10 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     nodeOverrides: undefined,
     edgeOverrides: undefined,
     nodeAnnotations: undefined,
+
+    // Accessibility
+    diagramDescription: undefined,
+    diagramTitle: undefined,
 };
 
 /**
