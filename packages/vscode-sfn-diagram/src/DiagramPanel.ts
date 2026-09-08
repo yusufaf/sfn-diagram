@@ -1,9 +1,14 @@
 import * as vscode from 'vscode'
 import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
+import { createDebouncer, type Debouncer } from './debounce'
 import { buildErrorDocument } from './webview/errorDocument'
+import { buildRenderErrorMessage, buildUpdateContentMessage } from './webview/messages'
 import { createNonce } from './webview/nonce'
 import { buildPreviewDocument } from './webview/previewDocument'
-import { renderPreview } from './webview/render'
+import { renderPreview, renderPreviewUpdate } from './webview/render'
+
+/** Milliseconds to wait after the last keystroke before refreshing the preview. */
+const REFRESH_DEBOUNCE_MS = 200
 
 export class DiagramPanel {
     static currentPanel: DiagramPanel | undefined
@@ -15,6 +20,11 @@ export class DiagramPanel {
     private _lastContent = ''
     /** Raw execution-history JSON (kept as a string per the ExecutionHistoryInput type gotcha). */
     private _history: string | undefined
+    /** Whether the last successfully rendered document embeds a collapse toggle. */
+    private _hasCollapsedView = false
+    /** Whether the webview is currently showing the error document, not a diagram. */
+    private _showingError = false
+    private readonly _refreshDebouncer: Debouncer<string>
 
     static createOrShow(extensionUri: vscode.Uri, aslContent: string) {
         const column = vscode.window.activeTextEditor
@@ -39,6 +49,10 @@ export class DiagramPanel {
 
     private constructor(panel: vscode.WebviewPanel, aslContent: string) {
         this._panel = panel
+        this._refreshDebouncer = createDebouncer({
+            delayMs: REFRESH_DEBOUNCE_MS,
+            run: (content) => this._refresh(content),
+        })
         this.update(aslContent)
 
         this._panel.onDidDispose(() => this.dispose(), null, this._disposables)
@@ -89,6 +103,7 @@ export class DiagramPanel {
     }
 
     update(aslContent: string) {
+        this._refreshDebouncer.cancel()
         this._lastContent = aslContent
         const nonce = createNonce()
         const cspSource = this._panel.webview.cspSource
@@ -108,14 +123,60 @@ export class DiagramPanel {
                 theme: this._theme,
                 viewerHtml: rendered.html,
             })
+            this._hasCollapsedView = rendered.hasCollapsedView
+            this._showingError = false
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             this._panel.webview.html = buildErrorDocument({ cspSource, message, nonce })
+            this._showingError = true
+        }
+    }
+
+    /**
+     * Queue a keystroke-driven refresh. Coalesces edits into one render
+     * {@link REFRESH_DEBOUNCE_MS} after the last one, patching the live viewer in
+     * place so pan/zoom/search/an open detail panel survive - rather than
+     * {@link update}'s full `webview.html` replace, which loses all of that.
+     */
+    scheduleRefresh(aslContent: string) {
+        this._refreshDebouncer.schedule(aslContent)
+    }
+
+    /**
+     * Render a debounced keystroke's content and patch it into the live viewer.
+     * Falls back to a full {@link update} when the diagram is showing an execution
+     * overlay or the error document, when rendering fails, or when the diagram just
+     * gained a collapse toggle it didn't have a moment ago (the toolbar's toggle
+     * button lives outside the `data-sfn="content"` node an incremental update
+     * patches, so a genuinely new button can't be added that way - see webview/render.ts).
+     */
+    private _refresh(aslContent: string) {
+        if (aslContent === this._lastContent) {
+            return
+        }
+        this._lastContent = aslContent
+
+        if (this._history !== undefined || this._showingError) {
+            this.update(aslContent)
+            return
+        }
+
+        try {
+            const update = renderPreviewUpdate({ aslContent, layout: this._layout, theme: this._theme })
+            if (update.hasCollapsedView && !this._hasCollapsedView) {
+                this.update(aslContent)
+                return
+            }
+            this._hasCollapsedView = update.hasCollapsedView
+            void this._panel.webview.postMessage(buildUpdateContentMessage({ update }))
+        } catch (err) {
+            void this._panel.webview.postMessage(buildRenderErrorMessage({ error: err }))
         }
     }
 
     dispose() {
         DiagramPanel.currentPanel = undefined
+        this._refreshDebouncer.cancel()
         this._panel.dispose()
         this._disposables.forEach((disposable) => disposable.dispose())
         this._disposables = []

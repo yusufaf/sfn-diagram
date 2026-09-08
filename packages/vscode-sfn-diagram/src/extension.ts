@@ -68,7 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
             const editor = vscode.window.activeTextEditor
             if (editor && event.document === editor.document) {
-                DiagramPanel.currentPanel.update(editor.document.getText())
+                DiagramPanel.currentPanel.scheduleRefresh(editor.document.getText())
             }
         })
     )
