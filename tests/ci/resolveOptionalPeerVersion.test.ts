@@ -17,6 +17,9 @@ importers:
       node-html-to-image:
         specifier: ^6.2.0
         version: 6.2.0
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
 `;
 
 describe('resolveOptionalPeerVersion', () => {
@@ -33,6 +36,12 @@ describe('resolveOptionalPeerVersion', () => {
         expect(
             resolveOptionalPeerVersion({ lockfileContents: LOCKFILE, packageName: 'yaml' }),
         ).toBe('2.9.1');
+    });
+
+    it('strips the peer-resolution suffix from the version', () => {
+        expect(
+            resolveOptionalPeerVersion({ lockfileContents: LOCKFILE, packageName: 'react-dom' }),
+        ).toBe('18.3.1');
     });
 
     // The whole point of #153: a peer that is silently absent produces an image

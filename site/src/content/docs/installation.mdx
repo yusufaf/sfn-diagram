@@ -7,7 +7,7 @@ import { PackageManagers } from 'starlight-package-managers'
 
 <PackageManagers pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 
-The core package pulls in **no browser engine** — SVG and Mermaid generation stay lightweight. PNG export uses `@resvg/resvg-js`, a native, browser-free rasterizer, provided by an optional peer dependency. Install it only if you use `sfn-diagram/png`:
+The core package pulls in **no browser engine or native rasterizer** — SVG and Mermaid generation stay lightweight. PNG export uses `@resvg/resvg-js`, a native, browser-free rasterizer, provided by an optional peer dependency. Install it only if you use `sfn-diagram/png`:
 
 <PackageManagers pkg="sfn-diagram @resvg/resvg-js" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 

@@ -114,6 +114,17 @@ jobs:
             exit 1
           }
 
+      # The byte checks prove a PNG came out, not that it has anything in it.
+      # This job runs unattended, post-publish, with nobody watching it - keep
+      # the render downloadable so a human can eyeball text rendering.
+      - name: Upload the published image's PNG smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-published-png-smoke
+          path: /tmp/published.png
+          if-no-files-found: warn
+
   # `docker` failing (or its verification step catching a broken image) has no
   # human "actor" to notify - it's triggered by a release event, not a click.
   # File an issue so a broken image can't silently sit unnoticed the way it did

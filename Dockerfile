@@ -29,8 +29,9 @@ COPY scripts/resolve-optional-peer-version.mjs ./scripts/
 # broken for three releases. Install it explicitly, pinned to the version the
 # lockfile resolves (the resolver needs `yaml`, a prod dep, so it runs second).
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts \
-    && pnpm add --ignore-scripts --save-prod \
-        "@resvg/resvg-js@$(node scripts/resolve-optional-peer-version.mjs --package @resvg/resvg-js)" \
+    && RESVG_VERSION="$(node scripts/resolve-optional-peer-version.mjs --package @resvg/resvg-js)" \
+    && test -n "$RESVG_VERSION" \
+    && pnpm add --ignore-scripts --save-prod "@resvg/resvg-js@$RESVG_VERSION" \
     && test -d node_modules/@resvg/resvg-js \
     && test ! -d node_modules/puppeteer
 
