@@ -15,7 +15,7 @@ raw Markdown by appending `.md` to its URL.
 | `sfn-diagram/cfn` | `extractAslFromTemplate` for CloudFormation/SAM/CDK | Node, browser, edge |
 
 The core is platform-agnostic and has no browser-engine dependency.
-`sfn-diagram/png` (via the optional `node-html-to-image` peer),
+`sfn-diagram/png` (via the optional `@resvg/resvg-js` peer, a native rasterizer),
 `sfn-diagram/aws` (via the optional `@aws-sdk/client-sfn` peer), and the CLI are
 Node-only. Do not import either subpath in browser or edge code.
 

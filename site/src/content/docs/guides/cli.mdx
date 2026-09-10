@@ -45,9 +45,9 @@ aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
 npx sfn-diagram state.asl.json --execution history.json -o run.svg
 ```
 
-Both flags support `--format svg` and `--format mermaid` only, and cannot be combined
-with each other. The change/status summary is written to **stderr**, so the diagram on
-stdout still pipes cleanly:
+Both flags support `--format svg`, `--format mermaid`, and `--format html` only, and
+cannot be combined with each other. The change/status summary is written to **stderr**,
+so the diagram on stdout still pipes cleanly:
 
 ```
 Diff summary:
@@ -64,7 +64,7 @@ programmatic equivalents.
 
 CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/).
 
-> **`--format png` needs the optional `node-html-to-image` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package node-html-to-image sfn-diagram …`; in a project, `npm install node-html-to-image`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which bundles Chromium.
+> **`--format png` needs the optional `@resvg/resvg-js` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …`; in a project, `npm install @resvg/resvg-js`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which ships it preinstalled.
 
 ## `comment gitlab`
 
@@ -78,7 +78,7 @@ sfn-diagram comment gitlab --help
 
 ## Docker
 
-A prebuilt image is published to GitHub Container Registry with Chromium baked in, so PNG export works out of the box:
+A prebuilt image is published to GitHub Container Registry with the PNG rasterizer preinstalled, so `--format png` works out of the box — no browser, no extra install:
 
 ```bash
 docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
@@ -90,6 +90,8 @@ docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
 
 Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
 
+PNG text is rendered with Liberation Sans, which the image ships. To use your own fonts, mount them and point the renderer at them with `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list of directories) or `SFN_DIAGRAM_PNG_FONT_FAMILY`.
+
 ## Standalone binary
 
 Each GitHub release also attaches single-file executables for Linux (x64, arm64),
@@ -100,6 +102,7 @@ brew install yusufaf/tap/sfn-diagram
 # or download sfn-diagram-<os>-<arch> from the releases page and chmod +x it
 ```
 
-They support every format except `png`, which needs a headless browser: use the
-Docker image above or the npm package with `node-html-to-image` installed. See
+They support every format except `png`: the native rasterizer it needs cannot be
+bundled into a single-file executable. Use the Docker image above or the npm
+package with `@resvg/resvg-js` installed. See
 [Use from Python, Go, Java, and other languages](/guides/other-languages/).

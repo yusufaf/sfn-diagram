@@ -45,10 +45,10 @@ chmod +x sfn-diagram
 
 On Windows, download `sfn-diagram-windows-x64.exe`.
 
-The binaries render **SVG, Mermaid, and HTML**. `--format png` needs a headless
-browser and is not available in the standalone build; use the
-[Docker image](/guides/cli/#docker), which bundles Chromium, or the npm package with
-`node-html-to-image` installed.
+The binaries render **SVG, Mermaid, and HTML**. `--format png` needs the native
+rasterizer and is not available in the standalone build; use the
+[Docker image](/guides/cli/#docker), which ships the rasterizer, or the npm package with
+`@resvg/resvg-js` installed.
 
 ## Docker
 

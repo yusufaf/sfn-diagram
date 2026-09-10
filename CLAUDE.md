@@ -51,7 +51,7 @@ Library for generating diagrams from AWS Step Functions ASL (Amazon States Langu
 - Proper start/end state handling
 
 **src/exporters/PngExporter.ts** - PNG export
-- Converts SVG to PNG using node-html-to-image
+- Converts SVG to PNG using `@resvg/resvg-js` (default) or `node-html-to-image` (opt-in fallback)
 - Configurable quality and background
 
 **src/config/** - Configuration
@@ -217,5 +217,5 @@ both.
 ## Notes
 - Feel free to use the aws-knowledge MCP tool for AWS Step Functions info
 - For manual testing, use `examples/order-processing.asl.json` or any fixture in `tests/fixtures/` (`simple`, `choice`, `parallel`, `distributed-map`, `variables`, …). Execution-overlay history fixtures are `tests/fixtures/execution-*.json`
-- Core (`sfn-diagram`: SVG/Mermaid) is platform-agnostic — runs in Node, browser, and edge. Only `sfn-diagram/png` (node-html-to-image) and the CLI are Node-only
+- Core (`sfn-diagram`: SVG/Mermaid) is platform-agnostic — runs in Node, browser, and edge. Only `sfn-diagram/png` (Node-only because of its native `@resvg/resvg-js` rasterizer) and the CLI are Node-only
 
