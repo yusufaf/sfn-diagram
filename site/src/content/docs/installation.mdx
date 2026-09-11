@@ -7,9 +7,9 @@ import { PackageManagers } from 'starlight-package-managers'
 
 <PackageManagers pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 
-The core package pulls in **no browser engine** — SVG and Mermaid generation stay lightweight. PNG export relies on a headless browser, provided by the optional peer dependency `node-html-to-image`. Install it only if you use `sfn-diagram/png`:
+The core package pulls in **no browser engine or native rasterizer** — SVG and Mermaid generation stay lightweight. PNG export uses `@resvg/resvg-js`, a native, browser-free rasterizer, provided by an optional peer dependency. Install it only if you use `sfn-diagram/png`:
 
-<PackageManagers pkg="sfn-diagram node-html-to-image" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
+<PackageManagers pkg="sfn-diagram @resvg/resvg-js" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} />
 
 ## Deno / JSR
 
@@ -25,8 +25,8 @@ brew install yusufaf/tap/sfn-diagram
 ```
 
 Or download a binary from the [releases page](https://github.com/yusufaf/sfn-diagram/releases)
-and put it on your `PATH`. The binaries render SVG, Mermaid, and HTML; PNG export needs a
-headless browser, so use the [Docker image](/guides/cli/#docker) or the npm package with
-`node-html-to-image` for that. See
+and put it on your `PATH`. The binaries render SVG, Mermaid, and HTML; PNG export needs the
+native rasterizer, so use the [Docker image](/guides/cli/#docker) or the npm package with
+`@resvg/resvg-js` for that. See
 [Use from Python, Go, Java, and other languages](/guides/other-languages/) for details
 and subprocess examples.

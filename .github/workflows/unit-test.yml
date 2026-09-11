@@ -120,6 +120,39 @@ jobs:
             exit 1
           }
 
+          # resvg renders no text at all without real font files on disk. This is
+          # the exact path src/exporters/pngFonts.ts probes first on linux.
+          docker run --rm --entrypoint sh sfn-diagram-ci-check -c \
+            'test -f /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' || {
+            echo "::error::Liberation Sans is missing - resvg would render text-free diagrams"
+            exit 1
+          }
+
+          # #153: the image advertised --format png for three releases while the
+          # PNG engine was absent from node_modules. Assert real PNG bytes.
+          mkdir -p docker-smoke
+          docker run --rm -i sfn-diagram-ci-check - --format png -o /dev/stdout \
+            < tests/fixtures/simple.asl.json > docker-smoke/diagram.png
+          head -c 8 docker-smoke/diagram.png | od -An -tx1 | tr -d ' \n' \
+            | grep -qx '89504e470d0a1a0a' || {
+            echo "::error::Docker image did not render a valid PNG (bad signature)"
+            exit 1
+          }
+          [ "$(wc -c < docker-smoke/diagram.png)" -gt 1000 ] || {
+            echo "::error::PNG from the Docker image is implausibly small"
+            exit 1
+          }
+
+      # The byte checks prove a PNG came out, not that it has anything in it.
+      # Keep the render downloadable so a human can eyeball text rendering.
+      - name: Upload the Docker PNG smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-png-smoke
+          path: docker-smoke/diagram.png
+          if-no-files-found: warn
+
   # The standalone binaries (release-please.yml `binaries` job) bundle dist/bin.js
   # with bun. Anything the CLI graph picks up that bun cannot bundle, or that
   # assumes a package.json next to the script, would otherwise only surface at

@@ -298,6 +298,6 @@ const { svg } = generateSvg({
 **Important Notes:**
 - Icons are only displayed on Task states (states with AWS service integrations)
 - Icons are sourced from [aws-icons](https://www.npmjs.com/package/aws-icons) via jsDelivr CDN
-- **PNG export limitation**: External CDN images may not render in PNG output due to headless browser limitations. **Use SVG output for diagrams with icons.**
+- **PNG export**: CDN icons are inlined as data URIs before rasterizing (via `embedIcons`), so `showIcons` renders correctly with the default `resvg` engine. This requires network access when the PNG is generated; an icon whose fetch fails falls back to the original CDN URL, which `resvg` cannot fetch — that icon silently fails to render rather than the reference being removed. Only calling `PngExporter` directly with a hand-authored SVG skips this inlining — embed external images yourself first in that case.
 - Unsupported services gracefully fall back to text-only labels
 - Icons are opt-in via `showIcons: true` (disabled by default)

@@ -96,6 +96,35 @@ jobs:
             exit 1
           }
 
+          docker run --rm --entrypoint sh "$IMAGE" -c \
+            'test -f /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' || {
+            echo "::error::Published image is missing Liberation Sans - resvg would render text-free diagrams"
+            exit 1
+          }
+
+          docker run --rm -i "$IMAGE" - --format png -o /dev/stdout \
+            < tests/fixtures/simple.asl.json > /tmp/published.png
+          head -c 8 /tmp/published.png | od -An -tx1 | tr -d ' \n' \
+            | grep -qx '89504e470d0a1a0a' || {
+            echo "::error::Published image did not render a valid PNG from stdin"
+            exit 1
+          }
+          [ "$(wc -c < /tmp/published.png)" -gt 1000 ] || {
+            echo "::error::PNG from the published image is implausibly small"
+            exit 1
+          }
+
+      # The byte checks prove a PNG came out, not that it has anything in it.
+      # This job runs unattended, post-publish, with nobody watching it - keep
+      # the render downloadable so a human can eyeball text rendering.
+      - name: Upload the published image's PNG smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-published-png-smoke
+          path: /tmp/published.png
+          if-no-files-found: warn
+
   # `docker` failing (or its verification step catching a broken image) has no
   # human "actor" to notify - it's triggered by a release event, not a click.
   # File an issue so a broken image can't silently sit unnoticed the way it did
