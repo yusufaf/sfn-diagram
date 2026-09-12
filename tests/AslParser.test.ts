@@ -621,6 +621,70 @@ describe('AslParser', () => {
                 );
             });
 
+            it('rejects a non-array Choices instead of crashing on forEach', () => {
+                const definition = {
+                    StartAt: 'Route',
+                    States: {
+                        Route: { Type: 'Choice', Choices: { Next: 'Done' }, Default: 'Done' },
+                        Done: { Type: 'Succeed' },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Route": Choices must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('rejects a non-array Catch instead of crashing on forEach', () => {
+                const definition = {
+                    StartAt: 'Work',
+                    States: {
+                        Work: { Type: 'Task', Resource: 'arn:x', Catch: { Next: 'Done' }, End: true },
+                        Done: { Type: 'Succeed' },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Work": Catch must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('rejects a non-array Retry instead of crashing on map', () => {
+                const definition = {
+                    StartAt: 'Work',
+                    States: {
+                        Work: { Type: 'Task', Resource: 'arn:x', Retry: 'States.ALL', End: true },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Work": Retry must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('qualifies a non-array Catch inside a branch with its scope', () => {
+                const definition = parallelWith({
+                    StartAt: 'Work',
+                    States: { Work: { Type: 'Task', Resource: 'arn:x', Catch: {}, End: true } },
+                });
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 1: State "Work": Catch must be an array',
+                );
+            });
+
             it('scopes names per branch, so the same name in two branches is valid', () => {
                 // ASL only requires a name to be unique within its own States block.
                 const definition: AslDefinition = {

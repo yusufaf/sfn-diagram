@@ -63030,13 +63030,18 @@ function validateState(params) {
     if (typeof state2.Default !== "string") fail(`State "${stateName}": Default must be a string`);
     if (!stateNames.has(state2.Default)) fail(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
   }
-  if ("Choices" in state2 && Array.isArray(state2.Choices)) {
+  for (const arrayField of [
+    "Choices",
+    "Catch",
+    "Retry"
+  ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) fail(`State "${stateName}": ${arrayField} must be an array`);
+  if (Array.isArray(state2.Choices)) {
     for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
       const choiceNext = choice.Next;
       if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) fail(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
     }
   }
-  if ("Catch" in state2 && Array.isArray(state2.Catch)) {
+  if (Array.isArray(state2.Catch)) {
     for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
       const catchNext = catchBlock.Next;
       if (typeof catchNext === "string" && !stateNames.has(catchNext)) fail(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
