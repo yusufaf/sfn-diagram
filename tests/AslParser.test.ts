@@ -816,6 +816,129 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Fail error and cause', () => {
+        const failWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Abort',
+                States: { Abort: { Type: 'Fail', ...fields } },
+            }) as AslDefinition;
+
+        const abortNode = (definition: AslDefinition) =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Abort');
+
+        it('renders a literal Error and Cause as separate parts', () => {
+            const node = abortNode(failWith({ Cause: 'Payment declined', Error: 'PaymentFailed' }));
+
+            expect(node?.failError).toBe('error: PaymentFailed');
+            expect(node?.failCause).toBe('cause: Payment declined');
+        });
+
+        it('renders ErrorPath and CausePath as the path they read', () => {
+            const node = abortNode(failWith({ CausePath: '$.reason', ErrorPath: '$.error' }));
+
+            expect(node?.failError).toBe('error: $.error');
+            expect(node?.failCause).toBe('cause: $.reason');
+        });
+
+        it('unwraps JSONata Error and Cause expressions', () => {
+            const node = abortNode(
+                failWith({ Cause: '{% $states.input.reason %}', Error: "{% 'Rejected' %}" }),
+            );
+
+            expect(node?.failError).toBe("error: 'Rejected'");
+            expect(node?.failCause).toBe('cause: $states.input.reason');
+        });
+
+        it('prefers the literal over the path when both are set', () => {
+            const node = abortNode(failWith({ Error: 'Literal', ErrorPath: '$.error' }));
+
+            expect(node?.failError).toBe('error: Literal');
+        });
+
+        it('elides a Cause too long for the node', () => {
+            const long = 'The order total exceeded the configured maximum for this customer tier';
+            const cause = abortNode(failWith({ Cause: long }))?.failCause ?? '';
+
+            expect(cause.length).toBeLessThan(long.length);
+            expect(cause.endsWith('…')).toBe(true);
+        });
+
+        it('leaves both unset on a bare Fail', () => {
+            const node = abortNode(failWith({}));
+
+            expect(node?.failError).toBeUndefined();
+            expect(node?.failCause).toBeUndefined();
+        });
+
+        it('does not put an error on a non-Fail state', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', Error: 'Nope', End: true } },
+            };
+
+            expect(
+                parseAsl({ definition }).nodes.find((node) => node.id === 'Work')?.failError,
+            ).toBeUndefined();
+        });
+    });
+
+    describe('Task timeout and heartbeat', () => {
+        const taskWith = (fields: Record<string, unknown>): AslDefinition =>
+            ({
+                StartAt: 'Work',
+                States: { Work: { Type: 'Task', Resource: 'arn:x', ...fields, End: true } },
+            }) as AslDefinition;
+
+        const workNode = (definition: AslDefinition) =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Work');
+
+        it('renders numeric TimeoutSeconds and HeartbeatSeconds with their unit', () => {
+            const node = workNode(taskWith({ HeartbeatSeconds: 10, TimeoutSeconds: 30 }));
+
+            expect(node?.taskTimeout).toBe('timeout 30s');
+            expect(node?.taskHeartbeat).toBe('heartbeat 10s');
+        });
+
+        it('renders the Path variants as the path they read', () => {
+            const node = workNode(
+                taskWith({ HeartbeatSecondsPath: '$.hb', TimeoutSecondsPath: '$.limit' }),
+            );
+
+            expect(node?.taskTimeout).toBe('timeout $.limit');
+            expect(node?.taskHeartbeat).toBe('heartbeat $.hb');
+        });
+
+        it('unwraps a JSONata TimeoutSeconds expression', () => {
+            const node = workNode(taskWith({ TimeoutSeconds: '{% $states.input.limit %}' }));
+
+            expect(node?.taskTimeout).toBe('timeout $states.input.limit');
+        });
+
+        it('prefers the literal over the path when both are set', () => {
+            const node = workNode(taskWith({ TimeoutSeconds: 30, TimeoutSecondsPath: '$.limit' }));
+
+            expect(node?.taskTimeout).toBe('timeout 30s');
+        });
+
+        it('leaves both unset on a Task with neither', () => {
+            const node = workNode(taskWith({}));
+
+            expect(node?.taskTimeout).toBeUndefined();
+            expect(node?.taskHeartbeat).toBeUndefined();
+        });
+
+        it('does not put a timeout on a non-Task state', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Work',
+                States: { Work: { Type: 'Pass', TimeoutSeconds: 30, End: true } },
+            };
+
+            expect(
+                parseAsl({ definition }).nodes.find((node) => node.id === 'Work')?.taskTimeout,
+            ).toBeUndefined();
+        });
+    });
+
     describe('Distributed Map tolerance and batching', () => {
         const mapWith = (fields: Record<string, unknown>): AslDefinition =>
             ({

@@ -324,6 +324,45 @@ describe('Distributed Map', () => {
             expect(getNodeSubLabel({ node: wait, showStateType: false })).toBe('5s');
         });
 
+        it('shows a Fail state\'s error before its cause', () => {
+            const fail: StateNode = {
+                failCause: 'cause: Payment declined',
+                failError: 'error: PaymentFailed',
+                id: 'Abort',
+                label: 'Abort',
+                type: 'Fail',
+            };
+
+            expect(getNodeSubLabel({ node: fail, showStateType: false })).toBe(
+                'error: PaymentFailed · cause: Payment declined',
+            );
+        });
+
+        it('shows a Task state\'s timeout before its heartbeat', () => {
+            const task: StateNode = {
+                id: 'Work',
+                label: 'Work',
+                taskHeartbeat: 'heartbeat 10s',
+                taskTimeout: 'timeout 30s',
+                type: 'Task',
+            };
+
+            expect(getNodeSubLabel({ node: task, showStateType: true })).toBe(
+                'Task · timeout 30s · heartbeat 10s',
+            );
+        });
+
+        it('renders a Fail state\'s error into SVG and Mermaid', () => {
+            const definition = loadFixture('wait-fail');
+
+            // A default-width node cannot fit the whole error name, so the SVG shows the
+            // usual character-fitted form; the Mermaid label is never width-constrained.
+            expect(generateSvg({ aslDefinition: definition }).svg).toMatch(/error: InvalidStat/);
+            expect(generateMermaid({ aslDefinition: definition }).code).toContain(
+                'error: InvalidStatus · cause: Status was not success',
+            );
+        });
+
         it('keeps the bare type on a non-container, as the second line always has', () => {
             const task: StateNode = { id: 'Work', label: 'Work', type: 'Task' };
 

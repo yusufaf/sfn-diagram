@@ -97,12 +97,16 @@ export interface AslState {
     Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Branches?: AslDefinition[]; // Parallel/Map-specific
     Catch?: CatchBlock[]; // Task-specific
-    Cause?: string; // Fail-specific
+    Cause?: string; // Fail-specific; can be a JSONata expression
+    CausePath?: string; // Fail-specific; reference path resolving to Cause
     Choices?: ChoiceRule[]; // Choice-specific
     Comment?: string;
     Default?: string; // Choice-specific
     End?: boolean;
-    Error?: string; // Fail-specific
+    Error?: string; // Fail-specific; can be a JSONata expression
+    ErrorPath?: string; // Fail-specific; reference path resolving to Error
+    HeartbeatSeconds?: number | string; // Task-specific; can be a JSONata expression
+    HeartbeatSecondsPath?: string; // Task-specific; reference path resolving to HeartbeatSeconds
     ItemBatcher?: ItemBatcher; // Distributed Map-specific; batching config
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
@@ -125,6 +129,8 @@ export interface AslState {
     Retry?: RetryBlock[]; // Task-specific
     Seconds?: number | string; // Wait-specific; Can be JSONata expression
     SecondsPath?: string; // Wait-specific
+    TimeoutSeconds?: number | string; // Task-specific; can be a JSONata expression
+    TimeoutSecondsPath?: string; // Task-specific; reference path resolving to TimeoutSeconds
     Timestamp?: string; // Wait-specific
     TimestampPath?: string; // Wait-specific
     ToleratedFailureCount?: number | string; // Distributed Map-specific; can be a JSONata expression
@@ -162,6 +168,16 @@ export interface StateNode {
     collapsed?: boolean;
     /** Number of real descendant states hidden behind a collapsed container placeholder. */
     collapsedCount?: number;
+    /**
+     * A Fail state's cause, pre-formatted for display (e.g. `cause: Payment declined`,
+     * or the path or JSONata expression it is read from). Absent for other state types.
+     */
+    failCause?: string;
+    /**
+     * A Fail state's error name, pre-formatted for display (e.g. `error: PaymentFailed`,
+     * or the path or JSONata expression it is read from). Absent for other state types.
+     */
+    failError?: string;
     height?: number;
     /** URL to AWS service icon (CDN path for Task states) */
     iconUrl?: string;
@@ -183,6 +199,16 @@ export interface StateNode {
     /** AWS service identifier for Task states (e.g., 'lambda', 's3') */
     serviceType?: string;
     style?: NodeStyle;
+    /**
+     * A Task state's heartbeat interval, pre-formatted for display (e.g. `heartbeat 10s`,
+     * or the path or JSONata expression it is read from). Absent when not set.
+     */
+    taskHeartbeat?: string;
+    /**
+     * A Task state's timeout, pre-formatted for display (e.g. `timeout 30s`, or the
+     * path or JSONata expression it is read from). Absent when not set.
+     */
+    taskTimeout?: string;
     /**
      * A Map state's failure tolerance, pre-formatted for display (e.g. `tolerate 5%`).
      * Absent when no tolerance is configured.

@@ -62494,6 +62494,47 @@ function getWaitDurationLabel(state2) {
   if (state2.TimestampPath !== void 0) return elide(state2.TimestampPath);
   return "";
 }
+function getFailDetailLabel(params) {
+  const { literal, path: path2, prefix } = params;
+  if (literal !== void 0) return `${prefix}: ${elide(stripJsonataDelimiters(literal))}`;
+  if (path2 !== void 0) return `${prefix}: ${elide(path2)}`;
+  return "";
+}
+function getFailErrorLabel(state2) {
+  return getFailDetailLabel({
+    literal: state2.Error,
+    path: state2.ErrorPath,
+    prefix: "error"
+  });
+}
+function getFailCauseLabel(state2) {
+  return getFailDetailLabel({
+    literal: state2.Cause,
+    path: state2.CausePath,
+    prefix: "cause"
+  });
+}
+function getSecondsLabel(params) {
+  const { path: path2, prefix, seconds } = params;
+  if (typeof seconds === "number") return `${prefix} ${seconds}s`;
+  if (typeof seconds === "string") return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+  if (path2 !== void 0) return `${prefix} ${elide(path2)}`;
+  return "";
+}
+function getTaskTimeoutLabel(state2) {
+  return getSecondsLabel({
+    path: state2.TimeoutSecondsPath,
+    prefix: "timeout",
+    seconds: state2.TimeoutSeconds
+  });
+}
+function getTaskHeartbeatLabel(state2) {
+  return getSecondsLabel({
+    path: state2.HeartbeatSecondsPath,
+    prefix: "heartbeat",
+    seconds: state2.HeartbeatSeconds
+  });
+}
 function getToleratedFailureLabel(state2) {
   const parts = [];
   const count = state2.ToleratedFailureCount;
@@ -62531,6 +62572,10 @@ function getNodeSubLabelParts(params) {
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
+  if (node.taskTimeout !== void 0) parts.push(node.taskTimeout);
+  if (node.taskHeartbeat !== void 0) parts.push(node.taskHeartbeat);
+  if (node.failError !== void 0) parts.push(node.failError);
+  if (node.failCause !== void 0) parts.push(node.failCause);
   return parts;
 }
 function getCatchLabel(params) {
@@ -63101,6 +63146,18 @@ function createStateNode(params) {
   if (state2.Type === "Wait") {
     const waitDuration = getWaitDurationLabel(state2);
     if (waitDuration !== "") baseNode.waitDuration = waitDuration;
+  }
+  if (state2.Type === "Task") {
+    const taskTimeout = getTaskTimeoutLabel(state2);
+    if (taskTimeout !== "") baseNode.taskTimeout = taskTimeout;
+    const taskHeartbeat = getTaskHeartbeatLabel(state2);
+    if (taskHeartbeat !== "") baseNode.taskHeartbeat = taskHeartbeat;
+  }
+  if (state2.Type === "Fail") {
+    const failError = getFailErrorLabel(state2);
+    if (failError !== "") baseNode.failError = failError;
+    const failCause = getFailCauseLabel(state2);
+    if (failCause !== "") baseNode.failCause = failCause;
   }
   if (isContainer) {
     baseNode.children = [];
