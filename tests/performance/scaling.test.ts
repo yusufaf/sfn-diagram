@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { generateSvg, generateMermaid } from '../../src';
 import { parseAsl } from '../../src/AslParser';
+import { computeCollapsePlan } from '../../src/graph';
 import type { AslDefinition, AslState } from '../../src';
 import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
 
@@ -76,6 +77,34 @@ describe('parser scaling', () => {
         const asl = buildParallel({ branches: 40, statesPerBranch: 25 }); // ~1000 nested states
         const elapsed = timeMs(() => parseAsl({ definition: asl }));
         expect(elapsed).toBeLessThan(750);
+    });
+});
+
+describe('collapse closure scaling', () => {
+    test('collapse closure time scales roughly linearly with descendant count', () => {
+        // Same 8x span as the parser ratio check, for the same reason: it takes
+        // that much separation for a quadratic queue (`shift()` per visit) to
+        // stand out from timing noise.
+        const small = parseAsl({ definition: buildParallel({ branches: 80, statesPerBranch: 25 }) });
+        const large = parseAsl({ definition: buildParallel({ branches: 640, statesPerBranch: 25 }) });
+
+        const collapseSmall = (): void => {
+            computeCollapsePlan({ collapse: true, edges: small.edges, nodes: small.nodes });
+        };
+        const collapseLarge = (): void => {
+            computeCollapsePlan({ collapse: true, edges: large.edges, nodes: large.nodes });
+        };
+
+        collapseSmall();
+        collapseLarge();
+
+        const largePlan = computeCollapsePlan({ collapse: true, edges: large.edges, nodes: large.nodes });
+        expect(largePlan.hiddenIdsByTarget.get('Fork')?.size).toBeGreaterThan(16000);
+
+        const smallTime = minTimeMs({ fn: collapseSmall }) || 0.01;
+        const largeTime = minTimeMs({ fn: collapseLarge });
+
+        expect(largeTime / smallTime).toBeLessThan(24);
     });
 });
 
