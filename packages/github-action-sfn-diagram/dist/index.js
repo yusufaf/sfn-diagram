@@ -62451,6 +62451,78 @@ function getStrokeWidthForType(stateType) {
 function stripJsonataDelimiters(expression) {
   return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
 }
+var NARROW = 0.3;
+var MEDIUM_NARROW = 0.4;
+var WIDE = 0.65;
+var EXTRA_WIDE = 0.78;
+var SPACE = 0.28;
+var CHAR_WIDTHS = {};
+for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
+for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
+for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
+for (let code = 65; code <= 90; code++) {
+  const ch = String.fromCharCode(code);
+  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
+}
+CHAR_WIDTHS[" "] = SPACE;
+var ZERO_WIDTH_JOINER = 8205;
+var REGIONAL_INDICATOR_FIRST = 127462;
+var REGIONAL_INDICATOR_LAST = 127487;
+var ZERO_WIDTH_RANGES = [
+  [768, 879],
+  [1155, 1161],
+  [1425, 1469],
+  [1552, 1562],
+  [1611, 1631],
+  [3633, 3633],
+  [3636, 3642],
+  [3655, 3662],
+  [6832, 6911],
+  [7616, 7679],
+  [8203, 8207],
+  [8400, 8447],
+  [12330, 12335],
+  [12441, 12442],
+  [65024, 65039],
+  [65056, 65071],
+  [127995, 127999],
+  [917536, 917631],
+  [917760, 917999]
+];
+function inRanges(codePoint, ranges) {
+  for (const [first, last] of ranges) {
+    if (codePoint < first) return false;
+    if (codePoint <= last) return true;
+  }
+  return false;
+}
+function isZeroWidth(codePoint) {
+  return inRanges(codePoint, ZERO_WIDTH_RANGES);
+}
+function isRegionalIndicator(codePoint) {
+  return codePoint >= REGIONAL_INDICATOR_FIRST && codePoint <= REGIONAL_INDICATOR_LAST;
+}
+function splitGraphemes(text) {
+  const clusters = [];
+  let current = "";
+  let previousCodePoint = -1;
+  let openRegionalIndicator = false;
+  for (const char of text) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    const regionalIndicator = isRegionalIndicator(codePoint);
+    if (current !== "" && (isZeroWidth(codePoint) || previousCodePoint === ZERO_WIDTH_JOINER || regionalIndicator && openRegionalIndicator)) {
+      current += char;
+      openRegionalIndicator = false;
+    } else {
+      if (current !== "") clusters.push(current);
+      current = char;
+      openRegionalIndicator = regionalIndicator;
+    }
+    previousCodePoint = codePoint;
+  }
+  if (current !== "") clusters.push(current);
+  return clusters;
+}
 var EDGE_LABELS = {
   BRANCH_PREFIX: "Branch",
   CATCH_PREFIX: "Catch",
@@ -62483,7 +62555,8 @@ function getAssignedVariablesLabel(variableNames) {
 }
 var MAX_SUB_LABEL_EXPRESSION = 32;
 function elide(text) {
-  return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
+  const glyphs = splitGraphemes(text);
+  return glyphs.length > MAX_SUB_LABEL_EXPRESSION ? `${glyphs.slice(0, MAX_SUB_LABEL_EXPRESSION - 1).join("")}\u2026` : text;
 }
 var SUB_LABEL_SEPARATOR = " \xB7 ";
 function getWaitDurationLabel(state2) {
@@ -63491,20 +63564,6 @@ function extractNestedEdges(params) {
     }
   }
 }
-var NARROW = 0.3;
-var MEDIUM_NARROW = 0.4;
-var WIDE = 0.65;
-var EXTRA_WIDE = 0.78;
-var SPACE = 0.28;
-var CHAR_WIDTHS = {};
-for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
-for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
-for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
-for (let code = 65; code <= 90; code++) {
-  const ch = String.fromCharCode(code);
-  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
-}
-CHAR_WIDTHS[" "] = SPACE;
 var DARK_BACKGROUND_LUMINANCE = 0.5;
 function hexLuminance(color) {
   const match2 = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
