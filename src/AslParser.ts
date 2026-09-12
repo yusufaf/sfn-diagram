@@ -246,8 +246,17 @@ function validateState(params: ValidateStateParams): void {
         }
     }
 
+    // The extractor iterates each of these; a non-array would surface there as a raw
+    // TypeError rather than a catchable validation error, the same way a non-array
+    // Branches used to.
+    for (const arrayField of ['Choices', 'Catch', 'Retry'] as const) {
+        if (state[arrayField] !== undefined && !Array.isArray(state[arrayField])) {
+            fail(`State "${stateName}": ${arrayField} must be an array`);
+        }
+    }
+
     // Check Choices reference valid states
-    if ('Choices' in state && Array.isArray(state.Choices)) {
+    if (Array.isArray(state.Choices)) {
         for (const [index, choice] of (state.Choices as unknown[]).entries()) {
             if (choice && typeof choice === 'object' && 'Next' in choice) {
                 const choiceNext = (choice as Record<string, unknown>).Next;
@@ -261,7 +270,7 @@ function validateState(params: ValidateStateParams): void {
     }
 
     // Check Catch references valid states
-    if ('Catch' in state && Array.isArray(state.Catch)) {
+    if (Array.isArray(state.Catch)) {
         for (const [index, catchBlock] of (state.Catch as unknown[]).entries()) {
             if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
                 const catchNext = (catchBlock as Record<string, unknown>).Next;
