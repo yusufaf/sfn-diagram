@@ -62451,6 +62451,222 @@ function getStrokeWidthForType(stateType) {
 function stripJsonataDelimiters(expression) {
   return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
 }
+var NARROW = 0.3;
+var MEDIUM_NARROW = 0.4;
+var WIDE = 0.65;
+var EXTRA_WIDE = 0.78;
+var SPACE = 0.28;
+var CHAR_WIDTHS = {};
+for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
+for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
+for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
+for (let code = 65; code <= 90; code++) {
+  const ch = String.fromCharCode(code);
+  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
+}
+CHAR_WIDTHS[" "] = SPACE;
+var ZERO_WIDTH_JOINER = 8205;
+var VARIATION_SELECTOR_16 = 65039;
+var REGIONAL_INDICATOR_FIRST = 127462;
+var REGIONAL_INDICATOR_LAST = 127487;
+var ZERO_WIDTH_RANGES = [
+  [768, 879],
+  [1155, 1161],
+  [1425, 1469],
+  [1471, 1471],
+  [1473, 1474],
+  [1476, 1477],
+  [1479, 1479],
+  [1552, 1562],
+  [1611, 1631],
+  [1648, 1648],
+  [1750, 1756],
+  [1759, 1764],
+  [1767, 1768],
+  [1770, 1773],
+  [2304, 2307],
+  [2362, 2364],
+  [2366, 2383],
+  [2385, 2391],
+  [2402, 2403],
+  [2433, 2435],
+  [2492, 2492],
+  [2494, 2500],
+  [2503, 2504],
+  [2507, 2509],
+  [2519, 2519],
+  [2530, 2531],
+  [2558, 2558],
+  [2561, 2563],
+  [2620, 2620],
+  [2622, 2626],
+  [2631, 2632],
+  [2635, 2637],
+  [2641, 2641],
+  [2672, 2673],
+  [2677, 2677],
+  [2689, 2691],
+  [2748, 2748],
+  [2750, 2757],
+  [2759, 2761],
+  [2763, 2765],
+  [2786, 2787],
+  [2810, 2815],
+  [2817, 2819],
+  [2876, 2876],
+  [2878, 2884],
+  [2887, 2888],
+  [2891, 2893],
+  [2901, 2903],
+  [2914, 2915],
+  [2946, 2946],
+  [3006, 3010],
+  [3014, 3016],
+  [3018, 3021],
+  [3031, 3031],
+  [3072, 3076],
+  [3132, 3132],
+  [3134, 3140],
+  [3142, 3144],
+  [3146, 3149],
+  [3157, 3158],
+  [3170, 3171],
+  [3201, 3203],
+  [3260, 3260],
+  [3262, 3268],
+  [3270, 3272],
+  [3274, 3277],
+  [3285, 3286],
+  [3298, 3299],
+  [3315, 3315],
+  [3328, 3331],
+  [3387, 3388],
+  [3390, 3396],
+  [3398, 3400],
+  [3402, 3405],
+  [3415, 3415],
+  [3426, 3427],
+  [3457, 3459],
+  [3530, 3530],
+  [3535, 3540],
+  [3542, 3542],
+  [3544, 3551],
+  [3570, 3571],
+  [3633, 3633],
+  [3636, 3642],
+  [3655, 3662],
+  [3761, 3761],
+  [3764, 3772],
+  [3784, 3790],
+  [3864, 3865],
+  [3893, 3893],
+  [3895, 3895],
+  [3897, 3897],
+  [3902, 3903],
+  [3953, 3972],
+  [3974, 3975],
+  [3981, 3991],
+  [3993, 4028],
+  [4038, 4038],
+  [6832, 6911],
+  [7616, 7679],
+  [8203, 8207],
+  [8400, 8447],
+  [12330, 12335],
+  [12441, 12442],
+  [65024, 65039],
+  [65056, 65071],
+  [127995, 127999],
+  [917536, 917631],
+  [917760, 917999]
+];
+var EMOJI_RANGES = [
+  [8986, 8987],
+  [9001, 9002],
+  [9193, 9196],
+  [9200, 9200],
+  [9203, 9203],
+  [9725, 9726],
+  [9748, 9749],
+  [9800, 9811],
+  [9855, 9855],
+  [9875, 9875],
+  [9889, 9889],
+  [9898, 9899],
+  [9917, 9918],
+  [9924, 9925],
+  [9934, 9934],
+  [9940, 9940],
+  [9962, 9962],
+  [9970, 9971],
+  [9973, 9973],
+  [9978, 9978],
+  [9981, 9981],
+  [9989, 9989],
+  [9994, 9995],
+  [10024, 10024],
+  [10060, 10060],
+  [10062, 10062],
+  [10067, 10069],
+  [10071, 10071],
+  [10133, 10135],
+  [10160, 10160],
+  [10175, 10175],
+  [11035, 11036],
+  [11088, 11088],
+  [11093, 11093],
+  [126980, 126980],
+  [127183, 127183],
+  [127374, 127374],
+  [127377, 127386],
+  [REGIONAL_INDICATOR_FIRST, REGIONAL_INDICATOR_LAST],
+  [127488, 127569],
+  [127744, 128591],
+  [128640, 128767],
+  [128992, 129003],
+  [129292, 129535],
+  [129648, 129791]
+];
+function inRanges(codePoint, ranges) {
+  for (const [first, last] of ranges) {
+    if (codePoint < first) return false;
+    if (codePoint <= last) return true;
+  }
+  return false;
+}
+function isZeroWidth(codePoint) {
+  return inRanges(codePoint, ZERO_WIDTH_RANGES);
+}
+function isRegionalIndicator(codePoint) {
+  return codePoint >= REGIONAL_INDICATOR_FIRST && codePoint <= REGIONAL_INDICATOR_LAST;
+}
+function isEmojiPresentation(codePoint) {
+  return inRanges(codePoint, EMOJI_RANGES);
+}
+function splitGraphemes(text) {
+  const clusters = [];
+  let current = "";
+  let previousCodePoint = -1;
+  let openRegionalIndicator = false;
+  let emojiCluster = false;
+  for (const char of text) {
+    const codePoint = char.codePointAt(0) ?? 0;
+    const regionalIndicator = isRegionalIndicator(codePoint);
+    if (current !== "" && (isZeroWidth(codePoint) || previousCodePoint === ZERO_WIDTH_JOINER && emojiCluster || regionalIndicator && openRegionalIndicator)) {
+      current += char;
+      openRegionalIndicator = false;
+      if (codePoint === VARIATION_SELECTOR_16) emojiCluster = true;
+    } else {
+      if (current !== "") clusters.push(current);
+      current = char;
+      openRegionalIndicator = regionalIndicator;
+      emojiCluster = isEmojiPresentation(codePoint);
+    }
+    previousCodePoint = codePoint;
+  }
+  if (current !== "") clusters.push(current);
+  return clusters;
+}
 var EDGE_LABELS = {
   BRANCH_PREFIX: "Branch",
   CATCH_PREFIX: "Catch",
@@ -62483,7 +62699,8 @@ function getAssignedVariablesLabel(variableNames) {
 }
 var MAX_SUB_LABEL_EXPRESSION = 32;
 function elide(text) {
-  return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
+  const glyphs = splitGraphemes(text);
+  return glyphs.length > MAX_SUB_LABEL_EXPRESSION ? `${glyphs.slice(0, MAX_SUB_LABEL_EXPRESSION - 1).join("")}\u2026` : text;
 }
 var SUB_LABEL_SEPARATOR = " \xB7 ";
 function getWaitDurationLabel(state2) {
@@ -62599,19 +62816,18 @@ var SERVICE_ICON_MAP = {
   "s3": "AmazonSimpleStorageService",
   "s3glacier": "AmazonS3Glacier"
 };
+var ARN_PARTITION_PATTERN = /^arn:aws(?:-[a-z]+)*:/;
+var INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::([^:]+):`);
+var SDK_INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::aws-sdk:([^:]+):`);
+var DIRECT_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}([^:]+):`);
 function extractServiceFromArn(params) {
   const { arn } = params;
-  const directMatch = arn.match(/^arn:aws:([^:]+):/);
-  if (directMatch && directMatch[1] !== "states") return normalizeServiceName({ serviceName: directMatch[1] });
-  const integrationMatch = arn.match(/^arn:aws:states:::([^:]+):/);
-  if (integrationMatch) {
-    const service = integrationMatch[1];
-    if (service === "aws-sdk") {
-      const sdkMatch = arn.match(/^arn:aws:states:::aws-sdk:([^:]+):/);
-      if (sdkMatch) return normalizeServiceName({ serviceName: sdkMatch[1] });
-    }
-    return normalizeServiceName({ serviceName: service });
-  }
+  const sdkMatch = arn.match(SDK_INTEGRATION_ARN_PATTERN);
+  if (sdkMatch) return normalizeServiceName({ serviceName: sdkMatch[1] });
+  const integrationMatch = arn.match(INTEGRATION_ARN_PATTERN);
+  if (integrationMatch) return normalizeServiceName({ serviceName: integrationMatch[1] });
+  const directMatch = arn.match(DIRECT_ARN_PATTERN);
+  if (directMatch) return normalizeServiceName({ serviceName: directMatch[1] });
   return null;
 }
 function normalizeServiceName(params) {
@@ -62670,13 +62886,14 @@ function computeCollapsePlan(params) {
   };
   const closureFor = (containerId) => {
     const closure = /* @__PURE__ */ new Set();
-    const queue = [...nodesById.get(containerId)?.children ?? []];
-    while (queue.length > 0) {
-      const currentId = queue.shift();
+    const queue = [];
+    for (const childId of nodesById.get(containerId)?.children ?? []) queue.push(childId);
+    for (let head = 0; head < queue.length; head++) {
+      const currentId = queue[head];
       if (closure.has(currentId)) continue;
       closure.add(currentId);
       const current = nodesById.get(currentId);
-      if (current?.isContainer) queue.push(...current.children ?? []);
+      if (current?.isContainer) for (const childId of current.children ?? []) queue.push(childId);
     }
     return closure;
   };
@@ -63030,13 +63247,18 @@ function validateState(params) {
     if (typeof state2.Default !== "string") fail(`State "${stateName}": Default must be a string`);
     if (!stateNames.has(state2.Default)) fail(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
   }
-  if ("Choices" in state2 && Array.isArray(state2.Choices)) {
+  for (const arrayField of [
+    "Choices",
+    "Catch",
+    "Retry"
+  ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) fail(`State "${stateName}": ${arrayField} must be an array`);
+  if (Array.isArray(state2.Choices)) {
     for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
       const choiceNext = choice.Next;
       if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) fail(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
     }
   }
-  if ("Catch" in state2 && Array.isArray(state2.Catch)) {
+  if (Array.isArray(state2.Catch)) {
     for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
       const catchNext = catchBlock.Next;
       if (typeof catchNext === "string" && !stateNames.has(catchNext)) fail(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
@@ -63088,6 +63310,10 @@ function hasNestedStates(state2) {
   if (state2.Type === "Parallel") return Array.isArray(state2.Branches) && state2.Branches.length > 0;
   return state2.Type === "Map" && getMapProcessor(state2) !== void 0;
 }
+var JSONPATH_KEY_SUFFIX = ".$";
+function stripJsonPathSuffix(key) {
+  return key.endsWith(JSONPATH_KEY_SUFFIX) ? key.slice(0, -2) : key;
+}
 function createStateNode(params) {
   const { id, name, options, state: state2, stylePreset } = params;
   const isContainer = hasNestedStates(state2);
@@ -63101,7 +63327,7 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
-  const assignedVariables = Object.keys(state2.Assign ?? {});
+  const assignedVariables = Object.keys(state2.Assign ?? {}).map(stripJsonPathSuffix);
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
   if (state2.Type === "Wait") {
     const waitDuration = getWaitDurationLabel(state2);
@@ -63497,20 +63723,6 @@ function extractNestedEdges(params) {
     }
   }
 }
-var NARROW = 0.3;
-var MEDIUM_NARROW = 0.4;
-var WIDE = 0.65;
-var EXTRA_WIDE = 0.78;
-var SPACE = 0.28;
-var CHAR_WIDTHS = {};
-for (const ch of `iIl1|!.:;,'"`) CHAR_WIDTHS[ch] = NARROW;
-for (const ch of "fjtr()[]{}/-") CHAR_WIDTHS[ch] = MEDIUM_NARROW;
-for (const ch of "mwMW@%") CHAR_WIDTHS[ch] = EXTRA_WIDE;
-for (let code = 65; code <= 90; code++) {
-  const ch = String.fromCharCode(code);
-  if (!(ch in CHAR_WIDTHS)) CHAR_WIDTHS[ch] = WIDE;
-}
-CHAR_WIDTHS[" "] = SPACE;
 var DARK_BACKGROUND_LUMINANCE = 0.5;
 function hexLuminance(color) {
   const match2 = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());

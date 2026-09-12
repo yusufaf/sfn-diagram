@@ -69,19 +69,27 @@ export function computeCollapsePlan(params: ComputeCollapsePlanParams): Collapse
     }
 
     // Full multi-level descendant closure for one container, via BFS over `children`,
-    // recursing into any visited node that is itself a container.
+    // recursing into any visited node that is itself a container. The queue is
+    // consumed through a head index rather than `shift()` so a large closure stays
+    // O(n), and children are appended one at a time rather than spread so a very
+    // wide container can't overflow the call stack.
     const closureFor = (containerId: string): Set<string> => {
         const closure = new Set<string>();
-        const queue = [...(nodesById.get(containerId)?.children ?? [])];
-        while (queue.length > 0) {
-            const currentId = queue.shift() as string;
+        const queue: string[] = [];
+        for (const childId of nodesById.get(containerId)?.children ?? []) {
+            queue.push(childId);
+        }
+        for (let head = 0; head < queue.length; head++) {
+            const currentId = queue[head];
             if (closure.has(currentId)) {
                 continue;
             }
             closure.add(currentId);
             const current = nodesById.get(currentId);
             if (current?.isContainer) {
-                queue.push(...(current.children ?? []));
+                for (const childId of current.children ?? []) {
+                    queue.push(childId);
+                }
             }
         }
         return closure;

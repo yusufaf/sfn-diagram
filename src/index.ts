@@ -53,6 +53,9 @@ import type {
     AslDefinition,
 } from './types';
 
+/** User options with every default from `DEFAULT_DIAGRAM_OPTIONS` filled in. */
+type MergedDiagramOptions = ReturnType<typeof mergeOptions>;
+
 /**
  * Generate an SVG diagram from an AWS Step Functions ASL definition
  *
@@ -266,7 +269,7 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  */
 function buildHtmlViews(params: {
     aslObj: AslDefinition;
-    options: Omit<GenerateHtmlParams, 'aslDefinition'>;
+    options: MergedDiagramOptions;
 }): { collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
     const { aslObj, options } = params;
     const { edges, nodes } = parseAsl({ definition: aslObj, options });
@@ -306,7 +309,7 @@ function buildHtmlViews(params: {
  */
 function buildHtmlViewParts(params: {
     aslObj: AslDefinition;
-    options: Omit<GenerateHtmlParams, 'aslDefinition'>;
+    options: MergedDiagramOptions;
 }): { collapsedSvg?: string; collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
     const { collapsedSvgOutput, svgOutput } = buildHtmlViews(params);
     const collapsedSvg =
@@ -320,20 +323,24 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({ aslObj, options });
+    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
+        aslObj,
+        options: mergedOptions,
+    });
 
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj, options }),
+            edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: svgOutput.svg,
-            theme: resolveViewerTheme({ theme: options.theme }),
+            theme: resolveViewerTheme({ theme: mergedOptions.theme }),
         }),
         metadata: svgOutput.metadata,
         width: svgOutput.width,
@@ -361,8 +368,12 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
     const { aslDefinition, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({ aslObj, options });
+    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
+        aslObj,
+        options: mergedOptions,
+    });
 
     return {
         contentHtml: buildViewerContent({
@@ -373,7 +384,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
             minimapCollapsed: minimapStartsCollapsed({ nodeCount: svgOutput.metadata.nodeCount }),
             svg: svgOutput.svg,
         }),
-        edgeData: collectEdgeData({ definition: aslObj, options }),
+        edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
         hasCollapsedView: collapsedSvg !== undefined,
         metadata: svgOutput.metadata,
         stateData: collectStateData({ definition: aslObj }),
@@ -403,8 +414,9 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { aslDefinition, nonce, ...options } = params;
     const aslObj: AslDefinition =
         typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options });
+    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options: mergedOptions });
     const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
 
     // Same nodeCount guard as generateHtml, applied before paying for icon embedding.
@@ -420,12 +432,12 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount,
             collapsedSvg: embeddedCollapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj, options }),
+            edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             stateData: collectStateData({ definition: aslObj }),
             svg: embeddedSvg,
-            theme: resolveViewerTheme({ theme: options.theme }),
+            theme: resolveViewerTheme({ theme: mergedOptions.theme }),
         }),
         metadata: svgOutput.metadata,
         width: svgOutput.width,
@@ -561,7 +573,7 @@ export function generateFromAwsResponse(
  * ```
  */
 export class SfnDiagramGenerator {
-    private options: ReturnType<typeof mergeOptions>;
+    private options: MergedDiagramOptions;
 
     /**
      * Create a new diagram generator with default options

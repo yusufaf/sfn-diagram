@@ -23,6 +23,29 @@ describe('ASL Variables (Assign)', () => {
             expect(loadOrder?.assignedVariables).toEqual(['orderId', 'total']);
         });
 
+        it('strips the JSONPath `.$` suffix from assigned variable names', () => {
+            // In JSONPath mode a key ending in `.$` marks its value as a path to
+            // resolve; the variable itself is named without the suffix.
+            const jsonPathAssign: AslDefinition = {
+                StartAt: 'LoadOrder',
+                States: {
+                    LoadOrder: {
+                        Assign: { 'orderId.$': '$.order.id', region: 'us-east-1' },
+                        End: true,
+                        Type: 'Pass',
+                    },
+                },
+            };
+
+            const { nodes } = parseAsl({ definition: jsonPathAssign });
+            const loadOrder = nodes.find((node) => node.id === 'LoadOrder');
+
+            expect(loadOrder?.assignedVariables).toEqual(['orderId', 'region']);
+            expect(getAssignedVariablesLabel(loadOrder?.assignedVariables ?? [])).toBe(
+                '$orderId, $region'
+            );
+        });
+
         it('leaves assignedVariables undefined for states that assign nothing', () => {
             const { nodes } = parseAsl({ definition });
             const done = nodes.find((node) => node.id === 'Done');

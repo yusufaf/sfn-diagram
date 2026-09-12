@@ -246,8 +246,17 @@ function validateState(params: ValidateStateParams): void {
         }
     }
 
+    // The extractor iterates each of these; a non-array would surface there as a raw
+    // TypeError rather than a catchable validation error, the same way a non-array
+    // Branches used to.
+    for (const arrayField of ['Choices', 'Catch', 'Retry'] as const) {
+        if (state[arrayField] !== undefined && !Array.isArray(state[arrayField])) {
+            fail(`State "${stateName}": ${arrayField} must be an array`);
+        }
+    }
+
     // Check Choices reference valid states
-    if ('Choices' in state && Array.isArray(state.Choices)) {
+    if (Array.isArray(state.Choices)) {
         for (const [index, choice] of (state.Choices as unknown[]).entries()) {
             if (choice && typeof choice === 'object' && 'Next' in choice) {
                 const choiceNext = (choice as Record<string, unknown>).Next;
@@ -261,7 +270,7 @@ function validateState(params: ValidateStateParams): void {
     }
 
     // Check Catch references valid states
-    if ('Catch' in state && Array.isArray(state.Catch)) {
+    if (Array.isArray(state.Catch)) {
         for (const [index, catchBlock] of (state.Catch as unknown[]).entries()) {
             if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
                 const catchNext = (catchBlock as Record<string, unknown>).Next;
@@ -386,6 +395,16 @@ function hasNestedStates(state: AslState): boolean {
     return state.Type === 'Map' && getMapProcessor(state) !== undefined;
 }
 
+/** Suffix a JSONPath-mode key carries when its value is a path to resolve rather than a literal. */
+const JSONPATH_KEY_SUFFIX = '.$';
+
+/** Strip the JSONPath `.$` suffix from a key, e.g. `orderId.$` -> `orderId`. */
+function stripJsonPathSuffix(key: string): string {
+    return key.endsWith(JSONPATH_KEY_SUFFIX)
+        ? key.slice(0, -JSONPATH_KEY_SUFFIX.length)
+        : key;
+}
+
 function createStateNode(params: CreateStateNodeParams): StateNode {
     const { id, name, options, state, stylePreset } = params;
     const isContainer = hasNestedStates(state);
@@ -405,8 +424,10 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     };
 
     // ASL Variables: record which variables the state assigns so renderers can
-    // surface them. Assignment is otherwise invisible in the diagram.
-    const assignedVariables = Object.keys(state.Assign ?? {});
+    // surface them. Assignment is otherwise invisible in the diagram. In JSONPath
+    // mode a key's `.$` suffix marks its value as a path to resolve; the variable
+    // itself is named without it, so a diagram showing `$orderId.$` would be wrong.
+    const assignedVariables = Object.keys(state.Assign ?? {}).map(stripJsonPathSuffix);
     if (assignedVariables.length > 0) {
         baseNode.assignedVariables = assignedVariables;
     }

@@ -27,8 +27,10 @@ export interface CollectEdgeDataParams {
     /** The ASL definition to parse, including nested Parallel branches and Map processors. */
     definition: AslDefinition;
     /**
-     * The same options the diagram was rendered with. Pass them: `catchLabelStyle`
-     * decides an error edge's `label`, so omitting them makes the panel disagree with
+     * The same options the diagram was rendered with — ideally the merged options
+     * (see `mergeOptions`) the renderer itself consumed, so a default such as
+     * `catchLabelStyle` resolves from one place. `catchLabelStyle` decides an error
+     * edge's `label`, so passing different options here makes the panel disagree with
      * the label drawn on the diagram.
      */
     options?: DiagramOptions;
