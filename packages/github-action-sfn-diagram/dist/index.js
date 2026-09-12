@@ -62816,19 +62816,18 @@ var SERVICE_ICON_MAP = {
   "s3": "AmazonSimpleStorageService",
   "s3glacier": "AmazonS3Glacier"
 };
+var ARN_PARTITION_PATTERN = /^arn:aws(?:-[a-z]+)*:/;
+var INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::([^:]+):`);
+var SDK_INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::aws-sdk:([^:]+):`);
+var DIRECT_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}([^:]+):`);
 function extractServiceFromArn(params) {
   const { arn } = params;
-  const directMatch = arn.match(/^arn:aws:([^:]+):/);
-  if (directMatch && directMatch[1] !== "states") return normalizeServiceName({ serviceName: directMatch[1] });
-  const integrationMatch = arn.match(/^arn:aws:states:::([^:]+):/);
-  if (integrationMatch) {
-    const service = integrationMatch[1];
-    if (service === "aws-sdk") {
-      const sdkMatch = arn.match(/^arn:aws:states:::aws-sdk:([^:]+):/);
-      if (sdkMatch) return normalizeServiceName({ serviceName: sdkMatch[1] });
-    }
-    return normalizeServiceName({ serviceName: service });
-  }
+  const sdkMatch = arn.match(SDK_INTEGRATION_ARN_PATTERN);
+  if (sdkMatch) return normalizeServiceName({ serviceName: sdkMatch[1] });
+  const integrationMatch = arn.match(INTEGRATION_ARN_PATTERN);
+  if (integrationMatch) return normalizeServiceName({ serviceName: integrationMatch[1] });
+  const directMatch = arn.match(DIRECT_ARN_PATTERN);
+  if (directMatch) return normalizeServiceName({ serviceName: directMatch[1] });
   return null;
 }
 function normalizeServiceName(params) {

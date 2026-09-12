@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { estimateTextWidth, splitGraphemes } from '../src/utils/textMeasure';
+import {
+    estimateTextWidth,
+    getTextWidthCacheSize,
+    splitGraphemes,
+    TEXT_WIDTH_CACHE_LIMIT,
+} from '../src/utils/textMeasure';
 
 describe('estimateTextWidth', () => {
     const FONT_SIZE = 14;
@@ -160,6 +165,48 @@ describe('estimateTextWidth', () => {
             const ascii = estimateTextWidth('Order', FONT_SIZE);
             const cjk = estimateTextWidth('処理', FONT_SIZE);
             expect(estimateTextWidth('Order処理', FONT_SIZE)).toBeCloseTo(ascii + cjk, 5);
+        });
+    });
+
+    describe('memoization', () => {
+        it('returns the identical width on repeated calls', () => {
+            const first = estimateTextWidth('ValidateOrder', FONT_SIZE);
+            for (let call = 0; call < 5; call++) {
+                expect(estimateTextWidth('ValidateOrder', FONT_SIZE)).toBe(first);
+            }
+        });
+
+        it('keeps widths for the same text at different font sizes apart', () => {
+            expect(estimateTextWidth('Hello', 12)).not.toBe(estimateTextWidth('Hello', 14));
+            expect(estimateTextWidth('Hello', 12)).toBe(estimateTextWidth('Hello', 12));
+        });
+
+        it('caches a measured width and serves it on the next call', () => {
+            const text = `unique-${Date.now()}`;
+            const before = getTextWidthCacheSize();
+
+            estimateTextWidth(text, FONT_SIZE);
+            estimateTextWidth(text, FONT_SIZE);
+
+            expect(getTextWidthCacheSize()).toBe(before + 1);
+        });
+
+        it('never grows past its limit', () => {
+            for (let index = 0; index <= TEXT_WIDTH_CACHE_LIMIT * 2; index++) {
+                estimateTextWidth(`label-${index}`, FONT_SIZE);
+            }
+
+            expect(getTextWidthCacheSize()).toBeLessThanOrEqual(TEXT_WIDTH_CACHE_LIMIT);
+            expect(getTextWidthCacheSize()).toBeGreaterThan(0);
+        });
+
+        it('still measures correctly after the cache has been cleared', () => {
+            const expected = estimateTextWidth('AfterReset', FONT_SIZE);
+            for (let index = 0; index <= TEXT_WIDTH_CACHE_LIMIT; index++) {
+                estimateTextWidth(`flush-${index}`, FONT_SIZE);
+            }
+
+            expect(estimateTextWidth('AfterReset', FONT_SIZE)).toBe(expected);
         });
     });
 });

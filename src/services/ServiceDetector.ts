@@ -121,12 +121,45 @@ const SERVICE_ICON_MAP: Record<string, string> = {
 };
 
 /**
+ * Matches the `arn:PARTITION:` prefix for every AWS partition: `aws`, `aws-cn`,
+ * `aws-us-gov`, `aws-iso`, `aws-iso-b`, `aws-eusc`, and any future `aws-*` name.
+ */
+const ARN_PARTITION_PATTERN = /^arn:aws(?:-[a-z]+)*:/;
+
+/**
+ * Matches an optimized service integration (`arn:PARTITION:states:::SERVICE:action`)
+ * and captures the integrated service. Region and account are always empty here,
+ * which is what distinguishes it from a direct Step Functions resource ARN such as
+ * an Activity or a state machine.
+ */
+const INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::([^:]+):`);
+
+/**
+ * Matches an SDK integration (`arn:PARTITION:states:::aws-sdk:SERVICE:action`)
+ * and captures the SDK service.
+ */
+const SDK_INTEGRATION_ARN_PATTERN = new RegExp(
+    `${ARN_PARTITION_PATTERN.source}states:::aws-sdk:([^:]+):`
+);
+
+/**
+ * Matches any other resource ARN (`arn:PARTITION:SERVICE:region:account:resource`)
+ * and captures the owning service.
+ */
+const DIRECT_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}([^:]+):`);
+
+/**
  * Extract AWS service name from ARN (Amazon Resource Name)
  *
- * Supports three ARN patterns:
- * 1. Direct service ARNs: arn:aws:SERVICE:region:account:resource
- * 2. Service integrations: arn:aws:states:::SERVICE:action
- * 3. SDK integrations: arn:aws:states:::aws-sdk:SERVICE:action
+ * Supports three ARN patterns, in any AWS partition (`aws`, `aws-cn`,
+ * `aws-us-gov`, `aws-iso`, ...):
+ * 1. Service integrations: arn:aws:states:::SERVICE:action
+ * 2. SDK integrations: arn:aws:states:::aws-sdk:SERVICE:action
+ * 3. Direct service ARNs: arn:aws:SERVICE:region:account:resource
+ *
+ * Direct Step Functions resources — Activity ARNs
+ * (`arn:aws:states:REGION:ACCOUNT:activity:Name`) in particular — fall under
+ * pattern 3 and resolve to `states`.
  *
  * @param params - Parameters containing the ARN to parse
  * @returns Normalized service name or null if parsing fails
@@ -136,33 +169,29 @@ const SERVICE_ICON_MAP: Record<string, string> = {
  * // Returns: 'lambda'
  *
  * @example
- * extractServiceFromArn({ arn: 'arn:aws:states:::dynamodb:getItem' })
+ * extractServiceFromArn({ arn: 'arn:aws-cn:states:::dynamodb:getItem' })
  * // Returns: 'dynamodb'
+ *
+ * @example
+ * extractServiceFromArn({ arn: 'arn:aws:states:us-east-1:123:activity:MyActivity' })
+ * // Returns: 'states'
  */
 function extractServiceFromArn(params: ExtractServiceFromArnParams): string | null {
     const { arn } = params;
 
-    // Pattern 1: Direct service ARN (arn:aws:SERVICE:...)
-    const directMatch = arn.match(/^arn:aws:([^:]+):/);
-    if (directMatch && directMatch[1] !== 'states') {
-        return normalizeServiceName({ serviceName: directMatch[1] });
+    const sdkMatch = arn.match(SDK_INTEGRATION_ARN_PATTERN);
+    if (sdkMatch) {
+        return normalizeServiceName({ serviceName: sdkMatch[1] });
     }
 
-    // Pattern 2 & 3: Service integration ARNs
-    const integrationMatch = arn.match(/^arn:aws:states:::([^:]+):/);
+    const integrationMatch = arn.match(INTEGRATION_ARN_PATTERN);
     if (integrationMatch) {
-        const service = integrationMatch[1];
+        return normalizeServiceName({ serviceName: integrationMatch[1] });
+    }
 
-        // Pattern 3: SDK integration (arn:aws:states:::aws-sdk:SERVICE:action)
-        if (service === 'aws-sdk') {
-            const sdkMatch = arn.match(/^arn:aws:states:::aws-sdk:([^:]+):/);
-            if (sdkMatch) {
-                return normalizeServiceName({ serviceName: sdkMatch[1] });
-            }
-        }
-
-        // Pattern 2: Standard service integration
-        return normalizeServiceName({ serviceName: service });
+    const directMatch = arn.match(DIRECT_ARN_PATTERN);
+    if (directMatch) {
+        return normalizeServiceName({ serviceName: directMatch[1] });
     }
 
     return null;

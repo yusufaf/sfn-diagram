@@ -345,6 +345,34 @@ function graphemeWidth(cluster: string): number {
 }
 
 /**
+ * Most (text, fontSize) pairs remembered before the cache is dropped and
+ * rebuilt. A diagram measures a few hundred distinct strings at most; the
+ * cap only matters to a long-lived browser session rendering many diagrams.
+ */
+export const TEXT_WIDTH_CACHE_LIMIT = 4096;
+
+/** Measured widths by font size, then by text. */
+const widthCache = new Map<number, Map<string, number>>();
+let widthCacheSize = 0;
+
+/**
+ * Number of (text, fontSize) pairs currently cached. Exposed for tests.
+ *
+ * @returns The cache's entry count
+ */
+export function getTextWidthCacheSize(): number {
+    return widthCacheSize;
+}
+
+function measureText(text: string, fontSize: number): number {
+    let width = 0;
+    for (const cluster of splitGraphemes(text)) {
+        width += graphemeWidth(cluster) * fontSize;
+    }
+    return width;
+}
+
+/**
  * Estimate the rendered width of a string using per-character width classes.
  * More accurate than a flat per-character average because it accounts for the
  * significant width variance between narrow (i, l) and wide (M, W) glyphs
@@ -354,14 +382,35 @@ function graphemeWidth(cluster: string): number {
  * combining sequences and CJK text are sized by the glyphs they draw rather
  * than by UTF-16 code units.
  *
+ * Results are memoized on (text, fontSize): the renderer measures the same
+ * label several times per pass, and label fitting measures every prefix of
+ * an over-long string. The cache is bounded by {@link TEXT_WIDTH_CACHE_LIMIT}
+ * and cleared wholesale when full.
+ *
  * @param text - The string to measure
  * @param fontSize - Font size in pixels
  * @returns Estimated width in pixels
  */
 export function estimateTextWidth(text: string, fontSize: number): number {
-    let width = 0;
-    for (const cluster of splitGraphemes(text)) {
-        width += graphemeWidth(cluster) * fontSize;
+    let bySize = widthCache.get(fontSize);
+    const cached = bySize?.get(text);
+    if (cached !== undefined) {
+        return cached;
     }
+
+    const width = measureText(text, fontSize);
+
+    if (widthCacheSize >= TEXT_WIDTH_CACHE_LIMIT) {
+        widthCache.clear();
+        widthCacheSize = 0;
+        bySize = undefined;
+    }
+    if (bySize === undefined) {
+        bySize = new Map();
+        widthCache.set(fontSize, bySize);
+    }
+    bySize.set(text, width);
+    widthCacheSize++;
+
     return width;
 }
