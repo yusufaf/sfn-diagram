@@ -77,7 +77,15 @@ async function mapWithConcurrency<Item, Result>(
     for (let count = 0; count < workerCount; count++) {
         workers.push(worker());
     }
-    await Promise.all(workers);
+    // allSettled so one rejecting mapper cannot leave its sibling workers'
+    // later rejections unhandled; the first failure is rethrown once all drain.
+    const outcomes = await Promise.allSettled(workers);
+    const failure = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    if (failure) {
+        throw failure.reason;
+    }
 
     return results;
 }

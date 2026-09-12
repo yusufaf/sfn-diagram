@@ -85,8 +85,8 @@ describe('collapse closure scaling', () => {
         // Same 8x span as the parser ratio check, for the same reason: it takes
         // that much separation for a quadratic queue (`shift()` per visit) to
         // stand out from timing noise.
-        const small = parseAsl({ definition: buildParallel({ branches: 40, statesPerBranch: 25 }) });
-        const large = parseAsl({ definition: buildParallel({ branches: 320, statesPerBranch: 25 }) });
+        const small = parseAsl({ definition: buildParallel({ branches: 80, statesPerBranch: 25 }) });
+        const large = parseAsl({ definition: buildParallel({ branches: 640, statesPerBranch: 25 }) });
 
         const collapseSmall = (): void => {
             computeCollapsePlan({ collapse: true, edges: small.edges, nodes: small.nodes });
@@ -99,7 +99,7 @@ describe('collapse closure scaling', () => {
         collapseLarge();
 
         const largePlan = computeCollapsePlan({ collapse: true, edges: large.edges, nodes: large.nodes });
-        expect(largePlan.hiddenIdsByTarget.get('Fork')?.size).toBeGreaterThan(8000);
+        expect(largePlan.hiddenIdsByTarget.get('Fork')?.size).toBeGreaterThan(16000);
 
         const smallTime = minTimeMs({ fn: collapseSmall }) || 0.01;
         const largeTime = minTimeMs({ fn: collapseLarge });
