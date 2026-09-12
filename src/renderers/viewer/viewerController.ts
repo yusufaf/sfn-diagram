@@ -129,6 +129,15 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     const onApply: Array<() => void> = [];
     const cleanups: Array<() => void> = [];
 
+    // Marks an element root as carrying a live viewer, for stylesheet rules that must
+    // only ever apply to interactive instances - a non-interactive `<sfn-diagram>`
+    // shares the `data-sfn-viewer` attribute but is just an inline SVG whose layout
+    // those rules (container sizing, see viewerStyles.ts) would otherwise disturb.
+    if (root instanceof Element) {
+        root.setAttribute('data-sfn-interactive', '');
+        cleanups.push(() => root.removeAttribute('data-sfn-interactive'));
+    }
+
     function on(
         target: EventTarget,
         type: string,

@@ -54,7 +54,27 @@ describe('buildViewerStyles', () => {
                 expect(mediaBlock).toContain(rule);
                 expect(containerBlock).toContain(rule);
             }
-            expect(css).toContain('[data-sfn-viewer] { container: sfn-viewer / inline-size; }');
+            expect(css).toContain(
+                '[data-sfn-viewer][data-sfn-interactive] { container: sfn-viewer / inline-size; }',
+            );
+        });
+
+        it('declares the size container on interactive instances only', () => {
+            const css = buildViewerStyles({});
+            // A bare [data-sfn-viewer] rule with containment would collapse a
+            // non-interactive element (an inline SVG sized by its content) in a
+            // flex/grid/inline-block context.
+            expect(css).not.toMatch(/\[data-sfn-viewer\] \{[^}]*container/);
+        });
+
+        it('hides the minimap while the bottom sheet covers it', () => {
+            const css = buildViewerStyles({});
+            const rule =
+                '[data-sfn="panel"].sfn-open ~ [data-sfn="stage"] [data-sfn="minimap"] { display: none; }';
+            expect(css.slice(css.indexOf('@media (max-width: 640px)'))).toContain(rule);
+            expect(css.slice(css.indexOf('@container sfn-viewer (max-width: 640px)'))).toContain(rule);
+            // Never outside compact mode - the side panel and the minimap don't overlap.
+            expect(css.slice(0, css.indexOf('@media (max-width: 640px)'))).not.toContain(rule);
         });
     });
 });

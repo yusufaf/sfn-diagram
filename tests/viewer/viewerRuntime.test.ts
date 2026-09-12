@@ -1503,4 +1503,20 @@ describe('detail panel below the compact breakpoint', () => {
         // The stage is no longer shrunk by the panel's width.
         expect(layout.stageWidth).toBe(400);
     });
+
+    it('hides the minimap while the sheet would cover it, and brings it back on close', async () => {
+        const minimapDisplay = (): Promise<string> =>
+            narrowPage.$eval('#sfn-minimap', (element) => getComputedStyle(element).display);
+
+        // The panel is still open from the previous test; showing the minimap now
+        // (via its shortcut) must not surface it underneath the sheet.
+        await narrowPage.keyboard.press('m');
+        expect(await minimapDisplay()).toBe('none');
+
+        await narrowPage.keyboard.press('Escape');
+        expect(await narrowPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+        expect(await minimapDisplay()).toBe('block');
+    });
 });

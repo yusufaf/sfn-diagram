@@ -215,6 +215,57 @@ describe('upgrade and static rendering', () => {
         expect(result.caught).toBeTruthy();
         expect(result.html).toBe('');
     });
+
+    it('keeps its SVG width as a flex item and as an inline-block, not being a size container', async () => {
+        // The interactive viewer declares itself a CSS inline-size container; that
+        // must not leak onto a static element sharing the page, whose width comes
+        // from its own SVG. The viewer stylesheet only exists once an interactive
+        // instance has rendered, so one is mounted first to put the rules in play.
+        const result = await page.evaluate((definition) => {
+            const interactive = document.createElement('sfn-diagram');
+            interactive.setAttribute('interactive', '');
+            document.body.appendChild(interactive);
+            (interactive as unknown as { definition: unknown }).definition = definition;
+            const hosts = {
+                flex: Object.assign(document.createElement('div'), { style: 'display: flex' }),
+                inlineBlock: Object.assign(document.createElement('div'), {
+                    style: 'display: inline-block',
+                }),
+            };
+            const elements = Object.fromEntries(
+                Object.entries(hosts).map(([kind, host]) => {
+                    const el = document.createElement('sfn-diagram');
+                    host.appendChild(el);
+                    document.body.appendChild(host);
+                    (el as unknown as { definition: unknown }).definition = definition;
+                    return [kind, el];
+                }),
+            );
+            return new Promise<Record<string, { element: number; svg: number }>>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() => {
+                        const widths = Object.fromEntries(
+                            Object.entries(elements).map(([kind, el]) => [
+                                kind,
+                                {
+                                    element: el.getBoundingClientRect().width,
+                                    svg: el.querySelector('svg')!.getBoundingClientRect().width,
+                                },
+                            ]),
+                        );
+                        for (const host of Object.values(hosts)) host.remove();
+                        interactive.remove();
+                        resolve(widths);
+                    }),
+                );
+            });
+        }, asl as unknown as object);
+
+        for (const widths of Object.values(result)) {
+            expect(widths.svg).toBeGreaterThan(0);
+            expect(widths.element).toBe(widths.svg);
+        }
+    });
 });
 
 describe('progressive enhancement', () => {
@@ -448,6 +499,29 @@ describe('interactive mode', () => {
         expect(result.panelRight).toBe(result.elementRight);
         expect(result.panelBottom).toBe(result.elementBottom);
         expect(result.stageWidth).toBe(500);
+    });
+
+    it('marks itself data-sfn-interactive only while the viewer is attached', async () => {
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            const settle = (): Promise<void> =>
+                new Promise((resolve) => queueMicrotask(() => queueMicrotask(resolve)));
+            return (async () => {
+                await settle();
+                const whileInteractive = el.hasAttribute('data-sfn-interactive');
+                el.removeAttribute('interactive');
+                await settle();
+                const afterStatic = el.hasAttribute('data-sfn-interactive');
+                el.remove();
+                return { afterStatic, whileInteractive };
+            })();
+        }, asl as unknown as object);
+
+        expect(result.whileInteractive).toBe(true);
+        expect(result.afterStatic).toBe(false);
     });
 });
 
