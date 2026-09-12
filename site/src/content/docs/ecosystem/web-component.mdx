@@ -50,9 +50,9 @@ defineSfnDiagram({ name: 'my-diagram' }); // <my-diagram> instead of <sfn-diagra
 | `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the detail panel for a clicked state or edge |
 
 An embedded viewer sits inside a page that scrolls, so it doesn't take over the mouse
-wheel until you engage with it — click or tap the diagram, or move keyboard focus into
-it — and gives the wheel back once you click elsewhere on the page. Ctrl+wheel (a
-trackpad pinch) zooms the diagram at any time.
+wheel or touch gestures until you engage with it — click or tap the diagram, or move
+keyboard focus into it — and gives them back once you click elsewhere on the page.
+Ctrl+wheel (a trackpad pinch) zooms the diagram at any time.
 
 Failure to parse or validate `definition` dispatches a bubbling `sfn-error` event
 (`CustomEvent<Error>`) and renders nothing:

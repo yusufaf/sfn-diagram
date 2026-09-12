@@ -468,11 +468,39 @@ describe('wheel zoom scoping', () => {
         expect(untouched).toEqual({ cancelled: false, zoomed: false });
     });
 
-    it('sets touch-action: none on the stage so single-finger pan does not fight native scroll', async () => {
-        const [touchAction] = await runWheelScenario([
-            'return getComputedStyle(stage).touchAction;',
+    it('leaves touch-action alone (swipe scrolls the page) until engaged, then hands touches to the pan', async () => {
+        const press = (target: string): string =>
+            `${target}.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             ${target}.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));`;
+        const touchAction = 'return getComputedStyle(stage).touchAction;';
+        const [untouched, afterStagePress, afterOutsidePress, whileFocused, afterFocusLeaves] =
+            await runWheelScenario([
+                touchAction,
+                `${press('stage')} ${touchAction}`,
+                `${press('document.body')} ${touchAction}`,
+                `el.querySelector('[data-sfn="search"]').focus(); ${touchAction}`,
+                `el.querySelector('[data-sfn="search"]').blur(); ${touchAction}`,
+            ]);
+        expect(untouched).toBe('auto');
+        expect(afterStagePress).toBe('none');
+        expect(afterOutsidePress).toBe('auto');
+        expect(whileFocused).toBe('none');
+        expect(afterFocusLeaves).toBe('auto');
+    });
+
+    it('recovers panning after a press whose pointer never lifted', async () => {
+        // pointerId 99 is not an active pointer, so setPointerCapture refuses it and
+        // no pointerup ever arrives for it - the next real press must still pan.
+        const [panned] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 99, clientX: 10, clientY: 10 }));
+             const before = content.style.transform;
+             const at = (x, y) => ({ bubbles: true, pointerId: 1, clientX: x, clientY: y });
+             stage.dispatchEvent(new PointerEvent('pointerdown', at(100, 100)));
+             stage.dispatchEvent(new PointerEvent('pointermove', at(140, 130)));
+             stage.dispatchEvent(new PointerEvent('pointerup', at(140, 130)));
+             return content.style.transform !== before;`,
         ]);
-        expect(touchAction).toBe('none');
+        expect(panned).toBe(true);
     });
 
     it('zooms on ctrl+wheel (a trackpad pinch) even when not engaged', async () => {
