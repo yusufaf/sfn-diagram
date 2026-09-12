@@ -94,6 +94,50 @@ describe('estimateTextWidth', () => {
             expect(estimateTextWidth(family, FONT_SIZE)).toBeCloseTo(FULL, 5);
         });
 
+        it('does not swallow a letter that follows a shaping ZWJ', () => {
+            expect(estimateTextWidth('a\u200Db', FONT_SIZE)).toBeCloseTo(2 * NORMAL, 5);
+            // Sinhala "yansaya": consonant + virama + ZWJ + ya. Only the two letters draw.
+            expect(estimateTextWidth('\u0D9A\u0DCA\u200D\u0DBA', FONT_SIZE)).toBeCloseTo(
+                2 * NORMAL,
+                5,
+            );
+        });
+
+        it('joins a ZWJ sequence whose base only becomes an emoji under VS16', () => {
+            expect(estimateTextWidth('\u2764\uFE0F\u200D\u{1F525}', FONT_SIZE)).toBeCloseTo(
+                FULL,
+                5,
+            );
+        });
+
+        it('gives Indic, Arabic, Hebrew and Tibetan combining marks no width', () => {
+            const marks = [
+                '\u0940', // Devanagari vowel sign ii
+                '\u094D', // Devanagari virama
+                '\u09BE', // Bengali vowel sign aa
+                '\u0BCD', // Tamil virama
+                '\u0C4D', // Telugu virama
+                '\u0D4D', // Malayalam virama
+                '\u0DCA', // Sinhala virama
+                '\u0E31', // Thai mai han-akat
+                '\u0F71', // Tibetan vowel sign aa
+                '\u0670', // Arabic superscript alef
+                '\u06D6', // Arabic small high ligature
+                '\u05B0', // Hebrew sheva
+                '\u05C7', // Hebrew qamats qatan
+            ];
+
+            for (const mark of marks) {
+                expect(estimateTextWidth(`x${mark}`, FONT_SIZE)).toBe(NORMAL);
+            }
+        });
+
+        it('leaves Indic and Arabic base letters at normal width', () => {
+            expect(estimateTextWidth('\u0915', FONT_SIZE)).toBe(NORMAL);
+            expect(estimateTextWidth('\u0628', FONT_SIZE)).toBe(NORMAL);
+            expect(estimateTextWidth('\u06DE', FONT_SIZE)).toBe(NORMAL);
+        });
+
         it('gives emoji skin-tone modifiers no width of their own', () => {
             expect(estimateTextWidth('👍🏽', FONT_SIZE)).toBeCloseTo(FULL, 5);
         });
@@ -138,6 +182,15 @@ describe('splitGraphemes', () => {
         expect(splitGraphemes('👨\u200D👩\u200D👧')).toEqual(['👨\u200D👩\u200D👧']);
         expect(splitGraphemes('👍🏽')).toEqual(['👍🏽']);
         expect(splitGraphemes('🇯🇵🇺🇸')).toEqual(['🇯🇵', '🇺🇸']);
+    });
+
+    it('keeps a Devanagari consonant with its vowel sign and virama', () => {
+        expect(splitGraphemes('\u0915\u0940')).toEqual(['\u0915\u0940']);
+        expect(splitGraphemes('\u0915\u094D\u0937')).toEqual(['\u0915\u094D', '\u0937']);
+    });
+
+    it('attaches a shaping ZWJ to its base without joining the next letter', () => {
+        expect(splitGraphemes('a\u200Db')).toEqual(['a\u200D', 'b']);
     });
 
     it('returns an empty list for an empty string', () => {

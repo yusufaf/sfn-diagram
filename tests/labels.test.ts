@@ -27,6 +27,16 @@ describe('elide (via getWaitDurationLabel)', () => {
         expect(getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds })).toBe(seconds);
     });
 
+    it('never cuts between a Devanagari consonant and its vowel sign', () => {
+        // Each syllable is a consonant plus a vowel sign; the cut lands on one of them.
+        const syllable = '\u0915\u0940';
+        const seconds = syllable.repeat(40);
+
+        const label = getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds });
+
+        expect(label).toBe(`${syllable.repeat(31)}…`);
+    });
+
     it('keeps a combining mark with its base when cutting', () => {
         const seconds = `${'a'.repeat(30)}e\u0301${'b'.repeat(10)}`;
 
