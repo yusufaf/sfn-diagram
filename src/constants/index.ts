@@ -19,6 +19,7 @@ export {
     fitSubLabel,
     fitText,
     getItemBatchingLabel,
+    getItemsPathLabel,
     getNodeSubLabel,
     getNodeSubLabelParts,
     getToleratedFailureLabel,

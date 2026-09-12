@@ -115,7 +115,7 @@ describe('Distributed Map', () => {
 
     it('distinguishes the two in rendered Mermaid', () => {
         expect(generateMermaid({ aslDefinition: distributed }).code).toContain(
-            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50)'
+            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50 · items $.items)'
         );
         expect(generateMermaid({ aslDefinition: inline }).code).not.toContain('Distributed');
     });
@@ -289,6 +289,45 @@ describe('Distributed Map', () => {
                     showStateType: false,
                 }),
             ).toBe('Distributed · max 100 · tolerate 5% · batches of 50');
+        });
+
+        it('appends the items source last, so it is the first part dropped when width is tight', () => {
+            expect(
+                getNodeSubLabel({
+                    node: { ...node, itemsPath: 'items $.orders', toleratedFailure: 'tolerate 5%' },
+                    showStateType: false,
+                }),
+            ).toBe('Distributed · max 100 · tolerate 5% · items $.orders');
+        });
+
+        it('surfaces an inline Map\'s ItemsPath on the node', () => {
+            const { nodes } = parseAsl({ definition: inline });
+            const mapNode = nodes.find((candidate) => candidate.id === 'ProcessItems');
+
+            expect(mapNode?.itemsPath).toBe('items $.items');
+            expect(generateSvg({ aslDefinition: inline }).svg).toContain('items $.items');
+            expect(generateMermaid({ aslDefinition: inline }).code).toContain(
+                'ProcessItems: ProcessItems (max 4 · items $.items)'
+            );
+        });
+
+        it('leaves itemsPath unset on a Map without ItemsPath', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        End: true,
+                        ItemProcessor: {
+                            StartAt: 'Work',
+                            States: { Work: { End: true, Type: 'Pass' } },
+                        },
+                        Type: 'Map',
+                    },
+                },
+            };
+
+            const { nodes } = parseAsl({ definition: asl });
+            expect(nodes.find((candidate) => candidate.id === 'Fan')?.itemsPath).toBeUndefined();
         });
 
         it('strips JSONata delimiters from MaxConcurrency, like its ToleratedFailure siblings', () => {

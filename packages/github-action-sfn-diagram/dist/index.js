@@ -62517,6 +62517,9 @@ function getItemBatchingLabel(state2) {
   else if (batcher.MaxInputBytesPerBatchPath !== void 0) parts.push(`\u2264 ${elide(batcher.MaxInputBytesPerBatchPath)}`);
   return parts.length > 0 ? `batches ${parts.join(", ")}` : "";
 }
+function getItemsPathLabel(state2) {
+  return state2.ItemsPath === void 0 ? "" : `items ${elide(state2.ItemsPath)}`;
+}
 function getNodeSubLabel(params) {
   return getNodeSubLabelParts(params).join(SUB_LABEL_SEPARATOR);
 }
@@ -62530,6 +62533,7 @@ function getNodeSubLabelParts(params) {
   else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
+  if (node.itemsPath !== void 0) parts.push(node.itemsPath);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
   return parts;
 }
@@ -63111,6 +63115,8 @@ function createStateNode(params) {
       if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
       const itemBatching = getItemBatchingLabel(state2);
       if (itemBatching !== "") baseNode.itemBatching = itemBatching;
+      const itemsPath = getItemsPathLabel(state2);
+      if (itemsPath !== "") baseNode.itemsPath = itemsPath;
     }
   }
   if (options?.showIcons && state2.Type === "Task") {
