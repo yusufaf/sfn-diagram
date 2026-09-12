@@ -147,7 +147,9 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
     // id collisions - see viewerController.ts.
     return `
   ${documentReset}[data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
-  [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
+  /* touch-action: none hands every touch to the pointer handlers below - without it a
+     single-finger drag races the browser's own scroll gesture and the pan stutters. */
+  [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; touch-action: none; }
   /* The panel precedes the stage in the markup, so it can shrink it rather than
      cover the diagram. Fit/centre maths reads clientWidth, so this stays correct. */
   [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 360px; }

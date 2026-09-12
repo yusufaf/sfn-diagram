@@ -385,8 +385,16 @@ describe('interactive mode', () => {
                         const before = content.style.transform;
                         // A leaked wheel listener would still update the transform even
                         // though the element is now detached; a cleaned-up one won't.
+                        // ctrl+wheel, so an embedded viewer that was never engaged would
+                        // still zoom on it (see "wheel zoom scoping" below) - otherwise
+                        // this would pass for the wrong reason.
                         stage.dispatchEvent(
-                            new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -50 }),
+                            new WheelEvent('wheel', {
+                                bubbles: true,
+                                cancelable: true,
+                                ctrlKey: true,
+                                deltaY: -50,
+                            }),
                         );
                         resolve({ after: content.style.transform, before });
                     }),
@@ -395,6 +403,104 @@ describe('interactive mode', () => {
         }, asl as unknown as object);
 
         expect(result.after).toBe(result.before);
+    });
+});
+
+describe('wheel zoom scoping', () => {
+    /**
+     * Mounts a fresh interactive element and runs `steps` against it in the page: each
+     * step is a small script over `el` (with `stage`, `content` and `dispatchWheel`
+     * in scope) returning whether the wheel was cancelled and whether the transform
+     * changed. Keeps every scenario below to a single page round-trip.
+     */
+    async function runWheelScenario(
+        steps: string[],
+    ): Promise<Array<{ cancelled: boolean; zoomed: boolean }>> {
+        return page.evaluate(
+            (definition, stepSources) => {
+                const el = document.createElement('sfn-diagram');
+                el.setAttribute('interactive', '');
+                document.body.appendChild(el);
+                (el as unknown as { definition: unknown }).definition = definition;
+                return new Promise<Array<{ cancelled: boolean; zoomed: boolean }>>((resolve) => {
+                    queueMicrotask(() =>
+                        queueMicrotask(() => {
+                            const stage = el.querySelector('[data-sfn="stage"]') as HTMLElement;
+                            const content = el.querySelector('[data-sfn="content"]') as HTMLElement;
+                            const dispatchWheel = (
+                                init: WheelEventInit = {},
+                            ): { cancelled: boolean; zoomed: boolean } => {
+                                const before = content.style.transform;
+                                const notCancelled = stage.dispatchEvent(
+                                    new WheelEvent('wheel', {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        deltaY: -50,
+                                        ...init,
+                                    }),
+                                );
+                                return {
+                                    cancelled: !notCancelled,
+                                    zoomed: content.style.transform !== before,
+                                };
+                            };
+                            const results = stepSources.map((source) =>
+                                new Function('el', 'stage', 'content', 'dispatchWheel', source)(
+                                    el,
+                                    stage,
+                                    content,
+                                    dispatchWheel,
+                                ),
+                            );
+                            el.remove();
+                            resolve(results);
+                        }),
+                    );
+                });
+            },
+            asl as unknown as object,
+            steps,
+        );
+    }
+
+    it('lets the wheel scroll the host page until the viewer is engaged', async () => {
+        const [untouched] = await runWheelScenario(['return dispatchWheel();']);
+        expect(untouched).toEqual({ cancelled: false, zoomed: false });
+    });
+
+    it('sets touch-action: none on the stage so single-finger pan does not fight native scroll', async () => {
+        const [touchAction] = await runWheelScenario([
+            'return getComputedStyle(stage).touchAction;',
+        ]);
+        expect(touchAction).toBe('none');
+    });
+
+    it('zooms on ctrl+wheel (a trackpad pinch) even when not engaged', async () => {
+        const [pinched] = await runWheelScenario(['return dispatchWheel({ ctrlKey: true });']);
+        expect(pinched).toEqual({ cancelled: true, zoomed: true });
+    });
+
+    it('claims the wheel after a press on the stage, and gives it back after a press elsewhere', async () => {
+        const [afterStagePress, afterOutsidePress] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+            `document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+        ]);
+        expect(afterStagePress).toEqual({ cancelled: true, zoomed: true });
+        expect(afterOutsidePress).toEqual({ cancelled: false, zoomed: false });
+    });
+
+    it('claims the wheel while focus is inside the viewer', async () => {
+        const [whileFocused, afterBlur] = await runWheelScenario([
+            `el.querySelector('[data-sfn="search"]').focus();
+             return dispatchWheel();`,
+            `el.querySelector('[data-sfn="search"]').blur();
+             return dispatchWheel();`,
+        ]);
+        expect(whileFocused).toEqual({ cancelled: true, zoomed: true });
+        expect(afterBlur).toEqual({ cancelled: false, zoomed: false });
     });
 });
 

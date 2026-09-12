@@ -562,11 +562,34 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     let downTarget: EventTarget | null = null;
     const CLICK_SLOP = 4;
 
+    // Whether the wheel may be taken over for zoom. Zooming always cancels the event,
+    // and an embedded `<sfn-diagram>` would otherwise stall the host page's scroll the
+    // moment the cursor crossed it. So an embedded viewer only claims the wheel once the
+    // user has pressed on its stage (until they press somewhere else on the page) or
+    // moved focus into it; a ctrl+wheel (a trackpad pinch) is always a deliberate zoom.
+    // The standalone document is the whole page - nothing else there to scroll.
+    let pointerEngaged = root instanceof Document;
+
+    function wheelZoomIntended(wheelEvent: WheelEvent): boolean {
+        if (pointerEngaged || wheelEvent.ctrlKey) return true;
+        const active = ownerDoc?.activeElement;
+        return active !== null && active !== undefined && root.contains(active);
+    }
+
+    if (ownerDoc && !(root instanceof Document)) {
+        on(ownerDoc, 'pointerdown', (event) => {
+            if (!(event.target instanceof Node) || !root.contains(event.target)) {
+                pointerEngaged = false;
+            }
+        });
+    }
+
     on(
         stage,
         'wheel',
         (event) => {
             const wheelEvent = event as WheelEvent;
+            if (!wheelZoomIntended(wheelEvent)) return;
             wheelEvent.preventDefault();
             const rect = stage.getBoundingClientRect();
             const mx = wheelEvent.clientX - rect.left;
@@ -582,9 +605,17 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         { passive: false },
     );
 
+    // Single-pointer pan only: with touch-action: none on the stage a second finger
+    // now reaches these handlers too, and following it would jitter the pan between
+    // the two. Whichever pointer went down first owns the drag until it lifts.
+    let dragPointerId: number | null = null;
+
     on(stage, 'pointerdown', (event) => {
         const pointerEvent = event as PointerEvent;
+        pointerEngaged = true;
+        if (dragging) return;
         dragging = true;
+        dragPointerId = pointerEvent.pointerId;
         travel = 0;
         lastX = pointerEvent.clientX;
         lastY = pointerEvent.clientY;
@@ -594,8 +625,8 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         stage.setPointerCapture(pointerEvent.pointerId);
     });
     on(stage, 'pointermove', (event) => {
-        if (!dragging) return;
         const pointerEvent = event as PointerEvent;
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         const dx = pointerEvent.clientX - lastX;
         const dy = pointerEvent.clientY - lastY;
         travel += Math.abs(dx) + Math.abs(dy);
@@ -611,13 +642,27 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         lastX = pointerEvent.clientX;
         lastY = pointerEvent.clientY;
     });
-    on(stage, 'pointerup', (event) => {
-        if (!dragging) return;
-        const pointerEvent = event as PointerEvent;
+    function endDrag(pointerEvent: PointerEvent): void {
         dragging = false;
-        stage.classList.remove('sfn-dragging');
-        stage.releasePointerCapture(pointerEvent.pointerId);
+        dragPointerId = null;
+        stage!.classList.remove('sfn-dragging');
+        if (stage!.hasPointerCapture(pointerEvent.pointerId)) {
+            stage!.releasePointerCapture(pointerEvent.pointerId);
+        }
+    }
+    on(stage, 'pointerup', (event) => {
+        const pointerEvent = event as PointerEvent;
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
+        endDrag(pointerEvent);
         if (travel <= CLICK_SLOP) selectFromTarget({ moveFocus: false, target: downTarget });
+        downTarget = null;
+    });
+    // A cancelled pointer never sends pointerup; without this the drag would stay
+    // claimed and every later press on the stage would be ignored.
+    on(stage, 'pointercancel', (event) => {
+        const pointerEvent = event as PointerEvent;
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
+        endDrag(pointerEvent);
         downTarget = null;
     });
 
