@@ -6,13 +6,20 @@
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
 # `--format png` with the standalone pointer instead of a missing-module error.
 # When docker is available it also runs the binary inside a bare Debian image
-# to prove it needs no Node.js on the host (Linux binaries only).
+# to prove it needs no Node.js on the host (Linux binaries only, and only when
+# the host CPU matches the binary - an arm64 binary cannot run in an x64
+# container without emulation).
 #
-# Runs on every PR (unit-test.yml, linux-x64 only) and against the uploaded
-# release assets (release-please.yml). Needs a built dist/ in the repo.
+# Runs on every PR (unit-test.yml) for the linux-x64, linux-arm64, and
+# windows-x64 binaries built on their native runners, and against the uploaded
+# release assets (release-please.yml). macOS binaries are covered by the
+# macOS build job, which has to re-sign them first. Needs a built dist/ in
+# the repo. Portable across Linux, macOS, and Git Bash on Windows, so keep
+# it to POSIX tools that Git for Windows ships (mktemp, cmp, grep).
 #
 # Usage:
 #   scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
+#   bash scripts/smoke-test-binary.sh binaries/sfn-diagram-windows-x64.exe
 
 set -euo pipefail
 
@@ -61,9 +68,24 @@ set -e
 echo "$png_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected --format png stderr: $png_stderr"
 
+# Map the binary's architecture suffix and the host CPU onto the same names so
+# the container check only runs when the binary can execute natively here.
+binary_arch=""
+case "$(basename "$binary")" in
+    *-x64*) binary_arch="x64" ;;
+    *-arm64*) binary_arch="arm64" ;;
+esac
+host_arch=""
+case "$(uname -m)" in
+    x86_64 | amd64) host_arch="x64" ;;
+    aarch64 | arm64) host_arch="arm64" ;;
+esac
+
 case "$(basename "$binary")" in
     *linux*)
-        if command -v docker >/dev/null 2>&1; then
+        if [ "$binary_arch" != "$host_arch" ]; then
+            echo "== host is $(uname -m), skipping the Node-less container check for a $binary_arch binary"
+        elif command -v docker >/dev/null 2>&1; then
             echo "== runs without node (docker debian:bookworm-slim)"
             docker run --rm \
                 -v "$(cd "$(dirname "$binary")" && pwd):/b:ro" \

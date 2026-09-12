@@ -536,15 +536,32 @@ jobs:
           TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
           gh release upload "$TAG" binaries/sfn-diagram-* --clobber
 
-  # Pull every uploaded binary back down, publish a SHA256SUMS next to them, and
-  # smoke-test the Linux one the way a user would receive it - from the release,
-  # not from the build directory.
-  binaries-verify:
+  # Pull each Linux and Windows binary back down and smoke-test it the way a
+  # user would receive it - from the release, not from the build directory - on
+  # a runner that executes it natively (GitHub hosts arm64 Linux runners for
+  # public repos). The Linux runner also launches its binary inside a Node-less
+  # Debian container. The macOS binaries were smoke-tested in the `binaries`
+  # job, right after the re-sign that they cannot launch without.
+  binaries-smoke:
     needs: [release-please, binaries]
     if: always() && needs.binaries.result == 'success'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: sfn-diagram-linux-x64
+          - os: ubuntu-24.04-arm
+            binary: sfn-diagram-linux-arm64
+          - os: windows-latest
+            binary: sfn-diagram-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    # Git Bash on the Windows runner; the smoke test script is bash-only.
+    defaults:
+      run:
+        shell: bash
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout released tag
         uses: actions/checkout@v5
@@ -569,6 +586,36 @@ jobs:
       - name: Build core
         run: pnpm run build
 
+      - name: Download the released ${{ matrix.binary }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}"
+          gh release download "$TAG" --pattern '${{ matrix.binary }}' --dir binaries
+          ls -l binaries
+          [ -f "binaries/${{ matrix.binary }}" ] || {
+            echo "::error::${{ matrix.binary }} is not attached to release $TAG"
+            exit 1
+          }
+
+      - name: Smoke test the released ${{ matrix.binary }}
+        run: bash scripts/smoke-test-binary.sh binaries/${{ matrix.binary }}
+
+  # Publish a SHA256SUMS next to the binaries. Runs only after every smoke test
+  # passed, so a broken binary set never carries a SHA256SUMS that makes it
+  # look verified.
+  binaries-verify:
+    needs: [release-please, binaries, binaries-smoke]
+    if: always() && needs.binaries.result == 'success' && needs.binaries-smoke.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
+
       - name: Download release binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -580,11 +627,6 @@ jobs:
             echo "::error::expected 5 binaries on release $TAG"
             exit 1
           }
-
-      # Smoke test before publishing checksums, so a broken binary set never
-      # carries a SHA256SUMS that makes it look verified.
-      - name: Smoke test the released linux-x64 binary
-        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
 
       - name: Publish SHA256SUMS
         env:
@@ -670,7 +712,7 @@ jobs:
   # image did for three releases before this was added.
   report-publish-failure:
     name: Report publish failure
-    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync, binaries, binaries-verify, homebrew-tap]
+    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync, binaries, binaries-smoke, binaries-verify, homebrew-tap]
     if: |
       always() &&
       (needs.npm-publish.result == 'failure' ||
