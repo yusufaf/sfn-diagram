@@ -370,9 +370,25 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     return { edges: assignEdgeIds({ edges }), nodes };
 }
 
+/**
+ * True when a Parallel or Map state has nested states to draw inside it.
+ *
+ * A Parallel with no (or empty) `Branches`, or a Map with neither `ItemProcessor`
+ * nor `Iterator`, has nothing to contain. Such a state is not valid ASL, but the
+ * diff renderer produces exactly this shape for a removed container (its children
+ * are stripped along with its transitions), so it is drawn as a plain node with
+ * its own transitions rather than as an empty group with none.
+ */
+function hasNestedStates(state: AslState): boolean {
+    if (state.Type === 'Parallel') {
+        return Array.isArray(state.Branches) && state.Branches.length > 0;
+    }
+    return state.Type === 'Map' && getMapProcessor(state) !== undefined;
+}
+
 function createStateNode(params: CreateStateNodeParams): StateNode {
     const { id, name, options, state, stylePreset } = params;
-    const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
+    const isContainer = hasNestedStates(state);
 
     // When includeComments is enabled (the default), a state's Comment is used as its
     // display label; otherwise the state name is always used. Setting it to false lets
@@ -408,29 +424,29 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // For container nodes, we'll populate children later
     if (isContainer) {
         baseNode.children = [];
+    }
 
-        // A Distributed Map has materially different runtime semantics from an
-        // inline Map (child executions, its own concurrency and failure
-        // tolerance), so it is marked for distinct rendering. Note that
-        // ProcessorConfig sits on the ItemProcessor sub-definition, not on the
-        // Map state itself.
-        if (state.Type === 'Map') {
-            if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
-                baseNode.isDistributedMap = true;
-            }
-            if (state.MaxConcurrency !== undefined) {
-                baseNode.maxConcurrency = state.MaxConcurrency;
-            }
+    // A Distributed Map has materially different runtime semantics from an
+    // inline Map (child executions, its own concurrency and failure
+    // tolerance), so it is marked for distinct rendering. Note that
+    // ProcessorConfig sits on the ItemProcessor sub-definition, not on the
+    // Map state itself.
+    if (state.Type === 'Map') {
+        if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
+            baseNode.isDistributedMap = true;
+        }
+        if (state.MaxConcurrency !== undefined) {
+            baseNode.maxConcurrency = state.MaxConcurrency;
+        }
 
-            const toleratedFailure = getToleratedFailureLabel(state);
-            if (toleratedFailure !== '') {
-                baseNode.toleratedFailure = toleratedFailure;
-            }
+        const toleratedFailure = getToleratedFailureLabel(state);
+        if (toleratedFailure !== '') {
+            baseNode.toleratedFailure = toleratedFailure;
+        }
 
-            const itemBatching = getItemBatchingLabel(state);
-            if (itemBatching !== '') {
-                baseNode.itemBatching = itemBatching;
-            }
+        const itemBatching = getItemBatchingLabel(state);
+        if (itemBatching !== '') {
+            baseNode.itemBatching = itemBatching;
         }
     }
 
@@ -504,13 +520,18 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
             break;
 
         case 'Parallel':
-            // NOTE: Edges from branch end markers to Next state are created in extractNestedEdges
-            // We don't create edges from the Parallel container node because it's not in the dagre layout
-            break;
-
         case 'Map':
-            // NOTE: Edges from iterator end marker to Next state are created in extractNestedEdges
-            // We don't create edges from the Map container node because it's not in the dagre layout
+            // A container's outgoing edges are created in extractNestedEdges, anchored on
+            // its branch/iterator end markers, because the container itself is not in
+            // the dagre layout. A container with nothing inside has no markers and is
+            // laid out as a plain node, so it carries its own Next edge like one.
+            if (!hasNestedStates(state) && state.Next) {
+                edges.push({
+                    from: stateId,
+                    to: resolveId(state.Next),
+                    type: 'normal',
+                });
+            }
             break;
 
         default:

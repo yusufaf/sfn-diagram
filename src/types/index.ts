@@ -166,7 +166,11 @@ export interface StateNode {
     /** URL to AWS service icon (CDN path for Task states) */
     iconUrl?: string;
     id: string;
-    /** Whether this node is a container (Parallel or Map state) */
+    /**
+     * Whether this node is a container (a Parallel or Map state) with nested states
+     * drawn inside it. A Parallel with no branches or a Map with no processor has
+     * nothing to contain and is a plain node instead.
+     */
     isContainer?: boolean;
     /** Whether this Map state runs in distributed mode (`ProcessorConfig.Mode: 'DISTRIBUTED'`) */
     isDistributedMap?: boolean;
