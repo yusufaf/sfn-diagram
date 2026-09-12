@@ -370,6 +370,16 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     return { edges: assignEdgeIds({ edges }), nodes };
 }
 
+/** Suffix a JSONPath-mode key carries when its value is a path to resolve rather than a literal. */
+const JSONPATH_KEY_SUFFIX = '.$';
+
+/** Strip the JSONPath `.$` suffix from a key, e.g. `orderId.$` -> `orderId`. */
+function stripJsonPathSuffix(key: string): string {
+    return key.endsWith(JSONPATH_KEY_SUFFIX)
+        ? key.slice(0, -JSONPATH_KEY_SUFFIX.length)
+        : key;
+}
+
 function createStateNode(params: CreateStateNodeParams): StateNode {
     const { id, name, options, state, stylePreset } = params;
     const isContainer = state.Type === 'Parallel' || state.Type === 'Map';
@@ -389,8 +399,10 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     };
 
     // ASL Variables: record which variables the state assigns so renderers can
-    // surface them. Assignment is otherwise invisible in the diagram.
-    const assignedVariables = Object.keys(state.Assign ?? {});
+    // surface them. Assignment is otherwise invisible in the diagram. In JSONPath
+    // mode a key's `.$` suffix marks its value as a path to resolve; the variable
+    // itself is named without it, so a diagram showing `$orderId.$` would be wrong.
+    const assignedVariables = Object.keys(state.Assign ?? {}).map(stripJsonPathSuffix);
     if (assignedVariables.length > 0) {
         baseNode.assignedVariables = assignedVariables;
     }

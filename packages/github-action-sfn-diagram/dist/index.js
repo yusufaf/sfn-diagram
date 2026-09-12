@@ -63084,6 +63084,10 @@ function parseAsl(params) {
     nodes
   };
 }
+var JSONPATH_KEY_SUFFIX = ".$";
+function stripJsonPathSuffix(key) {
+  return key.endsWith(JSONPATH_KEY_SUFFIX) ? key.slice(0, -2) : key;
+}
 function createStateNode(params) {
   const { id, name, options, state: state2, stylePreset } = params;
   const isContainer = state2.Type === "Parallel" || state2.Type === "Map";
@@ -63097,7 +63101,7 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
-  const assignedVariables = Object.keys(state2.Assign ?? {});
+  const assignedVariables = Object.keys(state2.Assign ?? {}).map(stripJsonPathSuffix);
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
   if (state2.Type === "Wait") {
     const waitDuration = getWaitDurationLabel(state2);
