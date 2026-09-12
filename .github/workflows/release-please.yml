@@ -717,6 +717,7 @@ jobs:
       always() &&
       (needs.npm-publish.result == 'failure' ||
        needs.binaries.result == 'failure' ||
+       needs.binaries-smoke.result == 'failure' ||
        needs.binaries-verify.result == 'failure' ||
        needs.homebrew-tap.result == 'failure' ||
        needs.jsr-publish.result == 'failure' ||
@@ -746,6 +747,7 @@ jobs:
           | openvsx-publish | ${{ needs.openvsx-publish.result }} |
           | mirror-sync | ${{ needs.mirror-sync.result }} |
           | binaries | ${{ needs.binaries.result }} |
+          | binaries-smoke | ${{ needs.binaries-smoke.result }} |
           | binaries-verify | ${{ needs.binaries-verify.result }} |
           | homebrew-tap | ${{ needs.homebrew-tap.result }} |
 
