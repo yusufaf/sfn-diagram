@@ -1457,3 +1457,50 @@ describe('keyboard navigation', () => {
         expect(recentred).toBe(true);
     });
 });
+
+describe('detail panel below the compact breakpoint', () => {
+    let narrowPage: Page;
+
+    beforeAll(async () => {
+        narrowPage = await browser.newPage();
+        await narrowPage.setViewport({ width: 400, height: 700 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await narrowPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await narrowPage.close();
+    });
+
+    it('opens as a bottom sheet over a full-width stage instead of a 360px side panel', async () => {
+        await narrowPage.evaluate(() => {
+            const group = document.querySelector('[data-state-id="Beta"]') as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        });
+
+        const layout = await narrowPage.evaluate(() => {
+            const panel = document.querySelector('#sfn-panel')!.getBoundingClientRect();
+            const stage = document.querySelector('#sfn-stage')!;
+            return {
+                panelBottom: panel.bottom,
+                panelLeft: panel.left,
+                panelOpen: document.querySelector('#sfn-panel')!.classList.contains('sfn-open'),
+                panelTop: panel.top,
+                panelWidth: panel.width,
+                stageWidth: stage.clientWidth,
+            };
+        });
+
+        expect(layout.panelOpen).toBe(true);
+        // Anchored to the bottom edge and spanning the full width...
+        expect(layout.panelLeft).toBe(0);
+        expect(layout.panelWidth).toBe(400);
+        expect(layout.panelBottom).toBe(700);
+        // ...but never covering the whole stage - the diagram stays visible above it.
+        expect(layout.panelTop).toBeGreaterThanOrEqual(700 * 0.4);
+        // The stage is no longer shrunk by the panel's width.
+        expect(layout.stageWidth).toBe(400);
+    });
+});

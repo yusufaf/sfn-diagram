@@ -105,6 +105,12 @@ const LIGHT_PALETTE: ChromePalette = {
     text: '#16191f',
 };
 
+/**
+ * Viewer width (px) at or below which the detail panel becomes a bottom sheet over
+ * the stage rather than a 360px side panel that shrinks it.
+ */
+const COMPACT_BREAKPOINT = 640;
+
 const DARK_PALETTE: ChromePalette = {
     accent: '#539fe5',
     border: '#3b4149',
@@ -140,6 +146,12 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
         scope === 'document'
             ? `html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; color: ${palette.text}; }\n`
             : '';
+
+    const compactPanelRules = `
+    [data-sfn="panel"] { top: auto; left: 0; width: auto; max-height: 60%; border-left: 0;
+      border-top: 1px solid ${palette.border}; box-shadow: 0 -2px 8px rgba(0,0,0,.12); }
+    [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 0; }
+  `;
 
     // Selectors key off [data-sfn="..."] rather than #sfn-... ids: markup may carry
     // matching ids too (the standalone viewer document does, for back-compat), but
@@ -216,5 +228,12 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   /* Panel focus is programmatic (see the keyboard-open flow) - the dialog opening at
      all is the affordance, so a ring around the whole 360px panel is just noise. */
   [data-sfn="panel"]:focus { outline: none; }
+  /* Below the breakpoint a 360px side panel would eat most of the screen, so it drops
+     to a bottom sheet over the stage instead of shrinking it. The same rules answer
+     to a media query for the standalone document (the viewer is the viewport) and to
+     a container query for an embedded element, which is only as wide as its host. */
+  [data-sfn-viewer] { container: sfn-viewer / inline-size; }
+  @media (max-width: ${COMPACT_BREAKPOINT}px) {${compactPanelRules}}
+  @container sfn-viewer (max-width: ${COMPACT_BREAKPOINT}px) {${compactPanelRules}}
 `;
 }

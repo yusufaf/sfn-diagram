@@ -396,6 +396,59 @@ describe('interactive mode', () => {
 
         expect(result.after).toBe(result.before);
     });
+
+    it('drops the detail panel to a bottom sheet when the element itself is narrow', async () => {
+        // The page is 1280px wide, so only a container query (not a viewport media
+        // query) can notice that this particular element is below the breakpoint.
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            el.style.width = '500px';
+            el.style.height = '600px';
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            return new Promise<{
+                elementBottom: number;
+                elementRight: number;
+                panelBottom: number;
+                panelLeft: number;
+                panelOpen: boolean;
+                panelRight: number;
+                stageWidth: number;
+            }>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() => {
+                        const group = el.querySelector('[data-state-id="Start"]') as SVGElement;
+                        const options = { bubbles: true, pointerId: 1 };
+                        group.dispatchEvent(new PointerEvent('pointerdown', options));
+                        group.dispatchEvent(new PointerEvent('pointerup', options));
+
+                        const panel = el.querySelector('[data-sfn="panel"]')!;
+                        const panelRect = panel.getBoundingClientRect();
+                        const elementRect = el.getBoundingClientRect();
+                        const stage = el.querySelector('[data-sfn="stage"]')!;
+                        const layout = {
+                            elementBottom: elementRect.bottom,
+                            elementRight: elementRect.right,
+                            panelBottom: panelRect.bottom,
+                            panelLeft: panelRect.left,
+                            panelOpen: panel.classList.contains('sfn-open'),
+                            panelRight: panelRect.right,
+                            stageWidth: stage.clientWidth,
+                        };
+                        el.remove();
+                        resolve(layout);
+                    }),
+                );
+            });
+        }, asl as unknown as object);
+
+        expect(result.panelOpen).toBe(true);
+        expect(result.panelLeft).toBe(result.elementRight - 500);
+        expect(result.panelRight).toBe(result.elementRight);
+        expect(result.panelBottom).toBe(result.elementBottom);
+        expect(result.stageWidth).toBe(500);
+    });
 });
 
 /** Same page/script/registration-observation sequence as {@link newElementPage}, but exposing `defineSfnDiagram` directly instead of relying on an auto-registration side effect. Retries once for the same reason. */

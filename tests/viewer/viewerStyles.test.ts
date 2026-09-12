@@ -35,4 +35,26 @@ describe('buildViewerStyles', () => {
             expect(css).toContain('outline: 2px solid #539fe5; outline-offset: 1px;');
         });
     });
+
+    describe('responsive detail panel', () => {
+        it('keeps the 360px side panel that shrinks the stage as the default', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain('[data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 360px; }');
+        });
+
+        it('drops to a bottom sheet over an unshrunk stage below the breakpoint, for both the document and an embedded element', () => {
+            const css = buildViewerStyles({});
+            const compactRules = [
+                '[data-sfn="panel"] { top: auto; left: 0; width: auto; max-height: 60%; border-left: 0;',
+                '[data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 0; }',
+            ];
+            const mediaBlock = css.slice(css.indexOf('@media (max-width: 640px)'));
+            const containerBlock = css.slice(css.indexOf('@container sfn-viewer (max-width: 640px)'));
+            for (const rule of compactRules) {
+                expect(mediaBlock).toContain(rule);
+                expect(containerBlock).toContain(rule);
+            }
+            expect(css).toContain('[data-sfn-viewer] { container: sfn-viewer / inline-size; }');
+        });
+    });
 });
