@@ -62670,13 +62670,14 @@ function computeCollapsePlan(params) {
   };
   const closureFor = (containerId) => {
     const closure = /* @__PURE__ */ new Set();
-    const queue = [...nodesById.get(containerId)?.children ?? []];
-    while (queue.length > 0) {
-      const currentId = queue.shift();
+    const queue = [];
+    for (const childId of nodesById.get(containerId)?.children ?? []) queue.push(childId);
+    for (let head = 0; head < queue.length; head++) {
+      const currentId = queue[head];
       if (closure.has(currentId)) continue;
       closure.add(currentId);
       const current = nodesById.get(currentId);
-      if (current?.isContainer) queue.push(...current.children ?? []);
+      if (current?.isContainer) for (const childId of current.children ?? []) queue.push(childId);
     }
     return closure;
   };
