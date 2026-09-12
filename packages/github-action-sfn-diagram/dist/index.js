@@ -63084,9 +63084,13 @@ function parseAsl(params) {
     nodes
   };
 }
+function hasNestedStates(state2) {
+  if (state2.Type === "Parallel") return Array.isArray(state2.Branches) && state2.Branches.length > 0;
+  return state2.Type === "Map" && getMapProcessor(state2) !== void 0;
+}
 function createStateNode(params) {
   const { id, name, options, state: state2, stylePreset } = params;
-  const isContainer = state2.Type === "Parallel" || state2.Type === "Map";
+  const isContainer = hasNestedStates(state2);
   const baseNode = {
     id,
     isContainer,
@@ -63103,16 +63107,14 @@ function createStateNode(params) {
     const waitDuration = getWaitDurationLabel(state2);
     if (waitDuration !== "") baseNode.waitDuration = waitDuration;
   }
-  if (isContainer) {
-    baseNode.children = [];
-    if (state2.Type === "Map") {
-      if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
-      if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
-      const toleratedFailure = getToleratedFailureLabel(state2);
-      if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
-      const itemBatching = getItemBatchingLabel(state2);
-      if (itemBatching !== "") baseNode.itemBatching = itemBatching;
-    }
+  if (isContainer) baseNode.children = [];
+  if (state2.Type === "Map") {
+    if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
+    if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+    const toleratedFailure = getToleratedFailureLabel(state2);
+    if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
+    const itemBatching = getItemBatchingLabel(state2);
+    if (itemBatching !== "") baseNode.itemBatching = itemBatching;
   }
   if (options?.showIcons && state2.Type === "Task") {
     const serviceInfo = detectService({
@@ -63165,8 +63167,12 @@ function extractEdgesFromState(params) {
       }
       break;
     case "Parallel":
-      break;
     case "Map":
+      if (!hasNestedStates(state2) && state2.Next) edges.push({
+        from: stateId,
+        to: resolveId(state2.Next),
+        type: "normal"
+      });
       break;
     default:
       if (state2.Next) edges.push({
