@@ -584,12 +584,26 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     }
     syncEngagedClass(isEngaged());
 
+    function engage(): void {
+        pointerEngaged = true;
+        syncEngagedClass(true);
+    }
+
     if (ownerDoc && !(root instanceof Document)) {
-        on(ownerDoc, 'pointerdown', (event) => {
-            if (focusWithin(event.target)) return;
-            pointerEngaged = false;
-            syncEngagedClass(isEngaged());
-        });
+        // Capture phase: a host page's own handlers (menus, drag-and-drop, carousels)
+        // routinely stopPropagation() on pointerdown, which in the bubble phase would
+        // never let this run and leave the viewer engaged - and the wheel claimed -
+        // for good.
+        on(
+            ownerDoc,
+            'pointerdown',
+            (event) => {
+                if (focusWithin(event.target)) return;
+                pointerEngaged = false;
+                syncEngagedClass(isEngaged());
+            },
+            { capture: true },
+        );
         on(root, 'focusin', () => syncEngagedClass(true));
         // `activeElement` is not yet settled during focusout, so where focus is
         // heading is read off the event instead.
@@ -630,8 +644,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     on(stage, 'pointerdown', (event) => {
         const pointerEvent = event as PointerEvent;
-        pointerEngaged = true;
-        syncEngagedClass(true);
+        engage();
         // A drag whose pointer still holds capture owns the stage. One that lost it
         // without a pointerup/pointercancel (a synthetic pointer id that capture
         // refused, for instance) is stale, and the new pointer takes over instead of
@@ -915,6 +928,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         on(minimapThumb, 'pointerdown', (event) => {
             const pointerEvent = event as PointerEvent;
             pointerEvent.stopPropagation();
+            // The stage's own pointerdown never sees this press, so engage here too -
+            // a minimap drag is as deliberate as one on the stage.
+            engage();
             minimapDragging = true;
             minimapThumb.setPointerCapture(pointerEvent.pointerId);
             jumpToMinimapPoint(pointerEvent.clientX, pointerEvent.clientY);

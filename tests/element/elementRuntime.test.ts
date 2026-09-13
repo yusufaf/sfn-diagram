@@ -530,6 +530,33 @@ describe('wheel zoom scoping', () => {
         expect(whileFocused).toEqual({ cancelled: true, zoomed: true });
         expect(afterBlur).toEqual({ cancelled: false, zoomed: false });
     });
+
+    it('still disengages on a press in a host element that stops pointerdown propagating', async () => {
+        const [engaged, afterHostPress] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+            `const menu = document.createElement('div');
+             menu.addEventListener('pointerdown', (event) => event.stopPropagation());
+             document.body.appendChild(menu);
+             menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             menu.remove();
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(engaged).toEqual({ cancelled: true, zoomed: true });
+        expect(afterHostPress).toEqual({ cancelled: false, touchAction: 'auto', zoomed: false });
+    });
+
+    it('engages on a press on the minimap thumb, whose pointerdown never reaches the stage', async () => {
+        const [afterThumbPress] = await runWheelScenario([
+            `el.querySelector('[data-sfn="minimap-toggle"]').click();
+             const thumb = el.querySelector('[data-sfn="minimap-thumb"]');
+             thumb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             thumb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(afterThumbPress).toEqual({ cancelled: true, touchAction: 'none', zoomed: true });
+    });
 });
 
 /** Same page/script/registration-observation sequence as {@link newElementPage}, but exposing `defineSfnDiagram` directly instead of relying on an auto-registration side effect. Retries once for the same reason. */
