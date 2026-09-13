@@ -4,6 +4,7 @@ import {
     EDGE_LABELS,
     getCatchLabel,
     getItemBatchingLabel,
+    getItemsPathLabel,
     getRetryLabel,
     getToleratedFailureLabel,
     getWaitDurationLabel,
@@ -468,6 +469,11 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         const itemBatching = getItemBatchingLabel(state);
         if (itemBatching !== '') {
             baseNode.itemBatching = itemBatching;
+        }
+
+        const itemsPath = getItemsPathLabel(state);
+        if (itemsPath !== '') {
+            baseNode.itemsPath = itemsPath;
         }
     }
 

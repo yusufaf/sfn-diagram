@@ -347,6 +347,31 @@ export function getItemBatchingLabel(state: AslState): string {
     return parts.length > 0 ? `batches ${parts.join(', ')}` : '';
 }
 
+/**
+ * Describe the array a Map state iterates, for display on the container header.
+ *
+ * An inline Map's `ItemsPath` is the only thing that says *what* the Map loops
+ * over; without it two Maps iterating different parts of the input look identical.
+ *
+ * Anything but a non-empty string is treated as unset, the way the tolerance and
+ * concurrency labels treat their own fields: a definition read from a file, a
+ * CloudFormation template or an AWS API response can carry a null or a number here,
+ * and neither a crash nor a dangling `items ` part is an improvement on omitting it.
+ *
+ * @param state - The Map state to describe
+ * @returns A label such as `items $.orders`, or an empty string when no `ItemsPath` is set
+ *
+ * @example
+ * ```typescript
+ * getItemsPathLabel({ Type: 'Map', ItemsPath: '$.orders' }); // 'items $.orders'
+ * ```
+ */
+export function getItemsPathLabel(state: AslState): string {
+    return typeof state.ItemsPath === 'string' && state.ItemsPath !== ''
+        ? `items ${elide(state.ItemsPath)}`
+        : '';
+}
+
 interface GetNodeSubLabelParams {
     node: StateNode;
     showStateType: boolean;
@@ -412,6 +437,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.itemBatching !== undefined) {
         parts.push(node.itemBatching);
+    }
+    if (node.itemsPath !== undefined) {
+        parts.push(node.itemsPath);
     }
     if (node.waitDuration !== undefined) {
         parts.push(node.waitDuration);
