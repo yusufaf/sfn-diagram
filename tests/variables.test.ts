@@ -456,6 +456,27 @@ describe('Distributed Map', () => {
             );
         });
 
+        it('shows a Task state\'s integration pattern before its timeout', () => {
+            const task: StateNode = {
+                id: 'Work',
+                integrationPattern: 'callback',
+                label: 'Work',
+                taskTimeout: 'timeout 30s',
+                type: 'Task',
+            };
+
+            expect(getNodeSubLabel({ node: task, showStateType: true })).toBe(
+                'Task · callback · timeout 30s',
+            );
+        });
+
+        it('renders a Task state\'s integration pattern into SVG and Mermaid', () => {
+            const definition = loadFixture('services');
+
+            expect(generateSvg({ aslDefinition: definition }).svg).toContain('>sync<');
+            expect(generateMermaid({ aslDefinition: definition }).code).toContain('sync');
+        });
+
         it('renders a Fail state\'s error into SVG and Mermaid', () => {
             const definition = loadFixture('wait-fail');
 

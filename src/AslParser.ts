@@ -9,6 +9,7 @@ import {
     getItemsPathLabel,
     getRetryLabel,
     getTaskHeartbeatLabel,
+    getTaskIntegrationPatternLabel,
     getTaskTimeoutLabel,
     getToleratedFailureLabel,
     getWaitDurationLabel,
@@ -447,9 +448,14 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         }
     }
 
-    // Likewise a Task's timeout and heartbeat, and the error and cause a Fail
-    // raises: all declared in the definition, none visible on the node otherwise.
+    // Likewise a Task's integration pattern, timeout and heartbeat, and the error
+    // and cause a Fail raises: all declared in the definition, none visible on the
+    // node otherwise.
     if (state.Type === 'Task') {
+        const integrationPattern = getTaskIntegrationPatternLabel(state);
+        if (integrationPattern !== '') {
+            baseNode.integrationPattern = integrationPattern;
+        }
         const taskTimeout = getTaskTimeoutLabel(state);
         if (taskTimeout !== '') {
             baseNode.taskTimeout = taskTimeout;

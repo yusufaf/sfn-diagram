@@ -1127,6 +1127,51 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Task integration pattern', () => {
+        const taskWith = (resource: string): AslDefinition => ({
+            StartAt: 'Work',
+            States: { Work: { Type: 'Task', Resource: resource, End: true } },
+        });
+
+        const workNode = (definition: AslDefinition) =>
+            parseAsl({ definition }).nodes.find((node) => node.id === 'Work');
+
+        it('reads a .sync resource as sync', () => {
+            expect(workNode(taskWith('arn:aws:states:::ecs:runTask.sync'))?.integrationPattern).toBe(
+                'sync',
+            );
+        });
+
+        it('reads a .sync:2 resource as sync too', () => {
+            expect(
+                workNode(taskWith('arn:aws:states:::states:startExecution.sync:2'))
+                    ?.integrationPattern,
+            ).toBe('sync');
+        });
+
+        it('reads a .waitForTaskToken resource as callback', () => {
+            expect(
+                workNode(taskWith('arn:aws:states:::sqs:sendMessage.waitForTaskToken'))
+                    ?.integrationPattern,
+            ).toBe('callback');
+        });
+
+        it('leaves a request-response Task unmarked', () => {
+            expect(workNode(taskWith('arn:aws:states:::lambda:invoke'))?.integrationPattern).toBeUndefined();
+            expect(
+                workNode(taskWith('arn:aws:lambda:us-east-1:123456789012:function:Sync'))
+                    ?.integrationPattern,
+            ).toBeUndefined();
+        });
+
+        it('does not mark a Task whose resource merely contains the suffix mid-string', () => {
+            expect(
+                workNode(taskWith('arn:aws:lambda:us-east-1:123456789012:function:run.sync.v2'))
+                    ?.integrationPattern,
+            ).toBeUndefined();
+        });
+    });
+
     describe('Distributed Map tolerance and batching', () => {
         const mapWith = (fields: Record<string, unknown>): AslDefinition =>
             ({

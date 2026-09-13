@@ -39,6 +39,14 @@ const AWS_ICONS_VERSION = '3.3.0';
  * Mapping of AWS service names to their icon filenames in the aws-icons package
  * Icons sourced from: https://github.com/MKAbuMattar/aws-icons
  * URL pattern: https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/{ICON_NAME}.svg
+ *
+ * Keys are normalized service names as {@link normalizeServiceName} produces them:
+ * the segment of an optimized integration (`elasticmapreduce`, `emr-serverless`),
+ * an SDK integration (`bedrockruntime`, `sesv2`) or a direct ARN. A service with no
+ * icon of its own maps to its parent's (`sagemakerruntime` -> SageMaker, `sts` -> IAM).
+ * `http` (the `arn:aws:states:::http:invoke` integration) is deliberately absent —
+ * the package has no colored service tile for it, only a monochrome `resource/`
+ * glyph that disappears on the dark theme.
  */
 const SERVICE_ICON_MAP: Record<string, string> = {
     // Application Integration
@@ -56,14 +64,33 @@ const SERVICE_ICON_MAP: Record<string, string> = {
 
     // Analytics
     'athena': 'AmazonAthena',
+    'databrew': 'AWSGlueDataBrew',
+    'elasticmapreduce': 'AmazonEMR',
+    'elasticsearch': 'AmazonOpenSearchService',
     'emr': 'AmazonEMR',
+    'emrcontainers': 'AmazonEMR',
+    'emrserverless': 'AmazonEMR',
+    'es': 'AmazonOpenSearchService',
+    'firehose': 'AmazonDataFirehose',
     'glue': 'AWSGlue',
     'kinesis': 'AmazonKinesis',
-    'kinesisanalytics': 'AmazonKinesisDataAnalytics',
-    'kinesisfirehose': 'AmazonKinesisDataFirehose',
+    'kinesisanalytics': 'AmazonManagedServiceforApacheFlink',
+    'kinesisanalyticsv2': 'AmazonManagedServiceforApacheFlink',
+    'kinesisfirehose': 'AmazonDataFirehose',
+    'lakeformation': 'AWSLakeFormation',
+    'mwaa': 'AmazonManagedWorkflowsforApacheAirflow',
+    'opensearch': 'AmazonOpenSearchService',
+    'quicksight': 'AmazonQuickSuite',
     'redshift': 'AmazonRedshift',
 
+    // Business Applications & Customer Engagement
+    'connect': 'AmazonConnect',
+    'pinpoint': 'AmazonPinpoint',
+    'ses': 'AmazonSimpleEmailService',
+    'sesv2': 'AmazonSimpleEmailService',
+
     // Compute
+    'apprunner': 'AWSAppRunner',
     'batch': 'AWSBatch',
     'ec2': 'AmazonEC2',
     'ecs': 'AmazonElasticContainerService',
@@ -78,6 +105,7 @@ const SERVICE_ICON_MAP: Record<string, string> = {
     'aurora': 'AmazonAurora',
     'documentdb': 'AmazonDocumentDB',
     'dynamodb': 'AmazonDynamoDB',
+    'dynamodbstreams': 'AmazonDynamoDB',
     'elasticache': 'AmazonElastiCache',
     'neptune': 'AmazonNeptune',
     'rds': 'AmazonRDS',
@@ -91,33 +119,53 @@ const SERVICE_ICON_MAP: Record<string, string> = {
 
     // Machine Learning
     'bedrock': 'AmazonBedrock',
+    'bedrockruntime': 'AmazonBedrock',
     'comprehend': 'AmazonComprehend',
     'forecast': 'AmazonForecast',
+    'lex': 'AmazonLex',
+    'lexruntimev2': 'AmazonLex',
     'personalize': 'AmazonPersonalize',
     'polly': 'AmazonPolly',
     'rekognition': 'AmazonRekognition',
     'sagemaker': 'AmazonSageMaker',
+    'sagemakerruntime': 'AmazonSageMaker',
     'textract': 'AmazonTextract',
     'transcribe': 'AmazonTranscribe',
     'translate': 'AmazonTranslate',
 
     // Management & Governance
+    'appconfig': 'AWSAppConfig',
     'cloudformation': 'AWSCloudFormation',
+    'cloudtrail': 'AWSCloudTrail',
     'cloudwatch': 'AmazonCloudWatch',
     'config': 'AWSConfig',
     'systemsmanager': 'AWSSystemsManager',
     'ssm': 'AWSSystemsManager',
 
+    // Media Services
+    'mediaconvert': 'AWSElementalMediaConvert',
+
+    // Migration & Transfer
+    'datasync': 'AWSDataSync',
+    'snowball': 'AWSSnowball',
+
+    // Networking & Content Delivery
+    'servicediscovery': 'AWSCloudMap',
+
     // Security, Identity & Compliance
+    'cognitoidentity': 'AmazonCognito',
+    'cognitoidp': 'AmazonCognito',
+    'iam': 'AWSIdentityandAccessManagement',
     'kms': 'AWSKeyManagementService',
     'secretsmanager': 'AWSSecretsManager',
+    'sts': 'AWSIdentityandAccessManagement',
     'waf': 'AWSWAF',
 
     // Storage
-    'efs': 'AmazonElasticFileSystem',
+    'efs': 'AmazonEFS',
     'fsx': 'AmazonFSx',
     's3': 'AmazonSimpleStorageService',
-    's3glacier': 'AmazonS3Glacier',
+    's3glacier': 'AmazonSimpleStorageServiceGlacier',
 };
 
 /**

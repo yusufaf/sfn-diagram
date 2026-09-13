@@ -25,6 +25,7 @@ export {
     getNodeSubLabel,
     getNodeSubLabelParts,
     getTaskHeartbeatLabel,
+    getTaskIntegrationPatternLabel,
     getTaskTimeoutLabel,
     getToleratedFailureLabel,
     getWaitDurationLabel,

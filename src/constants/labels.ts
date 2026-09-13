@@ -406,6 +406,43 @@ export function getTaskTimeoutLabel(state: AslState): string {
 }
 
 /**
+ * Matches the integration-pattern suffix of a Task `Resource`: `.sync`, `.sync:2`
+ * (the same pattern with the newer response format) or `.waitForTaskToken`.
+ */
+const INTEGRATION_PATTERN_SUFFIX = /\.(sync(?::2)?|waitForTaskToken)$/;
+
+/**
+ * Describe a Task state's service integration pattern, for display on the node.
+ *
+ * A `.sync` Task blocks until the job it started finishes and a
+ * `.waitForTaskToken` Task pauses until something calls back with its token; both
+ * are otherwise drawn identically to a fire-and-forget request-response Task,
+ * though they behave and fail very differently. AWS calls the token pattern
+ * "wait for a callback", hence `callback`. `.sync:2` only changes the response
+ * format, so it reads as `sync` too.
+ *
+ * @param state - The Task state to describe
+ * @returns `sync`, `callback`, or an empty string for a request-response Task
+ *
+ * @example
+ * ```typescript
+ * getTaskIntegrationPatternLabel({ Type: 'Task', Resource: 'arn:aws:states:::ecs:runTask.sync' });                // 'sync'
+ * getTaskIntegrationPatternLabel({ Type: 'Task', Resource: 'arn:aws:states:::sqs:sendMessage.waitForTaskToken' }); // 'callback'
+ * getTaskIntegrationPatternLabel({ Type: 'Task', Resource: 'arn:aws:states:::lambda:invoke' });                   // ''
+ * ```
+ */
+export function getTaskIntegrationPatternLabel(state: AslState): string {
+    if (!isNonEmptyString(state.Resource)) {
+        return '';
+    }
+    const match = state.Resource.match(INTEGRATION_PATTERN_SUFFIX);
+    if (!match) {
+        return '';
+    }
+    return match[1] === 'waitForTaskToken' ? 'callback' : 'sync';
+}
+
+/**
  * Describe a Task state's heartbeat interval, for display on the node.
  *
  * @param state - The Task state to describe
@@ -548,10 +585,10 @@ interface GetNodeSubLabelParams {
  *
  * Covers every node type, not just containers: a Parallel/Map header carries its
  * Distributed marker, concurrency, failure tolerance and batching, a Wait state
- * carries how long it waits, a Task its timeout and heartbeat, and a Fail the error
- * and cause it raises. All of these are declared in a definition and would
- * otherwise be invisible in the rendered diagram. The state type itself
- * stays opt-in via `showStateTypes`.
+ * carries how long it waits, a Task its integration pattern, timeout and heartbeat,
+ * and a Fail the error and cause it raises. All of these are declared in a
+ * definition and would otherwise be invisible in the rendered diagram. The state
+ * type itself stays opt-in via `showStateTypes`.
  *
  * @param params.node - The node being rendered
  * @param params.showStateType - Whether the `showStateTypes` option is enabled
@@ -610,6 +647,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.waitDuration !== undefined) {
         parts.push(node.waitDuration);
+    }
+    if (node.integrationPattern !== undefined) {
+        parts.push(node.integrationPattern);
     }
     if (node.taskTimeout !== undefined) {
         parts.push(node.taskTimeout);
