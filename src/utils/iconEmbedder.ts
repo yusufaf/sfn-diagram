@@ -1,6 +1,16 @@
 /** Default timeout for icon fetch operations in milliseconds */
 const DEFAULT_FETCH_TIMEOUT_MS = 5000;
 
+/** How many icon fetches may be in flight at once */
+const MAX_CONCURRENT_FETCHES = 6;
+
+/**
+ * Bytes handed to `String.fromCharCode` per call while encoding. Each chunk is
+ * spread into the call's arguments, so it has to stay well under the engine's
+ * argument-count ceiling.
+ */
+const BASE64_CHUNK_SIZE = 8192;
+
 interface EmbedIconsParams {
     svg: string;
     /** Timeout in milliseconds for each icon fetch (default: 5000) */
@@ -14,20 +24,70 @@ interface FetchAsDataUriParams {
     url: string;
 }
 
+interface MapWithConcurrencyParams<Item, Result> {
+    /** Maximum number of `mapper` calls in flight at once */
+    concurrency: number;
+    /** Items to map */
+    items: Item[];
+    /** Async transform applied to each item */
+    mapper: (item: Item) => Promise<Result>;
+}
+
 /**
  * Convert an ArrayBuffer to a base64 string without relying on Node's `Buffer`,
  * so icon embedding works in Node, browsers, and edge runtimes alike.
  *
+ * The bytes are turned into a binary string a chunk at a time rather than one
+ * character per iteration, which keeps large icons from degrading into
+ * quadratic string building.
+ *
  * @param buffer - Binary data to encode
  * @returns Base64-encoded string
  */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let index = 0; index < bytes.length; index++) {
-        binary += String.fromCharCode(bytes[index]);
+    const pieces: string[] = [];
+    for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_SIZE) {
+        pieces.push(String.fromCharCode(...bytes.subarray(offset, offset + BASE64_CHUNK_SIZE)));
     }
-    return btoa(binary);
+    return btoa(pieces.join(''));
+}
+
+/**
+ * Run an async mapper over `items` with at most `concurrency` calls in flight,
+ * preserving input order in the result.
+ */
+async function mapWithConcurrency<Item, Result>(
+    params: MapWithConcurrencyParams<Item, Result>,
+): Promise<Result[]> {
+    const { concurrency, items, mapper } = params;
+    const results: Result[] = new Array(items.length);
+    let nextIndex = 0;
+
+    const worker = async (): Promise<void> => {
+        while (nextIndex < items.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            results[index] = await mapper(items[index]);
+        }
+    };
+
+    const workerCount = Math.min(concurrency, items.length);
+    const workers: Promise<void>[] = [];
+    for (let count = 0; count < workerCount; count++) {
+        workers.push(worker());
+    }
+    // allSettled so one rejecting mapper cannot leave its sibling workers'
+    // later rejections unhandled; the first failure is rethrown once all drain.
+    const outcomes = await Promise.allSettled(workers);
+    const failure = outcomes.find(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    );
+    if (failure) {
+        throw failure.reason;
+    }
+
+    return results;
 }
 
 /**
@@ -75,6 +135,9 @@ async function fetchAsDataUri(params: FetchAsDataUriParams): Promise<string> {
  * display correctly in standalone SVG files, PNG exports, and contexts where
  * external resources are blocked by security policies.
  *
+ * Each distinct URL is fetched once, with at most six fetches in flight at a
+ * time, and every occurrence is rewritten in a single pass over the SVG.
+ *
  * @param params - Parameters for icon embedding
  * @param params.svg - SVG string containing external icon URLs
  * @returns Promise resolving to SVG string with embedded icons
@@ -103,20 +166,18 @@ export async function embedIcons(params: EmbedIconsParams): Promise<string> {
 
     // Fetch all unique URLs
     const uniqueUrls = [...new Set(matches.map(match => match[1]))];
+    const dataUris = await mapWithConcurrency({
+        concurrency: MAX_CONCURRENT_FETCHES,
+        items: uniqueUrls,
+        mapper: (url) => fetchAsDataUri({ timeoutMs, url }),
+    });
     const urlToDataUri = new Map<string, string>();
-
-    await Promise.all(
-        uniqueUrls.map(async (url) => {
-            const dataUri = await fetchAsDataUri({ timeoutMs, url });
-            urlToDataUri.set(url, dataUri);
-        })
-    );
-
-    // Replace all URLs with data URIs
-    let embeddedSvg = svg;
-    urlToDataUri.forEach((dataUri, url) => {
-        embeddedSvg = embeddedSvg.replaceAll(`href="${url}"`, `href="${dataUri}"`);
+    uniqueUrls.forEach((url, index) => {
+        urlToDataUri.set(url, dataUris[index]);
     });
 
-    return embeddedSvg;
+    return svg.replace(hrefPattern, (match, url: string) => {
+        const dataUri = urlToDataUri.get(url);
+        return dataUri === undefined ? match : `href="${dataUri}"`;
+    });
 }

@@ -1,5 +1,6 @@
 import type { AslState, CatchLabelStyle, RetryBlock, StateNode } from '../types';
 import { stripJsonataDelimiters } from '../utils/jsonata';
+import { splitGraphemes } from '../utils/textMeasure';
 
 /**
  * Label constants used in diagram generation
@@ -101,10 +102,14 @@ export function getAssignedVariablesLabel(variableNames: string[]): string {
  */
 const MAX_SUB_LABEL_EXPRESSION = 32;
 
-/** Shorten an expression to fit a node sub-label, marking that it was cut. */
+/**
+ * Shorten an expression to fit a node sub-label, marking that it was cut. Length
+ * is counted in glyphs, so an emoji or accented character is never cut in half.
+ */
 function elide(text: string): string {
-    return text.length > MAX_SUB_LABEL_EXPRESSION
-        ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}…`
+    const glyphs = splitGraphemes(text);
+    return glyphs.length > MAX_SUB_LABEL_EXPRESSION
+        ? `${glyphs.slice(0, MAX_SUB_LABEL_EXPRESSION - 1).join('')}…`
         : text;
 }
 
@@ -205,8 +210,9 @@ export function fitText(params: FitTextParams): string {
         return text;
     }
 
-    for (let length = text.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
-        const candidate = `${text.slice(0, length).trimEnd()}${SUB_LABEL_MORE}`;
+    const glyphs = splitGraphemes(text);
+    for (let length = glyphs.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
+        const candidate = `${glyphs.slice(0, length).join('').trimEnd()}${SUB_LABEL_MORE}`;
         if (measure(candidate) <= availableWidth) {
             return candidate;
         }
