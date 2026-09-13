@@ -308,6 +308,85 @@ describe('Service Detection', () => {
         });
     });
 
+    describe('Icon coverage', () => {
+        // Every name below was checked against the pinned aws-icons release
+        // (`AWS_ICONS_VERSION`) when it was added. The map is the only thing that
+        // references these names, so this is the one place an upstream rename shows.
+        const integrations: Array<{ icon: string; resource: string; service: string }> = [
+            { icon: 'AmazonEMR', resource: 'arn:aws:states:::elasticmapreduce:createCluster', service: 'elasticmapreduce' },
+            { icon: 'AmazonEMR', resource: 'arn:aws:states:::emr-serverless:startJobRun', service: 'emrserverless' },
+            { icon: 'AmazonEMR', resource: 'arn:aws:states:::emr-containers:startJobRun', service: 'emrcontainers' },
+            { icon: 'AWSGlueDataBrew', resource: 'arn:aws:states:::databrew:startJobRun', service: 'databrew' },
+            { icon: 'AmazonDataFirehose', resource: 'arn:aws:states:::aws-sdk:firehose:putRecord', service: 'firehose' },
+            { icon: 'AmazonDataFirehose', resource: 'arn:aws:states:::aws-sdk:kinesisfirehose:putRecord', service: 'kinesisfirehose' },
+            { icon: 'AmazonManagedServiceforApacheFlink', resource: 'arn:aws:states:::aws-sdk:kinesisanalytics:startApplication', service: 'kinesisanalytics' },
+            { icon: 'AmazonManagedServiceforApacheFlink', resource: 'arn:aws:states:::aws-sdk:kinesisanalyticsv2:startApplication', service: 'kinesisanalyticsv2' },
+            { icon: 'AmazonBedrock', resource: 'arn:aws:states:::aws-sdk:bedrockruntime:invokeModel', service: 'bedrockruntime' },
+            { icon: 'AmazonSageMaker', resource: 'arn:aws:states:::aws-sdk:sagemakerruntime:invokeEndpoint', service: 'sagemakerruntime' },
+            { icon: 'AmazonLex', resource: 'arn:aws:states:::aws-sdk:lexruntimev2:recognizeText', service: 'lexruntimev2' },
+            { icon: 'AmazonLex', resource: 'arn:aws:lex:us-east-1:123456789012:bot/MyBot', service: 'lex' },
+            { icon: 'AmazonOpenSearchService', resource: 'arn:aws:states:::aws-sdk:opensearch:describeDomain', service: 'opensearch' },
+            { icon: 'AmazonOpenSearchService', resource: 'arn:aws:es:us-east-1:123456789012:domain/search', service: 'es' },
+            { icon: 'AmazonOpenSearchService', resource: 'arn:aws:states:::aws-sdk:elasticsearch:describeDomain', service: 'elasticsearch' },
+            { icon: 'AWSElementalMediaConvert', resource: 'arn:aws:states:::mediaconvert:createJob', service: 'mediaconvert' },
+            { icon: 'AmazonSimpleEmailService', resource: 'arn:aws:states:::aws-sdk:ses:sendEmail', service: 'ses' },
+            { icon: 'AmazonSimpleEmailService', resource: 'arn:aws:states:::aws-sdk:sesv2:sendEmail', service: 'sesv2' },
+            { icon: 'AWSIdentityandAccessManagement', resource: 'arn:aws:states:::aws-sdk:sts:assumeRole', service: 'sts' },
+            { icon: 'AWSIdentityandAccessManagement', resource: 'arn:aws:states:::aws-sdk:iam:getRole', service: 'iam' },
+            { icon: 'AmazonCognito', resource: 'arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_abc', service: 'cognitoidp' },
+            { icon: 'AmazonCognito', resource: 'arn:aws:states:::aws-sdk:cognitoidentity:getId', service: 'cognitoidentity' },
+            { icon: 'AmazonConnect', resource: 'arn:aws:states:::aws-sdk:connect:startOutboundVoiceContact', service: 'connect' },
+            { icon: 'AmazonPinpoint', resource: 'arn:aws:states:::aws-sdk:pinpoint:sendMessages', service: 'pinpoint' },
+            { icon: 'AmazonQuickSuite', resource: 'arn:aws:states:::aws-sdk:quicksight:createIngestion', service: 'quicksight' },
+            { icon: 'AWSLakeFormation', resource: 'arn:aws:states:::aws-sdk:lakeformation:grantPermissions', service: 'lakeformation' },
+            { icon: 'AWSCloudMap', resource: 'arn:aws:states:::aws-sdk:servicediscovery:discoverInstances', service: 'servicediscovery' },
+            { icon: 'AWSCloudTrail', resource: 'arn:aws:states:::aws-sdk:cloudtrail:lookupEvents', service: 'cloudtrail' },
+            { icon: 'AWSAppRunner', resource: 'arn:aws:states:::aws-sdk:apprunner:startDeployment', service: 'apprunner' },
+            { icon: 'AWSAppConfig', resource: 'arn:aws:states:::aws-sdk:appconfig:getConfiguration', service: 'appconfig' },
+            { icon: 'AmazonDynamoDB', resource: 'arn:aws:states:::aws-sdk:dynamodbstreams:describeStream', service: 'dynamodbstreams' },
+            { icon: 'AmazonManagedWorkflowsforApacheAirflow', resource: 'arn:aws:states:::aws-sdk:mwaa:createCliToken', service: 'mwaa' },
+            { icon: 'AWSSnowball', resource: 'arn:aws:states:::aws-sdk:snowball:createJob', service: 'snowball' },
+            { icon: 'AWSDataSync', resource: 'arn:aws:states:::aws-sdk:datasync:startTaskExecution', service: 'datasync' },
+            { icon: 'AmazonEFS', resource: 'arn:aws:states:::aws-sdk:efs:describeFileSystems', service: 'efs' },
+            { icon: 'AmazonSimpleStorageServiceGlacier', resource: 'arn:aws:s3-glacier:us-east-1:123456789012:vaults/archive', service: 's3glacier' },
+        ];
+
+        it.each(integrations)('maps $service to $icon', ({ icon, resource, service }) => {
+            const result = detectService({ state: { Resource: resource, Type: 'Task' } });
+
+            expect(result?.serviceName).toBe(service);
+            expect(result?.iconUrl).toBe(
+                `https://cdn.jsdelivr.net/npm/aws-icons@3.3.0/icons/architecture-service/${icon}.svg`
+            );
+        });
+
+        it('detects the HTTP Task integration as http without an icon', () => {
+            // aws-icons has no service tile for a generic HTTP endpoint, only a
+            // monochrome `resource/Internet` glyph that vanishes on the dark theme.
+            const result = detectService({
+                state: { Resource: 'arn:aws:states:::http:invoke', Type: 'Task' },
+            });
+
+            expect(result?.serviceName).toBe('http');
+            expect(result?.iconUrl).toBeNull();
+        });
+    });
+
+    describe('Integration pattern suffixes', () => {
+        it.each([
+            { resource: 'arn:aws:states:::ecs:runTask.sync', service: 'ecs' },
+            { resource: 'arn:aws:states:::states:startExecution.sync:2', service: 'states' },
+            { resource: 'arn:aws:states:::sqs:sendMessage.waitForTaskToken', service: 'sqs' },
+            { resource: 'arn:aws:states:::lambda:invoke.waitForTaskToken', service: 'lambda' },
+            { resource: 'arn:aws:states:::emr-serverless:startJobRun.sync', service: 'emrserverless' },
+        ])('still resolves $service and its icon for $resource', ({ resource, service }) => {
+            const result = detectService({ state: { Resource: resource, Type: 'Task' } });
+
+            expect(result?.serviceName).toBe(service);
+            expect(result?.iconUrl).not.toBeNull();
+        });
+    });
+
     describe('Unsupported services', () => {
         it('should return null iconUrl for unsupported services', () => {
             const state: AslState = {

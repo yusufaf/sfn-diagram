@@ -62751,6 +62751,13 @@ function getTaskTimeoutLabel(state2) {
     seconds: state2.TimeoutSeconds
   });
 }
+var INTEGRATION_PATTERN_SUFFIX = /\.(sync(?::2)?|waitForTaskToken)$/;
+function getTaskIntegrationPatternLabel(state2) {
+  if (!isNonEmptyString(state2.Resource)) return "";
+  const match2 = state2.Resource.match(INTEGRATION_PATTERN_SUFFIX);
+  if (!match2) return "";
+  return match2[1] === "waitForTaskToken" ? "callback" : "sync";
+}
 function getTaskHeartbeatLabel(state2) {
   return getSecondsLabel({
     path: state2.HeartbeatSecondsPath,
@@ -62799,6 +62806,7 @@ function getNodeSubLabelParts(params) {
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
+  if (node.integrationPattern !== void 0) parts.push(node.integrationPattern);
   if (node.taskTimeout !== void 0) parts.push(node.taskTimeout);
   if (node.taskHeartbeat !== void 0) parts.push(node.taskHeartbeat);
   if (node.failError !== void 0) parts.push(node.failError);
@@ -62824,12 +62832,29 @@ var SERVICE_ICON_MAP = {
   "sfn": "AWSStepFunctions",
   "states": "AWSStepFunctions",
   "athena": "AmazonAthena",
+  "databrew": "AWSGlueDataBrew",
+  "elasticmapreduce": "AmazonEMR",
+  "elasticsearch": "AmazonOpenSearchService",
   "emr": "AmazonEMR",
+  "emrcontainers": "AmazonEMR",
+  "emrserverless": "AmazonEMR",
+  "es": "AmazonOpenSearchService",
+  "firehose": "AmazonDataFirehose",
   "glue": "AWSGlue",
   "kinesis": "AmazonKinesis",
-  "kinesisanalytics": "AmazonKinesisDataAnalytics",
-  "kinesisfirehose": "AmazonKinesisDataFirehose",
+  "kinesisanalytics": "AmazonManagedServiceforApacheFlink",
+  "kinesisanalyticsv2": "AmazonManagedServiceforApacheFlink",
+  "kinesisfirehose": "AmazonDataFirehose",
+  "lakeformation": "AWSLakeFormation",
+  "mwaa": "AmazonManagedWorkflowsforApacheAirflow",
+  "opensearch": "AmazonOpenSearchService",
+  "quicksight": "AmazonQuickSuite",
   "redshift": "AmazonRedshift",
+  "connect": "AmazonConnect",
+  "pinpoint": "AmazonPinpoint",
+  "ses": "AmazonSimpleEmailService",
+  "sesv2": "AmazonSimpleEmailService",
+  "apprunner": "AWSAppRunner",
   "batch": "AWSBatch",
   "ec2": "AmazonEC2",
   "ecs": "AmazonElasticContainerService",
@@ -62840,6 +62865,7 @@ var SERVICE_ICON_MAP = {
   "aurora": "AmazonAurora",
   "documentdb": "AmazonDocumentDB",
   "dynamodb": "AmazonDynamoDB",
+  "dynamodbstreams": "AmazonDynamoDB",
   "elasticache": "AmazonElastiCache",
   "neptune": "AmazonNeptune",
   "rds": "AmazonRDS",
@@ -62849,27 +62875,41 @@ var SERVICE_ICON_MAP = {
   "codedeploy": "AWSCodeDeploy",
   "codepipeline": "AWSCodePipeline",
   "bedrock": "AmazonBedrock",
+  "bedrockruntime": "AmazonBedrock",
   "comprehend": "AmazonComprehend",
   "forecast": "AmazonForecast",
+  "lex": "AmazonLex",
+  "lexruntimev2": "AmazonLex",
   "personalize": "AmazonPersonalize",
   "polly": "AmazonPolly",
   "rekognition": "AmazonRekognition",
   "sagemaker": "AmazonSageMaker",
+  "sagemakerruntime": "AmazonSageMaker",
   "textract": "AmazonTextract",
   "transcribe": "AmazonTranscribe",
   "translate": "AmazonTranslate",
+  "appconfig": "AWSAppConfig",
   "cloudformation": "AWSCloudFormation",
+  "cloudtrail": "AWSCloudTrail",
   "cloudwatch": "AmazonCloudWatch",
   "config": "AWSConfig",
   "systemsmanager": "AWSSystemsManager",
   "ssm": "AWSSystemsManager",
+  "mediaconvert": "AWSElementalMediaConvert",
+  "datasync": "AWSDataSync",
+  "snowball": "AWSSnowball",
+  "servicediscovery": "AWSCloudMap",
+  "cognitoidentity": "AmazonCognito",
+  "cognitoidp": "AmazonCognito",
+  "iam": "AWSIdentityandAccessManagement",
   "kms": "AWSKeyManagementService",
   "secretsmanager": "AWSSecretsManager",
+  "sts": "AWSIdentityandAccessManagement",
   "waf": "AWSWAF",
-  "efs": "AmazonElasticFileSystem",
+  "efs": "AmazonEFS",
   "fsx": "AmazonFSx",
   "s3": "AmazonSimpleStorageService",
-  "s3glacier": "AmazonS3Glacier"
+  "s3glacier": "AmazonSimpleStorageServiceGlacier"
 };
 var ARN_PARTITION_PATTERN = /^arn:aws(?:-[a-z]+)*:/;
 var INTEGRATION_ARN_PATTERN = new RegExp(`${ARN_PARTITION_PATTERN.source}states:::([^:]+):`);
@@ -63389,6 +63429,8 @@ function createStateNode(params) {
     if (waitDuration !== "") baseNode.waitDuration = waitDuration;
   }
   if (state2.Type === "Task") {
+    const integrationPattern = getTaskIntegrationPatternLabel(state2);
+    if (integrationPattern !== "") baseNode.integrationPattern = integrationPattern;
     const taskTimeout = getTaskTimeoutLabel(state2);
     if (taskTimeout !== "") baseNode.taskTimeout = taskTimeout;
     const taskHeartbeat = getTaskHeartbeatLabel(state2);

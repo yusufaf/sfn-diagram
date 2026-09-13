@@ -184,6 +184,12 @@ export interface StateNode {
     iconUrl?: string;
     id: string;
     /**
+     * A Task state's service integration pattern, pre-formatted for display: `sync`
+     * for a `.sync` / `.sync:2` resource, `callback` for `.waitForTaskToken`.
+     * Absent for a request-response Task.
+     */
+    integrationPattern?: string;
+    /**
      * Whether this node is a container (a Parallel or Map state) with nested states
      * drawn inside it. A Parallel with no branches or a Map with no processor has
      * nothing to contain and is a plain node instead.
