@@ -16,7 +16,8 @@
 // The binary differs from the npm CLI in two ways, both signalled through the
 // `__SFN_DIAGRAM_BUILD__` global that src/cli.ts checks: the version is baked
 // in (there is no package.json next to a compiled binary), and `--format png`
-// is disabled because the headless browser it needs cannot be bundled.
+// is disabled because the native rasterizer it needs cannot be bundled into a
+// single-file executable.
 import { spawnSync } from 'node:child_process';
 import {
     existsSync,
@@ -44,11 +45,13 @@ const TARGETS = {
     'bun-windows-x64': 'sfn-diagram-windows-x64',
 };
 
-/** Packages that must stay out of the bundle. */
-const EXTERNALS = [
-    // Optional peer for PNG export; needs Chromium, which cannot be bundled.
-    'node-html-to-image',
-];
+/**
+ * Packages that must stay out of the bundle. Both are optional peers reached only
+ * through the PNG exporter's dynamic imports, which the standalone binary refuses
+ * before ever taking: resvg's napi loader `require`s one platform package per
+ * target and only the host's is ever installed, and html-to-image needs Chromium.
+ */
+const EXTERNALS = ['@resvg/resvg-js', 'node-html-to-image'];
 
 function hostTarget() {
     const os = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[
