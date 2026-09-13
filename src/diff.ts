@@ -52,6 +52,8 @@ function toOrphanState(state: AslState): AslState {
     if (state.Type === 'Fail') {
         if (state.Cause !== undefined) base.Cause = state.Cause;
         if (state.Error !== undefined) base.Error = state.Error;
+        if (state.CausePath !== undefined) base.CausePath = state.CausePath;
+        if (state.ErrorPath !== undefined) base.ErrorPath = state.ErrorPath;
     }
     return base;
 }

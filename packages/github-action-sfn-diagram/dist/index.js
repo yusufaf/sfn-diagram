@@ -64058,6 +64058,8 @@ function toOrphanState(state2) {
   if (state2.Type === "Fail") {
     if (state2.Cause !== void 0) base.Cause = state2.Cause;
     if (state2.Error !== void 0) base.Error = state2.Error;
+    if (state2.CausePath !== void 0) base.CausePath = state2.CausePath;
+    if (state2.ErrorPath !== void 0) base.ErrorPath = state2.ErrorPath;
   }
   return base;
 }

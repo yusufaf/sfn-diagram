@@ -68,9 +68,8 @@ const STACKED_LINE_HEIGHT = 16;
 
 /**
  * Room an icon takes out of the node along its own axis: its inset from the edge,
- * its size, and the gap to the name. Shared by the icon, the name, the sub-label
- * budget, and DagreLayout's height calculation, so they cannot disagree about where
- * the text starts.
+ * its size, and the gap to the name. Shared by the icon, the name, and the sub-label
+ * budget, so they cannot disagree about where the text starts.
  */
 export function iconLabelShift(iconSize: number): number {
     return ICON_PADDING + iconSize + ICON_LABEL_GAP;
