@@ -155,6 +155,13 @@ describe('parseArgs', () => {
         ]);
     });
 
+    it('keeps a backslash-escaped comma inside a --collapse state name', () => {
+        expect(parseArgs(['in.json', '--collapse=Fetch\\, then merge,Other']).collapse).toEqual([
+            'Fetch, then merge',
+            'Other',
+        ]);
+    });
+
     it('never swallows the input path as a --collapse value', () => {
         const args = parseArgs(['--collapse', 'state.asl.json']);
         expect(args.collapse).toBe(true);

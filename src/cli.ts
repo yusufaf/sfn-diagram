@@ -67,7 +67,8 @@ Options:
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
   --collapse[=names]               Collapse Parallel/Map containers into placeholders
                                    (bare flag collapses all; --collapse=Name1,Name2
-                                   collapses only those states)
+                                   collapses only those states; write \\, for a
+                                   comma inside a state name)
   --show-icons                     Draw AWS service icons on Task states
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
@@ -205,11 +206,17 @@ function expectEnum<Value extends string>(
     return value as Value;
 }
 
-/** Split a `--collapse=Name1,Name2` value into trimmed, non-empty state names. */
+/**
+ * Split a `--collapse=Name1,Name2` value into trimmed, non-empty state names.
+ *
+ * A state name may itself contain a comma (unusual, but valid ASL), so a comma
+ * preceded by a backslash is kept as part of the name instead of ending it:
+ * `--collapse='Fetch\, then merge'` targets the single state `Fetch, then merge`.
+ */
 function parseCollapseNames(value: string): string[] {
     return value
-        .split(',')
-        .map((name) => name.trim())
+        .split(/(?<!\\),/)
+        .map((name) => name.replaceAll('\\,', ',').trim())
         .filter((name) => name.length > 0);
 }
 
