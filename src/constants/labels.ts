@@ -106,11 +106,23 @@ const MAX_SUB_LABEL_EXPRESSION = 32;
  * Shorten an expression to fit a node sub-label, marking that it was cut. Length
  * is counted in glyphs, so an emoji or accented character is never cut in half.
  */
-function elide(text: string): string {
+function elide(text: string, maxLength: number = MAX_SUB_LABEL_EXPRESSION): string {
     const glyphs = splitGraphemes(text);
-    return glyphs.length > MAX_SUB_LABEL_EXPRESSION
-        ? `${glyphs.slice(0, MAX_SUB_LABEL_EXPRESSION - 1).join('')}…`
-        : text;
+    return glyphs.length > maxLength ? `${glyphs.slice(0, maxLength - 1).join('')}…` : text;
+}
+
+/**
+ * Longest a Fail state's `cause: …` part may run, prefix included. A cause is
+ * free-form prose rather than an expression, so it gets more room than
+ * {@link MAX_SUB_LABEL_EXPRESSION} allows a value — but it is still capped at parse
+ * time, because the cap is what keeps a paragraph-long cause off a Mermaid label,
+ * where nothing else constrains width.
+ */
+const MAX_CAUSE_LABEL = 48;
+
+/** True for a string field that is actually set; `''`, `null` and non-strings read as unset. */
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value !== '';
 }
 
 /**
@@ -258,6 +270,160 @@ export function getWaitDurationLabel(state: AslState): string {
     return '';
 }
 
+interface GetFailDetailLabelParams {
+    /** Literal or JSONata-expression field (`Error` / `Cause`). */
+    literal?: string;
+    /** Longest the finished part may run, prefix included, before it is elided. */
+    maxLength: number;
+    /** Reference-path field, read when `literal` is unset (`ErrorPath` / `CausePath`). */
+    path?: string;
+    /** Prefix that names the part, e.g. `error` or `cause`. */
+    prefix: string;
+}
+
+/**
+ * Format one of a Fail state's two detail fields, resolving the literal before its
+ * path form the way ASL does. A JSONata literal is unwrapped like a Wait duration.
+ * An empty or non-string field is treated as unset, so a malformed definition
+ * neither crashes nor leaves a dangling `error: ` on the node.
+ */
+function getFailDetailLabel(params: GetFailDetailLabelParams): string {
+    const { literal, maxLength, path, prefix } = params;
+    const value = isNonEmptyString(literal)
+        ? stripJsonataDelimiters(literal)
+        : isNonEmptyString(path)
+          ? path
+          : '';
+    return value === '' ? '' : elide(`${prefix}: ${value}`, maxLength);
+}
+
+/** Prefix of a Fail error part; the cap counts it along with the value. */
+const FAIL_ERROR_PREFIX = 'error';
+
+/**
+ * Describe the error a Fail state raises, for display on the node.
+ *
+ * Two Fail states look identical without this, though one may raise a retryable
+ * error and the other a permanent one. `Error` wins over `ErrorPath` when both are
+ * set, matching the order ASL resolves them.
+ *
+ * @param state - The Fail state to describe
+ * @returns A label such as `error: PaymentFailed`, or an empty string when neither field is set
+ *
+ * @example
+ * ```typescript
+ * getFailErrorLabel({ Type: 'Fail', Error: 'PaymentFailed' });       // 'error: PaymentFailed'
+ * getFailErrorLabel({ Type: 'Fail', ErrorPath: '$.error' });         // 'error: $.error'
+ * getFailErrorLabel({ Type: 'Fail', Error: "{% $states.input.e %}" }); // 'error: $states.input.e'
+ * ```
+ */
+export function getFailErrorLabel(state: AslState): string {
+    return getFailDetailLabel({
+        literal: state.Error,
+        // The value keeps the same room every other sub-label value gets.
+        maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
+        path: state.ErrorPath,
+        prefix: FAIL_ERROR_PREFIX,
+    });
+}
+
+/**
+ * Describe the cause a Fail state reports, for display on the node.
+ *
+ * Kept as its own part rather than folded into {@link getFailErrorLabel}: a cause is
+ * typically a sentence, so on a narrow node it is the part worth dropping first
+ * while the error name still fits. The whole part is capped at
+ * {@link MAX_CAUSE_LABEL} glyphs, prefix included, at parse time: the SVG renderer
+ * width-fits it again on the node, but Mermaid has no width to fit to, and a
+ * paragraph-long cause would otherwise land on the state label verbatim.
+ *
+ * @param state - The Fail state to describe
+ * @returns A label such as `cause: Payment declined`, or an empty string when neither field is set
+ *
+ * @example
+ * ```typescript
+ * getFailCauseLabel({ Type: 'Fail', Cause: 'Payment declined' }); // 'cause: Payment declined'
+ * getFailCauseLabel({ Type: 'Fail', CausePath: '$.reason' });     // 'cause: $.reason'
+ * ```
+ */
+export function getFailCauseLabel(state: AslState): string {
+    return getFailDetailLabel({
+        literal: state.Cause,
+        maxLength: MAX_CAUSE_LABEL,
+        path: state.CausePath,
+        prefix: 'cause',
+    });
+}
+
+interface GetSecondsLabelParams {
+    /** Reference-path field, read when `seconds` is unset. */
+    path?: string;
+    /** Prefix that names the part, e.g. `timeout` or `heartbeat`. */
+    prefix: string;
+    /** Literal seconds, or a JSONata expression resolving to them. */
+    seconds?: number | string;
+}
+
+/**
+ * Format a seconds field the way {@link getWaitDurationLabel} does, under a prefix:
+ * a number gets its unit, an expression is unwrapped, a path is shown as-is.
+ */
+function getSecondsLabel(params: GetSecondsLabelParams): string {
+    const { path, prefix, seconds } = params;
+    if (typeof seconds === 'number') {
+        return `${prefix} ${seconds}s`;
+    }
+    if (isNonEmptyString(seconds)) {
+        return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+    }
+    if (isNonEmptyString(path)) {
+        return `${prefix} ${elide(path)}`;
+    }
+    return '';
+}
+
+/**
+ * Describe a Task state's timeout, for display on the node.
+ *
+ * A Task with an unusually long or short timeout is otherwise visually identical
+ * to one running on the default. `TimeoutSeconds` wins over `TimeoutSecondsPath`.
+ *
+ * @param state - The Task state to describe
+ * @returns A label such as `timeout 30s`, or an empty string when neither field is set
+ *
+ * @example
+ * ```typescript
+ * getTaskTimeoutLabel({ Type: 'Task', TimeoutSeconds: 30 });          // 'timeout 30s'
+ * getTaskTimeoutLabel({ Type: 'Task', TimeoutSecondsPath: '$.limit' }); // 'timeout $.limit'
+ * ```
+ */
+export function getTaskTimeoutLabel(state: AslState): string {
+    return getSecondsLabel({
+        path: state.TimeoutSecondsPath,
+        prefix: 'timeout',
+        seconds: state.TimeoutSeconds,
+    });
+}
+
+/**
+ * Describe a Task state's heartbeat interval, for display on the node.
+ *
+ * @param state - The Task state to describe
+ * @returns A label such as `heartbeat 10s`, or an empty string when neither field is set
+ *
+ * @example
+ * ```typescript
+ * getTaskHeartbeatLabel({ Type: 'Task', HeartbeatSeconds: 10 }); // 'heartbeat 10s'
+ * ```
+ */
+export function getTaskHeartbeatLabel(state: AslState): string {
+    return getSecondsLabel({
+        path: state.HeartbeatSecondsPath,
+        prefix: 'heartbeat',
+        seconds: state.HeartbeatSeconds,
+    });
+}
+
 /**
  * Describe a Map state's failure tolerance, for display on the container header.
  *
@@ -381,9 +547,10 @@ interface GetNodeSubLabelParams {
  * Build the sub-label shown beneath a node's name.
  *
  * Covers every node type, not just containers: a Parallel/Map header carries its
- * Distributed marker, concurrency, failure tolerance and batching, while a Wait
- * state carries how long it waits. All of these are declared in a definition and
- * would otherwise be invisible in the rendered diagram. The state type itself
+ * Distributed marker, concurrency, failure tolerance and batching, a Wait state
+ * carries how long it waits, a Task its timeout and heartbeat, and a Fail the error
+ * and cause it raises. All of these are declared in a definition and would
+ * otherwise be invisible in the rendered diagram. The state type itself
  * stays opt-in via `showStateTypes`.
  *
  * @param params.node - The node being rendered
@@ -443,6 +610,18 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.waitDuration !== undefined) {
         parts.push(node.waitDuration);
+    }
+    if (node.taskTimeout !== undefined) {
+        parts.push(node.taskTimeout);
+    }
+    if (node.taskHeartbeat !== undefined) {
+        parts.push(node.taskHeartbeat);
+    }
+    if (node.failError !== undefined) {
+        parts.push(node.failError);
+    }
+    if (node.failCause !== undefined) {
+        parts.push(node.failCause);
     }
 
     return parts;

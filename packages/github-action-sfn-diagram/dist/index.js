@@ -62698,9 +62698,13 @@ function getAssignedVariablesLabel(variableNames) {
   return remaining > 0 ? `${label} +${remaining} more` : label;
 }
 var MAX_SUB_LABEL_EXPRESSION = 32;
-function elide(text) {
+function elide(text, maxLength = MAX_SUB_LABEL_EXPRESSION) {
   const glyphs = splitGraphemes(text);
-  return glyphs.length > MAX_SUB_LABEL_EXPRESSION ? `${glyphs.slice(0, MAX_SUB_LABEL_EXPRESSION - 1).join("")}\u2026` : text;
+  return glyphs.length > maxLength ? `${glyphs.slice(0, maxLength - 1).join("")}\u2026` : text;
+}
+var MAX_CAUSE_LABEL = 48;
+function isNonEmptyString(value) {
+  return typeof value === "string" && value !== "";
 }
 var SUB_LABEL_SEPARATOR = " \xB7 ";
 function getWaitDurationLabel(state2) {
@@ -62710,6 +62714,49 @@ function getWaitDurationLabel(state2) {
   if (state2.Timestamp !== void 0) return elide(stripJsonataDelimiters(state2.Timestamp));
   if (state2.TimestampPath !== void 0) return elide(state2.TimestampPath);
   return "";
+}
+function getFailDetailLabel(params) {
+  const { literal, maxLength, path: path2, prefix } = params;
+  const value = isNonEmptyString(literal) ? stripJsonataDelimiters(literal) : isNonEmptyString(path2) ? path2 : "";
+  return value === "" ? "" : elide(`${prefix}: ${value}`, maxLength);
+}
+var FAIL_ERROR_PREFIX = "error";
+function getFailErrorLabel(state2) {
+  return getFailDetailLabel({
+    literal: state2.Error,
+    maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
+    path: state2.ErrorPath,
+    prefix: FAIL_ERROR_PREFIX
+  });
+}
+function getFailCauseLabel(state2) {
+  return getFailDetailLabel({
+    literal: state2.Cause,
+    maxLength: MAX_CAUSE_LABEL,
+    path: state2.CausePath,
+    prefix: "cause"
+  });
+}
+function getSecondsLabel(params) {
+  const { path: path2, prefix, seconds } = params;
+  if (typeof seconds === "number") return `${prefix} ${seconds}s`;
+  if (isNonEmptyString(seconds)) return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+  if (isNonEmptyString(path2)) return `${prefix} ${elide(path2)}`;
+  return "";
+}
+function getTaskTimeoutLabel(state2) {
+  return getSecondsLabel({
+    path: state2.TimeoutSecondsPath,
+    prefix: "timeout",
+    seconds: state2.TimeoutSeconds
+  });
+}
+function getTaskHeartbeatLabel(state2) {
+  return getSecondsLabel({
+    path: state2.HeartbeatSecondsPath,
+    prefix: "heartbeat",
+    seconds: state2.HeartbeatSeconds
+  });
 }
 function getToleratedFailureLabel(state2) {
   const parts = [];
@@ -62752,6 +62799,10 @@ function getNodeSubLabelParts(params) {
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
+  if (node.taskTimeout !== void 0) parts.push(node.taskTimeout);
+  if (node.taskHeartbeat !== void 0) parts.push(node.taskHeartbeat);
+  if (node.failError !== void 0) parts.push(node.failError);
+  if (node.failCause !== void 0) parts.push(node.failCause);
   return parts;
 }
 function getCatchLabel(params) {
@@ -63336,6 +63387,18 @@ function createStateNode(params) {
   if (state2.Type === "Wait") {
     const waitDuration = getWaitDurationLabel(state2);
     if (waitDuration !== "") baseNode.waitDuration = waitDuration;
+  }
+  if (state2.Type === "Task") {
+    const taskTimeout = getTaskTimeoutLabel(state2);
+    if (taskTimeout !== "") baseNode.taskTimeout = taskTimeout;
+    const taskHeartbeat = getTaskHeartbeatLabel(state2);
+    if (taskHeartbeat !== "") baseNode.taskHeartbeat = taskHeartbeat;
+  }
+  if (state2.Type === "Fail") {
+    const failError = getFailErrorLabel(state2);
+    if (failError !== "") baseNode.failError = failError;
+    const failCause = getFailCauseLabel(state2);
+    if (failCause !== "") baseNode.failCause = failCause;
   }
   if (isContainer) baseNode.children = [];
   if (state2.Type === "Map") {
@@ -63995,6 +64058,8 @@ function toOrphanState(state2) {
   if (state2.Type === "Fail") {
     if (state2.Cause !== void 0) base.Cause = state2.Cause;
     if (state2.Error !== void 0) base.Error = state2.Error;
+    if (state2.CausePath !== void 0) base.CausePath = state2.CausePath;
+    if (state2.ErrorPath !== void 0) base.ErrorPath = state2.ErrorPath;
   }
   return base;
 }

@@ -3,9 +3,13 @@ import { getNodeStyle } from './styles/NodeStyles';
 import {
     EDGE_LABELS,
     getCatchLabel,
+    getFailCauseLabel,
+    getFailErrorLabel,
     getItemBatchingLabel,
     getItemsPathLabel,
     getRetryLabel,
+    getTaskHeartbeatLabel,
+    getTaskTimeoutLabel,
     getToleratedFailureLabel,
     getWaitDurationLabel,
 } from './constants';
@@ -440,6 +444,30 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         const waitDuration = getWaitDurationLabel(state);
         if (waitDuration !== '') {
             baseNode.waitDuration = waitDuration;
+        }
+    }
+
+    // Likewise a Task's timeout and heartbeat, and the error and cause a Fail
+    // raises: all declared in the definition, none visible on the node otherwise.
+    if (state.Type === 'Task') {
+        const taskTimeout = getTaskTimeoutLabel(state);
+        if (taskTimeout !== '') {
+            baseNode.taskTimeout = taskTimeout;
+        }
+        const taskHeartbeat = getTaskHeartbeatLabel(state);
+        if (taskHeartbeat !== '') {
+            baseNode.taskHeartbeat = taskHeartbeat;
+        }
+    }
+
+    if (state.Type === 'Fail') {
+        const failError = getFailErrorLabel(state);
+        if (failError !== '') {
+            baseNode.failError = failError;
+        }
+        const failCause = getFailCauseLabel(state);
+        if (failCause !== '') {
+            baseNode.failCause = failCause;
         }
     }
 

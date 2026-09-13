@@ -47,6 +47,34 @@ const SUB_LABEL_PADDING = 8;
 /** Node width assumed when neither the layout nor the options supply one. */
 const DEFAULT_NODE_WIDTH = 120;
 
+/** Icon size assumed when the options do not supply one. */
+const DEFAULT_ICON_SIZE = 24;
+
+/** Inset of an icon from the node edge it sits against. */
+const ICON_PADDING = 8;
+
+/** Gap between an icon and the node's name. */
+const ICON_LABEL_GAP = 4;
+
+/**
+ * Vertical step from a node's name to its sub-label. Larger than the
+ * `STACKED_LINE_HEIGHT` used between the lines below it, because the name is
+ * the largest text on the node.
+ */
+const SUB_LABEL_OFFSET = 20;
+
+/** Vertical step between the stacked lines beneath the sub-label, matching DagreLayout. */
+const STACKED_LINE_HEIGHT = 16;
+
+/**
+ * Room an icon takes out of the node along its own axis: its inset from the edge,
+ * its size, and the gap to the name. Shared by the icon, the name, and the sub-label
+ * budget, so they cannot disagree about where the text starts.
+ */
+export function iconLabelShift(iconSize: number): number {
+    return ICON_PADDING + iconSize + ICON_LABEL_GAP;
+}
+
 interface RenderShapeParams {
     group: SvgElement;
     node: StateNode;
@@ -90,6 +118,11 @@ interface CalculateLabelPositionParams {
     iconPosition: 'left' | 'top' | 'right';
     iconSize: number;
     node: StateNode;
+    /**
+     * Vertical distance from the name to the last line stacked beneath it, or 0
+     * when nothing is stacked. Only the Y calculation reads it.
+     */
+    stackBelow?: number;
 }
 
 interface RenderIconParams {
@@ -641,29 +674,71 @@ export class SvgRenderer {
                 this.renderRect({ group: nodeGroup, node, style });
         }
 
+        const hasIcon = !!node.iconUrl && !!this.options.showIcons;
+        const iconPosition = this.options.iconPosition || 'left';
+        const iconSize = this.options.iconSize || DEFAULT_ICON_SIZE;
+
         // Render icon if present
         if (node.iconUrl && this.options.showIcons) {
             this.renderIcon({
                 group: nodeGroup,
-                iconPosition: this.options.iconPosition || 'left',
-                iconSize: this.options.iconSize || 24,
+                iconPosition,
+                iconSize,
                 iconUrl: node.iconUrl,
                 node,
             });
         }
 
         // Calculate label position based on icon
-        const labelX = this.calculateLabelX({
-            hasIcon: !!node.iconUrl && !!this.options.showIcons,
-            iconPosition: this.options.iconPosition || 'left',
-            iconSize: this.options.iconSize || 24,
-            node,
+        const labelX = this.calculateLabelX({ hasIcon, iconPosition, iconSize, node });
+
+        // Optionally add state type — skipped for a collapsed container, which uses
+        // the richer sub-label below (reusing the same slot/offset) instead.
+        // Composed rather than a bare state type: a Wait state's duration shares this
+        // slot, and `showStateTypes` must not cost the reader the duration.
+        // Same fallback the shape code uses (`node.width || DEFAULT_NODE_WIDTH`): this
+        // renderer does not merge option defaults, so a hand-built layout whose nodes
+        // carry no width would otherwise compute a negative budget and silently drop
+        // every sub-label while the rect is still drawn at its default size.
+        // A left or right icon takes its strip out of the width the text may use: the
+        // sub-label is centred on the name, which the icon has already pushed aside.
+        const sideIconShift =
+            hasIcon && iconPosition !== 'top' ? iconLabelShift(iconSize) : 0;
+        const secondLineText = fitSubLabel({
+            availableWidth:
+                (node.width || this.options.nodeWidth || DEFAULT_NODE_WIDTH) -
+                SUB_LABEL_PADDING * 2 -
+                sideIconShift,
+            measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
+            parts: getNodeSubLabelParts({
+                node,
+                showStateType: this.options.showStateTypes === true,
+            }),
         });
+        const secondLineShown = secondLineText !== '';
+        const annotation = this.options.nodeAnnotations?.[node.id];
+        const variablesShown =
+            this.options.showVariables !== false && !!node.assignedVariables?.length;
+
+        // Offsets of the lines stacked beneath the name, in the order they are drawn.
+        const annotationOffset = secondLineShown
+            ? SUB_LABEL_OFFSET + STACKED_LINE_HEIGHT
+            : STACKED_LINE_HEIGHT + 2;
+        const variablesOffset = annotationOffset + (annotation ? STACKED_LINE_HEIGHT : 0);
+        const lastStackedOffset = variablesShown
+            ? variablesOffset
+            : annotation
+              ? annotationOffset
+              : secondLineShown
+                ? SUB_LABEL_OFFSET
+                : 0;
+
         const labelY = this.calculateLabelY({
-            hasIcon: !!node.iconUrl && !!this.options.showIcons,
-            iconPosition: this.options.iconPosition || 'left',
-            iconSize: this.options.iconSize || 24,
+            hasIcon,
+            iconPosition,
+            iconSize,
             node,
+            stackBelow: lastStackedOffset,
         });
 
         // Add label
@@ -678,31 +753,11 @@ export class SvgRenderer {
             .attr('font-family', this.theme.fontFamily)
             .text(node.label);
 
-        // Optionally add state type — skipped for a collapsed container, which uses
-        // the richer sub-label below (reusing the same slot/offset) instead.
-        // Composed rather than a bare state type: a Wait state's duration shares this
-        // slot, and `showStateTypes` must not cost the reader the duration.
-        // Same fallback the shape code uses (`node.width || DEFAULT_NODE_WIDTH`): this
-        // renderer does not merge option defaults, so a hand-built layout whose nodes
-        // carry no width would otherwise compute a negative budget and silently drop
-        // every sub-label while the rect is still drawn at its default size.
-        const secondLineText = fitSubLabel({
-            availableWidth:
-                (node.width || this.options.nodeWidth || DEFAULT_NODE_WIDTH) -
-                SUB_LABEL_PADDING * 2,
-            measure: (text) => estimateTextWidth(text, this.theme.fontSize - 2),
-            parts: getNodeSubLabelParts({
-                node,
-                showStateType: this.options.showStateTypes === true,
-            }),
-        });
-        const secondLineShown = secondLineText !== '';
-
         if (secondLineText) {
             nodeGroup
                 .append('text')
                 .attr('x', labelX)
-                .attr('y', labelY + 20)
+                .attr('y', labelY + SUB_LABEL_OFFSET)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
@@ -714,12 +769,11 @@ export class SvgRenderer {
 
         // Optional annotation (execution overlay: duration / retry count), placed
         // below the label and the state type / collapsed sub-label when shown.
-        const annotation = this.options.nodeAnnotations?.[node.id];
         if (annotation) {
             nodeGroup
                 .append('text')
                 .attr('x', labelX)
-                .attr('y', labelY + (secondLineShown ? 36 : 18))
+                .attr('y', labelY + annotationOffset)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
@@ -731,13 +785,12 @@ export class SvgRenderer {
 
         // ASL Variables assigned by this state, stacked beneath whichever of the
         // second line and annotation are present.
-        if (this.options.showVariables !== false && node.assignedVariables?.length) {
-            const stackedOffset = (secondLineShown ? 36 : 18) + (annotation ? 16 : 0);
+        if (variablesShown && node.assignedVariables) {
             nodeGroup
                 .append('text')
                 .attr('class', 'node-variables')
                 .attr('x', labelX)
-                .attr('y', labelY + stackedOffset)
+                .attr('y', labelY + variablesOffset)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', this.theme.textColor)
@@ -812,9 +865,8 @@ export class SvgRenderer {
     private renderIcon(params: RenderIconParams): void {
         const { group, iconPosition, iconSize, iconUrl, node } = params;
 
-        const width = node.width || 120;
+        const width = node.width || DEFAULT_NODE_WIDTH;
         const height = node.height || 60;
-        const padding = 8;
 
         let iconX = 0;
         let iconY = 0;
@@ -822,17 +874,17 @@ export class SvgRenderer {
         switch (iconPosition) {
             case 'left':
                 // Position inside left edge with padding, vertically centered
-                iconX = -width / 2 + padding;
+                iconX = -width / 2 + ICON_PADDING;
                 iconY = -iconSize / 2;
                 break;
             case 'top':
                 // Position horizontally centered, inside top edge with padding
                 iconX = -iconSize / 2;
-                iconY = -height / 2 + padding;
+                iconY = -height / 2 + ICON_PADDING;
                 break;
             case 'right':
                 // Position inside right edge with padding, vertically centered
-                iconX = width / 2 - iconSize - padding;
+                iconX = width / 2 - iconSize - ICON_PADDING;
                 iconY = -iconSize / 2;
                 break;
         }
@@ -856,38 +908,39 @@ export class SvgRenderer {
         const { hasIcon, iconPosition, iconSize } = params;
         if (!hasIcon) return 0;
 
-        const padding = 8;
-        const gap = 4; // Gap between icon and label
-
         switch (iconPosition) {
             case 'left':
                 // Center label in remaining space to the right of icon
                 // Icon ends at: -width/2 + padding + iconSize
                 // Available space: from that point to width/2
-                return (padding + iconSize + gap) / 2;
+                return iconLabelShift(iconSize) / 2;
             case 'right':
                 // Center label in remaining space to the left of icon
                 // Icon starts at: width/2 - iconSize - padding
                 // Available space: from -width/2 to that point
-                return -(padding + iconSize + gap) / 2;
+                return -iconLabelShift(iconSize) / 2;
             default:
                 return 0;
         }
     }
 
     /**
-     * Calculate label Y position based on icon presence and position
+     * Calculate label Y position based on icon presence and position.
+     *
+     * With a top icon the name is centred in the space beneath the icon. When lines
+     * are stacked under the name, the whole stack is centred there instead: the
+     * layout has grown the node for them (see `DagreLayout.extraStackedLines`), and
+     * the growth is symmetric about the centre while the icon hugs the top edge, so
+     * centring the name alone would leave a gap under the icon and push the last
+     * line out of the bottom.
      */
     private calculateLabelY(params: CalculateLabelPositionParams): number {
-        const { hasIcon, iconPosition, iconSize } = params;
+        const { hasIcon, iconPosition, iconSize, stackBelow = 0 } = params;
         if (!hasIcon || iconPosition !== 'top') return 0;
 
-        const padding = 8;
-        const gap = 4; // Gap between icon and label
-
-        // Center label in remaining space below icon
-        // Icon ends at: -height/2 + padding + iconSize
-        return (padding + iconSize + gap) / 2;
+        // Icon ends at: -height/2 + padding + iconSize. The space from the gap below
+        // it to the bottom edge is centred at iconLabelShift / 2 whatever the height.
+        return iconLabelShift(iconSize) / 2 - stackBelow / 2;
     }
 
     /**

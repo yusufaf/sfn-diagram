@@ -603,6 +603,10 @@ export class DagreLayout {
      * How many stacked lines a node renders *beyond* the one the base height allows
      * for. Mirrors the order `SvgRenderer` stacks them in: sub-label, then execution
      * annotation, then assigned variables.
+     *
+     * An icon on top pushes the name down into that spare slot, so with one every
+     * stacked line needs its own room. The renderer then centres the whole stack
+     * beneath the icon (see `SvgRenderer.calculateLabelY`).
      */
     private extraStackedLines(node: StateNode): number {
         const lines =
@@ -615,6 +619,11 @@ export class DagreLayout {
             (this.options.nodeAnnotations?.[node.id] ? 1 : 0) +
             (this.options.showVariables !== false && node.assignedVariables?.length ? 1 : 0);
 
-        return Math.max(0, lines - 1);
+        const iconOnTop =
+            this.options.showIcons === true &&
+            this.options.iconPosition === 'top' &&
+            node.iconUrl !== undefined;
+
+        return iconOnTop ? lines : Math.max(0, lines - 1);
     }
 }
