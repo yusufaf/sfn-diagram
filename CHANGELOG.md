@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.1...sfn-diagram-v1.7.0) (2026-09-13)
+
+
+### Features
+
+* **a11y:** accessible SVG semantics and keyboard-navigable viewer ([#222](https://github.com/yusufaf/sfn-diagram/issues/222)) ([71bfb8f](https://github.com/yusufaf/sfn-diagram/commit/71bfb8f7d75dcaf21531df88b8a13fd092a67036))
+* **action:** add comment-size guard, outputs, and input parity for the GitHub Action ([#221](https://github.com/yusufaf/sfn-diagram/issues/221)) ([f97a9cd](https://github.com/yusufaf/sfn-diagram/commit/f97a9cd44a7ce0cf58a893710c1d83d2f843e0cf))
+* **parser:** render Fail Error/Cause and Task timeout/heartbeat on the node ([#250](https://github.com/yusufaf/sfn-diagram/issues/250)) ([4c22f56](https://github.com/yusufaf/sfn-diagram/commit/4c22f5606ff3c90283478a7035236958251b58fe))
+* **parser:** type ItemsPath and surface it on Map nodes ([#248](https://github.com/yusufaf/sfn-diagram/issues/248)) ([a986f72](https://github.com/yusufaf/sfn-diagram/commit/a986f72ccaf151afa08adfefbeeaedb481b1c679))
+* **png:** render PNG with @resvg/resvg-js instead of headless Chrome ([#226](https://github.com/yusufaf/sfn-diagram/issues/226)) ([2f43edc](https://github.com/yusufaf/sfn-diagram/commit/2f43edc5eaa05c4a9160a96828572435ed6d12e9))
+* **services:** detect services in every aws partition and activity arns ([#237](https://github.com/yusufaf/sfn-diagram/issues/237)) ([f5b5fcd](https://github.com/yusufaf/sfn-diagram/commit/f5b5fcdfb74e54180156842aeabe8897c5d0e6f6))
+* **services:** map 30 more services to icons and label sync/callback tasks ([#252](https://github.com/yusufaf/sfn-diagram/issues/252)) ([0e7fa97](https://github.com/yusufaf/sfn-diagram/commit/0e7fa973bf914471ec1112808826c2fa914b6d86)), closes [#234](https://github.com/yusufaf/sfn-diagram/issues/234)
+* **vscode:** add a configuration contribution for theme, layout, icons, and auto-preview ([#219](https://github.com/yusufaf/sfn-diagram/issues/219)) ([f7b3008](https://github.com/yusufaf/sfn-diagram/commit/f7b30083e5eb0172b167eb6d114a04afd792aae3))
+* **vscode:** render the interactive viewer instead of a static svg ([#223](https://github.com/yusufaf/sfn-diagram/issues/223)) ([1a95972](https://github.com/yusufaf/sfn-diagram/commit/1a95972c04b11cdbea211d2a7ecd16d92c86c89e))
+
+
+### Bug Fixes
+
+* **ci:** reject non-core release tags in the docker workflow ([#137](https://github.com/yusufaf/sfn-diagram/issues/137)) ([fefea29](https://github.com/yusufaf/sfn-diagram/commit/fefea2932299cb49af92475bb529f5f0a7edbc7b))
+* **cli:** let --collapse target a state name that contains a comma ([#254](https://github.com/yusufaf/sfn-diagram/issues/254)) ([8768e67](https://github.com/yusufaf/sfn-diagram/commit/8768e67b3abff3d9766fc7227e215a37640cafa6))
+* **cli:** print help instead of hanging on a bare TTY invocation ([#208](https://github.com/yusufaf/sfn-diagram/issues/208)) ([53b7ef0](https://github.com/yusufaf/sfn-diagram/commit/53b7ef0b48d01fda3fd87376f4f77f7068c14d3c))
+* **docker:** make --format png work in the published image ([#229](https://github.com/yusufaf/sfn-diagram/issues/229)) ([91d9307](https://github.com/yusufaf/sfn-diagram/commit/91d930738c5bbeb8c7752481a0a5262814e88032))
+* **html:** pass merged options to the viewer edge data ([#240](https://github.com/yusufaf/sfn-diagram/issues/240)) ([7dcc389](https://github.com/yusufaf/sfn-diagram/commit/7dcc38937c9202dc72a1cd673a5188b0da9db050))
+* **layout:** give a container a minimum width that fits its header ([#139](https://github.com/yusufaf/sfn-diagram/issues/139)) ([8d14dd6](https://github.com/yusufaf/sfn-diagram/commit/8d14dd6bf002a90a1a48593e70cd7530f0dbd0dd))
+* **layout:** include nested containers when computing container bounds ([#209](https://github.com/yusufaf/sfn-diagram/issues/209)) ([8af5a07](https://github.com/yusufaf/sfn-diagram/commit/8af5a07f0ec6eb800dc0b8ec904d206348c91bbd))
+* **layout:** route container edges off the box's actual entry/exit side ([#213](https://github.com/yusufaf/sfn-diagram/issues/213)) ([18afab4](https://github.com/yusufaf/sfn-diagram/commit/18afab41ba42c6fc14ef096c8078b26ac99fbaf8))
+* **mermaid:** escaping, phantom marker states, and dead layout/theme options ([#212](https://github.com/yusufaf/sfn-diagram/issues/212)) ([34866bc](https://github.com/yusufaf/sfn-diagram/commit/34866bc0125d29303fdb603aa41369b487a07841))
+* **parser:** keep an empty Parallel/Map connected to its Next state ([#245](https://github.com/yusufaf/sfn-diagram/issues/245)) ([e254e68](https://github.com/yusufaf/sfn-diagram/commit/e254e68e33196ef410661f28b891c19682973cc1))
+* **parser:** reject non-array Choices/Catch/Retry with AslValidationError ([#238](https://github.com/yusufaf/sfn-diagram/issues/238)) ([e0e34c0](https://github.com/yusufaf/sfn-diagram/commit/e0e34c038d83d779399c028646b8b57ec0ff8bed)), closes [#169](https://github.com/yusufaf/sfn-diagram/issues/169)
+* **parser:** strip JSONata delimiters from MaxConcurrency; pin the icon CDN ([#214](https://github.com/yusufaf/sfn-diagram/issues/214)) ([9ecab6f](https://github.com/yusufaf/sfn-diagram/commit/9ecab6f1576016e99a84cc44896fd1f4ac0992bf))
+* **parser:** strip trailing .$ from JSONPath-mode Assign keys ([#246](https://github.com/yusufaf/sfn-diagram/issues/246)) ([e5dc41a](https://github.com/yusufaf/sfn-diagram/commit/e5dc41a2fdfb0b66707447bb8b2ae56beb2a558d)), closes [#172](https://github.com/yusufaf/sfn-diagram/issues/172)
+* **svg-renderer:** place edge labels on the drawn path, not on a control point ([#210](https://github.com/yusufaf/sfn-diagram/issues/210)) ([9815204](https://github.com/yusufaf/sfn-diagram/commit/9815204e86c16ab148214269a554b58491e3ed54))
+* **svg-renderer:** set font-family on every text element ([#207](https://github.com/yusufaf/sfn-diagram/issues/207)) ([b938553](https://github.com/yusufaf/sfn-diagram/commit/b938553fc94905d2cfbba30f4a52ab0c1f8e62cb))
+* **text-measure:** size CJK and emoji by grapheme instead of UTF-16 unit ([#241](https://github.com/yusufaf/sfn-diagram/issues/241)) ([702ef15](https://github.com/yusufaf/sfn-diagram/commit/702ef15f0ff57c3185b6203aa3a22c180d3fd509))
+* **theme:** make node and container colors follow the active theme ([#217](https://github.com/yusufaf/sfn-diagram/issues/217)) ([bcae164](https://github.com/yusufaf/sfn-diagram/commit/bcae164575e5bfd09249dc74121fb9a645c3d132))
+* **theme:** raise default theme colors to meet WCAG AA contrast ([#211](https://github.com/yusufaf/sfn-diagram/issues/211)) ([b180204](https://github.com/yusufaf/sfn-diagram/commit/b1802047e00678bd9345ce6a3103e54edf3a31e5)), closes [#151](https://github.com/yusufaf/sfn-diagram/issues/151)
+* **viewer:** drop the detail panel to a bottom sheet below 640px ([#247](https://github.com/yusufaf/sfn-diagram/issues/247)) ([771204b](https://github.com/yusufaf/sfn-diagram/commit/771204b8f6b58b1fc3c60599f81da9776b177468))
+* **viewer:** stop wheel zoom hijacking page scroll and enable touch pan ([#244](https://github.com/yusufaf/sfn-diagram/issues/244)) ([ccff42a](https://github.com/yusufaf/sfn-diagram/commit/ccff42ad691f8b6a1f217ba1905de190a7b976ff))
+* **vscode:** debounce edits and patch the viewer instead of rebuilding it ([#227](https://github.com/yusufaf/sfn-diagram/issues/227)) ([06ae3f3](https://github.com/yusufaf/sfn-diagram/commit/06ae3f3b63b5b1a2219ce84c33e9d9a984615aa9))
+
+
+### Performance Improvements
+
+* linear bfs queue in collapse and batched icon embedding ([#239](https://github.com/yusufaf/sfn-diagram/issues/239)) ([5af0bcf](https://github.com/yusufaf/sfn-diagram/commit/5af0bcf3ac315729de42f8fe787da63d46f1ebed))
+* **text-measure:** memoize estimateTextWidth on text and font size ([#243](https://github.com/yusufaf/sfn-diagram/issues/243)) ([760f9f9](https://github.com/yusufaf/sfn-diagram/commit/760f9f992a7c49d3e759387d8abdf95bad72cc08)), closes [#185](https://github.com/yusufaf/sfn-diagram/issues/185)
+* **viewer:** debounce the search box before running the highlight pass ([#249](https://github.com/yusufaf/sfn-diagram/issues/249)) ([46ac195](https://github.com/yusufaf/sfn-diagram/commit/46ac19563132f580b3896a70bcab7fd79e8dd9af))
+
 ## [1.6.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.0...sfn-diagram-v1.6.1) (2026-09-06)
 
 

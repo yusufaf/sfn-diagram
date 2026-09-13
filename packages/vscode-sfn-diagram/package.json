@@ -2,7 +2,7 @@
     "name": "vscode-sfn-diagram",
     "displayName": "Step Functions Diagram",
     "description": "Preview AWS Step Functions ASL definitions as diagrams",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "publisher": "yusufaf",
     "icon": "media/icon.png",
     "galleryBanner": {
@@ -66,7 +66,12 @@
                 "sfnDiagram.layout": {
                     "type": "string",
                     "default": "TB",
-                    "enum": ["TB", "LR", "RL", "BT"],
+                    "enum": [
+                        "TB",
+                        "LR",
+                        "RL",
+                        "BT"
+                    ],
                     "enumDescriptions": [
                         "Top to bottom",
                         "Left to right",
@@ -85,7 +90,11 @@
                 "sfnDiagram.theme": {
                     "type": "string",
                     "default": "auto",
-                    "enum": ["auto", "dark", "light"],
+                    "enum": [
+                        "auto",
+                        "dark",
+                        "light"
+                    ],
                     "enumDescriptions": [
                         "Follow the current VS Code color theme",
                         "AWS dark theme",
