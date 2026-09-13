@@ -589,6 +589,15 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         syncEngagedClass(true);
     }
 
+    // The pointer whose press engaged a previously un-engaged viewer, until it lifts.
+    // Flipping touch-action from inside pointerdown does not affect the gesture
+    // already in progress: a swipe meant to scroll the page still scrolls it and ends
+    // in pointercancel - but the viewer would now be engaged, and the *next* swipe
+    // would pan the diagram instead. A diagram filling most of the screen leaves
+    // nowhere outside to press to undo that, so a cancelled press is unwound instead.
+    // A mouse never fires pointercancel, so its behaviour is untouched.
+    let engagingPointerId: number | null = null;
+
     if (ownerDoc && !(root instanceof Document)) {
         // Capture phase: a host page's own handlers (menus, drag-and-drop, carousels)
         // routinely stopPropagation() on pointerdown, which in the bubble phase would
@@ -644,6 +653,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     on(stage, 'pointerdown', (event) => {
         const pointerEvent = event as PointerEvent;
+        if (!isEngaged()) engagingPointerId = pointerEvent.pointerId;
         engage();
         // A drag whose pointer still holds capture owns the stage. One that lost it
         // without a pointerup/pointercancel (a synthetic pointer id that capture
@@ -695,6 +705,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     }
     on(stage, 'pointerup', (event) => {
         const pointerEvent = event as PointerEvent;
+        if (pointerEvent.pointerId === engagingPointerId) engagingPointerId = null;
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         endDrag(pointerEvent);
         if (travel <= CLICK_SLOP) selectFromTarget({ moveFocus: false, target: downTarget });
@@ -704,6 +715,11 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // claimed and every later press on the stage would be ignored.
     on(stage, 'pointercancel', (event) => {
         const pointerEvent = event as PointerEvent;
+        if (pointerEvent.pointerId === engagingPointerId) {
+            engagingPointerId = null;
+            pointerEngaged = false;
+            syncEngagedClass(isEngaged());
+        }
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         endDrag(pointerEvent);
         downTarget = null;

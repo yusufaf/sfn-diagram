@@ -547,6 +547,23 @@ describe('wheel zoom scoping', () => {
         expect(afterHostPress).toEqual({ cancelled: false, touchAction: 'auto', zoomed: false });
     });
 
+    it('unwinds engagement when the press that engaged it is cancelled by a page scroll', async () => {
+        // touch-action only takes effect for the *next* gesture, so a scroll swipe
+        // that lands on the diagram fires pointerdown, engages, then pointercancel
+        // as the browser scrolls anyway - and must not leave the viewer engaged.
+        const at = (pointerId: number) => `{ bubbles: true, pointerId: ${pointerId}, pointerType: 'touch' }`;
+        const [afterCancelledSwipe, afterCompletedTap] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', ${at(7)}));
+             stage.dispatchEvent(new PointerEvent('pointercancel', ${at(7)}));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+            `stage.dispatchEvent(new PointerEvent('pointerdown', ${at(8)}));
+             stage.dispatchEvent(new PointerEvent('pointerup', ${at(8)}));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(afterCancelledSwipe).toEqual({ cancelled: false, touchAction: 'auto', zoomed: false });
+        expect(afterCompletedTap).toEqual({ cancelled: true, touchAction: 'none', zoomed: true });
+    });
+
     it('engages on a press on the minimap thumb, whose pointerdown never reaches the stage', async () => {
         const [afterThumbPress] = await runWheelScenario([
             `el.querySelector('[data-sfn="minimap-toggle"]').click();
