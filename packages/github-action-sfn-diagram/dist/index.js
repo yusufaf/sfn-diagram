@@ -62482,8 +62482,12 @@ function getAssignedVariablesLabel(variableNames) {
   return remaining > 0 ? `${label} +${remaining} more` : label;
 }
 var MAX_SUB_LABEL_EXPRESSION = 32;
-function elide(text) {
-  return text.length > MAX_SUB_LABEL_EXPRESSION ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}\u2026` : text;
+function elide(text, maxLength = MAX_SUB_LABEL_EXPRESSION) {
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}\u2026` : text;
+}
+var MAX_CAUSE_LABEL = 48;
+function isNonEmptyString(value) {
+  return typeof value === "string" && value !== "";
 }
 var SUB_LABEL_SEPARATOR = " \xB7 ";
 function getWaitDurationLabel(state2) {
@@ -62495,21 +62499,23 @@ function getWaitDurationLabel(state2) {
   return "";
 }
 function getFailDetailLabel(params) {
-  const { literal, path: path2, prefix } = params;
-  if (literal !== void 0) return `${prefix}: ${elide(stripJsonataDelimiters(literal))}`;
-  if (path2 !== void 0) return `${prefix}: ${elide(path2)}`;
-  return "";
+  const { literal, maxLength, path: path2, prefix } = params;
+  const value = isNonEmptyString(literal) ? stripJsonataDelimiters(literal) : isNonEmptyString(path2) ? path2 : "";
+  return value === "" ? "" : elide(`${prefix}: ${value}`, maxLength);
 }
+var FAIL_ERROR_PREFIX = "error";
 function getFailErrorLabel(state2) {
   return getFailDetailLabel({
     literal: state2.Error,
+    maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
     path: state2.ErrorPath,
-    prefix: "error"
+    prefix: FAIL_ERROR_PREFIX
   });
 }
 function getFailCauseLabel(state2) {
   return getFailDetailLabel({
     literal: state2.Cause,
+    maxLength: MAX_CAUSE_LABEL,
     path: state2.CausePath,
     prefix: "cause"
   });
@@ -62517,8 +62523,8 @@ function getFailCauseLabel(state2) {
 function getSecondsLabel(params) {
   const { path: path2, prefix, seconds } = params;
   if (typeof seconds === "number") return `${prefix} ${seconds}s`;
-  if (typeof seconds === "string") return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
-  if (path2 !== void 0) return `${prefix} ${elide(path2)}`;
+  if (isNonEmptyString(seconds)) return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+  if (isNonEmptyString(path2)) return `${prefix} ${elide(path2)}`;
   return "";
 }
 function getTaskTimeoutLabel(state2) {

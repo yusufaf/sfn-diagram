@@ -855,12 +855,36 @@ describe('AslParser', () => {
             expect(node?.failError).toBe('error: Literal');
         });
 
-        it('elides a Cause too long for the node', () => {
+        it('caps a long Cause at 48 glyphs including its prefix', () => {
+            // A cause is free-form prose; the cap is applied at parse time so no
+            // renderer, Mermaid included, ends up with a paragraph on the node.
             const long = 'The order total exceeded the configured maximum for this customer tier';
             const cause = abortNode(failWith({ Cause: long }))?.failCause ?? '';
 
-            expect(cause.length).toBeLessThan(long.length);
-            expect(cause.endsWith('…')).toBe(true);
+            expect(cause).toBe('cause: The order total exceeded the configured …');
+            expect(cause.length).toBe(48);
+        });
+
+        it('keeps a Cause that fits within the cap whole', () => {
+            const cause = 'Payment declined by the issuing bank';
+
+            expect(abortNode(failWith({ Cause: cause }))?.failCause).toBe(`cause: ${cause}`);
+        });
+
+        it('treats an empty Error or Cause as unset and falls through to the path', () => {
+            expect(abortNode(failWith({ Error: '' }))?.failError).toBeUndefined();
+            expect(abortNode(failWith({ ErrorPath: '' }))?.failError).toBeUndefined();
+            expect(abortNode(failWith({ Cause: '', CausePath: '' }))?.failCause).toBeUndefined();
+            expect(abortNode(failWith({ Error: '', ErrorPath: '$.error' }))?.failError).toBe(
+                'error: $.error',
+            );
+        });
+
+        it('treats a non-string Error or Cause as unset', () => {
+            const node = abortNode(failWith({ Cause: 42, Error: null }));
+
+            expect(node?.failError).toBeUndefined();
+            expect(node?.failCause).toBeUndefined();
         });
 
         it('leaves both unset on a bare Fail', () => {
@@ -918,6 +942,15 @@ describe('AslParser', () => {
             const node = workNode(taskWith({ TimeoutSeconds: 30, TimeoutSecondsPath: '$.limit' }));
 
             expect(node?.taskTimeout).toBe('timeout 30s');
+        });
+
+        it('treats an empty or non-string TimeoutSeconds/Path as unset', () => {
+            expect(workNode(taskWith({ TimeoutSeconds: '' }))?.taskTimeout).toBeUndefined();
+            expect(workNode(taskWith({ TimeoutSecondsPath: '' }))?.taskTimeout).toBeUndefined();
+            expect(workNode(taskWith({ HeartbeatSeconds: null }))?.taskHeartbeat).toBeUndefined();
+            expect(
+                workNode(taskWith({ TimeoutSeconds: '', TimeoutSecondsPath: '$.limit' }))?.taskTimeout,
+            ).toBe('timeout $.limit');
         });
 
         it('leaves both unset on a Task with neither', () => {

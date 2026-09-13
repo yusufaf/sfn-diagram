@@ -102,10 +102,22 @@ export function getAssignedVariablesLabel(variableNames: string[]): string {
 const MAX_SUB_LABEL_EXPRESSION = 32;
 
 /** Shorten an expression to fit a node sub-label, marking that it was cut. */
-function elide(text: string): string {
-    return text.length > MAX_SUB_LABEL_EXPRESSION
-        ? `${text.slice(0, MAX_SUB_LABEL_EXPRESSION - 1)}…`
-        : text;
+function elide(text: string, maxLength: number = MAX_SUB_LABEL_EXPRESSION): string {
+    return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+/**
+ * Longest a Fail state's `cause: …` part may run, prefix included. A cause is
+ * free-form prose rather than an expression, so it gets more room than
+ * {@link MAX_SUB_LABEL_EXPRESSION} allows a value — but it is still capped at parse
+ * time, because the cap is what keeps a paragraph-long cause off a Mermaid label,
+ * where nothing else constrains width.
+ */
+const MAX_CAUSE_LABEL = 48;
+
+/** True for a string field that is actually set; `''`, `null` and non-strings read as unset. */
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value !== '';
 }
 
 /**
@@ -255,6 +267,8 @@ export function getWaitDurationLabel(state: AslState): string {
 interface GetFailDetailLabelParams {
     /** Literal or JSONata-expression field (`Error` / `Cause`). */
     literal?: string;
+    /** Longest the finished part may run, prefix included, before it is elided. */
+    maxLength: number;
     /** Reference-path field, read when `literal` is unset (`ErrorPath` / `CausePath`). */
     path?: string;
     /** Prefix that names the part, e.g. `error` or `cause`. */
@@ -264,17 +278,21 @@ interface GetFailDetailLabelParams {
 /**
  * Format one of a Fail state's two detail fields, resolving the literal before its
  * path form the way ASL does. A JSONata literal is unwrapped like a Wait duration.
+ * An empty or non-string field is treated as unset, so a malformed definition
+ * neither crashes nor leaves a dangling `error: ` on the node.
  */
 function getFailDetailLabel(params: GetFailDetailLabelParams): string {
-    const { literal, path, prefix } = params;
-    if (literal !== undefined) {
-        return `${prefix}: ${elide(stripJsonataDelimiters(literal))}`;
-    }
-    if (path !== undefined) {
-        return `${prefix}: ${elide(path)}`;
-    }
-    return '';
+    const { literal, maxLength, path, prefix } = params;
+    const value = isNonEmptyString(literal)
+        ? stripJsonataDelimiters(literal)
+        : isNonEmptyString(path)
+          ? path
+          : '';
+    return value === '' ? '' : elide(`${prefix}: ${value}`, maxLength);
 }
+
+/** Prefix of a Fail error part; the cap counts it along with the value. */
+const FAIL_ERROR_PREFIX = 'error';
 
 /**
  * Describe the error a Fail state raises, for display on the node.
@@ -294,7 +312,13 @@ function getFailDetailLabel(params: GetFailDetailLabelParams): string {
  * ```
  */
 export function getFailErrorLabel(state: AslState): string {
-    return getFailDetailLabel({ literal: state.Error, path: state.ErrorPath, prefix: 'error' });
+    return getFailDetailLabel({
+        literal: state.Error,
+        // The value keeps the same room every other sub-label value gets.
+        maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
+        path: state.ErrorPath,
+        prefix: FAIL_ERROR_PREFIX,
+    });
 }
 
 /**
@@ -302,7 +326,10 @@ export function getFailErrorLabel(state: AslState): string {
  *
  * Kept as its own part rather than folded into {@link getFailErrorLabel}: a cause is
  * typically a sentence, so on a narrow node it is the part worth dropping first
- * while the error name still fits.
+ * while the error name still fits. The whole part is capped at
+ * {@link MAX_CAUSE_LABEL} glyphs, prefix included, at parse time: the SVG renderer
+ * width-fits it again on the node, but Mermaid has no width to fit to, and a
+ * paragraph-long cause would otherwise land on the state label verbatim.
  *
  * @param state - The Fail state to describe
  * @returns A label such as `cause: Payment declined`, or an empty string when neither field is set
@@ -314,7 +341,12 @@ export function getFailErrorLabel(state: AslState): string {
  * ```
  */
 export function getFailCauseLabel(state: AslState): string {
-    return getFailDetailLabel({ literal: state.Cause, path: state.CausePath, prefix: 'cause' });
+    return getFailDetailLabel({
+        literal: state.Cause,
+        maxLength: MAX_CAUSE_LABEL,
+        path: state.CausePath,
+        prefix: 'cause',
+    });
 }
 
 interface GetSecondsLabelParams {
@@ -335,10 +367,10 @@ function getSecondsLabel(params: GetSecondsLabelParams): string {
     if (typeof seconds === 'number') {
         return `${prefix} ${seconds}s`;
     }
-    if (typeof seconds === 'string') {
+    if (isNonEmptyString(seconds)) {
         return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
     }
-    if (path !== undefined) {
+    if (isNonEmptyString(path)) {
         return `${prefix} ${elide(path)}`;
     }
     return '';
