@@ -1516,6 +1516,175 @@ describe('keyboard navigation', () => {
     });
 });
 
+describe('detail panel below the compact breakpoint', () => {
+    let narrowPage: Page;
+
+    beforeAll(async () => {
+        narrowPage = await browser.newPage();
+        await narrowPage.setViewport({ width: 400, height: 700 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await narrowPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await narrowPage.close();
+    });
+
+    it('opens as a bottom sheet over a full-width stage instead of a 360px side panel', async () => {
+        await narrowPage.evaluate(() => {
+            const group = document.querySelector('[data-state-id="Beta"]') as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        });
+
+        const layout = await narrowPage.evaluate(() => {
+            const panel = document.querySelector('#sfn-panel')!.getBoundingClientRect();
+            const stage = document.querySelector('#sfn-stage')!;
+            return {
+                panelBottom: panel.bottom,
+                panelLeft: panel.left,
+                panelOpen: document.querySelector('#sfn-panel')!.classList.contains('sfn-open'),
+                panelTop: panel.top,
+                panelWidth: panel.width,
+                stageWidth: stage.clientWidth,
+            };
+        });
+
+        expect(layout.panelOpen).toBe(true);
+        // Anchored to the bottom edge and spanning the full width...
+        expect(layout.panelLeft).toBe(0);
+        expect(layout.panelWidth).toBe(400);
+        expect(layout.panelBottom).toBe(700);
+        // ...but never covering the whole stage - the diagram stays visible above it.
+        expect(layout.panelTop).toBeGreaterThanOrEqual(700 * 0.4);
+        // The stage is no longer shrunk by the panel's width.
+        expect(layout.stageWidth).toBe(400);
+    });
+
+    it('hides the minimap while the sheet would cover it, and brings it back on close', async () => {
+        const minimapDisplay = (): Promise<string> =>
+            narrowPage.$eval('#sfn-minimap', (element) => getComputedStyle(element).display);
+
+        // The panel is still open from the previous test; showing the minimap now
+        // (via its shortcut) must not surface it underneath the sheet.
+        await narrowPage.keyboard.press('m');
+        expect(await minimapDisplay()).toBe('none');
+
+        await narrowPage.keyboard.press('Escape');
+        expect(await narrowPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+        expect(await minimapDisplay()).toBe('block');
+    });
+
+    /** Open the detail panel for a state without moving the mouse (which could pan). */
+    async function openPanelFor(stateId: string): Promise<void> {
+        await narrowPage.evaluate((id) => {
+            const group = document.querySelector(`[data-state-id="${id}"]`) as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        }, stateId);
+    }
+
+    it('brings the minimap back with a live viewport rect after panning under the sheet', async () => {
+        // The minimap is open from the previous test. While the sheet hides it, every
+        // pan would otherwise compute its viewport rect against a box that has no size.
+        const viewportSize = (): Promise<{ height: number; width: number }> =>
+            narrowPage.$eval('#sfn-minimap-viewport', (element) => {
+                const rect = element.getBoundingClientRect();
+                return { height: rect.height, width: rect.width };
+            });
+        const before = await viewportSize();
+        expect(before.width).toBeGreaterThan(10);
+
+        await openPanelFor('Beta');
+        const sheetTop = await narrowPage.$eval('#sfn-panel', (element) => element.getBoundingClientRect().top);
+        const y = Math.min(150, sheetTop / 2);
+        await narrowPage.mouse.move(40, y);
+        await narrowPage.mouse.down();
+        await narrowPage.mouse.move(120, y + 40, { steps: 8 });
+        await narrowPage.mouse.up();
+        await narrowPage.keyboard.press('Escape');
+
+        // A pan leaves the scale alone, so the rect must come back at the size it had
+        // before the sheet opened - not collapsed to its bare border.
+        expect(await viewportSize()).toEqual(before);
+    });
+
+    it('centres a search hit in the part of the stage the sheet leaves uncovered', async () => {
+        await openPanelFor('Alpha');
+        const sheetTop = await narrowPage.$eval('#sfn-panel', (element) => element.getBoundingClientRect().top);
+        expect(sheetTop).toBeLessThan(700);
+
+        await narrowPage.evaluate(() => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            input.value = 'gamma';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await narrowPage.waitForFunction(
+            () => document.querySelector('#sfn-search-count')!.textContent === '1 / 1',
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const hitCenter = await narrowPage.$eval('.sfn-hit', (element) => {
+            const rect = element.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+        // Midpoint of the uncovered band above the sheet, not of the whole 700px stage.
+        expect(Math.abs(hitCenter.y - sheetTop / 2)).toBeLessThan(2);
+        expect(Math.abs(hitCenter.x - 200)).toBeLessThan(2);
+
+        await narrowPage.keyboard.press('Escape');
+    });
+
+    it('refreshes the minimap viewport rect when a resize reveals it past the breakpoint', async () => {
+        const viewportRect = (): Promise<Record<string, number>> =>
+            narrowPage.$eval('#sfn-minimap-viewport', (element) => {
+                const rect = element.getBoundingClientRect();
+                return { height: rect.height, left: rect.left, top: rect.top, width: rect.width };
+            });
+        const dragBy = async (dx: number, dy: number): Promise<void> => {
+            await narrowPage.mouse.move(60, 120);
+            await narrowPage.mouse.down();
+            await narrowPage.mouse.move(60 + dx, 120 + dy, { steps: 4 });
+            await narrowPage.mouse.up();
+        };
+
+        const minimapCollapsed = await narrowPage.$eval('#sfn-minimap', (element) =>
+            element.classList.contains('sfn-minimap-collapsed'),
+        );
+        if (minimapCollapsed) await narrowPage.keyboard.press('m');
+
+        // Pan while the sheet hides the minimap, then widen past the breakpoint with
+        // the panel still open: the side panel now shrinks the stage and the minimap
+        // is visible again, so its rect must be re-derived without any further input.
+        await openPanelFor('Beta');
+        await dragBy(30, 20);
+        await narrowPage.setViewport({ width: 1000, height: 700 });
+        await narrowPage.waitForFunction(
+            () => getComputedStyle(document.querySelector('#sfn-minimap')!).display !== 'none',
+            { polling: 20, timeout: 5_000 },
+        );
+        // ResizeObserver notifications are delivered in the rendering step after
+        // layout, so the first frame's callbacks can still see the stale rect.
+        await narrowPage.evaluate(
+            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const afterResize = await viewportRect();
+
+        // A pan out and back returns to the exact same transform, so the rect the pan
+        // machinery then draws is what a fresh derivation looks like.
+        await dragBy(20, 10);
+        await dragBy(-20, -10);
+        expect(afterResize).toEqual(await viewportRect());
+
+        await narrowPage.keyboard.press('Escape');
+        await narrowPage.setViewport({ width: 400, height: 700 });
+    });
+});
+
 describe('search debounce', () => {
     let debouncePage: Page;
 
