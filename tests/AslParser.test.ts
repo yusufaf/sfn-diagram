@@ -251,6 +251,97 @@ describe('AslParser', () => {
         });
     });
 
+    describe('Containers with nothing to contain', () => {
+        // The branch/processor loop is what normally emits a container's own outgoing
+        // edge, so a Parallel with no branches or a Map with no processor used to be
+        // a silently disconnected dead end. The diff renderer relies on this shape:
+        // a removed container is re-added as `{ Type, End: true }` with no children.
+        const findEdge = (edges: { from: string; to: string }[], from: string, to: string) =>
+            edges.find((edge) => edge.from === from && edge.to === to);
+
+        it('keeps a Parallel with Branches: [] connected to its Next state', () => {
+            const definition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: { Type: 'Parallel', Branches: [], Next: 'Done' },
+                    Done: { Type: 'Succeed' },
+                },
+            } as unknown as AslDefinition;
+
+            const { edges, nodes } = parseAsl({ definition });
+
+            const nextEdge = findEdge(edges, 'Fan', 'Done');
+            expect(nextEdge).toBeDefined();
+            expect(nextEdge?.type).toBe('normal');
+            expect(nextEdge?.visualOnly).toBeFalsy();
+
+            // With no children to draw around, it lays out and renders as a plain node.
+            const fan = nodes.find((node) => node.id === 'Fan');
+            expect(fan?.type).toBe('Parallel');
+            expect(fan?.isContainer).toBe(false);
+            expect(fan?.children).toBeUndefined();
+        });
+
+        it('keeps a Parallel with no Branches at all connected to its Next state', () => {
+            const definition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: { Type: 'Parallel', Next: 'Done' },
+                    Done: { Type: 'Succeed' },
+                },
+            } as unknown as AslDefinition;
+
+            const { edges } = parseAsl({ definition });
+            expect(findEdge(edges, 'Fan', 'Done')).toBeDefined();
+        });
+
+        it('keeps a Map with no ItemProcessor or Iterator connected to its Next state', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Each',
+                States: {
+                    Each: { Type: 'Map', Next: 'Done' },
+                    Done: { Type: 'Succeed' },
+                },
+            };
+
+            const { edges, nodes } = parseAsl({ definition });
+
+            expect(findEdge(edges, 'Each', 'Done')).toBeDefined();
+            expect(nodes.find((node) => node.id === 'Each')?.isContainer).toBe(false);
+        });
+
+        it('still wires Catch and Retry on an empty container', () => {
+            const definition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Type: 'Parallel',
+                        Branches: [],
+                        Retry: [{ ErrorEquals: ['States.ALL'] }],
+                        Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Failed' }],
+                        End: true,
+                    },
+                    Failed: { Type: 'Fail' },
+                },
+            } as unknown as AslDefinition;
+
+            const { edges } = parseAsl({ definition });
+
+            expect(findEdge(edges, 'Fan', 'Failed')?.type).toBe('error');
+            expect(findEdge(edges, 'Fan', 'Fan')?.type).toBe('retry');
+        });
+
+        it('does not disturb a container that has branches', () => {
+            const asl = loadFixture('parallel');
+            const { edges, nodes } = parseAsl({ definition: asl });
+
+            expect(nodes.find((node) => node.id === 'ParallelExecution')?.isContainer).toBe(true);
+            // The container's own Next edge stays visual-only; ranking comes from the markers.
+            const direct = findEdge(edges, 'ParallelExecution', 'FinalState');
+            expect(direct?.visualOnly).toBe(true);
+        });
+    });
+
     describe('Retry policies', () => {
         it('should emit a self-loop retry edge summarizing all retriers', () => {
             const asl = loadFixture('retry');
@@ -618,6 +709,70 @@ describe('AslParser', () => {
 
                 expect(() => validateAsl({ definition })).toThrow(
                     'State "Fanout": Branches must be an array',
+                );
+            });
+
+            it('rejects a non-array Choices instead of crashing on forEach', () => {
+                const definition = {
+                    StartAt: 'Route',
+                    States: {
+                        Route: { Type: 'Choice', Choices: { Next: 'Done' }, Default: 'Done' },
+                        Done: { Type: 'Succeed' },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Route": Choices must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('rejects a non-array Catch instead of crashing on forEach', () => {
+                const definition = {
+                    StartAt: 'Work',
+                    States: {
+                        Work: { Type: 'Task', Resource: 'arn:x', Catch: { Next: 'Done' }, End: true },
+                        Done: { Type: 'Succeed' },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Work": Catch must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('rejects a non-array Retry instead of crashing on map', () => {
+                const definition = {
+                    StartAt: 'Work',
+                    States: {
+                        Work: { Type: 'Task', Resource: 'arn:x', Retry: 'States.ALL', End: true },
+                    },
+                };
+
+                expect(() => validateAsl({ definition })).toThrow(AslValidationError);
+                expect(() => validateAsl({ definition })).toThrow(
+                    'State "Work": Retry must be an array',
+                );
+                expect(() => parseAsl({ definition: definition as AslDefinition })).toThrow(
+                    AslValidationError,
+                );
+            });
+
+            it('qualifies a non-array Catch inside a branch with its scope', () => {
+                const definition = parallelWith({
+                    StartAt: 'Work',
+                    States: { Work: { Type: 'Task', Resource: 'arn:x', Catch: {}, End: true } },
+                });
+
+                expect(() => validateAsl({ definition })).toThrow(
+                    'Parallel state "Fanout" branch 1: State "Work": Catch must be an array',
                 );
             });
 

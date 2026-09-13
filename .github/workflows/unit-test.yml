@@ -156,11 +156,31 @@ jobs:
   # The standalone binaries (release-please.yml `binaries` job) bundle dist/bin.js
   # with bun. Anything the CLI graph picks up that bun cannot bundle, or that
   # assumes a package.json next to the script, would otherwise only surface at
-  # release time. Build one target here and run the same smoke test the release
-  # job runs against the uploaded assets.
+  # release time. Build each target on a runner that can execute it natively
+  # and run the same smoke test the release job runs against the uploaded
+  # assets. macOS is left to the release job: its binaries have to be re-signed
+  # with codesign before they will launch, and a macOS runner per PR is not
+  # worth that for a check the release job already performs.
   binary-smoke:
-    name: Standalone Binary Smoke Test
-    runs-on: ubuntu-latest
+    name: Standalone Binary Smoke Test (${{ matrix.binary }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            binary: sfn-diagram-linux-x64
+          - os: ubuntu-24.04-arm
+            target: bun-linux-arm64
+            binary: sfn-diagram-linux-arm64
+          - os: windows-latest
+            target: bun-windows-x64
+            binary: sfn-diagram-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    # Git Bash on the Windows runner; the smoke test script is bash-only.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -185,8 +205,8 @@ jobs:
       - name: Install bun
         uses: oven-sh/setup-bun@v2
 
-      - name: Build linux-x64 binary
-        run: pnpm run build:binary --target bun-linux-x64
+      - name: Build ${{ matrix.binary }}
+        run: pnpm run build:binary --target ${{ matrix.target }}
 
       - name: Smoke test
-        run: bash scripts/smoke-test-binary.sh binaries/sfn-diagram-linux-x64
+        run: bash scripts/smoke-test-binary.sh binaries/${{ matrix.binary }}
