@@ -3,7 +3,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAsl } from '../src/AslParser';
 import { generateMermaid, generateSvg } from '../src/index';
-import { fitSubLabel, getAssignedVariablesLabel, getNodeSubLabel } from '../src/constants/labels';
+import {
+    fitSubLabel,
+    getAssignedVariablesLabel,
+    getNodeSubLabel,
+    getNodeSubLabelParts,
+} from '../src/constants/labels';
 import type { AslDefinition, StateNode } from '../src/types';
 
 function loadFixture(name: string): AslDefinition {
@@ -21,6 +26,29 @@ describe('ASL Variables (Assign)', () => {
             const loadOrder = nodes.find((node) => node.id === 'LoadOrder');
 
             expect(loadOrder?.assignedVariables).toEqual(['orderId', 'total']);
+        });
+
+        it('strips the JSONPath `.$` suffix from assigned variable names', () => {
+            // In JSONPath mode a key ending in `.$` marks its value as a path to
+            // resolve; the variable itself is named without the suffix.
+            const jsonPathAssign: AslDefinition = {
+                StartAt: 'LoadOrder',
+                States: {
+                    LoadOrder: {
+                        Assign: { 'orderId.$': '$.order.id', region: 'us-east-1' },
+                        End: true,
+                        Type: 'Pass',
+                    },
+                },
+            };
+
+            const { nodes } = parseAsl({ definition: jsonPathAssign });
+            const loadOrder = nodes.find((node) => node.id === 'LoadOrder');
+
+            expect(loadOrder?.assignedVariables).toEqual(['orderId', 'region']);
+            expect(getAssignedVariablesLabel(loadOrder?.assignedVariables ?? [])).toBe(
+                '$orderId, $region'
+            );
         });
 
         it('leaves assignedVariables undefined for states that assign nothing', () => {
@@ -115,7 +143,7 @@ describe('Distributed Map', () => {
 
     it('distinguishes the two in rendered Mermaid', () => {
         expect(generateMermaid({ aslDefinition: distributed }).code).toContain(
-            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50)'
+            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50 · items $.items)'
         );
         expect(generateMermaid({ aslDefinition: inline }).code).not.toContain('Distributed');
     });
@@ -289,6 +317,82 @@ describe('Distributed Map', () => {
                     showStateType: false,
                 }),
             ).toBe('Distributed · max 100 · tolerate 5% · batches of 50');
+        });
+
+        it('appends the items source last, so it is the first Map part dropped when width is tight', () => {
+            const parts = getNodeSubLabelParts({
+                node: { ...node, itemsPath: 'items $.orders', toleratedFailure: 'tolerate 5%' },
+                showStateType: false,
+            });
+
+            expect(parts).toEqual([
+                'Distributed',
+                'max 100',
+                'tolerate 5%',
+                'items $.orders',
+            ]);
+            expect(parts.at(-1)).toBe('items $.orders');
+        });
+
+        it('surfaces an inline Map\'s ItemsPath on the node', () => {
+            const { nodes } = parseAsl({ definition: inline });
+            const mapNode = nodes.find((candidate) => candidate.id === 'ProcessItems');
+
+            expect(mapNode?.itemsPath).toBe('items $.items');
+            expect(generateSvg({ aslDefinition: inline }).svg).toContain('items $.items');
+            expect(generateMermaid({ aslDefinition: inline }).code).toContain(
+                'ProcessItems: ProcessItems (max 4 · items $.items)'
+            );
+        });
+
+        // A definition read from a file, a CloudFormation template or an AWS API
+        // response can carry a malformed ItemsPath. Parsing such a definition used
+        // to work, so neither a crash nor a dangling `items ` part is acceptable.
+        it.each([
+            ['null', null],
+            ['a number', 5],
+            ['an empty string', ''],
+        ])('ignores an ItemsPath that is %s', (_description, itemsPath) => {
+            const asl = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        End: true,
+                        ItemProcessor: {
+                            StartAt: 'Work',
+                            States: { Work: { End: true, Type: 'Pass' } },
+                        },
+                        ItemsPath: itemsPath,
+                        MaxConcurrency: 4,
+                        Type: 'Map',
+                    },
+                },
+            } as unknown as AslDefinition;
+
+            const { nodes } = parseAsl({ definition: asl });
+            const mapNode = nodes.find((candidate) => candidate.id === 'Fan');
+
+            expect(mapNode?.itemsPath).toBeUndefined();
+            expect(getNodeSubLabel({ node: mapNode!, showStateType: false })).toBe('max 4');
+        });
+
+        it('leaves itemsPath unset on a Map without ItemsPath', () => {
+            const asl: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        End: true,
+                        ItemProcessor: {
+                            StartAt: 'Work',
+                            States: { Work: { End: true, Type: 'Pass' } },
+                        },
+                        Type: 'Map',
+                    },
+                },
+            };
+
+            const { nodes } = parseAsl({ definition: asl });
+            expect(nodes.find((candidate) => candidate.id === 'Fan')?.itemsPath).toBeUndefined();
         });
 
         it('strips JSONata delimiters from MaxConcurrency, like its ToleratedFailure siblings', () => {

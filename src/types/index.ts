@@ -112,6 +112,7 @@ export interface AslState {
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ItemSelector?: Record<string, any>; // Map-specific; per-item input shaping
+    ItemsPath?: string; // Map-specific; reference path to the array to iterate (JSONPath mode)
     Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Label?: string; // Distributed Map-specific; prefix for child execution names
     MaxConcurrency?: number | string; // Map-specific; can be a JSONata expression
@@ -182,7 +183,11 @@ export interface StateNode {
     /** URL to AWS service icon (CDN path for Task states) */
     iconUrl?: string;
     id: string;
-    /** Whether this node is a container (Parallel or Map state) */
+    /**
+     * Whether this node is a container (a Parallel or Map state) with nested states
+     * drawn inside it. A Parallel with no branches or a Map with no processor has
+     * nothing to contain and is a plain node instead.
+     */
     isContainer?: boolean;
     /** Whether this Map state runs in distributed mode (`ProcessorConfig.Mode: 'DISTRIBUTED'`) */
     isDistributedMap?: boolean;
@@ -191,6 +196,11 @@ export interface StateNode {
      * Absent when the Map does not batch.
      */
     itemBatching?: string;
+    /**
+     * The array a Map state iterates, pre-formatted for display (e.g. `items $.orders`).
+     * Absent when the Map sets no `ItemsPath`.
+     */
+    itemsPath?: string;
     label: string;
     /** A Map state's `MaxConcurrency`, when set. Displayed on the container header. */
     maxConcurrency?: number | string;

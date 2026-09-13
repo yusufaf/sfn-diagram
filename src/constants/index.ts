@@ -21,6 +21,7 @@ export {
     getFailCauseLabel,
     getFailErrorLabel,
     getItemBatchingLabel,
+    getItemsPathLabel,
     getNodeSubLabel,
     getNodeSubLabelParts,
     getTaskHeartbeatLabel,
