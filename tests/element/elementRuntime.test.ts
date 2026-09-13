@@ -215,6 +215,57 @@ describe('upgrade and static rendering', () => {
         expect(result.caught).toBeTruthy();
         expect(result.html).toBe('');
     });
+
+    it('keeps its SVG width as a flex item and as an inline-block, not being a size container', async () => {
+        // The interactive viewer declares itself a CSS inline-size container; that
+        // must not leak onto a static element sharing the page, whose width comes
+        // from its own SVG. The viewer stylesheet only exists once an interactive
+        // instance has rendered, so one is mounted first to put the rules in play.
+        const result = await page.evaluate((definition) => {
+            const interactive = document.createElement('sfn-diagram');
+            interactive.setAttribute('interactive', '');
+            document.body.appendChild(interactive);
+            (interactive as unknown as { definition: unknown }).definition = definition;
+            const hosts = {
+                flex: Object.assign(document.createElement('div'), { style: 'display: flex' }),
+                inlineBlock: Object.assign(document.createElement('div'), {
+                    style: 'display: inline-block',
+                }),
+            };
+            const elements = Object.fromEntries(
+                Object.entries(hosts).map(([kind, host]) => {
+                    const el = document.createElement('sfn-diagram');
+                    host.appendChild(el);
+                    document.body.appendChild(host);
+                    (el as unknown as { definition: unknown }).definition = definition;
+                    return [kind, el];
+                }),
+            );
+            return new Promise<Record<string, { element: number; svg: number }>>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() => {
+                        const widths = Object.fromEntries(
+                            Object.entries(elements).map(([kind, el]) => [
+                                kind,
+                                {
+                                    element: el.getBoundingClientRect().width,
+                                    svg: el.querySelector('svg')!.getBoundingClientRect().width,
+                                },
+                            ]),
+                        );
+                        for (const host of Object.values(hosts)) host.remove();
+                        interactive.remove();
+                        resolve(widths);
+                    }),
+                );
+            });
+        }, asl as unknown as object);
+
+        for (const widths of Object.values(result)) {
+            expect(widths.svg).toBeGreaterThan(0);
+            expect(widths.element).toBe(widths.svg);
+        }
+    });
 });
 
 describe('progressive enhancement', () => {
@@ -403,6 +454,124 @@ describe('interactive mode', () => {
         }, asl as unknown as object);
 
         expect(result.after).toBe(result.before);
+    });
+
+    it('drops the detail panel to a bottom sheet when the element itself is narrow', async () => {
+        // The page is 1280px wide, so only a container query (not a viewport media
+        // query) can notice that this particular element is below the breakpoint.
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            el.style.width = '500px';
+            el.style.height = '600px';
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            return new Promise<{
+                elementBottom: number;
+                elementRight: number;
+                panelBottom: number;
+                panelLeft: number;
+                panelOpen: boolean;
+                panelRight: number;
+                stageWidth: number;
+            }>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() => {
+                        const group = el.querySelector('[data-state-id="Start"]') as SVGElement;
+                        const options = { bubbles: true, pointerId: 1 };
+                        group.dispatchEvent(new PointerEvent('pointerdown', options));
+                        group.dispatchEvent(new PointerEvent('pointerup', options));
+
+                        const panel = el.querySelector('[data-sfn="panel"]')!;
+                        const panelRect = panel.getBoundingClientRect();
+                        const elementRect = el.getBoundingClientRect();
+                        const stage = el.querySelector('[data-sfn="stage"]')!;
+                        const layout = {
+                            elementBottom: elementRect.bottom,
+                            elementRight: elementRect.right,
+                            panelBottom: panelRect.bottom,
+                            panelLeft: panelRect.left,
+                            panelOpen: panel.classList.contains('sfn-open'),
+                            panelRight: panelRect.right,
+                            stageWidth: stage.clientWidth,
+                        };
+                        el.remove();
+                        resolve(layout);
+                    }),
+                );
+            });
+        }, asl as unknown as object);
+
+        expect(result.panelOpen).toBe(true);
+        expect(result.panelLeft).toBe(result.elementRight - 500);
+        expect(result.panelRight).toBe(result.elementRight);
+        expect(result.panelBottom).toBe(result.elementBottom);
+        expect(result.stageWidth).toBe(500);
+    });
+
+    it('centres a search hit above the bottom sheet even at a fractional element width', async () => {
+        // 512.5px: clientWidth rounds up to 513 while the full-width sheet's right
+        // edge is 512.5, so integer-based maths would never see the sheet as spanning
+        // the stage and would centre on the whole stage - underneath the sheet.
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            el.style.width = '512.5px';
+            el.style.height = '600px';
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            const settle = (ms: number): Promise<void> =>
+                new Promise((resolve) => setTimeout(resolve, ms));
+            return (async () => {
+                await settle(0);
+                const group = el.querySelector('[data-state-id="Start"]') as SVGElement;
+                const options = { bubbles: true, pointerId: 1 };
+                group.dispatchEvent(new PointerEvent('pointerdown', options));
+                group.dispatchEvent(new PointerEvent('pointerup', options));
+                const stageRect = el.querySelector('[data-sfn="stage"]')!.getBoundingClientRect();
+                const sheetRect = el.querySelector('[data-sfn="panel"]')!.getBoundingClientRect();
+
+                const input = el.querySelector('[data-sfn="search"]') as HTMLInputElement;
+                input.value = 'end';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                await settle(200);
+                const hitRect = el.querySelector('.sfn-hit')!.getBoundingClientRect();
+                el.remove();
+                return {
+                    hitCenterY: hitRect.y + hitRect.height / 2 - stageRect.top,
+                    sheetTop: sheetRect.top - stageRect.top,
+                    stageHeight: stageRect.height,
+                    stageWidth: stageRect.width,
+                };
+            })();
+        }, asl as unknown as object);
+
+        expect(result.stageWidth).toBe(512.5);
+        expect(result.sheetTop).toBeLessThan(result.stageHeight);
+        expect(Math.abs(result.hitCenterY - result.sheetTop / 2)).toBeLessThan(2);
+    });
+
+    it('marks itself data-sfn-interactive only while the viewer is attached', async () => {
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            const settle = (): Promise<void> =>
+                new Promise((resolve) => queueMicrotask(() => queueMicrotask(resolve)));
+            return (async () => {
+                await settle();
+                const whileInteractive = el.hasAttribute('data-sfn-interactive');
+                el.removeAttribute('interactive');
+                await settle();
+                const afterStatic = el.hasAttribute('data-sfn-interactive');
+                el.remove();
+                return { afterStatic, whileInteractive };
+            })();
+        }, asl as unknown as object);
+
+        expect(result.whileInteractive).toBe(true);
+        expect(result.afterStatic).toBe(false);
     });
 });
 

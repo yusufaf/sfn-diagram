@@ -265,6 +265,28 @@ describe('generateMermaidDiff', () => {
         expect(result.code).toContain('class StepC diffRemoved')
     })
 
+    it('keeps the error and cause labels of a removed Fail state, literal or path', () => {
+        const before: AslDefinition = {
+            StartAt: 'StepA',
+            States: {
+                StepA: { Next: 'FailLiteral', Type: 'Pass' },
+                FailLiteral: { Cause: 'Bad input', Error: 'ValidationError', Type: 'Fail' },
+                FailPath: { CausePath: '$.cause', ErrorPath: '$.error', Type: 'Fail' },
+            },
+        }
+        const after: AslDefinition = {
+            StartAt: 'StepA',
+            States: { StepA: { End: true, Type: 'Pass' } },
+        }
+
+        const result = generateMermaidDiff({ after, before })
+
+        expect(result.code).toContain('class FailLiteral diffRemoved')
+        expect(result.code).toContain('error: ValidationError')
+        expect(result.code).toContain('class FailPath diffRemoved')
+        expect(result.code).toContain('error: $.error')
+    })
+
     it('does not affect plain generateMermaid output (no diff classes)', () => {
         const plain = generateMermaid({ aslDefinition: baseAsl })
         expect(plain.code).not.toContain('diffAdded')

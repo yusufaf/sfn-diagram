@@ -4,6 +4,7 @@ import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
 import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
+import { estimateTextWidth } from '../src/utils/textMeasure';
 import { generateSvg } from '../src';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -910,6 +911,106 @@ describe('SvgRenderer', () => {
 
             expect(svg).not.toContain('edge-hit-areas');
         });
+    });
+});
+
+describe('sub-label geometry with icons', () => {
+    // Before Task timeouts got a sub-label, a second line with an icon was only
+    // reachable through showStateTypes. Now any Task with a timeout renders one, so
+    // it must stay inside the rect whichever side the icon takes.
+    const timeoutTask: AslDefinition = {
+        StartAt: 'Work',
+        States: {
+            Work: {
+                End: true,
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:Work',
+                TimeoutSecondsPath: '$.config.timeoutLimit',
+                Type: 'Task',
+            },
+        },
+    };
+
+    interface Box {
+        bottom: number;
+        left: number;
+        right: number;
+        top: number;
+    }
+
+    /** The node rect and the sub-label's estimated bounding box, in node-local coordinates. */
+    const measureSubLabel = (svg: string): { rect: Box; subLabel: Box; text: string } => {
+        const nodeMarkup = svg.match(/<g class="node node-Task"[\s\S]*?<\/g>/)?.[0] ?? '';
+        const rect = nodeMarkup.match(/<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/);
+        const subLabel = nodeMarkup.match(
+            /<text x="([^"]+)" y="([^"]+)"[^>]*font-size="(\d+)"[^>]*opacity="0.7">([^<]*)<\/text>/,
+        );
+        expect(rect).not.toBeNull();
+        expect(subLabel).not.toBeNull();
+
+        const [, rectX, rectY, rectWidth, rectHeight] = rect!.map(Number) as unknown as number[];
+        const textX = Number(subLabel![1]);
+        const textY = Number(subLabel![2]);
+        const fontSize = Number(subLabel![3]);
+        const text = subLabel![4];
+        const halfWidth = estimateTextWidth(text, fontSize) / 2;
+
+        return {
+            rect: { bottom: rectY + rectHeight, left: rectX, right: rectX + rectWidth, top: rectY },
+            subLabel: {
+                bottom: textY + fontSize / 2,
+                left: textX - halfWidth,
+                right: textX + halfWidth,
+                top: textY - fontSize / 2,
+            },
+            text,
+        };
+    };
+
+    const expectInside = (inner: Box, outer: Box): void => {
+        expect(inner.left).toBeGreaterThanOrEqual(outer.left);
+        expect(inner.right).toBeLessThanOrEqual(outer.right);
+        expect(inner.top).toBeGreaterThanOrEqual(outer.top);
+        expect(inner.bottom).toBeLessThanOrEqual(outer.bottom);
+    };
+
+    it.each(['left', 'right'] as const)(
+        'fits the sub-label beside a %s icon by shrinking its width budget',
+        (iconPosition) => {
+            const { svg } = generateSvg({ aslDefinition: timeoutTask, iconPosition, showIcons: true });
+            const { rect, subLabel, text } = measureSubLabel(svg);
+
+            expect(text.startsWith('timeout')).toBe(true);
+            expectInside(subLabel, rect);
+        },
+    );
+
+    it('fits the sub-label below a top icon by growing the node', () => {
+        const { svg } = generateSvg({ aslDefinition: timeoutTask, iconPosition: 'top', showIcons: true });
+        const { rect, subLabel, text } = measureSubLabel(svg);
+
+        expect(text.startsWith('timeout')).toBe(true);
+        expectInside(subLabel, rect);
+        // The icon is anchored to the top edge and the name sits beneath it; the extra
+        // room must go to the lines, not open a gap between the icon and the name.
+        const nodeMarkup = svg.match(/<g class="node node-Task"[\s\S]*?<\/g>/)![0];
+        const iconBottom =
+            Number(nodeMarkup.match(/<image x="[^"]+" y="([^"]+)"/)![1]) +
+            Number(nodeMarkup.match(/<image[^>]*height="(\d+)"/)![1]);
+        const nameY = Number(nodeMarkup.match(/<text x="[^"]+" y="([^"]+)"[^>]*>Work<\/text>/)![1]);
+        expect(nameY - 7).toBeGreaterThanOrEqual(iconBottom);
+        expect(nameY - 7 - iconBottom).toBeLessThanOrEqual(12);
+    });
+
+    it('keeps a node with a top icon and no sub-label at its base size and label offset', () => {
+        const plain: AslDefinition = {
+            StartAt: 'Work',
+            States: { Work: { ...timeoutTask.States.Work, TimeoutSecondsPath: undefined } },
+        };
+        const { svg } = generateSvg({ aslDefinition: plain, iconPosition: 'top', showIcons: true });
+        const nodeMarkup = svg.match(/<g class="node node-Task"[\s\S]*?<\/g>/)![0];
+
+        expect(nodeMarkup).toContain('height="60"');
+        expect(nodeMarkup).toMatch(/<text x="0" y="18"[^>]*>Work<\/text>/);
     });
 });
 

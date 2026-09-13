@@ -19,6 +19,12 @@ interface LayoutOption {
     value: LayoutDirection
 }
 
+/**
+ * Viewer width (px) at or below which sfn-diagram's detail panel becomes a bottom
+ * sheet. Mirrors the value in sfn-diagram's `viewerStyles.ts`, which is not exported.
+ */
+const VIEWER_COMPACT_BREAKPOINT = 640
+
 const LAYOUT_OPTIONS: LayoutOption[] = [
     { label: 'Top → Bottom', value: 'TB' },
     { label: 'Left → Right', value: 'LR' },
@@ -146,6 +152,16 @@ export function buildHostToolbarStyles(): string {
 .sfn-host-legend button:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
 .sfn-host-status {
   color: var(--vscode-inputValidation-warningForeground, #b89500);
+}
+/* At or below the viewer's own compact breakpoint (viewerStyles.ts, 640px) the detail
+   panel is a full-width bottom sheet (z-index 3) rather than a right-hand column, so
+   bottom-left is no longer free while it is open. The pill drops beneath the sheet
+   until the panel closes - the sheet already covers that corner completely, and the
+   panel's own controls are what the user is working with meanwhile. The pill follows
+   the viewer's panel in the markup (injected before </body>), so the open state is
+   readable through the sibling combinator. */
+@media (max-width: ${VIEWER_COMPACT_BREAKPOINT}px) {
+  [data-sfn="panel"].sfn-open ~ .sfn-host-toolbar { z-index: 2; }
 }
 `
 }
