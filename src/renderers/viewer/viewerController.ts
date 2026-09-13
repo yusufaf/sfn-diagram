@@ -731,7 +731,21 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     let hits: HTMLElement[] = [];
     let hitIndex = 0;
 
+    // A search pass touches every state group, which is visible jank on a large
+    // diagram when it runs on every keystroke - so typing is coalesced into one pass
+    // per pause. Short enough that the result still feels live.
+    const SEARCH_DEBOUNCE_MS = 120;
+    let pendingSearch: ReturnType<typeof setTimeout> | null = null;
+
+    function cancelPendingSearch(): void {
+        if (pendingSearch === null) return;
+        clearTimeout(pendingSearch);
+        pendingSearch = null;
+    }
+    cleanups.push(cancelPendingSearch);
+
     function clearSearch(): void {
+        cancelPendingSearch();
         for (const group of searchables) {
             group.classList.remove('sfn-dim');
             group.classList.remove('sfn-hit');
@@ -774,14 +788,31 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     }
 
     if (searchInput) {
-        on(searchInput, 'input', () => {
+        const applyTypedSearch = (): void => {
+            pendingSearch = null;
             runSearch();
             if (hits.length) centerOn(hits[0]);
+        };
+        on(searchInput, 'input', () => {
+            cancelPendingSearch();
+            // Clearing the box drops the highlights at once - a lingering dim after
+            // backspacing the last character would read as a stuck search.
+            if (!searchInput.value.trim()) {
+                clearSearch();
+                return;
+            }
+            pendingSearch = setTimeout(applyTypedSearch, SEARCH_DEBOUNCE_MS);
         });
         on(searchInput, 'keydown', (event) => {
             const keyboardEvent = event as KeyboardEvent;
             if (keyboardEvent.key === 'Enter') {
                 keyboardEvent.preventDefault();
+                // Enter inside the debounce window settles the typed query first, so
+                // it cycles from that query's hits rather than the previous one's.
+                if (pendingSearch !== null) {
+                    cancelPendingSearch();
+                    applyTypedSearch();
+                }
                 hitIndex += keyboardEvent.shiftKey ? -1 : 1;
                 updateHit(true);
             } else if (keyboardEvent.key === 'Escape') {
@@ -1023,6 +1054,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     function setContent(setContentParams: SetViewerContentParams): void {
         const { contentHtml, edgeData: nextEdgeData, stateData: nextStateData } = setContentParams;
         const collapsedWasActive = collapsedView !== null && !collapsedView.hidden;
+
+        // An update landing inside the typing debounce window would otherwise let the
+        // queued pass run afterwards and re-centre on its first hit, undoing the
+        // viewport this call is about to preserve. The runSearch below covers the
+        // pending query anyway - it reads the input's current value.
+        cancelPendingSearch();
 
         stateData = nextStateData;
         edgeData = nextEdgeData;

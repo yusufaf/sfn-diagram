@@ -44,6 +44,119 @@ describe('Service Detection', () => {
         });
     });
 
+    describe('Non-standard partitions', () => {
+        it('should detect Lambda from an aws-cn direct ARN', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-cn:lambda:cn-north-1:123456789012:function:MyFunction',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result).not.toBeNull();
+            expect(result?.serviceName).toBe('lambda');
+            expect(result?.iconUrl).toContain('AWSLambda.svg');
+        });
+
+        it('should detect Lambda from an aws-us-gov direct ARN', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:MyFunction',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result).not.toBeNull();
+            expect(result?.serviceName).toBe('lambda');
+            expect(result?.iconUrl).toContain('AWSLambda.svg');
+        });
+
+        it('should detect service integrations in the aws-cn partition', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-cn:states:::dynamodb:getItem',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.serviceName).toBe('dynamodb');
+            expect(result?.iconUrl).toContain('AmazonDynamoDB.svg');
+        });
+
+        it('should detect SDK integrations in the aws-us-gov partition', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-us-gov:states:::aws-sdk:s3:putObject',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.serviceName).toBe('s3');
+            expect(result?.iconUrl).toContain('AmazonSimpleStorageService.svg');
+        });
+
+        it('should detect services in multi-segment partitions such as aws-iso-b', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-iso-b:sqs:us-isob-east-1:123456789012:MyQueue',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.serviceName).toBe('sqs');
+        });
+
+        it('should not treat an arbitrary prefix as a partition', () => {
+            const state: AslState = {
+                Resource: 'arn:awsomething:lambda:us-east-1:123456789012:function:MyFunction',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result).toBeNull();
+        });
+    });
+
+    describe('Activity ARNs', () => {
+        it('should detect Step Functions from an Activity ARN', () => {
+            const state: AslState = {
+                Resource: 'arn:aws:states:us-east-1:123456789012:activity:MyActivity',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result).not.toBeNull();
+            expect(result?.serviceName).toBe('states');
+            expect(result?.iconUrl).toContain('AWSStepFunctions.svg');
+        });
+
+        it('should detect Step Functions from an Activity ARN in the aws-us-gov partition', () => {
+            const state: AslState = {
+                Resource: 'arn:aws-us-gov:states:us-gov-east-1:123456789012:activity:MyActivity',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.serviceName).toBe('states');
+            expect(result?.iconUrl).toContain('AWSStepFunctions.svg');
+        });
+
+        it('should still detect the nested service for a states integration', () => {
+            const state: AslState = {
+                Resource: 'arn:aws:states:::states:startExecution.sync',
+                Type: 'Task',
+            };
+
+            const result = detectService({ state });
+
+            expect(result?.serviceName).toBe('states');
+            expect(result?.iconUrl).toContain('AWSStepFunctions.svg');
+        });
+    });
+
     describe('Service integration ARNs (Pattern 2)', () => {
         it('should detect Lambda from service integration', () => {
             const state: AslState = {
