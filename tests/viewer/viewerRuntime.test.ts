@@ -1638,6 +1638,51 @@ describe('detail panel below the compact breakpoint', () => {
 
         await narrowPage.keyboard.press('Escape');
     });
+
+    it('refreshes the minimap viewport rect when a resize reveals it past the breakpoint', async () => {
+        const viewportRect = (): Promise<Record<string, number>> =>
+            narrowPage.$eval('#sfn-minimap-viewport', (element) => {
+                const rect = element.getBoundingClientRect();
+                return { height: rect.height, left: rect.left, top: rect.top, width: rect.width };
+            });
+        const dragBy = async (dx: number, dy: number): Promise<void> => {
+            await narrowPage.mouse.move(60, 120);
+            await narrowPage.mouse.down();
+            await narrowPage.mouse.move(60 + dx, 120 + dy, { steps: 4 });
+            await narrowPage.mouse.up();
+        };
+
+        const minimapCollapsed = await narrowPage.$eval('#sfn-minimap', (element) =>
+            element.classList.contains('sfn-minimap-collapsed'),
+        );
+        if (minimapCollapsed) await narrowPage.keyboard.press('m');
+
+        // Pan while the sheet hides the minimap, then widen past the breakpoint with
+        // the panel still open: the side panel now shrinks the stage and the minimap
+        // is visible again, so its rect must be re-derived without any further input.
+        await openPanelFor('Beta');
+        await dragBy(30, 20);
+        await narrowPage.setViewport({ width: 1000, height: 700 });
+        await narrowPage.waitForFunction(
+            () => getComputedStyle(document.querySelector('#sfn-minimap')!).display !== 'none',
+            { polling: 20, timeout: 5_000 },
+        );
+        // ResizeObserver notifications are delivered in the rendering step after
+        // layout, so the first frame's callbacks can still see the stale rect.
+        await narrowPage.evaluate(
+            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const afterResize = await viewportRect();
+
+        // A pan out and back returns to the exact same transform, so the rect the pan
+        // machinery then draws is what a fresh derivation looks like.
+        await dragBy(20, 10);
+        await dragBy(-20, -10);
+        expect(afterResize).toEqual(await viewportRect());
+
+        await narrowPage.keyboard.press('Escape');
+        await narrowPage.setViewport({ width: 400, height: 700 });
+    });
 });
 
 describe('search debounce', () => {

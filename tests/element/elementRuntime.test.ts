@@ -501,6 +501,48 @@ describe('interactive mode', () => {
         expect(result.stageWidth).toBe(500);
     });
 
+    it('centres a search hit above the bottom sheet even at a fractional element width', async () => {
+        // 512.5px: clientWidth rounds up to 513 while the full-width sheet's right
+        // edge is 512.5, so integer-based maths would never see the sheet as spanning
+        // the stage and would centre on the whole stage - underneath the sheet.
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram');
+            el.setAttribute('interactive', '');
+            el.style.width = '512.5px';
+            el.style.height = '600px';
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            const settle = (ms: number): Promise<void> =>
+                new Promise((resolve) => setTimeout(resolve, ms));
+            return (async () => {
+                await settle(0);
+                const group = el.querySelector('[data-state-id="Start"]') as SVGElement;
+                const options = { bubbles: true, pointerId: 1 };
+                group.dispatchEvent(new PointerEvent('pointerdown', options));
+                group.dispatchEvent(new PointerEvent('pointerup', options));
+                const stageRect = el.querySelector('[data-sfn="stage"]')!.getBoundingClientRect();
+                const sheetRect = el.querySelector('[data-sfn="panel"]')!.getBoundingClientRect();
+
+                const input = el.querySelector('[data-sfn="search"]') as HTMLInputElement;
+                input.value = 'end';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                await settle(200);
+                const hitRect = el.querySelector('.sfn-hit')!.getBoundingClientRect();
+                el.remove();
+                return {
+                    hitCenterY: hitRect.y + hitRect.height / 2 - stageRect.top,
+                    sheetTop: sheetRect.top - stageRect.top,
+                    stageHeight: stageRect.height,
+                    stageWidth: stageRect.width,
+                };
+            })();
+        }, asl as unknown as object);
+
+        expect(result.stageWidth).toBe(512.5);
+        expect(result.sheetTop).toBeLessThan(result.stageHeight);
+        expect(Math.abs(result.hitCenterY - result.sheetTop / 2)).toBeLessThan(2);
+    });
+
     it('marks itself data-sfn-interactive only while the viewer is attached', async () => {
         const result = await page.evaluate((definition) => {
             const el = document.createElement('sfn-diagram');

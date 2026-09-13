@@ -227,11 +227,14 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // it. Whatever the panel covers along one edge is cut off here; with the panel
     // closed (or not overlapping) this is simply the whole stage.
     function visibleStageArea(): StageArea {
-        const area: StageArea = { bottom: stage!.clientHeight, left: 0, right: stage!.clientWidth, top: 0 };
+        // Measured with the same fractional geometry as the panel below - the integer
+        // clientWidth/clientHeight would round a 512.5px stage up to 513 and the
+        // sheet's 512.5px edge would then never be seen to span it.
+        const stageRect = stage!.getBoundingClientRect();
+        const area: StageArea = { bottom: stageRect.height, left: 0, right: stageRect.width, top: 0 };
         const panel = hook(root, 'panel');
         if (!panel || !panel.classList.contains('sfn-open')) return area;
 
-        const stageRect = stage!.getBoundingClientRect();
         const panelRect = panel.getBoundingClientRect();
         const covered: StageArea = {
             bottom: Math.min(panelRect.bottom, stageRect.bottom) - stageRect.top,
@@ -269,6 +272,14 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     // such as the detail panel opening or closing.
     function refreshViewportOverlays(): void {
         for (const callback of onApply) callback();
+    }
+
+    // A resize can also change the visible area - and cross the compact breakpoint,
+    // revealing a minimap whose viewport rect went stale while the sheet hid it.
+    if (typeof ResizeObserver !== 'undefined') {
+        const stageResizeObserver = new ResizeObserver(() => refreshViewportOverlays());
+        stageResizeObserver.observe(stage);
+        cleanups.push(() => stageResizeObserver.disconnect());
     }
 
     // --- detail panel (optional) ---------------------------------------------------
