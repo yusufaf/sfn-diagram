@@ -964,6 +964,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         const { contentHtml, edgeData: nextEdgeData, stateData: nextStateData } = setContentParams;
         const collapsedWasActive = collapsedView !== null && !collapsedView.hidden;
 
+        // An update landing inside the typing debounce window would otherwise let the
+        // queued pass run afterwards and re-centre on its first hit, undoing the
+        // viewport this call is about to preserve. The runSearch below covers the
+        // pending query anyway - it reads the input's current value.
+        cancelPendingSearch();
+
         stateData = nextStateData;
         edgeData = nextEdgeData;
         hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;

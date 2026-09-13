@@ -68,15 +68,34 @@ async function clickAt(x: number, y: number): Promise<void> {
 const isPanelOpen = (): Promise<boolean> =>
     page.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'));
 
+/** Parameters for {@link typeSearch}. */
+interface TypeSearchParams {
+    /** The hit count the finished search must report, e.g. `'1 / 1'`. */
+    expectedCount: string;
+    /** Page holding the viewer to type into. */
+    target: Page;
+    /** Text to type into the search box. */
+    text: string;
+}
+
 /**
- * Type into the search box and wait for the debounced search pass to land - the
- * hit count only fills in once the controller's typing debounce has elapsed.
+ * Type into the search box and wait for the debounced search pass for the whole
+ * query to land.
+ *
+ * Waiting for a non-empty count would not be enough: a slow enough gap between two
+ * keystrokes lets an intermediate prefix's pass run, and its count (for a different
+ * query) would satisfy the wait. The final query's own count is the only signal that
+ * cannot be produced early.
+ *
+ * @param params - Typing parameters
  */
-async function typeSearch(target: Page, text: string): Promise<void> {
+async function typeSearch(params: TypeSearchParams): Promise<void> {
+    const { expectedCount, target, text } = params;
     await target.type('#sfn-search', text);
     await target.waitForFunction(
-        () => document.querySelector('#sfn-search-count')!.textContent !== '',
+        (count) => document.querySelector('#sfn-search-count')!.textContent === count,
         { polling: 20, timeout: 5_000 },
+        expectedCount,
     );
 }
 
@@ -114,7 +133,7 @@ describe('interactive viewer runtime', () => {
 
     it('filters and counts matches as you search', async () => {
         await page.focus('#sfn-search');
-        await typeSearch(page, 'alpha');
+        await typeSearch({ expectedCount: '1 / 1', target: page, text: 'alpha' });
 
         expect(await page.$eval('#sfn-search-count', (element) => element.textContent)).toBe(
             '1 / 1',
@@ -491,7 +510,7 @@ describe('collapse toggle runtime', () => {
 
     it('search after toggling only matches states in the now-visible view', async () => {
         await collapsePage.focus('#sfn-search');
-        await typeSearch(collapsePage, 'FanOut');
+        await typeSearch({ expectedCount: '1 / 1', target: collapsePage, text: 'FanOut' });
 
         expect(
             await collapsePage.$eval('#sfn-search-count', (element) => element.textContent),
@@ -959,7 +978,7 @@ describe('setContent via sfn-set-content', () => {
 
     it('preserves the search query and recomputes hits after an update', async () => {
         await contentPage.focus('#sfn-search');
-        await typeSearch(contentPage, 'be');
+        await typeSearch({ expectedCount: '1 / 1', target: contentPage, text: 'be' });
         expect(await contentPage.$eval('#sfn-search-count', (element) => element.textContent)).toBe('1 / 1');
 
         await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
@@ -974,6 +993,33 @@ describe('setContent via sfn-set-content', () => {
             ),
         ).toEqual(['Beta']);
         expect(await contentPage.$$eval('.sfn-dim', (elements) => elements.length)).toBe(2);
+    });
+
+    it('keeps its viewport when an update lands inside the search debounce window', async () => {
+        // The keystroke and the update happen in one in-page script: a CDP round-trip
+        // between them could outlast the debounce and settle the search first, which
+        // is exactly the ordering this guards against.
+        await contentPage.click('[data-sfn-zoom="in"]');
+        const update = generateViewerUpdate({ aslDefinition: editedAlphaResourceDef });
+        const result = await contentPage.evaluate(async (detail) => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            input.value = 'be';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+            const content = document.querySelector('#sfn-content') as HTMLElement;
+            const afterUpdate = content.style.transform;
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return {
+                afterUpdate,
+                count: document.querySelector('#sfn-search-count')!.textContent,
+                settled: content.style.transform,
+            };
+        }, update as unknown as Record<string, unknown>);
+
+        // The queued pass would have re-centred on its first hit after the update.
+        expect(result.settled).toBe(result.afterUpdate);
+        // The update still applied the typed query, rather than dropping it.
+        expect(result.count).toBe('1 / 1');
     });
 
     it('keeps the detail panel open on the same state, showing the refreshed ASL', async () => {
