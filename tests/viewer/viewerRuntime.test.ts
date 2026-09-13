@@ -273,6 +273,31 @@ describe('interactive viewer runtime', () => {
         expect(await page.$eval('#sfn-panel-title', (element) => element.textContent)).toBe('Beta');
     });
 
+    it('zooms on wheel straight away - the standalone document has no page scroll to protect', async () => {
+        const result = await page.evaluate(() => {
+            const stage = document.querySelector('#sfn-stage') as HTMLElement;
+            const content = document.querySelector('#sfn-content') as HTMLElement;
+            const before = content.style.transform;
+            const notCancelled = stage.dispatchEvent(
+                new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -50 }),
+            );
+            return {
+                after: content.style.transform,
+                before,
+                notCancelled,
+                touchAction: getComputedStyle(stage).touchAction,
+            };
+        });
+
+        expect(result.after).not.toBe(result.before);
+        expect(result.notCancelled).toBe(false);
+        // The browser's own scroll/pinch gestures must not race the pointer-based pan.
+        expect(result.touchAction).toBe('none');
+
+        // Later tests on this shared page drag from node positions computed at fit scale.
+        await page.click('[data-sfn-zoom="fit"]');
+    });
+
     it('closes the panel on Escape', async () => {
         await page.keyboard.press('Escape');
         expect(await isPanelOpen()).toBe(false);

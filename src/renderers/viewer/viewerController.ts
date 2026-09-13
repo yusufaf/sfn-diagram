@@ -640,11 +640,75 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     let downTarget: EventTarget | null = null;
     const CLICK_SLOP = 4;
 
+    // Whether the viewer may take over the browser's own scroll gestures - wheel zoom
+    // and, via the `sfn-engaged` class (touch-action: none), touch panning. Both
+    // would otherwise trap a host page's scroll the moment it reached an embedded
+    // `<sfn-diagram>`. So an embedded viewer only claims them once the user has
+    // pressed on its stage (until they press somewhere else on the page) or moved
+    // focus into it; a ctrl+wheel (a trackpad pinch) is always a deliberate zoom.
+    // The standalone document is the whole page - nothing else there to scroll.
+    let pointerEngaged = root instanceof Document;
+
+    function focusWithin(candidate: EventTarget | Element | null | undefined): boolean {
+        return candidate instanceof Node && root.contains(candidate);
+    }
+
+    function isEngaged(): boolean {
+        return pointerEngaged || focusWithin(ownerDoc?.activeElement);
+    }
+
+    function syncEngagedClass(engaged: boolean): void {
+        stage!.classList.toggle('sfn-engaged', engaged);
+    }
+    syncEngagedClass(isEngaged());
+
+    function engage(): void {
+        pointerEngaged = true;
+        syncEngagedClass(true);
+    }
+
+    // The pointer whose press engaged a previously un-engaged viewer, until it lifts.
+    // Flipping touch-action from inside pointerdown does not affect the gesture
+    // already in progress: a swipe meant to scroll the page still scrolls it and ends
+    // in pointercancel - but the viewer would now be engaged, and the *next* swipe
+    // would pan the diagram instead. A diagram filling most of the screen leaves
+    // nowhere outside to press to undo that, so a cancelled press is unwound instead.
+    // A mouse never fires pointercancel, so its behaviour is untouched.
+    let engagingPointerId: number | null = null;
+
+    if (ownerDoc && !(root instanceof Document)) {
+        // Capture phase: a host page's own handlers (menus, drag-and-drop, carousels)
+        // routinely stopPropagation() on pointerdown, which in the bubble phase would
+        // never let this run and leave the viewer engaged - and the wheel claimed -
+        // for good.
+        on(
+            ownerDoc,
+            'pointerdown',
+            (event) => {
+                if (focusWithin(event.target)) return;
+                pointerEngaged = false;
+                syncEngagedClass(isEngaged());
+            },
+            { capture: true },
+        );
+        on(root, 'focusin', () => syncEngagedClass(true));
+        // `activeElement` is not yet settled during focusout, so where focus is
+        // heading is read off the event instead.
+        on(root, 'focusout', (event) => {
+            syncEngagedClass(pointerEngaged || focusWithin((event as FocusEvent).relatedTarget));
+        });
+    }
+
+    function wheelZoomIntended(wheelEvent: WheelEvent): boolean {
+        return wheelEvent.ctrlKey || isEngaged();
+    }
+
     on(
         stage,
         'wheel',
         (event) => {
             const wheelEvent = event as WheelEvent;
+            if (!wheelZoomIntended(wheelEvent)) return;
             wheelEvent.preventDefault();
             const rect = stage.getBoundingClientRect();
             const mx = wheelEvent.clientX - rect.left;
@@ -660,20 +724,40 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         { passive: false },
     );
 
+    // Single-pointer pan only: with touch-action: none on the stage a second finger
+    // now reaches these handlers too, and following it would jitter the pan between
+    // the two. Whichever pointer went down first owns the drag until it lifts.
+    let dragPointerId: number | null = null;
+
     on(stage, 'pointerdown', (event) => {
         const pointerEvent = event as PointerEvent;
+        if (!isEngaged()) engagingPointerId = pointerEvent.pointerId;
+        engage();
+        // A drag whose pointer still holds capture owns the stage. One that lost it
+        // without a pointerup/pointercancel (a synthetic pointer id that capture
+        // refused, for instance) is stale, and the new pointer takes over instead of
+        // panning being wedged for good.
+        if (dragging && dragPointerId !== null && stage.hasPointerCapture(dragPointerId)) {
+            return;
+        }
         dragging = true;
+        dragPointerId = pointerEvent.pointerId;
         travel = 0;
         lastX = pointerEvent.clientX;
         lastY = pointerEvent.clientY;
         // Remember what was pressed: setPointerCapture retargets every later pointer
         // event to the stage, so by pointerup e.target is no longer the node.
         downTarget = pointerEvent.target;
-        stage.setPointerCapture(pointerEvent.pointerId);
+        try {
+            stage.setPointerCapture(pointerEvent.pointerId);
+        } catch {
+            // Not an active pointer (a synthetic event): the drag still runs on the
+            // plain pointermove/pointerup events that bubble up to the stage.
+        }
     });
     on(stage, 'pointermove', (event) => {
-        if (!dragging) return;
         const pointerEvent = event as PointerEvent;
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         const dx = pointerEvent.clientX - lastX;
         const dy = pointerEvent.clientY - lastY;
         travel += Math.abs(dx) + Math.abs(dy);
@@ -689,13 +773,33 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         lastX = pointerEvent.clientX;
         lastY = pointerEvent.clientY;
     });
-    on(stage, 'pointerup', (event) => {
-        if (!dragging) return;
-        const pointerEvent = event as PointerEvent;
+    function endDrag(pointerEvent: PointerEvent): void {
         dragging = false;
-        stage.classList.remove('sfn-dragging');
-        stage.releasePointerCapture(pointerEvent.pointerId);
+        dragPointerId = null;
+        stage!.classList.remove('sfn-dragging');
+        if (stage!.hasPointerCapture(pointerEvent.pointerId)) {
+            stage!.releasePointerCapture(pointerEvent.pointerId);
+        }
+    }
+    on(stage, 'pointerup', (event) => {
+        const pointerEvent = event as PointerEvent;
+        if (pointerEvent.pointerId === engagingPointerId) engagingPointerId = null;
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
+        endDrag(pointerEvent);
         if (travel <= CLICK_SLOP) selectFromTarget({ moveFocus: false, target: downTarget });
+        downTarget = null;
+    });
+    // A cancelled pointer never sends pointerup; without this the drag would stay
+    // claimed and every later press on the stage would be ignored.
+    on(stage, 'pointercancel', (event) => {
+        const pointerEvent = event as PointerEvent;
+        if (pointerEvent.pointerId === engagingPointerId) {
+            engagingPointerId = null;
+            pointerEngaged = false;
+            syncEngagedClass(isEngaged());
+        }
+        if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
+        endDrag(pointerEvent);
         downTarget = null;
     });
 
@@ -952,6 +1056,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         on(minimapThumb, 'pointerdown', (event) => {
             const pointerEvent = event as PointerEvent;
             pointerEvent.stopPropagation();
+            // The stage's own pointerdown never sees this press, so engage here too -
+            // a minimap drag is as deliberate as one on the stage.
+            engage();
             minimapDragging = true;
             minimapThumb.setPointerCapture(pointerEvent.pointerId);
             jumpToMinimapPoint(pointerEvent.clientX, pointerEvent.clientY);

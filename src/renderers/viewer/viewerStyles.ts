@@ -163,6 +163,12 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
     return `
   ${documentReset}[data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
   [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
+  /* touch-action: none hands every touch to the pointer handlers - without it a
+     single-finger drag races the browser's own scroll gesture and the pan stutters.
+     Only once the viewer is engaged (see viewerController.ts), or an embedded diagram
+     would trap a phone's swipe-to-scroll; the standalone document is engaged from the
+     start, since it is the whole page. */
+  [data-sfn="stage"].sfn-engaged { touch-action: none; }
   /* The panel precedes the stage in the markup, so it can shrink it rather than
      cover the diagram. Fit/centre maths reads clientWidth, so this stays correct. */
   [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 360px; }

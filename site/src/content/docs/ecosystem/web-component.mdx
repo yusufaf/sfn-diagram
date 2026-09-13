@@ -49,6 +49,13 @@ defineSfnDiagram({ name: 'my-diagram' }); // <my-diagram> instead of <sfn-diagra
 | `theme` | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | Attribute accepts `'light'`/`'dark'` only; set the property for a `CustomTheme` object |
 | `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the detail panel for a clicked state or edge |
 
+An embedded viewer sits inside a page that scrolls, so it doesn't take over the mouse
+wheel or touch gestures until you engage with it — click or tap the diagram, or move
+keyboard focus into it — and gives them back once you click elsewhere on the page.
+The one exception is Ctrl+wheel, which is also what a trackpad pinch sends: pinching
+over the diagram zooms the diagram at any time, engaged or not, since that gesture is
+never an attempt to scroll the page.
+
 Failure to parse or validate `definition` dispatches a bubbling `sfn-error` event
 (`CustomEvent<Error>`) and renders nothing:
 

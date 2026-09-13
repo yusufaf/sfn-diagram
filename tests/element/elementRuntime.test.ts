@@ -436,8 +436,16 @@ describe('interactive mode', () => {
                         const before = content.style.transform;
                         // A leaked wheel listener would still update the transform even
                         // though the element is now detached; a cleaned-up one won't.
+                        // ctrl+wheel, so an embedded viewer that was never engaged would
+                        // still zoom on it (see "wheel zoom scoping" below) - otherwise
+                        // this would pass for the wrong reason.
                         stage.dispatchEvent(
-                            new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -50 }),
+                            new WheelEvent('wheel', {
+                                bubbles: true,
+                                cancelable: true,
+                                ctrlKey: true,
+                                deltaY: -50,
+                            }),
                         );
                         resolve({ after: content.style.transform, before });
                     }),
@@ -564,6 +572,176 @@ describe('interactive mode', () => {
 
         expect(result.whileInteractive).toBe(true);
         expect(result.afterStatic).toBe(false);
+    });
+});
+
+describe('wheel zoom scoping', () => {
+    /**
+     * Mounts a fresh interactive element and runs `steps` against it in the page: each
+     * step is a small script over `el` (with `stage`, `content` and `dispatchWheel`
+     * in scope) returning whether the wheel was cancelled and whether the transform
+     * changed. Keeps every scenario below to a single page round-trip.
+     */
+    async function runWheelScenario(
+        steps: string[],
+    ): Promise<Array<{ cancelled: boolean; zoomed: boolean }>> {
+        return page.evaluate(
+            (definition, stepSources) => {
+                const el = document.createElement('sfn-diagram');
+                el.setAttribute('interactive', '');
+                document.body.appendChild(el);
+                (el as unknown as { definition: unknown }).definition = definition;
+                return new Promise<Array<{ cancelled: boolean; zoomed: boolean }>>((resolve) => {
+                    queueMicrotask(() =>
+                        queueMicrotask(() => {
+                            const stage = el.querySelector('[data-sfn="stage"]') as HTMLElement;
+                            const content = el.querySelector('[data-sfn="content"]') as HTMLElement;
+                            const dispatchWheel = (
+                                init: WheelEventInit = {},
+                            ): { cancelled: boolean; zoomed: boolean } => {
+                                const before = content.style.transform;
+                                const notCancelled = stage.dispatchEvent(
+                                    new WheelEvent('wheel', {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        deltaY: -50,
+                                        ...init,
+                                    }),
+                                );
+                                return {
+                                    cancelled: !notCancelled,
+                                    zoomed: content.style.transform !== before,
+                                };
+                            };
+                            const results = stepSources.map((source) =>
+                                new Function('el', 'stage', 'content', 'dispatchWheel', source)(
+                                    el,
+                                    stage,
+                                    content,
+                                    dispatchWheel,
+                                ),
+                            );
+                            el.remove();
+                            resolve(results);
+                        }),
+                    );
+                });
+            },
+            asl as unknown as object,
+            steps,
+        );
+    }
+
+    it('lets the wheel scroll the host page until the viewer is engaged', async () => {
+        const [untouched] = await runWheelScenario(['return dispatchWheel();']);
+        expect(untouched).toEqual({ cancelled: false, zoomed: false });
+    });
+
+    it('leaves touch-action alone (swipe scrolls the page) until engaged, then hands touches to the pan', async () => {
+        const press = (target: string): string =>
+            `${target}.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             ${target}.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));`;
+        const touchAction = 'return getComputedStyle(stage).touchAction;';
+        const [untouched, afterStagePress, afterOutsidePress, whileFocused, afterFocusLeaves] =
+            await runWheelScenario([
+                touchAction,
+                `${press('stage')} ${touchAction}`,
+                `${press('document.body')} ${touchAction}`,
+                `el.querySelector('[data-sfn="search"]').focus(); ${touchAction}`,
+                `el.querySelector('[data-sfn="search"]').blur(); ${touchAction}`,
+            ]);
+        expect(untouched).toBe('auto');
+        expect(afterStagePress).toBe('none');
+        expect(afterOutsidePress).toBe('auto');
+        expect(whileFocused).toBe('none');
+        expect(afterFocusLeaves).toBe('auto');
+    });
+
+    it('recovers panning after a press whose pointer never lifted', async () => {
+        // pointerId 99 is not an active pointer, so setPointerCapture refuses it and
+        // no pointerup ever arrives for it - the next real press must still pan.
+        const [panned] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 99, clientX: 10, clientY: 10 }));
+             const before = content.style.transform;
+             const at = (x, y) => ({ bubbles: true, pointerId: 1, clientX: x, clientY: y });
+             stage.dispatchEvent(new PointerEvent('pointerdown', at(100, 100)));
+             stage.dispatchEvent(new PointerEvent('pointermove', at(140, 130)));
+             stage.dispatchEvent(new PointerEvent('pointerup', at(140, 130)));
+             return content.style.transform !== before;`,
+        ]);
+        expect(panned).toBe(true);
+    });
+
+    it('zooms on ctrl+wheel (a trackpad pinch) even when not engaged', async () => {
+        const [pinched] = await runWheelScenario(['return dispatchWheel({ ctrlKey: true });']);
+        expect(pinched).toEqual({ cancelled: true, zoomed: true });
+    });
+
+    it('claims the wheel after a press on the stage, and gives it back after a press elsewhere', async () => {
+        const [afterStagePress, afterOutsidePress] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+            `document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+        ]);
+        expect(afterStagePress).toEqual({ cancelled: true, zoomed: true });
+        expect(afterOutsidePress).toEqual({ cancelled: false, zoomed: false });
+    });
+
+    it('claims the wheel while focus is inside the viewer', async () => {
+        const [whileFocused, afterBlur] = await runWheelScenario([
+            `el.querySelector('[data-sfn="search"]').focus();
+             return dispatchWheel();`,
+            `el.querySelector('[data-sfn="search"]').blur();
+             return dispatchWheel();`,
+        ]);
+        expect(whileFocused).toEqual({ cancelled: true, zoomed: true });
+        expect(afterBlur).toEqual({ cancelled: false, zoomed: false });
+    });
+
+    it('still disengages on a press in a host element that stops pointerdown propagating', async () => {
+        const [engaged, afterHostPress] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return dispatchWheel();`,
+            `const menu = document.createElement('div');
+             menu.addEventListener('pointerdown', (event) => event.stopPropagation());
+             document.body.appendChild(menu);
+             menu.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             menu.remove();
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(engaged).toEqual({ cancelled: true, zoomed: true });
+        expect(afterHostPress).toEqual({ cancelled: false, touchAction: 'auto', zoomed: false });
+    });
+
+    it('unwinds engagement when the press that engaged it is cancelled by a page scroll', async () => {
+        // touch-action only takes effect for the *next* gesture, so a scroll swipe
+        // that lands on the diagram fires pointerdown, engages, then pointercancel
+        // as the browser scrolls anyway - and must not leave the viewer engaged.
+        const at = (pointerId: number) => `{ bubbles: true, pointerId: ${pointerId}, pointerType: 'touch' }`;
+        const [afterCancelledSwipe, afterCompletedTap] = await runWheelScenario([
+            `stage.dispatchEvent(new PointerEvent('pointerdown', ${at(7)}));
+             stage.dispatchEvent(new PointerEvent('pointercancel', ${at(7)}));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+            `stage.dispatchEvent(new PointerEvent('pointerdown', ${at(8)}));
+             stage.dispatchEvent(new PointerEvent('pointerup', ${at(8)}));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(afterCancelledSwipe).toEqual({ cancelled: false, touchAction: 'auto', zoomed: false });
+        expect(afterCompletedTap).toEqual({ cancelled: true, touchAction: 'none', zoomed: true });
+    });
+
+    it('engages on a press on the minimap thumb, whose pointerdown never reaches the stage', async () => {
+        const [afterThumbPress] = await runWheelScenario([
+            `el.querySelector('[data-sfn="minimap-toggle"]').click();
+             const thumb = el.querySelector('[data-sfn="minimap-thumb"]');
+             thumb.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1 }));
+             thumb.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1 }));
+             return { ...dispatchWheel(), touchAction: getComputedStyle(stage).touchAction };`,
+        ]);
+        expect(afterThumbPress).toEqual({ cancelled: true, touchAction: 'none', zoomed: true });
     });
 });
 
