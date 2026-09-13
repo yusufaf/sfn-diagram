@@ -68,6 +68,37 @@ async function clickAt(x: number, y: number): Promise<void> {
 const isPanelOpen = (): Promise<boolean> =>
     page.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'));
 
+/** Parameters for {@link typeSearch}. */
+interface TypeSearchParams {
+    /** The hit count the finished search must report, e.g. `'1 / 1'`. */
+    expectedCount: string;
+    /** Page holding the viewer to type into. */
+    target: Page;
+    /** Text to type into the search box. */
+    text: string;
+}
+
+/**
+ * Type into the search box and wait for the debounced search pass for the whole
+ * query to land.
+ *
+ * Waiting for a non-empty count would not be enough: a slow enough gap between two
+ * keystrokes lets an intermediate prefix's pass run, and its count (for a different
+ * query) would satisfy the wait. The final query's own count is the only signal that
+ * cannot be produced early.
+ *
+ * @param params - Typing parameters
+ */
+async function typeSearch(params: TypeSearchParams): Promise<void> {
+    const { expectedCount, target, text } = params;
+    await target.type('#sfn-search', text);
+    await target.waitForFunction(
+        (count) => document.querySelector('#sfn-search-count')!.textContent === count,
+        { polling: 20, timeout: 5_000 },
+        expectedCount,
+    );
+}
+
 beforeAll(async () => {
     browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
 }, 60_000);
@@ -102,7 +133,7 @@ describe('interactive viewer runtime', () => {
 
     it('filters and counts matches as you search', async () => {
         await page.focus('#sfn-search');
-        await page.type('#sfn-search', 'alpha');
+        await typeSearch({ expectedCount: '1 / 1', target: page, text: 'alpha' });
 
         expect(await page.$eval('#sfn-search-count', (element) => element.textContent)).toBe(
             '1 / 1',
@@ -479,7 +510,7 @@ describe('collapse toggle runtime', () => {
 
     it('search after toggling only matches states in the now-visible view', async () => {
         await collapsePage.focus('#sfn-search');
-        await collapsePage.type('#sfn-search', 'FanOut');
+        await typeSearch({ expectedCount: '1 / 1', target: collapsePage, text: 'FanOut' });
 
         expect(
             await collapsePage.$eval('#sfn-search-count', (element) => element.textContent),
@@ -947,7 +978,7 @@ describe('setContent via sfn-set-content', () => {
 
     it('preserves the search query and recomputes hits after an update', async () => {
         await contentPage.focus('#sfn-search');
-        await contentPage.type('#sfn-search', 'be');
+        await typeSearch({ expectedCount: '1 / 1', target: contentPage, text: 'be' });
         expect(await contentPage.$eval('#sfn-search-count', (element) => element.textContent)).toBe('1 / 1');
 
         await dispatchSetContent(generateViewerUpdate({ aslDefinition: editedAlphaResourceDef }));
@@ -962,6 +993,33 @@ describe('setContent via sfn-set-content', () => {
             ),
         ).toEqual(['Beta']);
         expect(await contentPage.$$eval('.sfn-dim', (elements) => elements.length)).toBe(2);
+    });
+
+    it('keeps its viewport when an update lands inside the search debounce window', async () => {
+        // The keystroke and the update happen in one in-page script: a CDP round-trip
+        // between them could outlast the debounce and settle the search first, which
+        // is exactly the ordering this guards against.
+        await contentPage.click('[data-sfn-zoom="in"]');
+        const update = generateViewerUpdate({ aslDefinition: editedAlphaResourceDef });
+        const result = await contentPage.evaluate(async (detail) => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            input.value = 'be';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+            const content = document.querySelector('#sfn-content') as HTMLElement;
+            const afterUpdate = content.style.transform;
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return {
+                afterUpdate,
+                count: document.querySelector('#sfn-search-count')!.textContent,
+                settled: content.style.transform,
+            };
+        }, update as unknown as Record<string, unknown>);
+
+        // The queued pass would have re-centred on its first hit after the update.
+        expect(result.settled).toBe(result.afterUpdate);
+        // The update still applied the typed query, rather than dropping it.
+        expect(result.count).toBe('1 / 1');
     });
 
     it('keeps the detail panel open on the same state, showing the refreshed ASL', async () => {
@@ -1579,5 +1637,109 @@ describe('detail panel below the compact breakpoint', () => {
         expect(Math.abs(hitCenter.x - 200)).toBeLessThan(2);
 
         await narrowPage.keyboard.press('Escape');
+    });
+});
+
+describe('search debounce', () => {
+    let debouncePage: Page;
+
+    interface SearchSnapshot {
+        count: string | null;
+        dimmed: number;
+        hit: string | null;
+    }
+
+    /** In-page helpers installed once by `beforeAll`, so each test reads as one script. */
+    interface SearchTestHelpers {
+        /** Wait comfortably past the controller's debounce window. */
+        settle(): Promise<void>;
+        snapshot(): SearchSnapshot;
+        /** Set the search box's value and fire `input`, the way typing would. */
+        type(value: string): void;
+    }
+    type SearchTestWindow = Window & { sfnSearchTest: SearchTestHelpers };
+
+    beforeAll(async () => {
+        debouncePage = await browser.newPage();
+        await debouncePage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await debouncePage.setContent(html, { waitUntil: 'load' });
+        await debouncePage.evaluate(() => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            (window as unknown as SearchTestWindow).sfnSearchTest = {
+                settle: () => new Promise((resolve) => setTimeout(resolve, 200)),
+                snapshot: () => ({
+                    count: document.querySelector('#sfn-search-count')!.textContent,
+                    dimmed: document.querySelectorAll('.sfn-dim').length,
+                    hit: document.querySelector('.sfn-hit')?.getAttribute('data-state-id') ?? null,
+                }),
+                type: (value) => {
+                    input.value = value;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                },
+            };
+        });
+    }, 60_000);
+
+    afterAll(async () => {
+        await debouncePage.close();
+    });
+
+    it('defers the highlight pass until typing pauses, then runs it once for the final query', async () => {
+        // Everything happens inside one evaluate so the "not yet" snapshot is taken
+        // synchronously after the keystrokes - no CDP round-trip can race the timer.
+        const result = await debouncePage.evaluate(async () => {
+            const { settle, snapshot, type } = (window as unknown as SearchTestWindow).sfnSearchTest;
+            type('a');
+            type('al');
+            type('alp');
+            const immediately = snapshot();
+            await settle();
+            return { immediately, settled: snapshot() };
+        });
+
+        expect(result.immediately).toEqual({ count: '', dimmed: 0, hit: null });
+        expect(result.settled).toEqual({ count: '1 / 1', dimmed: 2, hit: 'Alpha' });
+    });
+
+    it('clears the highlights at once when the box is emptied, and drops a pending pass', async () => {
+        const result = await debouncePage.evaluate(async () => {
+            const { settle, snapshot, type } = (window as unknown as SearchTestWindow).sfnSearchTest;
+            type('be');
+            await settle();
+            const withQuery = snapshot();
+            type('bet');
+            type('');
+            const immediately = snapshot();
+            await settle();
+            return { immediately, settled: snapshot(), withQuery };
+        });
+
+        expect(result.withQuery).toEqual({ count: '1 / 1', dimmed: 2, hit: 'Beta' });
+        expect(result.immediately).toEqual({ count: '', dimmed: 0, hit: null });
+        // The 'bet' pass scheduled just before clearing must not land afterwards.
+        expect(result.settled).toEqual({ count: '', dimmed: 0, hit: null });
+    });
+
+    it('settles a pending query on Enter before cycling, so Enter never acts on the previous query', async () => {
+        const result = await debouncePage.evaluate(async () => {
+            const { settle, snapshot, type } = (window as unknown as SearchTestWindow).sfnSearchTest;
+            type('a');
+            await settle();
+            const before = snapshot();
+            type('gam');
+            document
+                .querySelector('#sfn-search')!
+                .dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter' }));
+            const onEnter = snapshot();
+            await settle();
+            type('');
+            return { before, onEnter, settled: snapshot() };
+        });
+
+        // 'a' matches Alpha, Beta and Gamma; 'gam' only Gamma.
+        expect(result.before).toEqual({ count: '1 / 3', dimmed: 0, hit: 'Alpha' });
+        expect(result.onEnter).toEqual({ count: '1 / 1', dimmed: 2, hit: 'Gamma' });
+        expect(result.settled).toEqual({ count: '', dimmed: 0, hit: null });
     });
 });
