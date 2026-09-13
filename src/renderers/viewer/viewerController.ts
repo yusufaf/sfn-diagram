@@ -212,12 +212,63 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         return null;
     }
 
+    /** A rectangle in stage-local pixels. */
+    interface StageArea {
+        bottom: number;
+        left: number;
+        right: number;
+        top: number;
+    }
+
+    // The part of the stage a user can actually see. An open detail panel is a side
+    // column that shrinks the stage (so nothing is covered) at full width, but below
+    // the compact breakpoint it is a bottom sheet laid over the stage - centring on
+    // the stage's midpoint would then land a search hit or a focused node underneath
+    // it. Whatever the panel covers along one edge is cut off here; with the panel
+    // closed (or not overlapping) this is simply the whole stage.
+    function visibleStageArea(): StageArea {
+        const area: StageArea = { bottom: stage!.clientHeight, left: 0, right: stage!.clientWidth, top: 0 };
+        const panel = hook(root, 'panel');
+        if (!panel || !panel.classList.contains('sfn-open')) return area;
+
+        const stageRect = stage!.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const covered: StageArea = {
+            bottom: Math.min(panelRect.bottom, stageRect.bottom) - stageRect.top,
+            left: Math.max(panelRect.left, stageRect.left) - stageRect.left,
+            right: Math.min(panelRect.right, stageRect.right) - stageRect.left,
+            top: Math.max(panelRect.top, stageRect.top) - stageRect.top,
+        };
+        if (covered.right <= covered.left || covered.bottom <= covered.top) return area;
+
+        const spansHeight = covered.top <= area.top && covered.bottom >= area.bottom;
+        const spansWidth = covered.left <= area.left && covered.right >= area.right;
+        if (spansHeight && covered.left > area.left) {
+            area.right = covered.left;
+        } else if (spansHeight) {
+            area.left = covered.right;
+        } else if (spansWidth && covered.top > area.top) {
+            area.bottom = covered.top;
+        } else if (spansWidth) {
+            area.top = covered.bottom;
+        }
+        return area;
+    }
+
     function centerOn(group: Element): void {
         const center = nodeCenter(group);
         if (!center) return;
-        translateX = stage!.clientWidth / 2 - center.x * scale;
-        translateY = stage!.clientHeight / 2 - center.y * scale;
+        const area = visibleStageArea();
+        translateX = (area.left + area.right) / 2 - center.x * scale;
+        translateY = (area.top + area.bottom) / 2 - center.y * scale;
         apply();
+    }
+
+    // Re-derives everything that follows the viewport (the minimap's viewport rect)
+    // without touching the transform - for when the visible area changed instead,
+    // such as the detail panel opening or closing.
+    function refreshViewportOverlays(): void {
+        for (const callback of onApply) callback();
     }
 
     // --- detail panel (optional) ---------------------------------------------------
@@ -350,6 +401,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                 panelBody.appendChild(list);
                 panelBody.appendChild(pre);
                 panel.classList.add('sfn-open');
+                // At full width the side panel just shrank the stage, which changes
+                // how much of the diagram the minimap's viewport rect should cover.
+                refreshViewportOverlays();
             };
 
             closePanel = () => {
@@ -359,6 +413,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
                 // have moved to <body>, not the panel.
                 const activeElement = ownerDoc?.activeElement ?? null;
                 panel.classList.remove('sfn-open');
+                // The minimap may have been hidden underneath a bottom sheet, its
+                // viewport rect left stale by every pan made meanwhile.
+                refreshViewportOverlays();
                 clearEdgeSelection();
                 selection = null;
                 if (
@@ -553,12 +610,13 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         stage.scrollTop = 0;
 
         const stageRect = stage.getBoundingClientRect();
+        const area = visibleStageArea();
         const groupRect = group.getBoundingClientRect();
         const isVisible =
-            groupRect.left >= stageRect.left &&
-            groupRect.right <= stageRect.right &&
-            groupRect.top >= stageRect.top &&
-            groupRect.bottom <= stageRect.bottom;
+            groupRect.left >= stageRect.left + area.left &&
+            groupRect.right <= stageRect.left + area.right &&
+            groupRect.top >= stageRect.top + area.top &&
+            groupRect.bottom <= stageRect.top + area.bottom;
         if (!isVisible) centerOn(group);
     });
 
@@ -797,6 +855,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         const updateMinimapViewport = (): void => {
             if (minimap.classList.contains('sfn-minimap-collapsed')) return;
+            // Also hidden by CSS while a compact-mode bottom sheet is open; the thumb
+            // then has no box, and a rect computed against it would be garbage.
+            if (minimapThumb.getClientRects().length === 0) return;
             const geometry = minimapGeometry();
             minimapViewport.style.left = (-translateX / scale) * geometry.scale + geometry.offsetX + 'px';
             minimapViewport.style.top = (-translateY / scale) * geometry.scale + geometry.offsetY + 'px';

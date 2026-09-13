@@ -1519,4 +1519,65 @@ describe('detail panel below the compact breakpoint', () => {
         );
         expect(await minimapDisplay()).toBe('block');
     });
+
+    /** Open the detail panel for a state without moving the mouse (which could pan). */
+    async function openPanelFor(stateId: string): Promise<void> {
+        await narrowPage.evaluate((id) => {
+            const group = document.querySelector(`[data-state-id="${id}"]`) as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        }, stateId);
+    }
+
+    it('brings the minimap back with a live viewport rect after panning under the sheet', async () => {
+        // The minimap is open from the previous test. While the sheet hides it, every
+        // pan would otherwise compute its viewport rect against a box that has no size.
+        const viewportSize = (): Promise<{ height: number; width: number }> =>
+            narrowPage.$eval('#sfn-minimap-viewport', (element) => {
+                const rect = element.getBoundingClientRect();
+                return { height: rect.height, width: rect.width };
+            });
+        const before = await viewportSize();
+        expect(before.width).toBeGreaterThan(10);
+
+        await openPanelFor('Beta');
+        const sheetTop = await narrowPage.$eval('#sfn-panel', (element) => element.getBoundingClientRect().top);
+        const y = Math.min(150, sheetTop / 2);
+        await narrowPage.mouse.move(40, y);
+        await narrowPage.mouse.down();
+        await narrowPage.mouse.move(120, y + 40, { steps: 8 });
+        await narrowPage.mouse.up();
+        await narrowPage.keyboard.press('Escape');
+
+        // A pan leaves the scale alone, so the rect must come back at the size it had
+        // before the sheet opened - not collapsed to its bare border.
+        expect(await viewportSize()).toEqual(before);
+    });
+
+    it('centres a search hit in the part of the stage the sheet leaves uncovered', async () => {
+        await openPanelFor('Alpha');
+        const sheetTop = await narrowPage.$eval('#sfn-panel', (element) => element.getBoundingClientRect().top);
+        expect(sheetTop).toBeLessThan(700);
+
+        await narrowPage.evaluate(() => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            input.value = 'gamma';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        await narrowPage.waitForFunction(
+            () => document.querySelector('#sfn-search-count')!.textContent === '1 / 1',
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const hitCenter = await narrowPage.$eval('.sfn-hit', (element) => {
+            const rect = element.getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        });
+        // Midpoint of the uncovered band above the sheet, not of the whole 700px stage.
+        expect(Math.abs(hitCenter.y - sheetTop / 2)).toBeLessThan(2);
+        expect(Math.abs(hitCenter.x - 200)).toBeLessThan(2);
+
+        await narrowPage.keyboard.press('Escape');
+    });
 });
