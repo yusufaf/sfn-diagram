@@ -347,6 +347,11 @@ export function getItemBatchingLabel(state: AslState): string {
  * An inline Map's `ItemsPath` is the only thing that says *what* the Map loops
  * over; without it two Maps iterating different parts of the input look identical.
  *
+ * Anything but a non-empty string is treated as unset, the way the tolerance and
+ * concurrency labels treat their own fields: a definition read from a file, a
+ * CloudFormation template or an AWS API response can carry a null or a number here,
+ * and neither a crash nor a dangling `items ` part is an improvement on omitting it.
+ *
  * @param state - The Map state to describe
  * @returns A label such as `items $.orders`, or an empty string when no `ItemsPath` is set
  *
@@ -356,7 +361,9 @@ export function getItemBatchingLabel(state: AslState): string {
  * ```
  */
 export function getItemsPathLabel(state: AslState): string {
-    return state.ItemsPath === undefined ? '' : `items ${elide(state.ItemsPath)}`;
+    return typeof state.ItemsPath === 'string' && state.ItemsPath !== ''
+        ? `items ${elide(state.ItemsPath)}`
+        : '';
 }
 
 interface GetNodeSubLabelParams {

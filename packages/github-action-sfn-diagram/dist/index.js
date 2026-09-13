@@ -62518,7 +62518,7 @@ function getItemBatchingLabel(state2) {
   return parts.length > 0 ? `batches ${parts.join(", ")}` : "";
 }
 function getItemsPathLabel(state2) {
-  return state2.ItemsPath === void 0 ? "" : `items ${elide(state2.ItemsPath)}`;
+  return typeof state2.ItemsPath === "string" && state2.ItemsPath !== "" ? `items ${elide(state2.ItemsPath)}` : "";
 }
 function getNodeSubLabel(params) {
   return getNodeSubLabelParts(params).join(SUB_LABEL_SEPARATOR);
