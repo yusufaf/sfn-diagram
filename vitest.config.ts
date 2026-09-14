@@ -40,6 +40,9 @@ export default defineConfig({
                     maxWorkers: 1,
                     isolate: false,
                     fileParallelism: false,
+                    // Vitest 4 refuses to run projects with different maxWorkers in the
+                    // same group; a distinct groupOrder keeps an all-project run working.
+                    sequence: { groupOrder: 1 },
                 },
             },
             {
@@ -57,6 +60,9 @@ export default defineConfig({
                     maxWorkers: 1,
                     isolate: false,
                     fileParallelism: false,
+                    // Vitest 4 refuses to run projects with different maxWorkers in the
+                    // same group; a distinct groupOrder keeps an all-project run working.
+                    sequence: { groupOrder: 2 },
                 },
             },
         ],
