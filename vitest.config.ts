@@ -37,12 +37,12 @@ export default defineConfig({
                     // `vitest run --project perf` invocation (see package.json) keeps it off
                     // the puppeteer suites entirely.
                     pool: 'forks',
-                    poolOptions: {
-                        forks: {
-                            singleFork: true,
-                        },
-                    },
+                    maxWorkers: 1,
+                    isolate: false,
                     fileParallelism: false,
+                    // Vitest 4 refuses to run projects with different maxWorkers in the
+                    // same group; a distinct groupOrder keeps an all-project run working.
+                    sequence: { groupOrder: 1 },
                 },
             },
             {
@@ -57,12 +57,12 @@ export default defineConfig({
                     // above, worked around the same way: an isolated single fork, run as its
                     // own `vitest run --project element` invocation (see package.json).
                     pool: 'forks',
-                    poolOptions: {
-                        forks: {
-                            singleFork: true,
-                        },
-                    },
+                    maxWorkers: 1,
+                    isolate: false,
                     fileParallelism: false,
+                    // Vitest 4 refuses to run projects with different maxWorkers in the
+                    // same group; a distinct groupOrder keeps an all-project run working.
+                    sequence: { groupOrder: 2 },
                 },
             },
         ],

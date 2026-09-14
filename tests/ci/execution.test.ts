@@ -8,17 +8,18 @@ const {
     sfnClientMock,
 } = vi.hoisted(() => ({
     fetchExecutionHistoryMock: vi.fn(),
-    listExecutionsCommandMock: vi.fn((input: unknown) => ({ input })),
+    listExecutionsCommandMock: vi.fn(function (input: unknown) {
+        return { input };
+    }),
     sendMock: vi.fn(),
     sfnClientMock: vi.fn(),
 }));
 
 vi.mock('@aws-sdk/client-sfn', () => ({
     ListExecutionsCommand: listExecutionsCommandMock,
-    SFNClient: sfnClientMock.mockImplementation((config: unknown) => ({
-        config,
-        send: sendMock,
-    })),
+    SFNClient: sfnClientMock.mockImplementation(function (config: unknown) {
+        return { config, send: sendMock };
+    }),
 }));
 
 vi.mock('../../src/aws', () => ({
