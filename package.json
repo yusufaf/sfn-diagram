@@ -172,7 +172,7 @@
   "author": "Yusuf Afzal",
   "license": "MIT",
   "devDependencies": {
-    "@arethetypeswrong/cli": "^0.18.2",
+    "@arethetypeswrong/cli": "^0.18.5",
     "@aws-sdk/client-sfn": "^3.879.0",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
