@@ -37,11 +37,8 @@ export default defineConfig({
                     // `vitest run --project perf` invocation (see package.json) keeps it off
                     // the puppeteer suites entirely.
                     pool: 'forks',
-                    poolOptions: {
-                        forks: {
-                            singleFork: true,
-                        },
-                    },
+                    maxWorkers: 1,
+                    isolate: false,
                     fileParallelism: false,
                 },
             },
@@ -57,11 +54,8 @@ export default defineConfig({
                     // above, worked around the same way: an isolated single fork, run as its
                     // own `vitest run --project element` invocation (see package.json).
                     pool: 'forks',
-                    poolOptions: {
-                        forks: {
-                            singleFork: true,
-                        },
-                    },
+                    maxWorkers: 1,
+                    isolate: false,
                     fileParallelism: false,
                 },
             },
