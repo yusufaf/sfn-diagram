@@ -127,7 +127,7 @@
         "ovsx": "^0.10.0",
         "sfn-diagram": "workspace:*",
         "typescript": "^5.9.2",
-        "vitest": "^3.2.6"
+        "vitest": "^4.1.11"
     },
     "license": "MIT",
     "repository": {
