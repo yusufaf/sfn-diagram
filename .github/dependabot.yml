@@ -1,0 +1,66 @@
+# Every dependency PR touches the root pnpm-lock.yaml, so release-please
+# attributes it to the core `sfn-diagram` package. The commit prefixes below
+# are deliberately chore/ci/build — never fix/feat — so bot PRs cannot bump a
+# version or write a changelog entry on their own. Retitle a PR to `fix(deps)`
+# by hand when a shipped dependency should trigger a patch release.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - dependencies
+    groups:
+      prod-minor-patch:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+      dev-minor-patch:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - dependencies
+      - ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Los_Angeles
+    commit-message:
+      prefix: build
+      include: scope
+    labels:
+      - dependencies
+      - docker

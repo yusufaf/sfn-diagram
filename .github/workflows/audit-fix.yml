@@ -1,0 +1,78 @@
+name: Audit Fix
+
+# Dependabot security updates can only fix a vulnerable transitive dependency by
+# bumping its parent. In a pnpm workspace that often is not possible, which is
+# why package.json carries a hand-written `pnpm.overrides` block. `pnpm audit
+# --fix` writes that override for us, so this runs weekly (after Dependabot's
+# Monday pass) and opens a PR only when the advisory database flags something.
+#
+# The PR is authored with the release App token rather than GITHUB_TOKEN so the
+# Unit Test workflow runs on it. The `chore(deps)` prefix keeps release-please
+# from treating it as a releasable change (see .github/dependabot.yml).
+
+on:
+  schedule:
+    - cron: '0 15 * * 1' # Mondays 08:00 America/Los_Angeles (15:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-fix:
+    name: pnpm audit --fix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm audit` exits non-zero whenever it finds anything, including the
+      # advisories it just wrote overrides for, so the exit code is not a
+      # failure signal here. The diff check below is.
+      - name: Write overrides for open advisories
+        run: pnpm audit --fix || true
+
+      - name: Re-resolve lockfile against the new overrides
+        run: pnpm install --lockfile-only
+
+      - name: Confirm the overrides clear the advisories
+        run: pnpm audit
+
+      - name: Mint token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          add-paths: |
+            package.json
+            pnpm-lock.yaml
+          branch: deps/audit-fix
+          delete-branch: true
+          commit-message: 'chore(deps): add overrides for newly-advised transitive dependencies'
+          title: 'chore(deps): add overrides for newly-advised transitive dependencies'
+          labels: dependencies
+          body: |
+            `pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot
+            could not resolve by bumping a parent. `pnpm audit` is clean with these applied.
+
+            Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of
+            the affected packages ship in the published `sfn-diagram` bundle and the fix should
+            go out as a patch release.
