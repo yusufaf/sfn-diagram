@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # Stage 1: build the package (dist/)
-FROM node:22-slim AS build
+FROM node:26-slim AS build
 WORKDIR /app
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     CI=true
@@ -14,7 +14,7 @@ COPY src ./src
 RUN pnpm run build
 
 # Stage 2: production deps only, plus the PNG rasterizer
-FROM node:22-slim AS deps
+FROM node:26-slim AS deps
 WORKDIR /app
 # NODE_ENV=production is what keeps the `pnpm add` below from re-installing
 # every devDependency (puppeteer included) into the layer stage 3 copies.
@@ -39,7 +39,7 @@ RUN pnpm install --prod --frozen-lockfile --ignore-scripts \
 # it does need real font files on disk to render text at all (unlike Puppeteer,
 # which bundled its own), so fonts-liberation stays: it is the first path
 # src/exporters/pngFonts.ts probes on linux.
-FROM node:22-slim
+FROM node:26-slim
 ENV NODE_ENV=production
 
 RUN apt-get update \
