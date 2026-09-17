@@ -24,7 +24,7 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -47,7 +47,7 @@ jobs:
           node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -55,7 +55,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/yusufaf/sfn-diagram
           tags: |
@@ -119,7 +119,7 @@ jobs:
       # the render downloadable so a human can eyeball text rendering.
       - name: Upload the published image's PNG smoke output
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-published-png-smoke
           path: /tmp/published.png
