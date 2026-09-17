@@ -4,9 +4,9 @@ name: Bot Dist Rebuild
 # Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI; because the App is then the actor of
-# the resulting `synchronize` event, the `if:` below does not match again and
-# the job cannot loop.
+# release App token so it retriggers CI. The App is then the actor of the
+# resulting `synchronize` event, and the `if:` below excludes it explicitly so
+# the job cannot re-run on its own push.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
@@ -21,7 +21,9 @@ permissions:
 jobs:
   rebuild:
     name: Rebuild GitHub Action bundle
-    if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
+    if: >-
+      github.actor != 'yusufaf-release-bot[bot]' &&
+      (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix')
     runs-on: ubuntu-latest
     steps:
       - name: Mint token

@@ -47,8 +47,13 @@ jobs:
       - name: Re-resolve lockfile against the new overrides
         run: pnpm install --lockfile-only
 
+      # An advisory with no patched release cannot be fixed by an override, so
+      # this can fail while other advisories were fixed. Let the PR step run on
+      # whatever was written, then surface the leftover at the end.
       - name: Confirm the overrides clear the advisories
+        id: confirm
         run: pnpm audit
+        continue-on-error: true
 
       - name: Mint token
         uses: actions/create-github-app-token@v3
@@ -76,3 +81,9 @@ jobs:
             Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of
             the affected packages ship in the published `sfn-diagram` bundle and the fix should
             go out as a patch release.
+
+      - name: Fail if an advisory remains unfixed
+        if: steps.confirm.outcome == 'failure'
+        run: |
+          echo "::error::pnpm audit still reports advisories after --fix; at least one has no patched release and needs a manual decision."
+          exit 1
