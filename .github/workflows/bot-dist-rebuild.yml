@@ -5,9 +5,9 @@ name: Bot Dist Rebuild
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
 # release App token so it retriggers CI. That push re-triggers this job too
-# (the App is also the actor that opens the audit-fix PR, so the actor cannot
-# be used to tell the two apart); the guard step below skips the rebuild when
-# the head commit is already one of ours.
+# (the App is also the actor that opens the audit-fix PR, so the actor alone
+# cannot tell the two apart); the guard step below skips the rebuild when the
+# App is the actor and the head commit is already one of ours.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
@@ -44,7 +44,7 @@ jobs:
       # rebuild commit still at head needs a fresh build, not a skip.
       - name: Skip if this run was triggered by our own rebuild push
         id: guard
-        if: github.actor == 'yusufaf-release-bot[bot]'
+        if: github.actor == format('{0}[bot]', steps.app-token.outputs.app-slug)
         run: |
           if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
             echo "Head commit is a bundle rebuild; nothing to do."

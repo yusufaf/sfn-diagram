@@ -38,11 +38,11 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # `pnpm audit` exits non-zero whenever it finds anything, including the
-      # advisories it just wrote overrides for, so the exit code is not a
-      # failure signal here. The diff check below is.
+      # Unlike plain `pnpm audit`, `--fix` exits 0 whether or not it wrote
+      # anything (verified on 9.15.9), so a non-zero exit here is a registry or
+      # network failure and must stop the run before anything is classified.
       - name: Write overrides for open advisories
-        run: pnpm audit --fix || true
+        run: pnpm audit --fix
 
       - name: Re-resolve lockfile against the new overrides
         run: pnpm install --lockfile-only
@@ -113,6 +113,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_KEY }}
 
       - name: Open pull request
+        id: pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -131,6 +132,11 @@ jobs:
         env:
           REMAINING: ${{ steps.confirm.outputs.remaining }}
           PACKAGES: ${{ steps.confirm.outputs.packages }}
+          PR_URL: ${{ steps.pr.outputs.pull-request-url }}
         run: |
-          echo "::error::pnpm audit still reports $REMAINING advisory(ies) after --fix: $PACKAGES. See the PR body for how to resolve them by hand."
+          if [ -n "$PR_URL" ]; then
+            echo "::error::pnpm audit still reports $REMAINING advisory(ies) after --fix: $PACKAGES. See $PR_URL for how to resolve them by hand."
+          else
+            echo "::error::pnpm audit reports $REMAINING advisory(ies) that --fix could not write an override for, so no PR was opened: $PACKAGES. Either there is no patched release, or the parent's declared range is not a subset of the vulnerable range; a plain 'name: >=patched' override written by hand will apply in the second case."
+          fi
           exit 1
