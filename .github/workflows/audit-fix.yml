@@ -48,12 +48,52 @@ jobs:
         run: pnpm install --lockfile-only
 
       # An advisory with no patched release cannot be fixed by an override, so
-      # this can fail while other advisories were fixed. Let the PR step run on
-      # whatever was written, then surface the leftover at the end.
-      - name: Confirm the overrides clear the advisories
+      # the audit can still be red after --fix while other advisories were
+      # fixed. Classify the result rather than trusting the exit code: a
+      # tooling or network failure is a hard error (no PR), leftover
+      # advisories are reported in the PR body and fail the run at the end.
+      - name: Classify what pnpm audit still reports
         id: confirm
-        run: pnpm audit
-        continue-on-error: true
+        run: |
+          pnpm audit --json > "$RUNNER_TEMP/audit.json" || true
+          node --input-type=commonjs - "$RUNNER_TEMP/audit.json" <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require("fs");
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          } catch (error) {
+            console.error("::error::pnpm audit did not produce a JSON report (registry or network failure?):", error.message);
+            process.exit(1);
+          }
+          const counts = report.metadata?.vulnerabilities;
+          if (!counts) {
+            console.error("::error::pnpm audit report has no metadata.vulnerabilities:", JSON.stringify(report).slice(0, 500));
+            process.exit(1);
+          }
+          const remaining = Object.values(counts).reduce((sum, n) => sum + n, 0);
+          const names = [...new Set(Object.values(report.advisories ?? {}).map((a) => a.module_name))].sort();
+          console.log(`remaining=${remaining}`);
+          console.log(`packages=${names.join(", ")}`);
+          EOF
+
+      - name: Write pull request body
+        run: |
+          {
+            echo '`pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot'
+            echo 'could not resolve by bumping a parent.'
+            echo
+            if [ "${{ steps.confirm.outputs.remaining }}" = "0" ]; then
+              echo '`pnpm audit` is clean with these applied.'
+            else
+              echo '**`pnpm audit` is still red.** ${{ steps.confirm.outputs.remaining }} advisory(ies) have no'
+              echo 'patched release that an override can point at, so they need a manual decision:'
+              echo '${{ steps.confirm.outputs.packages }}.'
+            fi
+            echo
+            echo 'Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of'
+            echo 'the affected packages ship in the published `sfn-diagram` bundle and the fix should'
+            echo 'go out as a patch release.'
+          } > "$RUNNER_TEMP/pr-body.md"
 
       - name: Mint token
         uses: actions/create-github-app-token@v3
@@ -74,16 +114,10 @@ jobs:
           commit-message: 'chore(deps): add overrides for newly-advised transitive dependencies'
           title: 'chore(deps): add overrides for newly-advised transitive dependencies'
           labels: dependencies
-          body: |
-            `pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot
-            could not resolve by bumping a parent. `pnpm audit` is clean with these applied.
-
-            Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of
-            the affected packages ship in the published `sfn-diagram` bundle and the fix should
-            go out as a patch release.
+          body-path: ${{ runner.temp }}/pr-body.md
 
       - name: Fail if an advisory remains unfixed
-        if: steps.confirm.outcome == 'failure'
+        if: steps.confirm.outputs.remaining != '0'
         run: |
-          echo "::error::pnpm audit still reports advisories after --fix; at least one has no patched release and needs a manual decision."
+          echo "::error::pnpm audit still reports ${{ steps.confirm.outputs.remaining }} advisory(ies) after --fix (${{ steps.confirm.outputs.packages }}); none has a patched release, so this needs a manual decision."
           exit 1

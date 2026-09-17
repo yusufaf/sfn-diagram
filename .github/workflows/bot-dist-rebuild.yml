@@ -4,9 +4,10 @@ name: Bot Dist Rebuild
 # Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI. The App is then the actor of the
-# resulting `synchronize` event, and the `if:` below excludes it explicitly so
-# the job cannot re-run on its own push.
+# release App token so it retriggers CI. That push re-triggers this job too
+# (the App is also the actor that opens the audit-fix PR, so the actor cannot
+# be used to tell the two apart); the guard step below skips the rebuild when
+# the head commit is already one of ours.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
@@ -21,9 +22,9 @@ permissions:
 jobs:
   rebuild:
     name: Rebuild GitHub Action bundle
-    if: >-
-      github.actor != 'yusufaf-release-bot[bot]' &&
-      (github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix')
+    if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
+    env:
+      REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
     runs-on: ubuntu-latest
     steps:
       - name: Mint token
@@ -39,22 +40,35 @@ jobs:
           ref: ${{ github.head_ref }}
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: Skip if the head commit is our own rebuild
+        id: guard
+        run: |
+          if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
+            echo "Head commit is a bundle rebuild; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install pnpm
+        if: steps.guard.outputs.skip != 'true'
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: pnpm
 
       - name: Install
+        if: steps.guard.outputs.skip != 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build bundle
+        if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
 
       - name: Commit and push if the bundle changed
+        if: steps.guard.outputs.skip != 'true'
         run: |
           if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
             echo "Bundle is up to date."
@@ -63,5 +77,5 @@ jobs:
           git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
           git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
           git add packages/github-action-sfn-diagram/dist
-          git commit -m "chore(action): rebuild dist bundle for dependency update"
+          git commit -m "$REBUILD_SUBJECT"
           git push
