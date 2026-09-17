@@ -1,0 +1,65 @@
+name: Bot Dist Rebuild
+
+# packages/github-action-sfn-diagram ships a committed dist bundle, and Unit
+# Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
+# the build themselves, so this rebuilds the bundle on their PRs and pushes the
+# result back to the PR branch when it changed. The push is made with the
+# release App token so it retriggers CI; because the App is then the actor of
+# the resulting `synchronize` event, the `if:` below does not match again and
+# the job cannot loop.
+#
+# Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
+# RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    name: Rebuild GitHub Action bundle
+    if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build bundle
+        run: pnpm build:action-bundle
+
+      - name: Commit and push if the bundle changed
+        run: |
+          if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
+            echo "Bundle is up to date."
+            exit 0
+          fi
+          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
+          git add packages/github-action-sfn-diagram/dist
+          git commit -m "chore(action): rebuild dist bundle for dependency update"
+          git push
