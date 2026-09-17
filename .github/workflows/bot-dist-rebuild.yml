@@ -40,8 +40,11 @@ jobs:
           ref: ${{ github.head_ref }}
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Skip if the head commit is our own rebuild
+      # Only our own push counts: a human who rebases the branch with the
+      # rebuild commit still at head needs a fresh build, not a skip.
+      - name: Skip if this run was triggered by our own rebuild push
         id: guard
+        if: github.actor == 'yusufaf-release-bot[bot]'
         run: |
           if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
             echo "Head commit is a bundle rebuild; nothing to do."

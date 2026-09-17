@@ -71,23 +71,33 @@ jobs:
             process.exit(1);
           }
           const remaining = Object.values(counts).reduce((sum, n) => sum + n, 0);
-          const names = [...new Set(Object.values(report.advisories ?? {}).map((a) => a.module_name))].sort();
+          // pnpm only writes an override when the parent's declared range is a
+          // subset of the advisory's vulnerable range, so a leftover can be a
+          // fixable advisory whose override did not apply, not only one with no
+          // patched release. Report the patched range so the reviewer can tell.
+          const leftovers = [...new Set(Object.values(report.advisories ?? {}).map(
+            (advisory) => `${advisory.module_name} (patched: ${advisory.patched_versions})`,
+          ))].sort();
           console.log(`remaining=${remaining}`);
-          console.log(`packages=${names.join(", ")}`);
+          console.log(`packages=${leftovers.join("; ")}`);
           EOF
 
       - name: Write pull request body
+        env:
+          REMAINING: ${{ steps.confirm.outputs.remaining }}
+          PACKAGES: ${{ steps.confirm.outputs.packages }}
         run: |
           {
             echo '`pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot'
             echo 'could not resolve by bumping a parent.'
             echo
-            if [ "${{ steps.confirm.outputs.remaining }}" = "0" ]; then
+            if [ "$REMAINING" = "0" ]; then
               echo '`pnpm audit` is clean with these applied.'
             else
-              echo '**`pnpm audit` is still red.** ${{ steps.confirm.outputs.remaining }} advisory(ies) have no'
-              echo 'patched release that an override can point at, so they need a manual decision:'
-              echo '${{ steps.confirm.outputs.packages }}.'
+              echo "**\`pnpm audit\` is still red.** $REMAINING advisory(ies) are still reported after"
+              echo '`--fix`. Either there is no patched release, or the parent'"'"'s declared range is not a'
+              echo 'subset of the vulnerable range so pnpm skipped the override — in that case a plain'
+              echo "\`name: >=patched\` override written by hand will apply. Packages: $PACKAGES."
             fi
             echo
             echo 'Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of'
@@ -118,6 +128,9 @@ jobs:
 
       - name: Fail if an advisory remains unfixed
         if: steps.confirm.outputs.remaining != '0'
+        env:
+          REMAINING: ${{ steps.confirm.outputs.remaining }}
+          PACKAGES: ${{ steps.confirm.outputs.packages }}
         run: |
-          echo "::error::pnpm audit still reports ${{ steps.confirm.outputs.remaining }} advisory(ies) after --fix (${{ steps.confirm.outputs.packages }}); none has a patched release, so this needs a manual decision."
+          echo "::error::pnpm audit still reports $REMAINING advisory(ies) after --fix: $PACKAGES. See the PR body for how to resolve them by hand."
           exit 1
