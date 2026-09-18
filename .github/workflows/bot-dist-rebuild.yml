@@ -70,8 +70,14 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
 
+      # The husky pre-commit hook runs the full test suite (which needs a
+      # puppeteer Chrome this job never installs) and then rebuilds the very
+      # bundle being committed. Unit Test runs on the pushed commit anyway, so
+      # the hook is redundant here.
       - name: Commit and push if the bundle changed
         if: steps.guard.outputs.skip != 'true'
+        env:
+          HUSKY: '0'
         run: |
           if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
             echo "Bundle is up to date."
