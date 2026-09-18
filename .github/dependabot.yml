@@ -64,3 +64,9 @@ updates:
     labels:
       - dependencies
       - docker
+    # Which Node line the image tracks is an LTS decision, not a version bump:
+    # odd majors are never LTS and Node 25+ dropped corepack from the image.
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major
