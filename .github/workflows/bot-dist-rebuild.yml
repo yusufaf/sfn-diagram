@@ -35,7 +35,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_KEY }}
 
       - name: Checkout PR branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           token: ${{ steps.app-token.outputs.token }}
@@ -57,7 +57,7 @@ jobs:
 
       - name: Set node LTS
         if: steps.guard.outputs.skip != 'true'
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm

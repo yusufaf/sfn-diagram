@@ -38,7 +38,7 @@ jobs:
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_KEY }}
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -61,7 +61,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
           fetch-depth: 0
@@ -70,7 +70,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
@@ -174,7 +174,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
@@ -182,7 +182,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -226,7 +226,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.react_tag_name }}
 
@@ -234,7 +234,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
@@ -324,7 +324,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.vscode_tag_name }}
 
@@ -332,7 +332,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -405,7 +405,7 @@ jobs:
           repositories: sfn-diagram-action
 
       - name: Checkout released action tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.release-please.outputs.action_tag_name }}
           fetch-depth: 0
@@ -414,7 +414,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -471,7 +471,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
@@ -479,7 +479,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -564,7 +564,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
@@ -572,7 +572,7 @@ jobs:
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
@@ -612,7 +612,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
@@ -638,7 +638,7 @@ jobs:
           gh release upload "$TAG" binaries/SHA256SUMS --clobber
 
       - name: Keep SHA256SUMS for the Homebrew job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sha256sums
           path: binaries/SHA256SUMS
@@ -665,12 +665,12 @@ jobs:
           repositories: ${{ vars.HOMEBREW_TAP_REPO }}
 
       - name: Checkout released tag
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
       - name: Download SHA256SUMS
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: sha256sums
           path: binaries
