@@ -38,17 +38,75 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # `pnpm audit` exits non-zero whenever it finds anything, including the
-      # advisories it just wrote overrides for, so the exit code is not a
-      # failure signal here. The diff check below is.
+      # Unlike plain `pnpm audit`, `--fix` exits 0 whether or not it wrote
+      # anything (verified on 9.15.9), so a non-zero exit here is a registry or
+      # network failure and must stop the run before anything is classified.
       - name: Write overrides for open advisories
-        run: pnpm audit --fix || true
+        run: pnpm audit --fix
 
       - name: Re-resolve lockfile against the new overrides
         run: pnpm install --lockfile-only
 
-      - name: Confirm the overrides clear the advisories
-        run: pnpm audit
+      # An advisory with no patched release cannot be fixed by an override, so
+      # the audit can still be red after --fix while other advisories were
+      # fixed. Classify the result rather than trusting the exit code: a
+      # tooling or network failure is a hard error (no PR), leftover
+      # advisories are reported in the PR body and fail the run at the end.
+      - name: Classify what pnpm audit still reports
+        id: confirm
+        run: |
+          pnpm audit --json > "$RUNNER_TEMP/audit.json" || true
+          node --input-type=commonjs - "$RUNNER_TEMP/audit.json" <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require("fs");
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          } catch (error) {
+            console.error("::error::pnpm audit did not produce a JSON report (registry or network failure?):", error.message);
+            process.exit(1);
+          }
+          if (!report.metadata?.vulnerabilities) {
+            console.error("::error::pnpm audit report has no metadata.vulnerabilities:", JSON.stringify(report).slice(0, 500));
+            process.exit(1);
+          }
+          // Count from `advisories`, not `metadata.vulnerabilities`: pnpm applies
+          // `pnpm.auditConfig.ignoreGhsas` / `ignoreCves` only to the former, so
+          // this is what lets an ignore entry actually silence the weekly failure.
+          const advisories = Object.values(report.advisories ?? {});
+          const remaining = advisories.length;
+          // pnpm only writes an override when the parent's declared range is a
+          // subset of the advisory's vulnerable range, so a leftover can be a
+          // fixable advisory whose override did not apply, not only one with no
+          // patched release. Report the patched range so the reviewer can tell.
+          const leftovers = [...new Set(advisories.map(
+            (advisory) => `${advisory.module_name} (patched: ${advisory.patched_versions})`,
+          ))].sort();
+          console.log(`remaining=${remaining}`);
+          console.log(`packages=${leftovers.join("; ")}`);
+          EOF
+
+      - name: Write pull request body
+        env:
+          REMAINING: ${{ steps.confirm.outputs.remaining }}
+          PACKAGES: ${{ steps.confirm.outputs.packages }}
+        run: |
+          {
+            echo '`pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot'
+            echo 'could not resolve by bumping a parent.'
+            echo
+            if [ "$REMAINING" = "0" ]; then
+              echo '`pnpm audit` is clean with these applied.'
+            else
+              echo "**\`pnpm audit\` is still red.** $REMAINING advisory(ies) are still reported after"
+              echo '`--fix`. Either there is no patched release, or the parent'"'"'s declared range is not a'
+              echo 'subset of the vulnerable range so pnpm skipped the override — in that case a plain'
+              echo "\`name: >=patched\` override written by hand will apply. Packages: $PACKAGES."
+            fi
+            echo
+            echo 'Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of'
+            echo 'the affected packages ship in the published `sfn-diagram` bundle and the fix should'
+            echo 'go out as a patch release.'
+          } > "$RUNNER_TEMP/pr-body.md"
 
       - name: Mint token
         uses: actions/create-github-app-token@v3
@@ -58,6 +116,7 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_KEY }}
 
       - name: Open pull request
+        id: pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -69,10 +128,18 @@ jobs:
           commit-message: 'chore(deps): add overrides for newly-advised transitive dependencies'
           title: 'chore(deps): add overrides for newly-advised transitive dependencies'
           labels: dependencies
-          body: |
-            `pnpm audit --fix` added `pnpm.overrides` entries for advisories that Dependabot
-            could not resolve by bumping a parent. `pnpm audit` is clean with these applied.
+          body-path: ${{ runner.temp }}/pr-body.md
 
-            Review the new ranges, then merge. Retitle to `fix(deps)` before merging if any of
-            the affected packages ship in the published `sfn-diagram` bundle and the fix should
-            go out as a patch release.
+      - name: Fail if an advisory remains unfixed
+        if: steps.confirm.outputs.remaining != '0'
+        env:
+          REMAINING: ${{ steps.confirm.outputs.remaining }}
+          PACKAGES: ${{ steps.confirm.outputs.packages }}
+          PR_URL: ${{ steps.pr.outputs.pull-request-url }}
+        run: |
+          if [ -n "$PR_URL" ]; then
+            echo "::error::pnpm audit still reports $REMAINING advisory(ies) after --fix: $PACKAGES. See $PR_URL for how to resolve them by hand."
+          else
+            echo "::error::pnpm audit reports $REMAINING advisory(ies) that --fix could not write an override for, so no PR was opened: $PACKAGES. Either there is no patched release, or the parent's declared range is not a subset of the vulnerable range; a plain 'name: >=patched' override written by hand will apply in the second case."
+          fi
+          exit 1
