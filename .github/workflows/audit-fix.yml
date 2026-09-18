@@ -65,17 +65,20 @@ jobs:
             console.error("::error::pnpm audit did not produce a JSON report (registry or network failure?):", error.message);
             process.exit(1);
           }
-          const counts = report.metadata?.vulnerabilities;
-          if (!counts) {
+          if (!report.metadata?.vulnerabilities) {
             console.error("::error::pnpm audit report has no metadata.vulnerabilities:", JSON.stringify(report).slice(0, 500));
             process.exit(1);
           }
-          const remaining = Object.values(counts).reduce((sum, n) => sum + n, 0);
+          // Count from `advisories`, not `metadata.vulnerabilities`: pnpm applies
+          // `pnpm.auditConfig.ignoreGhsas` / `ignoreCves` only to the former, so
+          // this is what lets an ignore entry actually silence the weekly failure.
+          const advisories = Object.values(report.advisories ?? {});
+          const remaining = advisories.length;
           // pnpm only writes an override when the parent's declared range is a
           // subset of the advisory's vulnerable range, so a leftover can be a
           // fixable advisory whose override did not apply, not only one with no
           // patched release. Report the patched range so the reviewer can tell.
-          const leftovers = [...new Set(Object.values(report.advisories ?? {}).map(
+          const leftovers = [...new Set(advisories.map(
             (advisory) => `${advisory.module_name} (patched: ${advisory.patched_versions})`,
           ))].sort();
           console.log(`remaining=${remaining}`);
