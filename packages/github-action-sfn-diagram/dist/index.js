@@ -63517,7 +63517,6 @@ function extractEdgesFromState(params) {
         to: resolveId(state2.Next),
         type: "normal"
       });
-      break;
   }
   if (state2.Retry && state2.Retry.length > 0) edges.push({
     from: stateId,
