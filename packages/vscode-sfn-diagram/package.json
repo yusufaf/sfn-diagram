@@ -123,7 +123,7 @@
         "@types/node": "^24.0.0",
         "@types/vscode": "^1.85.0",
         "@vscode/vsce": "^3.0.0",
-        "esbuild": "^0.25.0",
+        "esbuild": "^0.28.2",
         "ovsx": "^0.10.0",
         "sfn-diagram": "workspace:*",
         "typescript": "^5.9.2",
