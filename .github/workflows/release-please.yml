@@ -146,11 +146,33 @@ jobs:
           # deprecation warning for the runner's .npmrc `always-auth` key to
           # stderr, which failed the 1.6.1 check although the CLI printed the
           # right version.
+          #
+          # `npm view` above hits the registry API, but `npx` resolves through
+          # the registry's CDN, which can lag it by a minute or so — the 1.7.0
+          # check got ETARGET 12s after the version was visible to `npm view`
+          # and filed a false "publish failure" issue. Retry the npx probe a
+          # few times before calling it a failure. A failed attempt caches the
+          # stale packument (the registry serves it with max-age=300), so force
+          # a revalidation on every attempt or the retries would just re-read
+          # the cache and fail the same way.
           cd "$(mktemp -d)"
-          set +e
-          OUTPUT="$(npx --yes sfn-diagram@"$VERSION" --version)"
-          STATUS=$?
-          set -e
+          export npm_config_prefer_online=true
+          ATTEMPTS=6
+          STATUS=1
+          OUTPUT=""
+          for i in $(seq 1 "$ATTEMPTS"); do
+            set +e
+            OUTPUT="$(npx --yes sfn-diagram@"$VERSION" --version)"
+            STATUS=$?
+            set -e
+            if [ "$STATUS" -eq 0 ] && [ "$OUTPUT" = "$VERSION" ]; then
+              break
+            fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              echo "npx sfn-diagram@$VERSION --version attempt $i/$ATTEMPTS exited $STATUS with stdout '$OUTPUT'; retrying in 20s"
+              sleep 20
+            fi
+          done
           if [ "$STATUS" -ne 0 ] || [ "$OUTPUT" != "$VERSION" ]; then
             echo "::error::npx sfn-diagram@$VERSION --version exited $STATUS with stdout '$OUTPUT', expected '$VERSION'"
             exit 1
