@@ -15,7 +15,7 @@ npm install sfn-diagram-react sfn-diagram
 pnpm add sfn-diagram-react sfn-diagram
 ```
 
-`react` and `sfn-diagram` are peer dependencies. `sfn-diagram >= 1.6.0` is required — earlier versions don't have the options this package forwards (`collapse`, `catchHandling`, `showVariables`, `generateHtml`, and `edgeOverrides`' qualified-id form).
+`react` and `sfn-diagram` are peer dependencies. `sfn-diagram >= 1.7.0` is required — earlier versions don't have the options this package forwards (`collapse`, `catchHandling`, `showVariables`, `generateHtml`, `edgeOverrides`' qualified-id form, and `layout`/`theme` on the Mermaid path).
 
 ## Usage
 
