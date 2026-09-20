@@ -13,7 +13,7 @@ const SITE = 'https://sfn.yusufaf.dev'
 /**
  * Clean up the TypeDoc-generated reference pages after the build.
  *
- * With four entry points TypeDoc writes a root `README.md` whose body is empty
+ * With multiple entry points TypeDoc writes a root `README.md` whose body is empty
  * and whose links all point at per-module readme pages it never emits (the
  * plugin defaults to `readme: 'none'`) — this deletes that orphan page. It also
  * rewrites the sitemap Starlight already wrote to drop that same orphan plus
@@ -78,6 +78,8 @@ export default defineConfig({
                         '../src/png.ts',
                         '../src/aws.ts',
                         '../src/cfn.ts',
+                        '../src/ci/index.ts',
+                        '../src/element/index.ts',
                     ],
                     output: 'reference',
                     sidebar: { collapsed: true, label: 'API Reference' },

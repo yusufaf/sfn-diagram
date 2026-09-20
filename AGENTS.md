@@ -13,11 +13,16 @@ raw Markdown by appending `.md` to its URL.
 | `sfn-diagram/png` | `exportPng` | Node only |
 | `sfn-diagram/aws` | `fetchExecutionHistory` | Node only |
 | `sfn-diagram/cfn` | `extractAslFromTemplate` for CloudFormation/SAM/CDK | Node, browser, edge |
+| `sfn-diagram/ci` | `assembleCommentBody`, `getChangedAslFiles`, `fetchExecutionForOverlay`, `runGitlabComment` — CI/PR comment building blocks | Node only |
+| `sfn-diagram/element` | `SfnDiagramElement`, `defineSfnDiagram` — the `<sfn-diagram>` custom element, no registration side effect | Browser only |
+| `sfn-diagram/element/auto` | Side-effect-only: registers `<sfn-diagram>` on import | Browser only |
 
 The core is platform-agnostic and has no browser-engine dependency.
 `sfn-diagram/png` (via the optional `@resvg/resvg-js` peer, a native rasterizer),
-`sfn-diagram/aws` (via the optional `@aws-sdk/client-sfn` peer), and the CLI are
-Node-only. Do not import either subpath in browser or edge code.
+`sfn-diagram/aws` (via the optional `@aws-sdk/client-sfn` peer), `sfn-diagram/ci`
+(shells out to `git`), and the CLI are Node-only. Do not import those subpaths in
+browser or edge code. `sfn-diagram/element` and `sfn-diagram/element/auto` need
+`customElements`, so they are browser-only.
 
 Note that `generateFromAwsResponse` lives on the **root** entry, not on
 `sfn-diagram/aws` — it only reshapes a `DescribeStateMachine` response you
