@@ -78,6 +78,8 @@ export default defineConfig({
                         '../src/png.ts',
                         '../src/aws.ts',
                         '../src/cfn.ts',
+                        '../src/ci/index.ts',
+                        '../src/element/index.ts',
                     ],
                     output: 'reference',
                     sidebar: { collapsed: true, label: 'API Reference' },

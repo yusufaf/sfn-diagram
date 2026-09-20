@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: Generated from the JSDoc in source, covering all four sfn-diagram entry points.
+description: Generated from the JSDoc in source, covering every sfn-diagram entry point.
 slug: reference
 tableOfContents: false
 ---
@@ -9,27 +9,39 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components'
 
 Every page under this section is generated from the JSDoc in `src/` at build
 time, so it tracks the published signatures rather than a hand-maintained copy.
+Each card below opens the entry point's main export; the sidebar lists the rest
+of that module.
 
 <CardGrid>
   <LinkCard
     title="sfn-diagram"
-    href="/reference/index/"
+    href="/reference/index/functions/generatesvg/"
     description="Core entry point: generateSvg, generateMermaid, generateHtml, generateDiagram, diffs, and execution overlays. Runs in Node, the browser, and edge runtimes."
   />
   <LinkCard
     title="sfn-diagram/cfn"
-    href="/reference/cfn/"
+    href="/reference/cfn/functions/extractaslfromtemplate/"
     description="Extract ASL from CloudFormation, SAM, and CDK templates."
   />
   <LinkCard
     title="sfn-diagram/aws"
-    href="/reference/aws/"
+    href="/reference/aws/functions/fetchexecutionhistory/"
     description="Fetch execution history through the AWS SDK. Node only."
   />
   <LinkCard
     title="sfn-diagram/png"
-    href="/reference/png/"
+    href="/reference/png/functions/exportpng/"
     description="PNG export via a native rasterizer. Node only."
+  />
+  <LinkCard
+    title="sfn-diagram/ci"
+    href="/reference/ci/functions/rungitlabcomment/"
+    description="CI/PR comment building blocks: Markdown report builder, changed-file detection, execution-overlay fetcher, and the GitLab merge request integration. Node only."
+  />
+  <LinkCard
+    title="sfn-diagram/element"
+    href="/reference/element/classes/sfndiagramelement/"
+    description="The <sfn-diagram> custom element and defineSfnDiagram. Import sfn-diagram/element/auto for zero-config registration. Browser only."
   />
 </CardGrid>
 
