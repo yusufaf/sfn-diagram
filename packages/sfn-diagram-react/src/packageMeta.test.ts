@@ -15,10 +15,12 @@ const parseVersion = (version: string): { major: number; minor: number } => {
 
 // sfn-diagram 1.6.0 introduced collapse, catchHandling, showVariables,
 // generateHtml, and edgeOverrides' qualified-id form - everything this package
-// forwards from Step 3 onward. A peer floor older than that would let a
-// consumer install a core too old to have those options, so props would be
-// silently dropped at runtime instead of failing to install.
-const MINIMUM_REQUIRED_CORE_VERSION = { major: 1, minor: 6 }
+// forwards from Step 3 onward - and 1.7.0 made generateMermaid honour layout
+// and theme, which this package forwards on the Mermaid path. A peer floor
+// older than that would let a consumer install a core too old to have those
+// options, so props would be silently dropped at runtime instead of failing
+// to install.
+const MINIMUM_REQUIRED_CORE_VERSION = { major: 1, minor: 7 }
 
 describe('sfn-diagram peer range', () => {
     it('has a caret range no older than the core version this package requires, and no newer than the workspace has', () => {
