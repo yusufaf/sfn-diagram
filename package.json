@@ -184,6 +184,7 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vitest/coverage-v8": "4.1.11",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.12.0",

@@ -1,9 +1,15 @@
 #!/usr/bin/env node
-// Compiles src/renderers/viewer/viewerController.ts - a plain-DOM module with zero
-// imports at runtime (its only import is `import type`, fully erased) - into a bare
-// script body with no import/export syntax, and writes it as a committed string
-// constant. That constant is what buildViewerScript() inlines into the self-contained
-// HTML document; the custom element imports viewerController.ts directly instead.
+// Bundles src/renderers/viewer/viewerController.ts and the ./controller/* modules it
+// composes into a bare script body with no import/export syntax, and writes it as a
+// committed string constant. That constant is what buildViewerScript() inlines into
+// the self-contained HTML document; the custom element imports viewerController.ts
+// directly instead.
+//
+// The controller must stay free of runtime dependencies - the inlined script has no
+// module loader, and pulling a package into it would silently bloat every generated
+// HTML document. The bundle is therefore restricted to sources under the viewer
+// directory: any import that resolves elsewhere (a node_modules package, or a src/
+// module outside the viewer that happens to carry runtime code) fails the build.
 //
 // Run via `pnpm run build:viewer-script`. CI (`test:viewer-script`) regenerates and
 // diffs against the committed file, so a stale bundle fails the build rather than
@@ -11,54 +17,69 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import ts from 'typescript';
+import { build } from 'esbuild';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const sourcePath = path.join(here, '../src/renderers/viewer/viewerController.ts');
-const outputPath = path.join(here, '../src/renderers/viewer/viewerScript.generated.ts');
+const repoRoot = path.resolve(here, '..');
+const viewerDir = 'src/renderers/viewer';
+const sourcePath = path.join(repoRoot, viewerDir, 'viewerController.ts');
+const outputPath = path.join(repoRoot, viewerDir, 'viewerScript.generated.ts');
 
-const source = readFileSync(sourcePath, 'utf8');
-
-const { outputText, diagnostics } = ts.transpileModule(source, {
-    compilerOptions: {
-        target: ts.ScriptTarget.ES2019,
-        module: ts.ModuleKind.CommonJS,
-        removeComments: true,
-    },
-    reportDiagnostics: true,
+const result = await build({
+    // Paths in the metafile and the per-module `// src/...` comments are relative to
+    // this, so the output is byte-identical whichever directory the script runs from.
+    absWorkingDir: repoRoot,
+    bundle: true,
+    entryPoints: [sourcePath],
+    format: 'esm',
+    legalComments: 'none',
+    metafile: true,
+    platform: 'neutral',
+    target: 'es2019',
+    write: false,
 });
 
-const errors = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error);
-if (errors.length > 0) {
-    for (const diagnostic of errors) {
-        console.error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
-    }
-    process.exit(1);
-}
-
-if (/\brequire\(/.test(outputText)) {
+const bundledInputs = Object.keys(result.metafile.inputs);
+const foreignInputs = bundledInputs.filter((input) => !input.startsWith(viewerDir + '/'));
+if (foreignInputs.length > 0) {
     console.error(
-        'build-viewer-script: transpiled output still requires a module - ' +
-            'viewerController.ts must have no runtime (non-type-only) imports.',
+        'build-viewer-script: the viewer controller bundle pulled in modules from ' +
+            'outside ' + viewerDir + '/ - it must have no runtime dependencies:\n' +
+            foreignInputs.map((input) => '  ' + input).join('\n'),
     );
     process.exit(1);
 }
 
+const outputText = result.outputFiles[0].text;
+
+if (/\brequire\(/.test(outputText)) {
+    console.error(
+        'build-viewer-script: bundled output still requires a module - ' +
+            'the viewer controller must have no runtime (non-type-only) imports.',
+    );
+    process.exit(1);
+}
+
+// esbuild's ESM output ends with the entry's export list. The only export is the
+// `attachViewer` function declaration - already hoisted and present in the body - so
+// that one statement is stripped to leave a bare script; buildViewerScript() calls
+// `attachViewer` by name inside the IIFE it wraps this body in. Anything other than
+// exactly that statement means the entry's exports changed, and the inline caller
+// would break at runtime, so the build stops here instead.
+const EXPORT_STATEMENT = /\nexport \{\n {2}attachViewer\n\};\n$/;
+if (!EXPORT_STATEMENT.test(outputText)) {
+    console.error(
+        'build-viewer-script: expected the bundle to end with `export { attachViewer };` ' +
+            'and nothing else - viewerController.ts must export only attachViewer.',
+    );
+    process.exit(1);
+}
+const body = outputText.replace(EXPORT_STATEMENT, '').trim();
+
 const banner = `// GENERATED FILE - do not edit by hand.
-// Source: src/renderers/viewer/viewerController.ts
+// Source: src/renderers/viewer/viewerController.ts (and src/renderers/viewer/controller/*)
 // Regenerate with: pnpm run build:viewer-script
 `;
-
-// transpileModule always emits CommonJS interop boilerplate for a file with `export`,
-// even under ModuleKind.None. Since the only export is the `attachViewer` function
-// declaration - already hoisted and present in the body - the interop lines (strict
-// mode pragma, __esModule marker, the `exports.attachViewer = ...` assignment) are
-// pure boilerplate here and are stripped to leave a bare script.
-const body = outputText
-    .replace(/^"use strict";\s*$/m, '')
-    .replace(/^Object\.defineProperty\(exports, "__esModule".*$/m, '')
-    .replace(/^exports\.attachViewer = attachViewer;\s*$/m, '')
-    .trim();
 
 const fileContents = `${banner}
 /** Compiled body of {@link attachViewer}, inlined into the self-contained HTML viewer. */
