@@ -68448,9 +68448,14 @@ function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
 }
-function toOrphanState(state2) {
+function toOrphanState(params) {
+  const { machineQueryLanguage, state: state2 } = params;
   const base = {
     End: true,
+    QueryLanguage: resolveQueryLanguage({
+      machineQueryLanguage,
+      state: state2
+    }),
     Type: state2.Type
   };
   if (state2.Type === "Fail") {
@@ -68473,7 +68478,10 @@ function computeStateDiff(beforeAsl, afterAsl) {
   else unchanged.push(name);
   for (const name of beforeNames) if (!afterNames.has(name)) removed.push(name);
   const mergedStates = { ...afterAsl.States };
-  for (const name of removed) mergedStates[name] = toOrphanState(beforeAsl.States[name]);
+  for (const name of removed) mergedStates[name] = toOrphanState({
+    machineQueryLanguage: beforeAsl.QueryLanguage,
+    state: beforeAsl.States[name]
+  });
   return {
     added,
     mergedAsl: {
