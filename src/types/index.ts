@@ -99,7 +99,7 @@ export interface ItemIo {
 /** A single state within an ASL definition, covering fields for every state type. */
 export interface AslState {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    Arguments?: Record<string, any>; // JSONata-mode counterpart to Parameters
+    Arguments?: Record<string, any> | string; // JSONata-mode counterpart to Parameters; an object or a whole-field expression
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Branches?: AslDefinition[]; // Parallel/Map-specific
@@ -118,7 +118,7 @@ export interface AslState {
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ItemSelector?: Record<string, any>; // Map-specific; per-item input shaping
+    ItemSelector?: Record<string, any> | string; // Map-specific; per-item input shaping, an object or (JSONata) a whole-field expression
     ItemsPath?: string; // Map-specific; reference path to the array to iterate (JSONPath mode)
     Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Label?: string; // Distributed Map-specific; prefix for child execution names
@@ -191,6 +191,12 @@ export interface StateNode {
     iconUrl?: string;
     id: string;
     /**
+     * The `Arguments` a JSONata-mode state passes to its integration, pre-formatted
+     * for display (e.g. `args FunctionName, Payload`). Absent when not set. Not named
+     * `arguments`, which cannot be destructured in strict-mode code.
+     */
+    inputArguments?: string;
+    /**
      * A Task state's service integration pattern, pre-formatted for display: `sync`
      * for a `.sync` / `.sync:2` resource, `callback` for `.waitForTaskToken`.
      * Absent for a request-response Task.
@@ -210,16 +216,31 @@ export interface StateNode {
      */
     itemBatching?: string;
     /**
+     * How a Map state shapes each item for its processor, pre-formatted for display
+     * (e.g. `selector item, index`). Absent when the Map sets no `ItemSelector`.
+     */
+    itemSelector?: string;
+    /**
      * The array a Map state iterates, pre-formatted for display (e.g. `items $.orders`).
      * Absent when the Map sets no `ItemsPath`.
      */
     itemsPath?: string;
     label: string;
     /**
+     * A Distributed Map's child-execution name prefix, pre-formatted for display
+     * (e.g. `label OrderBatch`). Absent when the Map sets no `Label`.
+     */
+    mapLabel?: string;
+    /**
      * A Map state's `MaxConcurrency`, when set. Displayed on the container header.
      * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`).
      */
     maxConcurrency?: number | string;
+    /**
+     * The `Output` a JSONata-mode state produces, pre-formatted for display
+     * (e.g. `output orderId, total`). Absent when not set.
+     */
+    output?: string;
     /** Parent node ID (for nodes inside Parallel/Map containers) */
     parent?: string;
     /** AWS service identifier for Task states (e.g., 'lambda', 's3') */

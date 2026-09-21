@@ -1,0 +1,49 @@
+{
+    "QueryLanguage": "JSONata",
+    "Comment": "JSONata I/O fields: Arguments, Output, ItemSelector and a Distributed Map Label",
+    "StartAt": "LoadOrder",
+    "States": {
+        "LoadOrder": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Arguments": {
+                "FunctionName": "load-order",
+                "Payload": "{% $states.input %}"
+            },
+            "Output": {
+                "orderId": "{% $states.result.Payload.orderId %}",
+                "items": "{% $states.result.Payload.items %}"
+            },
+            "Next": "ProcessItems"
+        },
+        "ProcessItems": {
+            "Type": "Map",
+            "Label": "OrderItems",
+            "Items": "{% $states.input.items %}",
+            "ItemSelector": {
+                "item": "{% $states.context.Map.Item.Value %}",
+                "index": "{% $states.context.Map.Item.Index %}",
+                "orderId": "{% $states.input.orderId %}"
+            },
+            "ItemProcessor": {
+                "ProcessorConfig": { "Mode": "DISTRIBUTED", "ExecutionType": "STANDARD" },
+                "StartAt": "PriceItem",
+                "States": {
+                    "PriceItem": {
+                        "Type": "Task",
+                        "Resource": "arn:aws:states:::lambda:invoke",
+                        "Arguments": "{% $states.input %}",
+                        "Output": "{% $states.result.Payload %}",
+                        "End": true
+                    }
+                }
+            },
+            "Output": "{% { 'orderId': $states.input.orderId, 'lines': $states.result } %}",
+            "Next": "Done"
+        },
+        "Done": {
+            "Type": "Succeed",
+            "Output": true
+        }
+    }
+}

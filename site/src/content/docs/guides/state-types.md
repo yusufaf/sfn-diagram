@@ -24,8 +24,12 @@ in a diagram, so they render as a `·`-separated second line under the node's na
 | State | Shows |
 |-------|-------|
 | **Wait** | how long it waits — `5s` from `Seconds`, or the `SecondsPath` / `Timestamp` / `TimestampPath` it reads. A JSONata `Seconds` is shown as the bare expression, with the `{% %}` delimiters stripped |
-| **Map** | `Distributed` for a Distributed Map, `max N` from `MaxConcurrency`, `tolerate 5%` / `tolerate 100 failures` from `ToleratedFailurePercentage` / `ToleratedFailureCount`, and `batches of 50` / `batches ≤ 256KB` from `ItemBatcher` |
+| **Map** | `Distributed` for a Distributed Map, `max N` from `MaxConcurrency`, `tolerate 5%` / `tolerate 100 failures` from `ToleratedFailurePercentage` / `ToleratedFailureCount`, `batches of 50` / `batches ≤ 256KB` from `ItemBatcher`, `items $.orders` from `ItemsPath`, `selector item, index` from the keys of `ItemSelector`, and `label OrderBatch` from a Distributed Map's `Label` |
+| **any** | `args FunctionName, Payload` from the keys of a JSONata `Arguments` object (or the bare expression when the whole field is one), and `output orderId, total` from `Output` in the same way — a non-object `Output` such as `true` is shown as written |
 | **any** | the state type itself, when `showStateTypes` is enabled |
+
+Key lists are capped at three names (`a, b, c +2 more`); the full field is in the
+interactive viewer's detail panel.
 
 Failure tolerance is worth calling out: it is the difference between one bad item
 failing a hundred-thousand-item run and an accepted loss rate, and the AWS console's

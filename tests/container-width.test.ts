@@ -79,10 +79,12 @@ function descendantIds(node: StateNode, byId: Map<string, StateNode>): Set<strin
 }
 
 describe('container header width', () => {
-    it('renders the full sub-label on distributed-map, with nothing elided', () => {
+    it('widens distributed-map to its header, dropping only the part past the width cap', () => {
         const { svg } = render(loadFixture('distributed-map'));
-        expect(svg).toContain('Distributed · max 100 · tolerate 5% · batches of 50');
-        expect(svg).not.toContain('…');
+        // Six parts overrun CONTAINER_MAX_HEADER_WIDTH; the container grows to the cap
+        // and the last part (`label OrderBatch`) is dropped whole rather than cut.
+        expect(svg).toContain('Distributed · max 100 · tolerate 5% · batches of 50 · items $.items · …');
+        expect(svg).not.toContain('label OrderBatch');
     });
 
     it('does not horizontally overlap a container box with an unrelated node', () => {

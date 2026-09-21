@@ -143,7 +143,7 @@ describe('Distributed Map', () => {
 
     it('distinguishes the two in rendered Mermaid', () => {
         expect(generateMermaid({ aslDefinition: distributed }).code).toContain(
-            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50 · items $.items)'
+            'ProcessItems: ProcessItems (Distributed · max 100 · tolerate 5% · batches of 50 · items $.items · label OrderBatch)'
         );
         expect(generateMermaid({ aslDefinition: inline }).code).not.toContain('Distributed');
     });

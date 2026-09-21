@@ -11,11 +11,15 @@ import type {
 import { getNodeStyle } from './styles/NodeStyles';
 import {
     EDGE_LABELS,
+    getArgumentsLabel,
     getCatchLabel,
+    getChildExecutionLabel,
     getFailCauseLabel,
     getFailErrorLabel,
     getItemBatchingLabel,
+    getItemSelectorLabel,
     getItemsPathLabel,
+    getOutputLabel,
     getRetryLabel,
     getTaskHeartbeatLabel,
     getTaskIntegrationPatternLabel,
@@ -527,6 +531,18 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         baseNode.assignedVariables = assignedVariables;
     }
 
+    // JSONata I/O: `Arguments` is what reaches the integration and `Output` is what
+    // the next state receives. Neither is tied to one state type - Output is valid
+    // on almost every state - so both are read wherever they appear.
+    const argumentsLabel = getArgumentsLabel({ queryLanguage, state });
+    if (argumentsLabel !== '') {
+        baseNode.inputArguments = argumentsLabel;
+    }
+    const outputLabel = getOutputLabel({ queryLanguage, state });
+    if (outputLabel !== '') {
+        baseNode.output = outputLabel;
+    }
+
     // A Wait state's duration is otherwise invisible: two Wait states render
     // identically whether one pauses five seconds and the other until a timestamp
     // resolved from the execution input.
@@ -600,6 +616,16 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         const itemsPath = getItemsPathLabel(state);
         if (itemsPath !== '') {
             baseNode.itemsPath = itemsPath;
+        }
+
+        const itemSelector = getItemSelectorLabel({ queryLanguage, state });
+        if (itemSelector !== '') {
+            baseNode.itemSelector = itemSelector;
+        }
+
+        const mapLabel = getChildExecutionLabel(state);
+        if (mapLabel !== '') {
+            baseNode.mapLabel = mapLabel;
         }
     }
 
