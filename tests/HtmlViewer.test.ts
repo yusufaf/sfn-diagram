@@ -52,7 +52,7 @@ describe('generateHtml', () => {
             const result = generateHtml({ aslDefinition: asl });
             expect(result.html).toContain('id="sfn-search"');
             expect(result.html).toContain('id="sfn-search-count"');
-            expect(result.html).toContain("key === '/'"); // focus shortcut
+            expect(result.html).toContain('key === "/"'); // focus shortcut
             expect(result.html).toContain('sfn-dim'); // non-matches dimmed
         });
     });

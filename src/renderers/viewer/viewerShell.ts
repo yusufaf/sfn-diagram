@@ -41,7 +41,7 @@ export interface BuildViewerBodyParams {
     /**
      * Whether the minimap should start hidden when the collapsed view (below) is the
      * active one. Only meaningful alongside `collapsedSvg`; defaults to `minimapCollapsed`
-     * when omitted. The collapse toggle (in `viewerController.ts`) re-reads this on every
+     * when omitted. The collapse toggle (in `controller/collapse.ts`) re-reads this on every
      * switch, so the minimap's auto-visibility tracks whichever view is showing.
      */
     collapsedMinimapCollapsed?: boolean;
@@ -130,7 +130,7 @@ export interface BuildViewerContentParams {
 /**
  * Build the markup that fills the `data-sfn="content"` node: the diagram itself, or -
  * when a collapsed rendering is supplied - both views wrapped in `data-sfn-view`
- * siblings the collapse toggle (`attachViewer`, in `viewerController.ts`) flips
+ * siblings the collapse toggle (`controller/collapse.ts`) flips
  * between.
  *
  * Extracted so a running viewer can re-render just this fragment and hand it to
@@ -150,7 +150,7 @@ export function buildViewerContent(params: BuildViewerContentParams): string {
     const hasCollapse = collapsedSvg !== undefined;
 
     // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
-    // (attachViewer, in viewerController.ts) flips `hidden` between them. Otherwise
+    // (controller/collapse.ts) flips `hidden` between them. Otherwise
     // the content node holds the SVG directly, exactly as before. The collapsed view's
     // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
     return hasCollapse
