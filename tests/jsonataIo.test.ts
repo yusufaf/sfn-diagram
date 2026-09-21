@@ -47,7 +47,7 @@ describe('getArgumentsLabel', () => {
         expect(getArgumentsLabel(jsonPath(state))).toBe('args {% $states.input %}');
     });
 
-    it('treats an empty, null or non-object value as unset', () => {
+    it('treats an empty or null value as unset, since it passes nothing', () => {
         expect(getArgumentsLabel(jsonata({ Arguments: {}, Type: 'Task' }))).toBe('');
         expect(getArgumentsLabel(jsonata({ Arguments: '', Type: 'Task' }))).toBe('');
         expect(
@@ -72,6 +72,13 @@ describe('getOutputLabel', () => {
         expect(getOutputLabel(jsonata({ Output: true, Type: 'Succeed' }))).toBe('output true');
         expect(getOutputLabel(jsonata({ Output: 42, Type: 'Succeed' }))).toBe('output 42');
         expect(getOutputLabel(jsonata({ Output: [1, 2], Type: 'Succeed' }))).toBe('output [1,2]');
+    });
+
+    it('shows an empty Output, which scrubs the output rather than passing input through', () => {
+        expect(getOutputLabel(jsonata({ Output: null, Type: 'Succeed' }))).toBe('output null');
+        expect(getOutputLabel(jsonata({ Output: {}, Type: 'Succeed' }))).toBe('output {}');
+        expect(getOutputLabel(jsonata({ Output: '', Type: 'Succeed' }))).toBe('output ""');
+        expect(getOutputLabel(jsonata({ Type: 'Succeed' }))).toBe('');
     });
 
     it('elides a long expression', () => {
@@ -119,7 +126,7 @@ describe('parseAsl surfaces JSONata I/O fields', () => {
 
     it('sets arguments and output on a Task', () => {
         const task = nodeById(nodes, 'LoadOrder');
-        expect(task.arguments).toBe('args FunctionName, Payload');
+        expect(task.inputArguments).toBe('args FunctionName, Payload');
         expect(task.output).toBe('output orderId, items');
     });
 
@@ -128,12 +135,12 @@ describe('parseAsl surfaces JSONata I/O fields', () => {
         expect(map.itemSelector).toBe('selector item, index, orderId');
         expect(map.mapLabel).toBe('label OrderItems');
         expect(map.output).toBe("output { 'orderId': $states.input.orde…");
-        expect(map.arguments).toBeUndefined();
+        expect(map.inputArguments).toBeUndefined();
     });
 
     it('sets whole-field expressions on a nested Task', () => {
         const nested = nodeById(nodes, 'PriceItem');
-        expect(nested.arguments).toBe('args $states.input');
+        expect(nested.inputArguments).toBe('args $states.input');
         expect(nested.output).toBe('output $states.result.Payload');
     });
 

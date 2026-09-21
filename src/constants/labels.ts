@@ -624,6 +624,11 @@ export function getItemsPathLabel(state: AslState): string {
 const JSONPATH_KEY_SUFFIX = '.$';
 
 interface GetPayloadLabelParams {
+    /**
+     * Whether an empty value (`null`, `''`, `{}`) is worth showing. True for a field
+     * whose empty value is a real choice, false where empty means "nothing passed".
+     */
+    emptyIsSet: boolean;
     /** Prefix that names the field, e.g. `args` or `output`. */
     prefix: string;
     /** The state's resolved query language; decides how a string or a key is read. */
@@ -642,21 +647,29 @@ interface GetPayloadLabelParams {
  * (`Output: true`, an array) is shown as its literal. In JSONPath mode an object
  * key's `.$` suffix marks a path value and is dropped, as it is for `Assign`.
  *
- * Anything empty — `{}`, `''`, `null` — reads as unset, so a definition from a
- * file or an API response never leaves a dangling `args ` on the node.
+ * An absent field is unset. An empty one — `{}`, `''`, `null` — is shown as its
+ * literal only when `emptyIsSet`: `Output: null` deliberately scrubs a state's
+ * output and must not look like a state that passes its input through, whereas
+ * empty `Arguments` passes nothing and is not worth a part.
  */
 function getPayloadLabel(params: GetPayloadLabelParams): string {
-    const { prefix, queryLanguage, value } = params;
-    if (value === undefined || value === null) {
+    const { emptyIsSet, prefix, queryLanguage, value } = params;
+    if (value === undefined) {
         return '';
     }
+    if (value === null) {
+        return emptyIsSet ? `${prefix} null` : '';
+    }
     if (typeof value === 'string') {
-        return value === '' ? '' : `${prefix} ${elide(unwrapExpression({ queryLanguage, value }))}`;
+        if (value === '') {
+            return emptyIsSet ? `${prefix} ""` : '';
+        }
+        return `${prefix} ${elide(unwrapExpression({ queryLanguage, value }))}`;
     }
     if (typeof value === 'object' && !Array.isArray(value)) {
         const keys = Object.keys(value);
         if (keys.length === 0) {
-            return '';
+            return emptyIsSet ? `${prefix} {}` : '';
         }
         const names =
             queryLanguage === 'JSONPath'
@@ -692,7 +705,7 @@ function getPayloadLabel(params: GetPayloadLabelParams): string {
  */
 export function getArgumentsLabel(params: StateLabelParams): string {
     const { queryLanguage, state } = params;
-    return getPayloadLabel({ prefix: 'args', queryLanguage, value: state.Arguments });
+    return getPayloadLabel({ emptyIsSet: false, prefix: 'args', queryLanguage, value: state.Arguments });
 }
 
 /**
@@ -703,7 +716,7 @@ export function getArgumentsLabel(params: StateLabelParams): string {
  *
  * @param params.queryLanguage - The state's resolved query language
  * @param params.state - The state to describe
- * @returns A label such as `output orderId, total`, or an empty string when unset
+ * @returns A label such as `output orderId, total`, or an empty string when the field is absent
  *
  * @example
  * ```typescript
@@ -711,11 +724,14 @@ export function getArgumentsLabel(params: StateLabelParams): string {
  * // 'output orderId'
  * getOutputLabel({ queryLanguage: 'JSONata', state: { Type: 'Parallel', Output: '{% $merge($states.result) %}' } });
  * // 'output $merge($states.result)'
+ * getOutputLabel({ queryLanguage: 'JSONata', state: { Type: 'Succeed', Output: null } });
+ * // 'output null'
  * ```
  */
 export function getOutputLabel(params: StateLabelParams): string {
     const { queryLanguage, state } = params;
-    return getPayloadLabel({ prefix: 'output', queryLanguage, value: state.Output });
+    // Any JSON is a valid Output, and an empty one is a choice the diagram should show.
+    return getPayloadLabel({ emptyIsSet: true, prefix: 'output', queryLanguage, value: state.Output });
 }
 
 /**
@@ -738,7 +754,12 @@ export function getOutputLabel(params: StateLabelParams): string {
  */
 export function getItemSelectorLabel(params: StateLabelParams): string {
     const { queryLanguage, state } = params;
-    return getPayloadLabel({ prefix: 'selector', queryLanguage, value: state.ItemSelector });
+    return getPayloadLabel({
+        emptyIsSet: false,
+        prefix: 'selector',
+        queryLanguage,
+        value: state.ItemSelector,
+    });
 }
 
 /**
@@ -855,8 +876,8 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     if (node.failCause !== undefined) {
         parts.push(node.failCause);
     }
-    if (node.arguments !== undefined) {
-        parts.push(node.arguments);
+    if (node.inputArguments !== undefined) {
+        parts.push(node.inputArguments);
     }
     if (node.output !== undefined) {
         parts.push(node.output);

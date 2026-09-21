@@ -67088,15 +67088,19 @@ function getItemsPathLabel(state2) {
 }
 var JSONPATH_KEY_SUFFIX$1 = ".$";
 function getPayloadLabel(params) {
-  const { prefix, queryLanguage, value } = params;
-  if (value === void 0 || value === null) return "";
-  if (typeof value === "string") return value === "" ? "" : `${prefix} ${elide(unwrapExpression({
-    queryLanguage,
-    value
-  }))}`;
+  const { emptyIsSet, prefix, queryLanguage, value } = params;
+  if (value === void 0) return "";
+  if (value === null) return emptyIsSet ? `${prefix} null` : "";
+  if (typeof value === "string") {
+    if (value === "") return emptyIsSet ? `${prefix} ""` : "";
+    return `${prefix} ${elide(unwrapExpression({
+      queryLanguage,
+      value
+    }))}`;
+  }
   if (typeof value === "object" && !Array.isArray(value)) {
     const keys = Object.keys(value);
-    if (keys.length === 0) return "";
+    if (keys.length === 0) return emptyIsSet ? `${prefix} {}` : "";
     return `${prefix} ${summarizeNames({ names: queryLanguage === "JSONPath" ? keys.map((key) => key.endsWith(JSONPATH_KEY_SUFFIX$1) ? key.slice(0, -2) : key) : keys })}`;
   }
   return `${prefix} ${elide(JSON.stringify(value))}`;
@@ -67104,6 +67108,7 @@ function getPayloadLabel(params) {
 function getArgumentsLabel(params) {
   const { queryLanguage, state: state2 } = params;
   return getPayloadLabel({
+    emptyIsSet: false,
     prefix: "args",
     queryLanguage,
     value: state2.Arguments
@@ -67112,6 +67117,7 @@ function getArgumentsLabel(params) {
 function getOutputLabel(params) {
   const { queryLanguage, state: state2 } = params;
   return getPayloadLabel({
+    emptyIsSet: true,
     prefix: "output",
     queryLanguage,
     value: state2.Output
@@ -67120,6 +67126,7 @@ function getOutputLabel(params) {
 function getItemSelectorLabel(params) {
   const { queryLanguage, state: state2 } = params;
   return getPayloadLabel({
+    emptyIsSet: false,
     prefix: "selector",
     queryLanguage,
     value: state2.ItemSelector
@@ -67150,7 +67157,7 @@ function getNodeSubLabelParts(params) {
   if (node.taskHeartbeat !== void 0) parts.push(node.taskHeartbeat);
   if (node.failError !== void 0) parts.push(node.failError);
   if (node.failCause !== void 0) parts.push(node.failCause);
-  if (node.arguments !== void 0) parts.push(node.arguments);
+  if (node.inputArguments !== void 0) parts.push(node.inputArguments);
   if (node.output !== void 0) parts.push(node.output);
   return parts;
 }
@@ -67797,7 +67804,7 @@ function createStateNode(params) {
     queryLanguage,
     state: state2
   });
-  if (argumentsLabel !== "") baseNode.arguments = argumentsLabel;
+  if (argumentsLabel !== "") baseNode.inputArguments = argumentsLabel;
   const outputLabel = getOutputLabel({
     queryLanguage,
     state: state2

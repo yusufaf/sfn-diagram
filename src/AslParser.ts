@@ -536,7 +536,7 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // on almost every state - so both are read wherever they appear.
     const argumentsLabel = getArgumentsLabel({ queryLanguage, state });
     if (argumentsLabel !== '') {
-        baseNode.arguments = argumentsLabel;
+        baseNode.inputArguments = argumentsLabel;
     }
     const outputLabel = getOutputLabel({ queryLanguage, state });
     if (outputLabel !== '') {

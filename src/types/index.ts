@@ -99,7 +99,7 @@ export interface ItemIo {
 /** A single state within an ASL definition, covering fields for every state type. */
 export interface AslState {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    Arguments?: Record<string, any>; // JSONata-mode counterpart to Parameters
+    Arguments?: Record<string, any> | string; // JSONata-mode counterpart to Parameters; an object or a whole-field expression
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     Branches?: AslDefinition[]; // Parallel/Map-specific
@@ -118,7 +118,7 @@ export interface AslState {
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ItemSelector?: Record<string, any>; // Map-specific; per-item input shaping
+    ItemSelector?: Record<string, any> | string; // Map-specific; per-item input shaping, an object or (JSONata) a whole-field expression
     ItemsPath?: string; // Map-specific; reference path to the array to iterate (JSONPath mode)
     Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Label?: string; // Distributed Map-specific; prefix for child execution names
@@ -166,11 +166,6 @@ export interface AslDefinition {
 /** A positioned graph node in the internal diagram model, produced from an ASL state. */
 export interface StateNode {
     /**
-     * The `Arguments` a JSONata-mode state passes to its integration, pre-formatted
-     * for display (e.g. `args FunctionName, Payload`). Absent when not set.
-     */
-    arguments?: string;
-    /**
      * Names of the variables a state assigns via ASL `Assign`, in declaration
      * order. Empty/absent when the state assigns nothing.
      */
@@ -195,6 +190,12 @@ export interface StateNode {
     /** URL to AWS service icon (CDN path for Task states) */
     iconUrl?: string;
     id: string;
+    /**
+     * The `Arguments` a JSONata-mode state passes to its integration, pre-formatted
+     * for display (e.g. `args FunctionName, Payload`). Absent when not set. Not named
+     * `arguments`, which cannot be destructured in strict-mode code.
+     */
+    inputArguments?: string;
     /**
      * A Task state's service integration pattern, pre-formatted for display: `sync`
      * for a `.sync` / `.sync:2` resource, `callback` for `.waitForTaskToken`.
