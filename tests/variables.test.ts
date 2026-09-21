@@ -397,6 +397,7 @@ describe('Distributed Map', () => {
 
         it('strips JSONata delimiters from MaxConcurrency, like its ToleratedFailure siblings', () => {
             const asl: AslDefinition = {
+                QueryLanguage: 'JSONata',
                 StartAt: 'Fan',
                 States: {
                     Fan: {

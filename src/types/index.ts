@@ -17,6 +17,13 @@ export type StateType =
     | 'Parallel'
     | 'Map';
 
+/**
+ * The query language a state machine or an individual state evaluates its fields in.
+ * ASL defaults to `JSONPath` when the top-level field is omitted; a state-level value
+ * overrides the top-level one for that state only.
+ */
+export type QueryLanguage = 'JSONata' | 'JSONPath';
+
 /** An ASL `Catch` handler: routes matching errors to a fallback state. */
 export interface CatchBlock {
     ErrorEquals: string[];
@@ -121,7 +128,7 @@ export interface AslState {
     Output?: any; // AWS ASL spec - arbitrary JSON values
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
-    QueryLanguage?: 'JSONata' | 'JSONPath'; // Per-state override of the top-level query language
+    QueryLanguage?: QueryLanguage; // Per-state override of the top-level query language
     Resource?: string; // Task-specific
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Result?: any; // AWS ASL spec - arbitrary JSON values
@@ -148,7 +155,7 @@ export interface AslDefinition {
      * Selects inline vs distributed execution.
      */
     ProcessorConfig?: ProcessorConfig;
-    QueryLanguage?: 'JSONata' | 'JSONPath';
+    QueryLanguage?: QueryLanguage;
     StartAt: string;
     States: Record<string, AslState>;
     TimeoutSeconds?: number;
@@ -208,7 +215,10 @@ export interface StateNode {
      */
     itemsPath?: string;
     label: string;
-    /** A Map state's `MaxConcurrency`, when set. Displayed on the container header. */
+    /**
+     * A Map state's `MaxConcurrency`, when set. Displayed on the container header.
+     * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`).
+     */
     maxConcurrency?: number | string;
     /** Parent node ID (for nodes inside Parallel/Map containers) */
     parent?: string;

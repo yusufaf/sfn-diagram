@@ -287,6 +287,29 @@ describe('generateMermaidDiff', () => {
         expect(result.code).toContain('error: $.error')
     })
 
+    it('renders a removed state under the query language it was written in', () => {
+        // The orphan is parsed inside the after definition, which here has gone back
+        // to JSONPath; the JSONata expression must still be unwrapped.
+        const before: AslDefinition = {
+            QueryLanguage: 'JSONata',
+            StartAt: 'StepA',
+            States: {
+                StepA: { Next: 'Reject', Type: 'Pass' },
+                Reject: { Error: "{% 'Rejected' %}", Type: 'Fail' },
+            },
+        }
+        const after: AslDefinition = {
+            StartAt: 'StepA',
+            States: { StepA: { End: true, Type: 'Pass' } },
+        }
+
+        const result = generateMermaidDiff({ after, before })
+
+        expect(result.code).toContain('class Reject diffRemoved')
+        expect(result.code).toContain("error: 'Rejected'")
+        expect(result.code).not.toContain('{%')
+    })
+
     it('does not affect plain generateMermaid output (no diff classes)', () => {
         const plain = generateMermaid({ aslDefinition: baseAsl })
         expect(plain.code).not.toContain('diffAdded')

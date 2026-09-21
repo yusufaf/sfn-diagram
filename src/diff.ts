@@ -7,9 +7,11 @@ import type {
     GenerateMermaidDiffParams,
     MermaidDiffOutput,
     NodeStyle,
+    QueryLanguage,
 } from './types';
 import { generateSvg } from './index';
 import { parseAsl, parseAslSource } from './AslParser';
+import { resolveQueryLanguage } from './utils/jsonata';
 import { mergeRecordOptions } from './config';
 import { applyCatchHandling, computeCollapsePlan } from './graph';
 import { MermaidRenderer } from './renderers';
@@ -42,9 +44,28 @@ function stableStringify(value: unknown): string {
     return `{${entries.join(',')}}`;
 }
 
-/** Strip transition fields so a removed state renders as an orphan End node. */
-function toOrphanState(state: AslState): AslState {
-    const base: AslState = { End: true, Type: state.Type };
+interface ToOrphanStateParams {
+    /** The top-level `QueryLanguage` of the definition the state was removed from. */
+    machineQueryLanguage: QueryLanguage | undefined;
+    /** The removed state. */
+    state: AslState;
+}
+
+/**
+ * Strip transition fields so a removed state renders as an orphan End node.
+ *
+ * The orphan is parsed as part of the *after* definition, whose top-level
+ * `QueryLanguage` may differ from the one it was written under, so it carries its
+ * own resolved mode: a JSONata Fail `Error` removed while the machine went back to
+ * JSONPath would otherwise render with its `{% %}` delimiters intact.
+ */
+function toOrphanState(params: ToOrphanStateParams): AslState {
+    const { machineQueryLanguage, state } = params;
+    const base: AslState = {
+        End: true,
+        QueryLanguage: resolveQueryLanguage({ machineQueryLanguage, state }),
+        Type: state.Type,
+    };
     if (state.Type === 'Fail') {
         if (state.Cause !== undefined) base.Cause = state.Cause;
         if (state.Error !== undefined) base.Error = state.Error;
@@ -98,7 +119,10 @@ function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): St
     // Build merged ASL: after states + removed states as orphan End nodes
     const mergedStates: Record<string, AslState> = { ...afterAsl.States };
     for (const name of removed) {
-        mergedStates[name] = toOrphanState(beforeAsl.States[name]);
+        mergedStates[name] = toOrphanState({
+            machineQueryLanguage: beforeAsl.QueryLanguage,
+            state: beforeAsl.States[name],
+        });
     }
 
     return { added, mergedAsl: { ...afterAsl, States: mergedStates }, modified, removed, unchanged };

@@ -66703,6 +66703,14 @@ function getStrokeWidthForType(stateType) {
 function stripJsonataDelimiters(expression) {
   return expression.replace(/^\{%\s*/, "").replace(/\s*%\}$/, "").trim();
 }
+function resolveQueryLanguage(params) {
+  const { machineQueryLanguage, state: state2 } = params;
+  return state2.QueryLanguage ?? machineQueryLanguage ?? "JSONPath";
+}
+function unwrapExpression(params) {
+  const { queryLanguage, value } = params;
+  return queryLanguage === "JSONata" ? stripJsonataDelimiters(value) : value;
+}
 var NARROW = 0.3;
 var MEDIUM_NARROW = 0.4;
 var WIDE = 0.65;
@@ -66959,47 +66967,66 @@ function isNonEmptyString(value) {
   return typeof value === "string" && value !== "";
 }
 var SUB_LABEL_SEPARATOR = " \xB7 ";
-function getWaitDurationLabel(state2) {
+function getWaitDurationLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   if (typeof state2.Seconds === "number") return `${state2.Seconds}s`;
-  if (typeof state2.Seconds === "string") return elide(stripJsonataDelimiters(state2.Seconds));
+  if (typeof state2.Seconds === "string") return elide(unwrapExpression({
+    queryLanguage,
+    value: state2.Seconds
+  }));
   if (state2.SecondsPath !== void 0) return elide(state2.SecondsPath);
-  if (state2.Timestamp !== void 0) return elide(stripJsonataDelimiters(state2.Timestamp));
+  if (state2.Timestamp !== void 0) return elide(unwrapExpression({
+    queryLanguage,
+    value: state2.Timestamp
+  }));
   if (state2.TimestampPath !== void 0) return elide(state2.TimestampPath);
   return "";
 }
 function getFailDetailLabel(params) {
-  const { literal, maxLength, path: path2, prefix } = params;
-  const value = isNonEmptyString(literal) ? stripJsonataDelimiters(literal) : isNonEmptyString(path2) ? path2 : "";
+  const { literal, maxLength, path: path2, prefix, queryLanguage } = params;
+  const value = isNonEmptyString(literal) ? unwrapExpression({
+    queryLanguage,
+    value: literal
+  }) : isNonEmptyString(path2) ? path2 : "";
   return value === "" ? "" : elide(`${prefix}: ${value}`, maxLength);
 }
 var FAIL_ERROR_PREFIX = "error";
-function getFailErrorLabel(state2) {
+function getFailErrorLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   return getFailDetailLabel({
     literal: state2.Error,
     maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
     path: state2.ErrorPath,
-    prefix: FAIL_ERROR_PREFIX
+    prefix: FAIL_ERROR_PREFIX,
+    queryLanguage
   });
 }
-function getFailCauseLabel(state2) {
+function getFailCauseLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   return getFailDetailLabel({
     literal: state2.Cause,
     maxLength: MAX_CAUSE_LABEL,
     path: state2.CausePath,
-    prefix: "cause"
+    prefix: "cause",
+    queryLanguage
   });
 }
 function getSecondsLabel(params) {
-  const { path: path2, prefix, seconds } = params;
+  const { path: path2, prefix, queryLanguage, seconds } = params;
   if (typeof seconds === "number") return `${prefix} ${seconds}s`;
-  if (isNonEmptyString(seconds)) return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+  if (isNonEmptyString(seconds)) return `${prefix} ${elide(unwrapExpression({
+    queryLanguage,
+    value: seconds
+  }))}`;
   if (isNonEmptyString(path2)) return `${prefix} ${elide(path2)}`;
   return "";
 }
-function getTaskTimeoutLabel(state2) {
+function getTaskTimeoutLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   return getSecondsLabel({
     path: state2.TimeoutSecondsPath,
     prefix: "timeout",
+    queryLanguage,
     seconds: state2.TimeoutSeconds
   });
 }
@@ -67010,21 +67037,30 @@ function getTaskIntegrationPatternLabel(state2) {
   if (!match2) return "";
   return match2[1] === "waitForTaskToken" ? "callback" : "sync";
 }
-function getTaskHeartbeatLabel(state2) {
+function getTaskHeartbeatLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   return getSecondsLabel({
     path: state2.HeartbeatSecondsPath,
     prefix: "heartbeat",
+    queryLanguage,
     seconds: state2.HeartbeatSeconds
   });
 }
-function getToleratedFailureLabel(state2) {
+function getToleratedFailureLabel(params) {
+  const { queryLanguage, state: state2 } = params;
   const parts = [];
   const count = state2.ToleratedFailureCount;
   const percentage = state2.ToleratedFailurePercentage;
   if (typeof count === "number") parts.push(`${count} failure${count === 1 ? "" : "s"}`);
-  else if (typeof count === "string") parts.push(`${elide(stripJsonataDelimiters(count))} failures`);
+  else if (typeof count === "string") parts.push(`${elide(unwrapExpression({
+    queryLanguage,
+    value: count
+  }))} failures`);
   if (typeof percentage === "number") parts.push(`${percentage}%`);
-  else if (typeof percentage === "string") parts.push(`${elide(stripJsonataDelimiters(percentage))}%`);
+  else if (typeof percentage === "string") parts.push(`${elide(unwrapExpression({
+    queryLanguage,
+    value: percentage
+  }))}%`);
   return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
 }
 var BYTES_PER_KIB = 1024;
@@ -67053,7 +67089,7 @@ function getNodeSubLabelParts(params) {
   if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
   if (typeof node.maxConcurrency === "number") parts.push(`max ${node.maxConcurrency}`);
-  else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
+  else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(node.maxConcurrency)}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
@@ -67643,8 +67679,10 @@ function parseAsl(params) {
   validateAsl({ definition });
   const nodeIndex = /* @__PURE__ */ new Map();
   const resolver = buildIdResolver({ definition });
+  const machineQueryLanguage = definition.QueryLanguage;
   extractStatesRecursively({
     definition,
+    machineQueryLanguage,
     nodeIndex,
     nodes: nodes5,
     options,
@@ -67654,6 +67692,7 @@ function parseAsl(params) {
   for (const [stateName, state2] of Object.entries(definition.States)) {
     const stateEdges = extractEdgesFromState({
       catchLabelStyle: options?.catchLabelStyle,
+      machineQueryLanguage,
       resolveId: (name) => resolver.resolve("", name),
       state: state2,
       stateName
@@ -67663,6 +67702,7 @@ function parseAsl(params) {
   extractNestedEdges({
     definition,
     edges,
+    machineQueryLanguage,
     options,
     resolver,
     scope: ""
@@ -67681,8 +67721,12 @@ function stripJsonPathSuffix(key) {
   return key.endsWith(JSONPATH_KEY_SUFFIX) ? key.slice(0, -2) : key;
 }
 function createStateNode(params) {
-  const { id, name, options, state: state2, stylePreset } = params;
+  const { id, machineQueryLanguage, name, options, state: state2, stylePreset } = params;
   const isContainer = hasNestedStates(state2);
+  const queryLanguage = resolveQueryLanguage({
+    machineQueryLanguage,
+    state: state2
+  });
   const baseNode = {
     id,
     isContainer,
@@ -67693,31 +67737,54 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
-  const assignedVariables = Object.keys(state2.Assign ?? {}).map(stripJsonPathSuffix);
+  const assignKeys = Object.keys(state2.Assign ?? {});
+  const assignedVariables = queryLanguage === "JSONPath" ? assignKeys.map(stripJsonPathSuffix) : assignKeys;
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
   if (state2.Type === "Wait") {
-    const waitDuration = getWaitDurationLabel(state2);
+    const waitDuration = getWaitDurationLabel({
+      queryLanguage,
+      state: state2
+    });
     if (waitDuration !== "") baseNode.waitDuration = waitDuration;
   }
   if (state2.Type === "Task") {
     const integrationPattern = getTaskIntegrationPatternLabel(state2);
     if (integrationPattern !== "") baseNode.integrationPattern = integrationPattern;
-    const taskTimeout = getTaskTimeoutLabel(state2);
+    const taskTimeout = getTaskTimeoutLabel({
+      queryLanguage,
+      state: state2
+    });
     if (taskTimeout !== "") baseNode.taskTimeout = taskTimeout;
-    const taskHeartbeat = getTaskHeartbeatLabel(state2);
+    const taskHeartbeat = getTaskHeartbeatLabel({
+      queryLanguage,
+      state: state2
+    });
     if (taskHeartbeat !== "") baseNode.taskHeartbeat = taskHeartbeat;
   }
   if (state2.Type === "Fail") {
-    const failError = getFailErrorLabel(state2);
+    const failError = getFailErrorLabel({
+      queryLanguage,
+      state: state2
+    });
     if (failError !== "") baseNode.failError = failError;
-    const failCause = getFailCauseLabel(state2);
+    const failCause = getFailCauseLabel({
+      queryLanguage,
+      state: state2
+    });
     if (failCause !== "") baseNode.failCause = failCause;
   }
   if (isContainer) baseNode.children = [];
   if (state2.Type === "Map") {
     if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
-    if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
-    const toleratedFailure = getToleratedFailureLabel(state2);
+    if (typeof state2.MaxConcurrency === "string") baseNode.maxConcurrency = unwrapExpression({
+      queryLanguage,
+      value: state2.MaxConcurrency
+    });
+    else if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+    const toleratedFailure = getToleratedFailureLabel({
+      queryLanguage,
+      state: state2
+    });
     if (toleratedFailure !== "") baseNode.toleratedFailure = toleratedFailure;
     const itemBatching = getItemBatchingLabel(state2);
     if (itemBatching !== "") baseNode.itemBatching = itemBatching;
@@ -67737,9 +67804,13 @@ function createStateNode(params) {
   return baseNode;
 }
 function extractEdgesFromState(params) {
-  const { catchLabelStyle, resolveId, state: state2, stateName } = params;
+  const { catchLabelStyle, machineQueryLanguage, resolveId, state: state2, stateName } = params;
   const edges = [];
   const stateId = resolveId(stateName);
+  const queryLanguage = resolveQueryLanguage({
+    machineQueryLanguage,
+    state: state2
+  });
   if (state2.Type === "Map") for (const io of ITEM_IO_ROLES) {
     if (!state2[io.field]?.Resource) continue;
     const satelliteId = `${stateId}${io.idSuffix}`;
@@ -67756,7 +67827,10 @@ function extractEdgesFromState(params) {
   switch (state2.Type) {
     case "Choice":
       if (state2.Choices) state2.Choices.forEach((choice) => {
-        const condition = extractConditionLabel(choice);
+        const condition = extractConditionLabel({
+          queryLanguage,
+          rule: choice
+        });
         edges.push({
           condition,
           from: stateId,
@@ -67845,18 +67919,26 @@ function formatComparison(variable, operatorKey, value) {
   const formattedValue = !isPath && (prefix === "String" || prefix === "Timestamp") ? JSON.stringify(value) : String(value);
   return `${variable} ${operator[1]} ${formattedValue}`;
 }
-function describeChoiceRule(rule) {
-  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? stripJsonataDelimiters(rule.Condition) : String(rule.Condition);
+function describeChoiceRule(params) {
+  const { queryLanguage, rule } = params;
+  if (rule.Condition !== void 0) return typeof rule.Condition === "string" ? unwrapExpression({
+    queryLanguage,
+    value: rule.Condition
+  }) : String(rule.Condition);
+  const describeOperand = (operand) => describeChoiceRule({
+    queryLanguage,
+    rule: operand
+  });
   if (Array.isArray(rule.And)) {
-    const parts = rule.And.map(describeChoiceRule).filter(Boolean);
+    const parts = rule.And.map(describeOperand).filter(Boolean);
     return parts.length > 0 ? parts.join(" AND ") : "";
   }
   if (Array.isArray(rule.Or)) {
-    const parts = rule.Or.map(describeChoiceRule).filter(Boolean);
+    const parts = rule.Or.map(describeOperand).filter(Boolean);
     return parts.length > 0 ? parts.join(" OR ") : "";
   }
   if (rule.Not && typeof rule.Not === "object") {
-    const inner = describeChoiceRule(rule.Not);
+    const inner = describeOperand(rule.Not);
     return inner ? `NOT (${inner})` : "";
   }
   const variable = rule.Variable || "";
@@ -67866,8 +67948,8 @@ function describeChoiceRule(rule) {
   }
   return "";
 }
-function extractConditionLabel(choice) {
-  return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
+function extractConditionLabel(params) {
+  return describeChoiceRule(params) || EDGE_LABELS.CONDITION_FALLBACK;
 }
 var ITEM_IO_ROLES = [{
   edgeDirection: "in",
@@ -67883,10 +67965,11 @@ var ITEM_IO_ROLES = [{
   nodeType: "ResultWriter"
 }];
 function extractStatesRecursively(params) {
-  const { definition, nodeIndex, nodes: nodes5, options, resolver, scope } = params;
+  const { definition, machineQueryLanguage, nodeIndex, nodes: nodes5, options, resolver, scope } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
     const stateNode = createStateNode({
       id: resolver.resolve(scope, stateName),
+      machineQueryLanguage,
       name: stateName,
       options,
       state: state2,
@@ -67898,6 +67981,7 @@ function extractStatesRecursively(params) {
       const branchScope = resolver.branchScope(scope, stateName, index);
       extractStatesRecursively({
         definition: branch,
+        machineQueryLanguage,
         nodeIndex,
         nodes: nodes5,
         options,
@@ -67936,6 +68020,7 @@ function extractStatesRecursively(params) {
       const processorScope = resolver.processorScope(scope, stateName);
       extractStatesRecursively({
         definition: iterator2,
+        machineQueryLanguage,
         nodeIndex,
         nodes: nodes5,
         options,
@@ -68011,7 +68096,7 @@ function markBranchStatesAsChildren(params) {
   }
 }
 function extractNestedEdges(params) {
-  const { definition, edges, options, resolver, scope } = params;
+  const { definition, edges, machineQueryLanguage, options, resolver, scope } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
     if (state2.Type === "Parallel" && state2.Branches) state2.Branches.forEach((branch, index) => {
       const containerId = resolver.resolve(scope, stateName);
@@ -68026,6 +68111,7 @@ function extractNestedEdges(params) {
       for (const [branchStateName, branchState] of Object.entries(branch.States)) {
         const branchEdges = extractEdgesFromState({
           catchLabelStyle: options?.catchLabelStyle,
+          machineQueryLanguage,
           resolveId: (name) => resolver.resolve(branchScope, name),
           state: branchState,
           stateName: branchStateName
@@ -68051,6 +68137,7 @@ function extractNestedEdges(params) {
       extractNestedEdges({
         definition: branch,
         edges,
+        machineQueryLanguage,
         options,
         resolver,
         scope: branchScope
@@ -68070,6 +68157,7 @@ function extractNestedEdges(params) {
       for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
         const iteratorEdges = extractEdgesFromState({
           catchLabelStyle: options?.catchLabelStyle,
+          machineQueryLanguage,
           resolveId: (name) => resolver.resolve(processorScope, name),
           state: iteratorState,
           stateName: iteratorStateName
@@ -68097,6 +68185,7 @@ function extractNestedEdges(params) {
       extractNestedEdges({
         definition: mapProcessor,
         edges,
+        machineQueryLanguage,
         options,
         resolver,
         scope: processorScope
@@ -68359,9 +68448,14 @@ function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
 }
-function toOrphanState(state2) {
+function toOrphanState(params) {
+  const { machineQueryLanguage, state: state2 } = params;
   const base = {
     End: true,
+    QueryLanguage: resolveQueryLanguage({
+      machineQueryLanguage,
+      state: state2
+    }),
     Type: state2.Type
   };
   if (state2.Type === "Fail") {
@@ -68384,7 +68478,10 @@ function computeStateDiff(beforeAsl, afterAsl) {
   else unchanged.push(name);
   for (const name of beforeNames) if (!afterNames.has(name)) removed.push(name);
   const mergedStates = { ...afterAsl.States };
-  for (const name of removed) mergedStates[name] = toOrphanState(beforeAsl.States[name]);
+  for (const name of removed) mergedStates[name] = toOrphanState({
+    machineQueryLanguage: beforeAsl.QueryLanguage,
+    state: beforeAsl.States[name]
+  });
   return {
     added,
     mergedAsl: {

@@ -929,7 +929,7 @@ describe('AslParser', () => {
         });
 
         it('unwraps a JSONata Seconds expression', () => {
-            expect(durationOf(waitWith({ Seconds: '{% $states.input.delaySeconds %}' }))).toBe(
+            expect(durationOf(waitWith({ QueryLanguage: 'JSONata', Seconds: '{% $states.input.delaySeconds %}' }))).toBe(
                 '$states.input.delaySeconds',
             );
         });
@@ -949,7 +949,7 @@ describe('AslParser', () => {
         it('elides an expression too long for the node', () => {
             const long = '$states.input.someVeryLongPropertyNameIndeed.delaySeconds';
 
-            const duration = durationOf(waitWith({ Seconds: `{% ${long} %}` }))!;
+            const duration = durationOf(waitWith({ QueryLanguage: 'JSONata', Seconds: `{% ${long} %}` }))!;
 
             expect(duration.length).toBeLessThan(long.length);
             expect(duration.endsWith('…')).toBe(true);
@@ -997,7 +997,11 @@ describe('AslParser', () => {
 
         it('unwraps JSONata Error and Cause expressions', () => {
             const node = abortNode(
-                failWith({ Cause: '{% $states.input.reason %}', Error: "{% 'Rejected' %}" }),
+                failWith({
+                    Cause: '{% $states.input.reason %}',
+                    Error: "{% 'Rejected' %}",
+                    QueryLanguage: 'JSONata',
+                }),
             );
 
             expect(node?.failError).toBe("error: 'Rejected'");
@@ -1088,7 +1092,7 @@ describe('AslParser', () => {
         });
 
         it('unwraps a JSONata TimeoutSeconds expression', () => {
-            const node = workNode(taskWith({ TimeoutSeconds: '{% $states.input.limit %}' }));
+            const node = workNode(taskWith({ QueryLanguage: 'JSONata', TimeoutSeconds: '{% $states.input.limit %}' }));
 
             expect(node?.taskTimeout).toBe('timeout $states.input.limit');
         });
@@ -1234,10 +1238,10 @@ describe('AslParser', () => {
         it('strips JSONata delimiters from a tolerance expression', () => {
             // Either threshold can be an expression, as MaxConcurrency already can be.
             expect(
-                nodeFor(mapWith({ ToleratedFailurePercentage: '{% $pct %}' })).toleratedFailure,
+                nodeFor(mapWith({ QueryLanguage: 'JSONata', ToleratedFailurePercentage: '{% $pct %}' })).toleratedFailure,
             ).toBe('tolerate $pct%');
             expect(
-                nodeFor(mapWith({ ToleratedFailureCount: '{% $max %}' })).toleratedFailure,
+                nodeFor(mapWith({ QueryLanguage: 'JSONata', ToleratedFailureCount: '{% $max %}' })).toleratedFailure,
             ).toBe('tolerate $max failures');
         });
 

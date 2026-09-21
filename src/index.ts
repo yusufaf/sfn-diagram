@@ -662,6 +662,7 @@ export type {
     AslDefinition,
     AslState,
     StateType,
+    QueryLanguage,
     DiagramOptions,
     SvgOutput,
     MermaidOutput,
