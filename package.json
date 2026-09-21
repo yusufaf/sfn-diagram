@@ -197,7 +197,7 @@
     "tsdown": "^0.23.0",
     "tsx": "^4.20.5",
     "turbo": "^2.10.0",
-    "typescript": "^5.9.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.41.0",
     "vitest": "^4.1.11"
   },
