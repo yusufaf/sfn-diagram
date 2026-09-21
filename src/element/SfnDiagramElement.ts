@@ -3,6 +3,7 @@ import { collectStateData } from '../renderers/viewer/stateData';
 import { attachViewer, type ViewerHandle } from '../renderers/viewer/viewerController';
 import { buildViewerBody } from '../renderers/viewer/viewerShell';
 import { buildViewerStyles, resolveViewerTheme } from '../renderers/viewer/viewerStyles';
+import { parseAslSource } from '../AslParser';
 import { renderDiagramString } from './renderDiagram';
 import type { AslDefinition, AslState, ExecutionHistoryInput, LayoutDirection, ThemeOption } from '../types';
 
@@ -21,10 +22,6 @@ function ensureViewerStylesInjected(theme: 'dark' | 'light'): void {
     style.textContent = buildViewerStyles({ scope: 'element', theme });
     document.head.appendChild(style);
     injectedStyleThemes.add(theme);
-}
-
-function parseAsl(source: AslDefinition | string): AslDefinition {
-    return typeof source === 'string' ? (JSON.parse(source) as AslDefinition) : source;
 }
 
 let nextInstanceId = 0;
@@ -208,7 +205,7 @@ export class SfnDiagramElement extends HTMLElement {
         let edgeData: Record<string, ViewerEdge> | undefined;
         let stateData: Record<string, AslState> | undefined;
         try {
-            const aslObj = parseAsl(this.#definitionSource);
+            const aslObj = parseAslSource({ source: this.#definitionSource });
             result = renderDiagramString({
                 asl: aslObj,
                 edgeHitAreas: this.interactive,

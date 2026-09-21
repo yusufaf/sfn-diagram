@@ -1,6 +1,5 @@
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type {
-    AslDefinition,
     EdgeStyleOverride,
     ExecutionHistoryInput,
     ExecutionHtmlOutput,
@@ -16,7 +15,7 @@ import type {
     MermaidExecutionOutput,
     NodeStyle,
 } from './types';
-import { parseAsl } from './AslParser';
+import { parseAsl, parseAslSource } from './AslParser';
 import { buildIdResolver } from './graph';
 import { DagreLayout } from './layout';
 import {
@@ -421,7 +420,7 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
         nodeOverrides: callerNodeOverrides,
         ...options
     } = params;
-    const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const overlay = computeOverlay(history);
     const mergedOptions = mergeOptions(options);
 
@@ -549,8 +548,7 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
  */
 export function generateExecutionHtml(params: GenerateExecutionHtmlParams): ExecutionHtmlOutput {
     const { aslDefinition, nonce, ...executionOptions } = params;
-    const aslObj: AslDefinition =
-        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
 
     return {
@@ -596,8 +594,7 @@ export async function generateExecutionHtmlAsync(
     params: GenerateExecutionHtmlParams,
 ): Promise<ExecutionHtmlOutput> {
     const { aslDefinition, nonce, ...executionOptions } = params;
-    const aslObj: AslDefinition =
-        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
     const embeddedSvg = await embedIcons({ svg: result.svg });
 
@@ -632,7 +629,7 @@ export function generateMermaidExecution(
     params: GenerateMermaidExecutionParams,
 ): MermaidExecutionOutput {
     const { aslDefinition, history, layout, theme } = params;
-    const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const overlay = computeOverlay(history);
 
     const { nodes, edges } = parseAsl({ definition: aslObj });

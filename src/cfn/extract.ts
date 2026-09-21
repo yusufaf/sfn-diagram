@@ -1,4 +1,5 @@
 import type { AslDefinition, ExtractAslFromTemplateParams, ExtractAslResult } from '../types';
+import { parseAslSource } from '../AslParser';
 import { resolveIntrinsics } from './intrinsics';
 import { parseTemplate } from './templateParser';
 
@@ -81,10 +82,7 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
 
     const { value: resolved, warnings } = resolveIntrinsics({ substitutions, value: rawDefinition });
 
-    const aslDefinition: AslDefinition =
-        typeof resolved === 'string'
-            ? (JSON.parse(resolved) as AslDefinition)
-            : (resolved as AslDefinition);
+    const aslDefinition = parseAslSource({ source: resolved as AslDefinition | string });
 
     return { aslDefinition, resourceId: chosenId, warnings };
 }

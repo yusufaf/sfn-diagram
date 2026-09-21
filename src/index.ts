@@ -23,7 +23,7 @@
  * });
  * ```
  */
-import { parseAsl } from './AslParser';
+import { parseAsl, parseAslSource } from './AslParser';
 import { applyCatchHandling, applyCollapse, computeCollapsePlan } from './graph';
 import { DagreLayout } from './layout';
 import {
@@ -81,7 +81,7 @@ type MergedDiagramOptions = ReturnType<typeof mergeOptions>;
  *
  * @returns SVG output containing the diagram string, dimensions, and metadata
  *
- * @throws {SyntaxError} If params.asl is a string with invalid JSON
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
  * @throws {Error} If the ASL definition structure is invalid
  *
  * @example
@@ -121,7 +121,7 @@ type MergedDiagramOptions = ReturnType<typeof mergeOptions>;
  */
 export function generateSvg(params: GenerateSvgParams): SvgOutput {
     const { aslDefinition, ...options } = params;
-    const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions({
         ...options,
         diagramTitle: options.diagramTitle ?? aslObj.Comment,
@@ -165,7 +165,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
  *
  * @returns Mermaid output containing the diagram code and metadata
  *
- * @throws {SyntaxError} If params.asl is a string with invalid JSON
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
  * @throws {Error} If the ASL definition structure is invalid
  *
  * @example
@@ -202,7 +202,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
  */
 export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
     const { aslDefinition, ...options } = params;
-    const aslObj = typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
     const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
@@ -321,8 +321,7 @@ function buildHtmlViewParts(params: {
 
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { aslDefinition, nonce, ...options } = params;
-    const aslObj: AslDefinition =
-        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
     const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
@@ -366,8 +365,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  */
 export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
     const { aslDefinition, ...options } = params;
-    const aslObj: AslDefinition =
-        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
     const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
@@ -412,8 +410,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
     const { aslDefinition, nonce, ...options } = params;
-    const aslObj: AslDefinition =
-        typeof aslDefinition === 'string' ? JSON.parse(aslDefinition) : aslDefinition;
+    const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
     const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options: mergedOptions });
@@ -460,7 +457,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
  * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid',
  *   interactive HTML output if format is 'html'
  *
- * @throws {SyntaxError} If params.asl is a string with invalid JSON
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
  * @throws {Error} If the ASL definition structure is invalid
  *
  * @example
@@ -512,7 +509,7 @@ export function generateDiagram(
  * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid'
  *
  * @throws {Error} If response.definition is missing
- * @throws {SyntaxError} If the definition contains invalid JSON
+ * @throws {AslSyntaxError} If the definition contains invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
  * @throws {Error} If the ASL definition structure is invalid
  *
  * @example
@@ -714,7 +711,7 @@ export { AWS_LIGHT_THEME, AWS_DARK_THEME } from './config';
 export { resolveViewerTheme } from './renderers';
 export type { ViewerTheme } from './renderers';
 export { embedIcons } from './utils/iconEmbedder';
-export { AslValidationError, validateAsl } from './AslParser';
+export { AslSyntaxError, AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
 export {
     generateExecution,

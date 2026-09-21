@@ -9,7 +9,7 @@ import type {
     NodeStyle,
 } from './types';
 import { generateSvg } from './index';
-import { parseAsl } from './AslParser';
+import { parseAsl, parseAslSource } from './AslParser';
 import { mergeRecordOptions } from './config';
 import { applyCatchHandling, computeCollapsePlan } from './graph';
 import { MermaidRenderer } from './renderers';
@@ -20,10 +20,6 @@ const DIFF_COLORS: Record<'added' | 'modified' | 'removed', Partial<NodeStyle>> 
     modified: { fill: '#fff9c4', stroke: '#f57f17', strokeWidth: 2 },
     removed: { fill: '#ffcdd2', stroke: '#c62828', strokeWidth: 2 },
 };
-
-function parseAslArg(value: AslDefinition | string): AslDefinition {
-    return typeof value === 'string' ? (JSON.parse(value) as AslDefinition) : value;
-}
 
 /**
  * Serialize a value with object keys sorted recursively so that two semantically
@@ -188,7 +184,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
         ...options
     } = params;
 
-    const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+    const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
 
     // Build nodeOverrides for diff coloring
@@ -272,7 +268,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
 export function generateMermaidDiff(params: GenerateMermaidDiffParams): MermaidDiffOutput {
     const { after: afterArg, before: beforeArg, layout, theme } = params;
 
-    const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+    const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
 
     const { edges, nodes } = parseAsl({ definition: mergedAsl });

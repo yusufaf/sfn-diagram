@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
+import { AslSyntaxError } from '../../src';
 import { renderDiagramString } from '../../src/element/renderDiagram';
 import type { AslDefinition } from '../../src/types';
 
@@ -65,6 +66,6 @@ describe('renderDiagramString', () => {
     });
 
     it('throws on malformed JSON', () => {
-        expect(() => renderDiagramString({ asl: '{not json' })).toThrow();
+        expect(() => renderDiagramString({ asl: '{not json' })).toThrow(AslSyntaxError);
     });
 });

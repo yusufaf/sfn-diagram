@@ -6,6 +6,7 @@ import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
+import { parseAslSource } from './AslParser';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { exportPng } from './png';
 import {
@@ -799,10 +800,7 @@ export async function run(argv: string[]): Promise<number> {
         svg: string,
         nodeCount: number,
     ): Promise<string> => {
-        const definition =
-            typeof definitionSource === 'string'
-                ? (JSON.parse(definitionSource) as AslDefinition)
-                : definitionSource;
+        const definition = parseAslSource({ source: definitionSource });
         return wrapSvgInInteractiveHtml({
             edgeData: collectEdgeData({ definition, options: svgOptions }),
             nodeCount,
