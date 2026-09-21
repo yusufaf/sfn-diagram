@@ -42,3 +42,5 @@ node is elided rather than drawn over its neighbours.
 ## Query languages
 
 Both JSONPath and JSONata (`QueryLanguage: "JSONata"`) definitions are supported. Choice branch labels are derived from JSONPath comparison operators (`$.score >= 90`, `And`/`Or`/`Not`, `Is*` checks) or from JSONata `Condition` expressions, whichever the state uses.
+
+The mode is resolved the way Step Functions resolves it: a state's own `QueryLanguage` wins, otherwise the top-level one, otherwise JSONPath. States nested in a Parallel branch or Map processor fall back to the top-level value, not to their container's. Only under JSONata are `{% %}` delimiters stripped from expression fields (`Seconds`, `TimeoutSeconds`, `MaxConcurrency`, `Error`, `Condition`, …) and only under JSONPath is the `.$` suffix dropped from `Assign` keys — a JSONPath literal that happens to look like `{% … %}` is shown as written.

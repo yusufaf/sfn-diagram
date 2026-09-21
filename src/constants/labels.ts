@@ -1,5 +1,5 @@
-import type { AslState, CatchLabelStyle, RetryBlock, StateNode } from '../types';
-import { stripJsonataDelimiters } from '../utils/jsonata';
+import type { AslState, CatchLabelStyle, QueryLanguage, RetryBlock, StateNode } from '../types';
+import { unwrapExpression } from '../utils/jsonata';
 import { splitGraphemes } from '../utils/textMeasure';
 
 /**
@@ -233,36 +233,47 @@ export function fitText(params: FitTextParams): string {
     return '';
 }
 
+/** A state and the query language its fields are evaluated in. */
+interface StateLabelParams {
+    /** The state's resolved query language — see `resolveQueryLanguage`. */
+    queryLanguage: QueryLanguage;
+    /** The state to describe */
+    state: AslState;
+}
+
 /**
  * Describe how long a Wait state waits, for display on the node.
  *
  * Fields are read in the order ASL resolves them, and only one is ever shown —
  * a definition setting more than one is invalid, and picking the first keeps the
- * label deterministic. A `Seconds` holding a JSONata expression is unwrapped, so
- * the node shows the expression rather than `{% ... %}` noise.
+ * label deterministic. In JSONata mode a string `Seconds` or `Timestamp` is an
+ * expression and is unwrapped, so the node shows the expression rather than
+ * `{% ... %}` noise; in JSONPath mode it is a literal and shown as written.
  *
- * @param state - The Wait state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Wait state to describe
  * @returns A short label such as `5s`, or an empty string when nothing is set
  *
  * @example
  * ```typescript
- * getWaitDurationLabel({ Type: 'Wait', Seconds: 5 });                          // '5s'
- * getWaitDurationLabel({ Type: 'Wait', Seconds: '{% $.delay %}' });            // '$.delay'
- * getWaitDurationLabel({ Type: 'Wait', TimestampPath: '$.readyAt' });          // '$.readyAt'
+ * getWaitDurationLabel({ queryLanguage: 'JSONPath', state: { Type: 'Wait', Seconds: 5 } });                 // '5s'
+ * getWaitDurationLabel({ queryLanguage: 'JSONata', state: { Type: 'Wait', Seconds: '{% $.delay %}' } });   // '$.delay'
+ * getWaitDurationLabel({ queryLanguage: 'JSONPath', state: { Type: 'Wait', TimestampPath: '$.readyAt' } }); // '$.readyAt'
  * ```
  */
-export function getWaitDurationLabel(state: AslState): string {
+export function getWaitDurationLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     if (typeof state.Seconds === 'number') {
         return `${state.Seconds}s`;
     }
     if (typeof state.Seconds === 'string') {
-        return elide(stripJsonataDelimiters(state.Seconds));
+        return elide(unwrapExpression({ queryLanguage, value: state.Seconds }));
     }
     if (state.SecondsPath !== undefined) {
         return elide(state.SecondsPath);
     }
     if (state.Timestamp !== undefined) {
-        return elide(stripJsonataDelimiters(state.Timestamp));
+        return elide(unwrapExpression({ queryLanguage, value: state.Timestamp }));
     }
     if (state.TimestampPath !== undefined) {
         return elide(state.TimestampPath);
@@ -279,18 +290,21 @@ interface GetFailDetailLabelParams {
     path?: string;
     /** Prefix that names the part, e.g. `error` or `cause`. */
     prefix: string;
+    /** The state's resolved query language; decides whether `literal` is an expression. */
+    queryLanguage: QueryLanguage;
 }
 
 /**
  * Format one of a Fail state's two detail fields, resolving the literal before its
- * path form the way ASL does. A JSONata literal is unwrapped like a Wait duration.
+ * path form the way ASL does. In JSONata mode the literal is unwrapped like a Wait
+ * duration.
  * An empty or non-string field is treated as unset, so a malformed definition
  * neither crashes nor leaves a dangling `error: ` on the node.
  */
 function getFailDetailLabel(params: GetFailDetailLabelParams): string {
-    const { literal, maxLength, path, prefix } = params;
+    const { literal, maxLength, path, prefix, queryLanguage } = params;
     const value = isNonEmptyString(literal)
-        ? stripJsonataDelimiters(literal)
+        ? unwrapExpression({ queryLanguage, value: literal })
         : isNonEmptyString(path)
           ? path
           : '';
@@ -307,23 +321,26 @@ const FAIL_ERROR_PREFIX = 'error';
  * error and the other a permanent one. `Error` wins over `ErrorPath` when both are
  * set, matching the order ASL resolves them.
  *
- * @param state - The Fail state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Fail state to describe
  * @returns A label such as `error: PaymentFailed`, or an empty string when neither field is set
  *
  * @example
  * ```typescript
- * getFailErrorLabel({ Type: 'Fail', Error: 'PaymentFailed' });       // 'error: PaymentFailed'
- * getFailErrorLabel({ Type: 'Fail', ErrorPath: '$.error' });         // 'error: $.error'
- * getFailErrorLabel({ Type: 'Fail', Error: "{% $states.input.e %}" }); // 'error: $states.input.e'
+ * getFailErrorLabel({ queryLanguage: 'JSONPath', state: { Type: 'Fail', Error: 'PaymentFailed' } });         // 'error: PaymentFailed'
+ * getFailErrorLabel({ queryLanguage: 'JSONPath', state: { Type: 'Fail', ErrorPath: '$.error' } });           // 'error: $.error'
+ * getFailErrorLabel({ queryLanguage: 'JSONata', state: { Type: 'Fail', Error: "{% $states.input.e %}" } }); // 'error: $states.input.e'
  * ```
  */
-export function getFailErrorLabel(state: AslState): string {
+export function getFailErrorLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     return getFailDetailLabel({
         literal: state.Error,
         // The value keeps the same room every other sub-label value gets.
         maxLength: `${FAIL_ERROR_PREFIX}: `.length + MAX_SUB_LABEL_EXPRESSION,
         path: state.ErrorPath,
         prefix: FAIL_ERROR_PREFIX,
+        queryLanguage,
     });
 }
 
@@ -337,21 +354,24 @@ export function getFailErrorLabel(state: AslState): string {
  * width-fits it again on the node, but Mermaid has no width to fit to, and a
  * paragraph-long cause would otherwise land on the state label verbatim.
  *
- * @param state - The Fail state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Fail state to describe
  * @returns A label such as `cause: Payment declined`, or an empty string when neither field is set
  *
  * @example
  * ```typescript
- * getFailCauseLabel({ Type: 'Fail', Cause: 'Payment declined' }); // 'cause: Payment declined'
- * getFailCauseLabel({ Type: 'Fail', CausePath: '$.reason' });     // 'cause: $.reason'
+ * getFailCauseLabel({ queryLanguage: 'JSONPath', state: { Type: 'Fail', Cause: 'Payment declined' } }); // 'cause: Payment declined'
+ * getFailCauseLabel({ queryLanguage: 'JSONPath', state: { Type: 'Fail', CausePath: '$.reason' } });     // 'cause: $.reason'
  * ```
  */
-export function getFailCauseLabel(state: AslState): string {
+export function getFailCauseLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     return getFailDetailLabel({
         literal: state.Cause,
         maxLength: MAX_CAUSE_LABEL,
         path: state.CausePath,
         prefix: 'cause',
+        queryLanguage,
     });
 }
 
@@ -360,6 +380,8 @@ interface GetSecondsLabelParams {
     path?: string;
     /** Prefix that names the part, e.g. `timeout` or `heartbeat`. */
     prefix: string;
+    /** The state's resolved query language; decides whether a string `seconds` is an expression. */
+    queryLanguage: QueryLanguage;
     /** Literal seconds, or a JSONata expression resolving to them. */
     seconds?: number | string;
 }
@@ -369,12 +391,12 @@ interface GetSecondsLabelParams {
  * a number gets its unit, an expression is unwrapped, a path is shown as-is.
  */
 function getSecondsLabel(params: GetSecondsLabelParams): string {
-    const { path, prefix, seconds } = params;
+    const { path, prefix, queryLanguage, seconds } = params;
     if (typeof seconds === 'number') {
         return `${prefix} ${seconds}s`;
     }
     if (isNonEmptyString(seconds)) {
-        return `${prefix} ${elide(stripJsonataDelimiters(seconds))}`;
+        return `${prefix} ${elide(unwrapExpression({ queryLanguage, value: seconds }))}`;
     }
     if (isNonEmptyString(path)) {
         return `${prefix} ${elide(path)}`;
@@ -388,19 +410,22 @@ function getSecondsLabel(params: GetSecondsLabelParams): string {
  * A Task with an unusually long or short timeout is otherwise visually identical
  * to one running on the default. `TimeoutSeconds` wins over `TimeoutSecondsPath`.
  *
- * @param state - The Task state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Task state to describe
  * @returns A label such as `timeout 30s`, or an empty string when neither field is set
  *
  * @example
  * ```typescript
- * getTaskTimeoutLabel({ Type: 'Task', TimeoutSeconds: 30 });          // 'timeout 30s'
- * getTaskTimeoutLabel({ Type: 'Task', TimeoutSecondsPath: '$.limit' }); // 'timeout $.limit'
+ * getTaskTimeoutLabel({ queryLanguage: 'JSONPath', state: { Type: 'Task', TimeoutSeconds: 30 } });          // 'timeout 30s'
+ * getTaskTimeoutLabel({ queryLanguage: 'JSONPath', state: { Type: 'Task', TimeoutSecondsPath: '$.limit' } }); // 'timeout $.limit'
  * ```
  */
-export function getTaskTimeoutLabel(state: AslState): string {
+export function getTaskTimeoutLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     return getSecondsLabel({
         path: state.TimeoutSecondsPath,
         prefix: 'timeout',
+        queryLanguage,
         seconds: state.TimeoutSeconds,
     });
 }
@@ -445,18 +470,21 @@ export function getTaskIntegrationPatternLabel(state: AslState): string {
 /**
  * Describe a Task state's heartbeat interval, for display on the node.
  *
- * @param state - The Task state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Task state to describe
  * @returns A label such as `heartbeat 10s`, or an empty string when neither field is set
  *
  * @example
  * ```typescript
- * getTaskHeartbeatLabel({ Type: 'Task', HeartbeatSeconds: 10 }); // 'heartbeat 10s'
+ * getTaskHeartbeatLabel({ queryLanguage: 'JSONPath', state: { Type: 'Task', HeartbeatSeconds: 10 } }); // 'heartbeat 10s'
  * ```
  */
-export function getTaskHeartbeatLabel(state: AslState): string {
+export function getTaskHeartbeatLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     return getSecondsLabel({
         path: state.HeartbeatSecondsPath,
         prefix: 'heartbeat',
+        queryLanguage,
         seconds: state.HeartbeatSeconds,
     });
 }
@@ -470,16 +498,18 @@ export function getTaskHeartbeatLabel(state: AslState): string {
  * a percentage may be set, in which case either threshold failing the state is
  * reflected by showing both.
  *
- * @param state - The Map state to describe
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Map state to describe
  * @returns A label such as `tolerate 5%`, or an empty string when no tolerance is set
  *
  * @example
  * ```typescript
- * getToleratedFailureLabel({ Type: 'Map', ToleratedFailurePercentage: 5 }); // 'tolerate 5%'
- * getToleratedFailureLabel({ Type: 'Map', ToleratedFailureCount: 100 });    // 'tolerate 100 failures'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailurePercentage: 5 } }); // 'tolerate 5%'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailureCount: 100 } });    // 'tolerate 100 failures'
  * ```
  */
-export function getToleratedFailureLabel(state: AslState): string {
+export function getToleratedFailureLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
     const parts: string[] = [];
     const count = state.ToleratedFailureCount;
     const percentage = state.ToleratedFailurePercentage;
@@ -488,15 +518,15 @@ export function getToleratedFailureLabel(state: AslState): string {
         parts.push(`${count} failure${count === 1 ? '' : 's'}`);
     } else if (typeof count === 'string') {
         // Either threshold can be a JSONata expression, the same way MaxConcurrency
-        // can. Strip the delimiters as the Wait path does, rather than rendering
+        // can. Unwrap it as the Wait path does, rather than rendering
         // `tolerate {% $count %} failures`.
-        parts.push(`${elide(stripJsonataDelimiters(count))} failures`);
+        parts.push(`${elide(unwrapExpression({ queryLanguage, value: count }))} failures`);
     }
 
     if (typeof percentage === 'number') {
         parts.push(`${percentage}%`);
     } else if (typeof percentage === 'string') {
-        parts.push(`${elide(stripJsonataDelimiters(percentage))}%`);
+        parts.push(`${elide(unwrapExpression({ queryLanguage, value: percentage }))}%`);
     }
 
     return parts.length > 0 ? `tolerate ${parts.join(' or ')}` : '';
@@ -634,7 +664,8 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     if (typeof node.maxConcurrency === 'number') {
         parts.push(`max ${node.maxConcurrency}`);
     } else if (typeof node.maxConcurrency === 'string') {
-        parts.push(`max ${elide(stripJsonataDelimiters(node.maxConcurrency))}`);
+        // The parser already unwrapped a JSONata expression; only elision is left.
+        parts.push(`max ${elide(node.maxConcurrency)}`);
     }
     if (node.toleratedFailure !== undefined) {
         parts.push(node.toleratedFailure);

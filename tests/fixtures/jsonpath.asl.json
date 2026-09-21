@@ -1,0 +1,41 @@
+{
+    "QueryLanguage": "JSONPath",
+    "Comment": "JSONPath-mode order routing, with one state converted to JSONata",
+    "StartAt": "LoadOrder",
+    "States": {
+        "LoadOrder": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": { "FunctionName": "load-order", "Payload.$": "$" },
+            "TimeoutSecondsPath": "$.limits.loadTimeout",
+            "Assign": { "orderId.$": "$.Payload.orderId", "region": "us-east-1" },
+            "Next": "Classify"
+        },
+        "Classify": {
+            "Type": "Choice",
+            "Choices": [
+                { "Variable": "$.Payload.score", "NumericGreaterThanEquals": 0.8, "Next": "Approve" },
+                { "Variable": "$.Payload.score", "NumericLessThan": 0.5, "Next": "Reject" }
+            ],
+            "Default": "Review"
+        },
+        "Approve": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": { "FunctionName": "approve", "Payload.$": "$.Payload" },
+            "Next": "Done"
+        },
+        "Review": {
+            "Type": "Wait",
+            "QueryLanguage": "JSONata",
+            "Seconds": "{% $states.input.delay %}",
+            "Next": "Done"
+        },
+        "Reject": {
+            "Type": "Fail",
+            "ErrorPath": "$.Payload.error",
+            "CausePath": "$.Payload.reason"
+        },
+        "Done": { "Type": "Succeed" }
+    }
+}

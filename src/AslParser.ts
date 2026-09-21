@@ -1,4 +1,13 @@
-import type { AslDefinition, StateNode, GraphEdge, AslState, ChoiceRule, CatchBlock, DiagramOptions } from './types';
+import type {
+    AslDefinition,
+    StateNode,
+    GraphEdge,
+    AslState,
+    ChoiceRule,
+    CatchBlock,
+    DiagramOptions,
+    QueryLanguage,
+} from './types';
 import { getNodeStyle } from './styles/NodeStyles';
 import {
     EDGE_LABELS,
@@ -29,7 +38,7 @@ import type { RawEdge, IdResolver, ScopePath } from './graph';
 // Re-exported from its home in `graph/containers`: it was defined here, and both
 // the viewer's state collection and the id resolver import it from this module.
 export { getMapProcessor };
-import { stripJsonataDelimiters } from './utils/jsonata';
+import { resolveQueryLanguage, unwrapExpression } from './utils/jsonata';
 
 /**
  * Error thrown when ASL validation fails
@@ -366,6 +375,8 @@ function validateState(params: ValidateStateParams): void {
 interface CreateStateNodeParams {
     /** Graph node id, scoped by nesting. May differ from `name` when the name repeats. */
     id: string;
+    /** The state machine's top-level `QueryLanguage`, which a state may override. */
+    machineQueryLanguage: QueryLanguage | undefined;
     /** The state's own name within its `States` block, used as its display label. */
     name: string;
     /** Diagram generation options */
@@ -382,6 +393,8 @@ interface CreateStateNodeParams {
 interface ExtractEdgesFromStateParams {
     /** How to label catch/error edges */
     catchLabelStyle: DiagramOptions['catchLabelStyle'];
+    /** The state machine's top-level `QueryLanguage`, which a state may override. */
+    machineQueryLanguage: QueryLanguage | undefined;
     /**
      * Turns a state name into its graph node id, bound to the scope this state lives
      * in. Every endpoint goes through it: ASL scopes transitions, so a branch-local
@@ -423,13 +436,27 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     // on a different node than the one the name refers to in its own scope.
     const resolver = buildIdResolver({ definition });
 
+    // The top-level QueryLanguage is the default for every state in the machine,
+    // however deeply nested; only a state's own field overrides it. It is read here
+    // once rather than from each nested sub-definition, which never carries one.
+    const machineQueryLanguage = definition.QueryLanguage;
+
     // Extract all states as nodes (including nested states)
-    extractStatesRecursively({ definition, nodeIndex, nodes, options, resolver, scope: '' });
+    extractStatesRecursively({
+        definition,
+        machineQueryLanguage,
+        nodeIndex,
+        nodes,
+        options,
+        resolver,
+        scope: '',
+    });
 
     // Extract transitions as edges
     for (const [stateName, state] of Object.entries(definition.States)) {
         const stateEdges = extractEdgesFromState({
             catchLabelStyle: options?.catchLabelStyle,
+            machineQueryLanguage,
             resolveId: (name) => resolver.resolve('', name),
             state,
             stateName,
@@ -438,7 +465,7 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     }
 
     // Extract edges from nested states (Parallel branches, Map iterators)
-    extractNestedEdges({ definition, edges, options, resolver, scope: '' });
+    extractNestedEdges({ definition, edges, machineQueryLanguage, options, resolver, scope: '' });
 
     return { edges: assignEdgeIds({ edges }), nodes };
 }
@@ -470,8 +497,9 @@ function stripJsonPathSuffix(key: string): string {
 }
 
 function createStateNode(params: CreateStateNodeParams): StateNode {
-    const { id, name, options, state, stylePreset } = params;
+    const { id, machineQueryLanguage, name, options, state, stylePreset } = params;
     const isContainer = hasNestedStates(state);
+    const queryLanguage = resolveQueryLanguage({ machineQueryLanguage, state });
 
     // When includeComments is enabled (the default), a state's Comment is used as its
     // display label; otherwise the state name is always used. Setting it to false lets
@@ -491,7 +519,10 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // surface them. Assignment is otherwise invisible in the diagram. In JSONPath
     // mode a key's `.$` suffix marks its value as a path to resolve; the variable
     // itself is named without it, so a diagram showing `$orderId.$` would be wrong.
-    const assignedVariables = Object.keys(state.Assign ?? {}).map(stripJsonPathSuffix);
+    // JSONata mode has no such convention, so a key there is taken as written.
+    const assignKeys = Object.keys(state.Assign ?? {});
+    const assignedVariables =
+        queryLanguage === 'JSONPath' ? assignKeys.map(stripJsonPathSuffix) : assignKeys;
     if (assignedVariables.length > 0) {
         baseNode.assignedVariables = assignedVariables;
     }
@@ -500,7 +531,7 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // identically whether one pauses five seconds and the other until a timestamp
     // resolved from the execution input.
     if (state.Type === 'Wait') {
-        const waitDuration = getWaitDurationLabel(state);
+        const waitDuration = getWaitDurationLabel({ queryLanguage, state });
         if (waitDuration !== '') {
             baseNode.waitDuration = waitDuration;
         }
@@ -514,22 +545,22 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         if (integrationPattern !== '') {
             baseNode.integrationPattern = integrationPattern;
         }
-        const taskTimeout = getTaskTimeoutLabel(state);
+        const taskTimeout = getTaskTimeoutLabel({ queryLanguage, state });
         if (taskTimeout !== '') {
             baseNode.taskTimeout = taskTimeout;
         }
-        const taskHeartbeat = getTaskHeartbeatLabel(state);
+        const taskHeartbeat = getTaskHeartbeatLabel({ queryLanguage, state });
         if (taskHeartbeat !== '') {
             baseNode.taskHeartbeat = taskHeartbeat;
         }
     }
 
     if (state.Type === 'Fail') {
-        const failError = getFailErrorLabel(state);
+        const failError = getFailErrorLabel({ queryLanguage, state });
         if (failError !== '') {
             baseNode.failError = failError;
         }
-        const failCause = getFailCauseLabel(state);
+        const failCause = getFailCauseLabel({ queryLanguage, state });
         if (failCause !== '') {
             baseNode.failCause = failCause;
         }
@@ -549,11 +580,14 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
             baseNode.isDistributedMap = true;
         }
-        if (state.MaxConcurrency !== undefined) {
+        if (typeof state.MaxConcurrency === 'string') {
+            // A JSONata expression; a JSONPath literal string is shown as written.
+            baseNode.maxConcurrency = unwrapExpression({ queryLanguage, value: state.MaxConcurrency });
+        } else if (state.MaxConcurrency !== undefined) {
             baseNode.maxConcurrency = state.MaxConcurrency;
         }
 
-        const toleratedFailure = getToleratedFailureLabel(state);
+        const toleratedFailure = getToleratedFailureLabel({ queryLanguage, state });
         if (toleratedFailure !== '') {
             baseNode.toleratedFailure = toleratedFailure;
         }
@@ -585,9 +619,10 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
 }
 
 function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
-    const { catchLabelStyle, resolveId, state, stateName } = params;
+    const { catchLabelStyle, machineQueryLanguage, resolveId, state, stateName } = params;
     const edges: RawEdge[] = [];
     const stateId = resolveId(stateName);
+    const queryLanguage = resolveQueryLanguage({ machineQueryLanguage, state });
 
     // Connect Distributed Map I/O satellites: the ItemReader feeds the Map, and
     // the Map feeds the ResultWriter.
@@ -611,7 +646,7 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
             // Handle choice branches
             if (state.Choices) {
                 state.Choices.forEach((choice: ChoiceRule) => {
-                    const condition = extractConditionLabel(choice);
+                    const condition = extractConditionLabel({ queryLanguage, rule: choice });
                     edges.push({
                         condition,
                         from: stateId,
@@ -752,29 +787,41 @@ function formatComparison(variable: string, operatorKey: string, value: unknown)
     return `${variable} ${operator[1]} ${formattedValue}`;
 }
 
+interface DescribeChoiceRuleParams {
+    /** The Choice state's resolved query language. */
+    queryLanguage: QueryLanguage;
+    /** The rule, or a nested And/Or/Not operand, to describe. */
+    rule: ChoiceRule;
+}
+
 /**
  * Recursively describe a Choice rule, handling And/Or/Not combinators,
  * the full set of typed comparison operators, presence checks, and JSONata conditions.
  */
-function describeChoiceRule(rule: ChoiceRule): string {
+function describeChoiceRule(params: DescribeChoiceRuleParams): string {
+    const { queryLanguage, rule } = params;
     // JSONata conditions carry the full expression in a `Condition` field. It is
-    // usually a `{% ... %}` string, but may also be a boolean/number catch-all.
+    // usually a `{% ... %}` string, but may also be a boolean/number catch-all. The
+    // field only exists in JSONata mode; under JSONPath it is shown as written.
     if (rule.Condition !== undefined) {
         return typeof rule.Condition === 'string'
-            ? stripJsonataDelimiters(rule.Condition)
+            ? unwrapExpression({ queryLanguage, value: rule.Condition })
             : String(rule.Condition);
     }
 
+    const describeOperand = (operand: ChoiceRule): string =>
+        describeChoiceRule({ queryLanguage, rule: operand });
+
     if (Array.isArray(rule.And)) {
-        const parts = rule.And.map(describeChoiceRule).filter(Boolean);
+        const parts = rule.And.map(describeOperand).filter(Boolean);
         return parts.length > 0 ? parts.join(' AND ') : '';
     }
     if (Array.isArray(rule.Or)) {
-        const parts = rule.Or.map(describeChoiceRule).filter(Boolean);
+        const parts = rule.Or.map(describeOperand).filter(Boolean);
         return parts.length > 0 ? parts.join(' OR ') : '';
     }
     if (rule.Not && typeof rule.Not === 'object') {
-        const inner = describeChoiceRule(rule.Not as ChoiceRule);
+        const inner = describeOperand(rule.Not as ChoiceRule);
         return inner ? `NOT (${inner})` : '';
     }
 
@@ -789,8 +836,8 @@ function describeChoiceRule(rule: ChoiceRule): string {
     return '';
 }
 
-function extractConditionLabel(choice: ChoiceRule): string {
-    return describeChoiceRule(choice) || EDGE_LABELS.CONDITION_FALLBACK;
+function extractConditionLabel(params: DescribeChoiceRuleParams): string {
+    return describeChoiceRule(params) || EDGE_LABELS.CONDITION_FALLBACK;
 }
 
 /**
@@ -799,6 +846,8 @@ function extractConditionLabel(choice: ChoiceRule): string {
 interface ExtractStatesRecursivelyParams {
     /** ASL definition containing states to extract */
     definition: AslDefinition;
+    /** The state machine's top-level `QueryLanguage`; nested sub-definitions inherit it. */
+    machineQueryLanguage: QueryLanguage | undefined;
     /** Index of node id -> node for O(1) lookups */
     nodeIndex: Map<string, StateNode>;
     /** Array to accumulate extracted nodes into */
@@ -843,12 +892,13 @@ const ITEM_IO_ROLES = [
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
 function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void {
-    const { definition, nodeIndex, nodes, options, resolver, scope } = params;
+    const { definition, machineQueryLanguage, nodeIndex, nodes, options, resolver, scope } = params;
 
     // Extract states from current level
     for (const [stateName, state] of Object.entries(definition.States)) {
         const stateNode = createStateNode({
             id: resolver.resolve(scope, stateName),
+            machineQueryLanguage,
             name: stateName,
             options,
             state,
@@ -865,6 +915,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                 // Extract branch states
                 extractStatesRecursively({
                     definition: branch,
+                    machineQueryLanguage,
                     nodeIndex,
                     nodes,
                     options,
@@ -915,6 +966,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             const processorScope = resolver.processorScope(scope, stateName);
             extractStatesRecursively({
                 definition: iterator,
+                machineQueryLanguage,
                 nodeIndex,
                 nodes,
                 options,
@@ -1045,6 +1097,8 @@ interface ExtractNestedEdgesParams {
     definition: AslDefinition;
     /** Array to accumulate extracted edges into */
     edges: RawEdge[];
+    /** The state machine's top-level `QueryLanguage`; nested sub-definitions inherit it. */
+    machineQueryLanguage: QueryLanguage | undefined;
     /** Diagram generation options */
     options?: DiagramOptions;
     /** Resolver turning a state name in `scope` into its graph node id. */
@@ -1057,7 +1111,7 @@ interface ExtractNestedEdgesParams {
  * Extract edges from nested state machines (Parallel branches and Map iterators)
  */
 function extractNestedEdges(params: ExtractNestedEdgesParams): void {
-    const { definition, edges, options, resolver, scope } = params;
+    const { definition, edges, machineQueryLanguage, options, resolver, scope } = params;
 
     for (const [stateName, state] of Object.entries(definition.States)) {
         // Extract edges from Parallel branches
@@ -1079,6 +1133,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 for (const [branchStateName, branchState] of Object.entries(branch.States)) {
                     const branchEdges = extractEdgesFromState({
                         catchLabelStyle: options?.catchLabelStyle,
+                        machineQueryLanguage,
                         resolveId: (name) => resolver.resolve(branchScope, name),
                         state: branchState,
                         stateName: branchStateName,
@@ -1120,6 +1175,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 extractNestedEdges({
                     definition: branch,
                     edges,
+                    machineQueryLanguage,
                     options,
                     resolver,
                     scope: branchScope,
@@ -1145,6 +1201,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             for (const [iteratorStateName, iteratorState] of Object.entries(mapProcessor.States)) {
                 const iteratorEdges = extractEdgesFromState({
                     catchLabelStyle: options?.catchLabelStyle,
+                    machineQueryLanguage,
                     resolveId: (name) => resolver.resolve(processorScope, name),
                     state: iteratorState,
                     stateName: iteratorStateName,
@@ -1183,6 +1240,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             extractNestedEdges({
                 definition: mapProcessor,
                 edges,
+                machineQueryLanguage,
                 options,
                 resolver,
                 scope: processorScope,

@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { fitText, getWaitDurationLabel } from '../src/constants/labels';
 import { estimateTextWidth } from '../src/utils/textMeasure';
+import type { AslState } from '../src/types';
 
 const isWellFormed = (text: string): boolean => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
 
 describe('elide (via getWaitDurationLabel)', () => {
+    const waitLabel = (fields: Omit<AslState, 'Type'>): string =>
+        getWaitDurationLabel({ queryLanguage: 'JSONPath', state: { Type: 'Wait', ...fields } });
+
     it('leaves a short expression untouched', () => {
-        expect(getWaitDurationLabel({ Type: 'Wait', SecondsPath: '$.delay' })).toBe('$.delay');
+        expect(waitLabel({ SecondsPath: '$.delay' })).toBe('$.delay');
     });
 
     it('does not split a surrogate pair at the cut point', () => {
         // 30 ASCII characters put the cut point inside the emoji that follows.
         const seconds = `${'a'.repeat(30)}🚀${'b'.repeat(10)}`;
 
-        const label = getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds });
+        const label = waitLabel({ SecondsPath: seconds });
 
         expect(label.endsWith('…')).toBe(true);
         expect(isWellFormed(label)).toBe(true);
@@ -24,7 +28,7 @@ describe('elide (via getWaitDurationLabel)', () => {
         // 20 emoji are 40 code units but only 20 glyphs, well under the limit.
         const seconds = '🚀'.repeat(20);
 
-        expect(getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds })).toBe(seconds);
+        expect(waitLabel({ SecondsPath: seconds })).toBe(seconds);
     });
 
     it('never cuts between a Devanagari consonant and its vowel sign', () => {
@@ -32,7 +36,7 @@ describe('elide (via getWaitDurationLabel)', () => {
         const syllable = '\u0915\u0940';
         const seconds = syllable.repeat(40);
 
-        const label = getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds });
+        const label = waitLabel({ SecondsPath: seconds });
 
         expect(label).toBe(`${syllable.repeat(31)}…`);
     });
@@ -40,7 +44,7 @@ describe('elide (via getWaitDurationLabel)', () => {
     it('keeps a combining mark with its base when cutting', () => {
         const seconds = `${'a'.repeat(30)}e\u0301${'b'.repeat(10)}`;
 
-        const label = getWaitDurationLabel({ Type: 'Wait', SecondsPath: seconds });
+        const label = waitLabel({ SecondsPath: seconds });
 
         expect(label.endsWith('e\u0301…')).toBe(true);
     });
