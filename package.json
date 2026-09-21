@@ -191,7 +191,7 @@
     "husky": "^9.1.7",
     "node-html-to-image": "^6.2.0",
     "oxlint": "^1.69.0",
-    "prettier": "3.9.6",
+    "prettier": "3.9.8",
     "publint": "^0.3.16",
     "puppeteer": "25.11.0",
     "tsdown": "^0.23.0",
