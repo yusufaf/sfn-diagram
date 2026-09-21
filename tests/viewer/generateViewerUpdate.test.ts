@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateViewerUpdate } from '../../src';
+import { AslSyntaxError, generateHtml, generateViewerUpdate } from '../../src';
 import { collectEdgeData, collectStateData } from '../../src/renderers';
 import type { AslDefinition } from '../../src/types';
 
@@ -66,6 +66,6 @@ describe('generateViewerUpdate', () => {
     });
 
     it('throws on malformed JSON input', () => {
-        expect(() => generateViewerUpdate({ aslDefinition: '{not valid json' })).toThrow();
+        expect(() => generateViewerUpdate({ aslDefinition: '{not valid json' })).toThrow(AslSyntaxError);
     });
 });

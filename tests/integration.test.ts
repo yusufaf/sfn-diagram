@@ -5,6 +5,7 @@ import {
     generateDiagram,
     generateFromAwsResponse,
     SfnDiagramGenerator,
+    AslSyntaxError,
     AslValidationError,
 } from '../src';
 import { exportPng } from '../src/png';
@@ -512,7 +513,9 @@ describe('Integration Tests', () => {
 
     describe('Error handling', () => {
         it('should throw on invalid JSON string', () => {
-            expect(() => generateSvg({ aslDefinition: 'invalid json' })).toThrow();
+            expect(() => generateSvg({ aslDefinition: 'invalid json' })).toThrow(AslSyntaxError);
+            expect(() => generateSvg({ aslDefinition: 'invalid json' })).toThrow(SyntaxError);
+            expect(() => generateSvg({ aslDefinition: 'invalid json' })).toThrow(AslValidationError);
         });
 
         it('should throw validation error for empty states', () => {

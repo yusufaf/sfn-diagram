@@ -67511,12 +67511,31 @@ function buildIdResolver(params) {
     return assigned.get(assignmentKey(scope, name)) ?? name;
   }
 }
-var AslValidationError = class extends Error {
+var AslValidationError = class AslValidationError2 extends Error {
   constructor(message) {
     super(message);
     this.name = "AslValidationError";
   }
+  static [Symbol.hasInstance](value) {
+    if (Function.prototype[Symbol.hasInstance].call(this, value)) return true;
+    return this === AslValidationError2 && value instanceof AslSyntaxError;
+  }
 };
+var AslSyntaxError = class extends SyntaxError {
+  constructor(message, options) {
+    super(message, options);
+    this.name = "AslSyntaxError";
+  }
+};
+function parseAslSource(params) {
+  const { source } = params;
+  if (typeof source !== "string") return source;
+  try {
+    return JSON.parse(source);
+  } catch (error2) {
+    throw new AslSyntaxError(`ASL definition is not valid JSON: ${error2 instanceof Error ? error2.message : String(error2)}`, { cause: error2 });
+  }
+}
 var VALID_STATE_TYPES = [
   "Pass",
   "Task",
@@ -68335,9 +68354,6 @@ function mergeOptions(options = {}) {
     ...options
   };
 }
-function parseAslArg(value) {
-  return typeof value === "string" ? JSON.parse(value) : value;
-}
 function stableStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -68389,7 +68405,7 @@ function buildStatusMap(diff) {
 }
 function generateMermaidDiff(params) {
   const { after: afterArg, before: beforeArg, layout, theme } = params;
-  const diff = computeStateDiff(parseAslArg(beforeArg), parseAslArg(afterArg));
+  const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
   const { added, mergedAsl, modified, removed, unchanged } = diff;
   const { edges, nodes: nodes5 } = parseAsl({ definition: mergedAsl });
   const { code, metadata } = new MermaidRenderer().render({
@@ -68619,7 +68635,7 @@ function byNodeId(byStateName, idsForName) {
 }
 function generateMermaidExecution(params) {
   const { aslDefinition, history, layout, theme } = params;
-  const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
+  const aslObj = parseAslSource({ source: aslDefinition });
   const overlay = computeOverlay(history);
   const { nodes: nodes5, edges } = parseAsl({ definition: aslObj });
   const resolver = buildIdResolver({ definition: aslObj });
@@ -68655,7 +68671,7 @@ function generateMermaidExecution(params) {
 }
 function generateMermaid(params) {
   const { aslDefinition, ...options } = params;
-  const aslObj = typeof aslDefinition === "string" ? JSON.parse(aslDefinition) : aslDefinition;
+  const aslObj = parseAslSource({ source: aslDefinition });
   const mergedOptions = mergeOptions(options);
   const { nodes: nodes5, edges } = parseAsl({
     definition: aslObj,

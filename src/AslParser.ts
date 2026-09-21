@@ -33,11 +33,69 @@ import { stripJsonataDelimiters } from './utils/jsonata';
 
 /**
  * Error thrown when ASL validation fails
+ *
+ * Also matches an {@link AslSyntaxError} (a malformed ASL JSON string) under
+ * `instanceof`, so a single `catch (error) { if (error instanceof AslValidationError) }`
+ * covers every way a definition can be rejected.
  */
 export class AslValidationError extends Error {
     constructor(message: string) {
         super(message);
         this.name = 'AslValidationError';
+    }
+
+    static [Symbol.hasInstance](value: unknown): boolean {
+        if (Function.prototype[Symbol.hasInstance].call(this, value)) return true;
+        // Only the base class claims AslSyntaxError; a subclass keeps ordinary semantics.
+        return this === AslValidationError && value instanceof AslSyntaxError;
+    }
+}
+
+/**
+ * Error thrown when an ASL definition given as a string is not valid JSON
+ *
+ * Extends `SyntaxError`, so code that already catches the raw `JSON.parse`
+ * failure keeps working, and is also an `instanceof AslValidationError`. The
+ * original `SyntaxError` is kept as `cause`.
+ */
+export class AslSyntaxError extends SyntaxError {
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = 'AslSyntaxError';
+    }
+}
+
+interface ParseAslSourceParams {
+    /** ASL definition as an already-parsed object or a JSON string */
+    source: AslDefinition | string;
+}
+
+/**
+ * Accept an ASL definition as either an object or a JSON string and return the object
+ *
+ * Every public entry point that takes `aslDefinition: AslDefinition | string` goes
+ * through here so a malformed string fails the same way everywhere.
+ *
+ * @param params - Configuration object
+ * @param params.source - ASL definition as an object or JSON string
+ *
+ * @returns The definition object; the same reference when an object was given
+ *
+ * @throws {AslSyntaxError} If `source` is a string that is not valid JSON
+ *
+ * @example
+ * ```typescript
+ * const definition = parseAslSource({ source: '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}' });
+ * ```
+ */
+export function parseAslSource(params: ParseAslSourceParams): AslDefinition {
+    const { source } = params;
+    if (typeof source !== 'string') return source;
+    try {
+        return JSON.parse(source) as AslDefinition;
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new AslSyntaxError(`ASL definition is not valid JSON: ${detail}`, { cause: error });
     }
 }
 
