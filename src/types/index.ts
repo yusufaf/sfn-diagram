@@ -166,6 +166,11 @@ export interface AslDefinition {
 /** A positioned graph node in the internal diagram model, produced from an ASL state. */
 export interface StateNode {
     /**
+     * The `Arguments` a JSONata-mode state passes to its integration, pre-formatted
+     * for display (e.g. `args FunctionName, Payload`). Absent when not set.
+     */
+    arguments?: string;
+    /**
      * Names of the variables a state assigns via ASL `Assign`, in declaration
      * order. Empty/absent when the state assigns nothing.
      */
@@ -210,16 +215,31 @@ export interface StateNode {
      */
     itemBatching?: string;
     /**
+     * How a Map state shapes each item for its processor, pre-formatted for display
+     * (e.g. `selector item, index`). Absent when the Map sets no `ItemSelector`.
+     */
+    itemSelector?: string;
+    /**
      * The array a Map state iterates, pre-formatted for display (e.g. `items $.orders`).
      * Absent when the Map sets no `ItemsPath`.
      */
     itemsPath?: string;
     label: string;
     /**
+     * A Distributed Map's child-execution name prefix, pre-formatted for display
+     * (e.g. `label OrderBatch`). Absent when the Map sets no `Label`.
+     */
+    mapLabel?: string;
+    /**
      * A Map state's `MaxConcurrency`, when set. Displayed on the container header.
      * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`).
      */
     maxConcurrency?: number | string;
+    /**
+     * The `Output` a JSONata-mode state produces, pre-formatted for display
+     * (e.g. `output orderId, total`). Absent when not set.
+     */
+    output?: string;
     /** Parent node ID (for nodes inside Parallel/Map containers) */
     parent?: string;
     /** AWS service identifier for Task states (e.g., 'lambda', 's3') */

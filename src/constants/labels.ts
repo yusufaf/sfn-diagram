@@ -63,8 +63,28 @@ export function getErrorLabel(errorTypes?: string[]): string {
     return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
 }
 
-/** Most variable names shown before the label collapses into a "+N more" suffix. */
-const MAX_SHOWN_VARIABLES = 3;
+/** Most names shown before a name-list label collapses into a "+N more" suffix. */
+const MAX_SHOWN_NAMES = 3;
+
+interface SummarizeNamesParams {
+    /** Names in declaration order. */
+    names: string[];
+    /** Prefix put before each name, e.g. `$` for a variable reference. */
+    prefix?: string;
+}
+
+/**
+ * Join a list of names into one capped line: `a, b, c +2 more`. Shared by the
+ * variable summary and the payload-field summaries, so a state with many keys
+ * cannot blow out the node's width whichever field they came from.
+ */
+function summarizeNames(params: SummarizeNamesParams): string {
+    const { names, prefix = '' } = params;
+    const shown = names.slice(0, MAX_SHOWN_NAMES);
+    const label = shown.map((name) => `${prefix}${name}`).join(', ');
+    const remaining = names.length - shown.length;
+    return remaining > 0 ? `${label} +${remaining} more` : label;
+}
 
 /**
  * Summarize the variables a state assigns into a compact node annotation,
@@ -87,12 +107,7 @@ export function getAssignedVariablesLabel(variableNames: string[]): string {
     if (variableNames.length === 0) {
         return '';
     }
-
-    const shown = variableNames.slice(0, MAX_SHOWN_VARIABLES);
-    const label = shown.map((variableName) => `$${variableName}`).join(', ');
-    const remaining = variableNames.length - shown.length;
-
-    return remaining > 0 ? `${label} +${remaining} more` : label;
+    return summarizeNames({ names: variableNames, prefix: '$' });
 }
 
 /**
@@ -605,6 +620,146 @@ export function getItemsPathLabel(state: AslState): string {
         : '';
 }
 
+/** Suffix a JSONPath-mode payload key carries when its value is a path rather than a literal. */
+const JSONPATH_KEY_SUFFIX = '.$';
+
+interface GetPayloadLabelParams {
+    /** Prefix that names the field, e.g. `args` or `output`. */
+    prefix: string;
+    /** The state's resolved query language; decides how a string or a key is read. */
+    queryLanguage: QueryLanguage;
+    /** The field value: an object, a JSONata expression string, or any other JSON. */
+    value: unknown;
+}
+
+/**
+ * Summarize a payload-shaped field (`Arguments`, `Output`, `ItemSelector`) into one
+ * sub-label part.
+ *
+ * An object is described by its keys — the shape of what the state builds, without
+ * the expressions behind them, which the viewer's detail panel shows in full. A
+ * string is a whole-field expression and is unwrapped under JSONata. Any other JSON
+ * (`Output: true`, an array) is shown as its literal. In JSONPath mode an object
+ * key's `.$` suffix marks a path value and is dropped, as it is for `Assign`.
+ *
+ * Anything empty — `{}`, `''`, `null` — reads as unset, so a definition from a
+ * file or an API response never leaves a dangling `args ` on the node.
+ */
+function getPayloadLabel(params: GetPayloadLabelParams): string {
+    const { prefix, queryLanguage, value } = params;
+    if (value === undefined || value === null) {
+        return '';
+    }
+    if (typeof value === 'string') {
+        return value === '' ? '' : `${prefix} ${elide(unwrapExpression({ queryLanguage, value }))}`;
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+        const keys = Object.keys(value);
+        if (keys.length === 0) {
+            return '';
+        }
+        const names =
+            queryLanguage === 'JSONPath'
+                ? keys.map((key) =>
+                      key.endsWith(JSONPATH_KEY_SUFFIX)
+                          ? key.slice(0, -JSONPATH_KEY_SUFFIX.length)
+                          : key,
+                  )
+                : keys;
+        return `${prefix} ${summarizeNames({ names })}`;
+    }
+    return `${prefix} ${elide(JSON.stringify(value))}`;
+}
+
+/**
+ * Describe the `Arguments` a JSONata-mode state passes to its integration, for
+ * display on the node.
+ *
+ * The JSONata counterpart of `Parameters`: it is what actually reaches the Lambda
+ * or service the Task calls, so two Tasks on the same `Resource` can be told apart.
+ *
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The state to describe
+ * @returns A label such as `args FunctionName, Payload`, or an empty string when unset
+ *
+ * @example
+ * ```typescript
+ * getArgumentsLabel({ queryLanguage: 'JSONata', state: { Type: 'Task', Arguments: { FunctionName: 'f', Payload: '{% $states.input %}' } } });
+ * // 'args FunctionName, Payload'
+ * getArgumentsLabel({ queryLanguage: 'JSONata', state: { Type: 'Task', Arguments: '{% $states.input %}' } });
+ * // 'args $states.input'
+ * ```
+ */
+export function getArgumentsLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
+    return getPayloadLabel({ prefix: 'args', queryLanguage, value: state.Arguments });
+}
+
+/**
+ * Describe the `Output` a JSONata-mode state produces, for display on the node.
+ *
+ * The JSONata counterpart of `ResultSelector` / `ResultPath` / `OutputPath`: it is
+ * the one field that says what the next state receives.
+ *
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The state to describe
+ * @returns A label such as `output orderId, total`, or an empty string when unset
+ *
+ * @example
+ * ```typescript
+ * getOutputLabel({ queryLanguage: 'JSONata', state: { Type: 'Pass', Output: { orderId: '{% $id %}' } } });
+ * // 'output orderId'
+ * getOutputLabel({ queryLanguage: 'JSONata', state: { Type: 'Parallel', Output: '{% $merge($states.result) %}' } });
+ * // 'output $merge($states.result)'
+ * ```
+ */
+export function getOutputLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
+    return getPayloadLabel({ prefix: 'output', queryLanguage, value: state.Output });
+}
+
+/**
+ * Describe how a Map state shapes each item before its processor sees it, for
+ * display on the container header.
+ *
+ * `ItemSelector` is where the item index and the parent input get folded into each
+ * iteration; without it a Map that enriches every item looks like one that passes
+ * items through untouched.
+ *
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Map state to describe
+ * @returns A label such as `selector item, index`, or an empty string when unset
+ *
+ * @example
+ * ```typescript
+ * getItemSelectorLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ItemSelector: { 'item.$': '$$.Map.Item.Value', 'index.$': '$$.Map.Item.Index' } } });
+ * // 'selector item, index'
+ * ```
+ */
+export function getItemSelectorLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
+    return getPayloadLabel({ prefix: 'selector', queryLanguage, value: state.ItemSelector });
+}
+
+/**
+ * Describe the `Label` a Distributed Map prefixes its child executions with, for
+ * display on the container header.
+ *
+ * The label is how child executions are found in the console and in logs, so it is
+ * the operational name of the Map rather than the state name.
+ *
+ * @param state - The Map state to describe
+ * @returns A label such as `label OrderBatch`, or an empty string when unset
+ *
+ * @example
+ * ```typescript
+ * getChildExecutionLabel({ Type: 'Map', Label: 'OrderBatch' }); // 'label OrderBatch'
+ * ```
+ */
+export function getChildExecutionLabel(state: AslState): string {
+    return isNonEmptyString(state.Label) ? `label ${elide(state.Label)}` : '';
+}
+
 interface GetNodeSubLabelParams {
     node: StateNode;
     showStateType: boolean;
@@ -676,6 +831,12 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     if (node.itemsPath !== undefined) {
         parts.push(node.itemsPath);
     }
+    if (node.itemSelector !== undefined) {
+        parts.push(node.itemSelector);
+    }
+    if (node.mapLabel !== undefined) {
+        parts.push(node.mapLabel);
+    }
     if (node.waitDuration !== undefined) {
         parts.push(node.waitDuration);
     }
@@ -693,6 +854,12 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.failCause !== undefined) {
         parts.push(node.failCause);
+    }
+    if (node.arguments !== undefined) {
+        parts.push(node.arguments);
+    }
+    if (node.output !== undefined) {
+        parts.push(node.output);
     }
 
     return parts;

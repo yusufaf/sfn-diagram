@@ -66949,13 +66949,20 @@ function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
   return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
 }
-var MAX_SHOWN_VARIABLES = 3;
+var MAX_SHOWN_NAMES = 3;
+function summarizeNames(params) {
+  const { names, prefix = "" } = params;
+  const shown = names.slice(0, MAX_SHOWN_NAMES);
+  const label = shown.map((name) => `${prefix}${name}`).join(", ");
+  const remaining = names.length - shown.length;
+  return remaining > 0 ? `${label} +${remaining} more` : label;
+}
 function getAssignedVariablesLabel(variableNames) {
   if (variableNames.length === 0) return "";
-  const shown = variableNames.slice(0, MAX_SHOWN_VARIABLES);
-  const label = shown.map((variableName) => `$${variableName}`).join(", ");
-  const remaining = variableNames.length - shown.length;
-  return remaining > 0 ? `${label} +${remaining} more` : label;
+  return summarizeNames({
+    names: variableNames,
+    prefix: "$"
+  });
 }
 var MAX_SUB_LABEL_EXPRESSION = 32;
 function elide(text, maxLength = MAX_SUB_LABEL_EXPRESSION) {
@@ -67079,6 +67086,48 @@ function getItemBatchingLabel(state2) {
 function getItemsPathLabel(state2) {
   return typeof state2.ItemsPath === "string" && state2.ItemsPath !== "" ? `items ${elide(state2.ItemsPath)}` : "";
 }
+var JSONPATH_KEY_SUFFIX$1 = ".$";
+function getPayloadLabel(params) {
+  const { prefix, queryLanguage, value } = params;
+  if (value === void 0 || value === null) return "";
+  if (typeof value === "string") return value === "" ? "" : `${prefix} ${elide(unwrapExpression({
+    queryLanguage,
+    value
+  }))}`;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return "";
+    return `${prefix} ${summarizeNames({ names: queryLanguage === "JSONPath" ? keys.map((key) => key.endsWith(JSONPATH_KEY_SUFFIX$1) ? key.slice(0, -2) : key) : keys })}`;
+  }
+  return `${prefix} ${elide(JSON.stringify(value))}`;
+}
+function getArgumentsLabel(params) {
+  const { queryLanguage, state: state2 } = params;
+  return getPayloadLabel({
+    prefix: "args",
+    queryLanguage,
+    value: state2.Arguments
+  });
+}
+function getOutputLabel(params) {
+  const { queryLanguage, state: state2 } = params;
+  return getPayloadLabel({
+    prefix: "output",
+    queryLanguage,
+    value: state2.Output
+  });
+}
+function getItemSelectorLabel(params) {
+  const { queryLanguage, state: state2 } = params;
+  return getPayloadLabel({
+    prefix: "selector",
+    queryLanguage,
+    value: state2.ItemSelector
+  });
+}
+function getChildExecutionLabel(state2) {
+  return isNonEmptyString(state2.Label) ? `label ${elide(state2.Label)}` : "";
+}
 function getNodeSubLabel(params) {
   return getNodeSubLabelParts(params).join(SUB_LABEL_SEPARATOR);
 }
@@ -67093,12 +67142,16 @@ function getNodeSubLabelParts(params) {
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
+  if (node.itemSelector !== void 0) parts.push(node.itemSelector);
+  if (node.mapLabel !== void 0) parts.push(node.mapLabel);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
   if (node.integrationPattern !== void 0) parts.push(node.integrationPattern);
   if (node.taskTimeout !== void 0) parts.push(node.taskTimeout);
   if (node.taskHeartbeat !== void 0) parts.push(node.taskHeartbeat);
   if (node.failError !== void 0) parts.push(node.failError);
   if (node.failCause !== void 0) parts.push(node.failCause);
+  if (node.arguments !== void 0) parts.push(node.arguments);
+  if (node.output !== void 0) parts.push(node.output);
   return parts;
 }
 function getCatchLabel(params) {
@@ -67740,6 +67793,16 @@ function createStateNode(params) {
   const assignKeys = Object.keys(state2.Assign ?? {});
   const assignedVariables = queryLanguage === "JSONPath" ? assignKeys.map(stripJsonPathSuffix) : assignKeys;
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
+  const argumentsLabel = getArgumentsLabel({
+    queryLanguage,
+    state: state2
+  });
+  if (argumentsLabel !== "") baseNode.arguments = argumentsLabel;
+  const outputLabel = getOutputLabel({
+    queryLanguage,
+    state: state2
+  });
+  if (outputLabel !== "") baseNode.output = outputLabel;
   if (state2.Type === "Wait") {
     const waitDuration = getWaitDurationLabel({
       queryLanguage,
@@ -67790,6 +67853,13 @@ function createStateNode(params) {
     if (itemBatching !== "") baseNode.itemBatching = itemBatching;
     const itemsPath = getItemsPathLabel(state2);
     if (itemsPath !== "") baseNode.itemsPath = itemsPath;
+    const itemSelector = getItemSelectorLabel({
+      queryLanguage,
+      state: state2
+    });
+    if (itemSelector !== "") baseNode.itemSelector = itemSelector;
+    const mapLabel = getChildExecutionLabel(state2);
+    if (mapLabel !== "") baseNode.mapLabel = mapLabel;
   }
   if (options?.showIcons && state2.Type === "Task") {
     const serviceInfo = detectService({
