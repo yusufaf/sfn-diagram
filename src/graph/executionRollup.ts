@@ -38,8 +38,13 @@ export interface ExecutionRollUpCounts {
 
 /** What a collapsed container's placeholder shows for the states it hides. */
 export interface ExecutionRollUp {
-    /** `3/4 succeeded`-style summary for the placeholder's annotation. */
-    annotation: string;
+    /**
+     * `3/4 succeeded`-style summary for the placeholder's annotation. Absent when the
+     * container ran but none of its hidden states carry a status — a Distributed
+     * Map's child executions never appear in the parent's history — since a count of
+     * `0/2 succeeded` would read as a failure.
+     */
+    annotation?: string;
     /** The per-status breakdown the annotation was built from. */
     counts: ExecutionRollUpCounts;
     /** The status the placeholder is coloured with. */
@@ -51,11 +56,13 @@ export interface ExecutionRollUp {
  *
  * The placeholder's status is the worst thing that happened inside or to the
  * container: any `failed` (a hidden state's or the container's own) makes it
- * `failed`; otherwise any `running` makes it `running`; otherwise the container's
- * own outcome (`succeeded`, or `caught` when it recovered from a branch failure)
- * stands; a container nothing ran inside is `notReached`. The annotation counts the
- * hidden states in the rolled-up status — `1/4 failed`, `2/4 running`,
- * `4/4 succeeded` — so a reader can tell a clean run from a partial one at a glance.
+ * `failed`; otherwise, for a container that has not finished, any `running` inside
+ * makes it `running`; otherwise the container's own outcome (`succeeded`, or `caught`
+ * when it recovered from a branch failure) stands — a finished container cannot
+ * still be running, whatever a hidden leaf's status says; a container nothing ran
+ * inside is `notReached`. The annotation counts the hidden states in the rolled-up
+ * status — `1/4 failed`, `2/4 running`, `4/4 succeeded` — so a reader can tell a
+ * clean run from a partial one at a glance.
  *
  * Pure over the plan and the status map, so the viewer runs it again in the browser
  * for whatever the reader collapses, and execution playback can re-run it as
@@ -95,22 +102,28 @@ export function rollUpExecutionStatuses(
         }
 
         const own = statusByNodeId[containerId] ?? 'notReached';
+        const ownFinished = own === 'succeeded' || own === 'caught' || own === 'failed';
+        const reachedInside = counts.total - counts.notReached;
         const status: ExecutionStateStatus =
             own === 'failed' || counts.failed > 0
                 ? 'failed'
-                : own === 'running' || counts.running > 0
+                : own === 'running' || (!ownFinished && counts.running > 0)
                   ? 'running'
                   : own !== 'notReached'
                     ? own
-                    : counts.total - counts.notReached > 0
+                    : reachedInside > 0
                       ? 'succeeded'
                       : 'notReached';
 
         const shown = status === 'caught' ? 'succeeded' : status;
         const annotation =
-            status === 'notReached' ? `0/${counts.total} ran` : `${counts[shown]}/${counts.total} ${shown}`;
+            status === 'notReached'
+                ? `0/${counts.total} ran`
+                : reachedInside === 0
+                  ? undefined
+                  : `${counts[shown]}/${counts.total} ${shown}`;
 
-        rollUps[containerId] = { annotation, counts, status };
+        rollUps[containerId] = { ...(annotation === undefined ? {} : { annotation }), counts, status };
     }
 
     return rollUps;

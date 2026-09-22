@@ -73,10 +73,12 @@ export function styleCollapsedView(params: StyleCollapsedViewParams): Required<V
     if (diffChangedIds !== undefined) {
         // An execution overlay greys every unreached node, which must not stop a
         // placeholder that hides changes from going amber - only a colour that means
-        // something (a state that ran, or a diff status) is "already coloured".
+        // something (a state that ran, or a diff status the composition kept for an
+        // unreached one) is "already coloured". Matched by value: the model crosses
+        // JSON on its way to the browser, so the grey is never the same object there.
         const existingOverrides: Record<string, Partial<NodeStyle>> = {};
         for (const [id, style] of Object.entries(nodeOverrides)) {
-            if (executionStatusByNodeId?.[id] !== 'notReached') existingOverrides[id] = style;
+            if (!isNotReachedColour(style)) existingOverrides[id] = style;
         }
         const changed = computeContainerChangeAnnotations({
             changedNames: new Set(diffChangedIds),
@@ -92,7 +94,7 @@ export function styleCollapsedView(params: StyleCollapsedViewParams): Required<V
         const rollUps = rollUpExecutionStatuses({ nodes, plan, statusByNodeId: executionStatusByNodeId });
         for (const [id, rollUp] of Object.entries(rollUps)) {
             if (rollUp.status !== 'notReached') nodeOverrides[id] = EXECUTION_COLORS[rollUp.status];
-            summaryByTarget[id] = rollUp.annotation;
+            if (rollUp.annotation !== undefined) summaryByTarget[id] = rollUp.annotation;
         }
     }
 
@@ -107,4 +109,10 @@ export function styleCollapsedView(params: StyleCollapsedViewParams): Required<V
         nodeAnnotations: mergeRecordOptions(nodeAnnotations, callerOverrides?.nodeAnnotations) ?? {},
         nodeOverrides: mergeRecordOptions(nodeOverrides, callerOverrides?.nodeOverrides) ?? {},
     };
+}
+
+/** Whether a node override is the execution overlay's "not reached" grey. */
+function isNotReachedColour(style: Partial<NodeStyle>): boolean {
+    const grey = EXECUTION_COLORS.notReached;
+    return style.fill === grey.fill && style.stroke === grey.stroke && style.strokeWidth === grey.strokeWidth;
 }

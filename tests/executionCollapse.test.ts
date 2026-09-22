@@ -99,6 +99,25 @@ describe('rollUpExecutionStatuses', () => {
         expect(hidden.size).toBeGreaterThan(2); // the two tasks plus their end markers
         expect(rollUp({}).counts.total).toBe(2);
     });
+
+    it('does not call a finished container running because a hidden leaf was left running', () => {
+        // A caught branch failure leaves the failed leaf's frame open in the history
+        // parser; the container's own outcome is what the execution reported.
+        const result = rollUp({ Branch1: 'succeeded', Branch2: 'running', ParallelExecution: 'caught' });
+        expect(result.status).toBe('caught');
+        expect(result.annotation).toBe('1/2 succeeded');
+        expect(rollUp({ Branch1: 'succeeded', Branch2: 'running', ParallelExecution: 'succeeded' }).status).toBe(
+            'succeeded',
+        );
+    });
+
+    it('omits the count when the container ran but no hidden state has a status', () => {
+        // A Distributed Map's child executions never appear in the parent history.
+        const result = rollUp({ ParallelExecution: 'succeeded' });
+        expect(result.status).toBe('succeeded');
+        expect(result.annotation).toBeUndefined();
+        expect(result.counts.total).toBe(2);
+    });
 });
 
 describe('generateExecution with collapse', () => {
@@ -176,6 +195,47 @@ describe('generateExecution with collapse', () => {
         const before = generateExecution({ aslDefinition: parallelAsl, history: partialFailure });
         expect(nodeMarkup(before.svg, 'Branch2')).toContain(FAILED_FILL);
         expect(before.svg).not.toContain('/2 ');
+    });
+
+    it('keeps a successful Distributed Map green with its duration but no misleading count', () => {
+        const distributedMap = loadAsl('distributed-map');
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: new Date('2024-01-01T00:00:00.000Z') },
+            { id: 2, previousEventId: 1, type: 'PassStateEntered', timestamp: new Date('2024-01-01T00:00:00.100Z'), stateEnteredEventDetails: { name: 'SplitInput' } },
+            { id: 3, previousEventId: 2, type: 'PassStateExited', timestamp: new Date('2024-01-01T00:00:00.110Z'), stateExitedEventDetails: { name: 'SplitInput' } },
+            { id: 4, previousEventId: 3, type: 'MapStateEntered', timestamp: new Date('2024-01-01T00:00:00.120Z'), stateEnteredEventDetails: { name: 'ProcessItems' } },
+            { id: 5, previousEventId: 4, type: 'MapRunStarted', timestamp: new Date('2024-01-01T00:00:00.130Z') },
+            { id: 6, previousEventId: 5, type: 'MapRunSucceeded', timestamp: new Date('2024-01-01T00:00:00.590Z') },
+            { id: 7, previousEventId: 6, type: 'MapStateExited', timestamp: new Date('2024-01-01T00:00:00.600Z'), stateExitedEventDetails: { name: 'ProcessItems' } },
+            { id: 8, previousEventId: 7, type: 'SucceedStateEntered', timestamp: new Date('2024-01-01T00:00:00.610Z'), stateEnteredEventDetails: { name: 'Done' } },
+            { id: 9, previousEventId: 8, type: 'SucceedStateExited', timestamp: new Date('2024-01-01T00:00:00.620Z'), stateExitedEventDetails: { name: 'Done' } },
+            { id: 10, previousEventId: 9, type: 'ExecutionSucceeded', timestamp: new Date('2024-01-01T00:00:00.630Z') },
+        ];
+        const { svg } = generateExecution({ aslDefinition: distributedMap, collapse: true, history: events });
+        const placeholder = nodeMarkup(svg, 'ProcessItems');
+        expect(placeholder).toContain(SUCCEEDED_FILL);
+        expect(placeholder).toContain('480ms');
+        expect(placeholder).not.toMatch(/\d+\/\d+ /);
+    });
+
+    it('keeps a diff-added container green when it never ran, rather than turning it amber', () => {
+        const before: AslDefinition = {
+            StartAt: 'FinalState',
+            States: { FinalState: parallelAsl.States.FinalState },
+        };
+        const unreached: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: new Date('2024-01-01T00:00:00.000Z') },
+        ];
+        const { html } = generateHtml({ aslDefinition: parallelAsl, diff: { before }, history: unreached });
+        const model = JSON.parse(
+            html.match(/<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/)![1],
+        ) as RelayoutModel;
+
+        const { svg } = renderCollapsedView({ collapsedIds: model.collapseTargets, model });
+        const placeholder = nodeMarkup(svg, 'ParallelExecution');
+        expect(placeholder).toContain(SUCCEEDED_FILL); // DIFF_COLORS.added shares the green
+        expect(placeholder).not.toContain('#fff9c4');
+        expect(placeholder).toContain('2 changed inside · 0/2 ran');
     });
 });
 
