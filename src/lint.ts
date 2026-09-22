@@ -103,6 +103,17 @@ function lintState(context: StateContext, diagnostics: LintDiagnostic[]): void {
         });
     }
 
+    // A state may opt into JSONata inside a JSONPath machine, not the other way round:
+    // Step Functions rejects a JSONPath override under a top-level JSONata.
+    if (machineQueryLanguage === 'JSONata' && state.QueryLanguage === 'JSONPath') {
+        push({
+            code: 'query-language-mismatch',
+            message: `State "${stateName}" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state`,
+            path: `${pointer}/QueryLanguage`,
+            severity: 'error',
+        });
+    }
+
     // Field mixing is judged by the declared mode (#233), never by the shape of a value.
     const queryLanguage = resolveQueryLanguage({
         machineQueryLanguage,

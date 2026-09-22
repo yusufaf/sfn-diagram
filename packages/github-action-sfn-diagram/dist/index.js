@@ -68919,6 +68919,12 @@ function lintState(context3, diagnostics) {
     path: pointer,
     severity: "warning"
   });
+  if (machineQueryLanguage === "JSONata" && state2.QueryLanguage === "JSONPath") push({
+    code: "query-language-mismatch",
+    message: `State "${stateName}" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state`,
+    path: `${pointer}/QueryLanguage`,
+    severity: "error"
+  });
   const queryLanguage = resolveQueryLanguage({
     machineQueryLanguage,
     state: state2
@@ -69296,6 +69302,10 @@ function formatStateList(names) {
 function escapeMarkdownCell(text) {
   return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
+var LINT_ERROR_DIAGRAM_NOTE = "> \u274C Diagram omitted \u2014 the definition has errors Step Functions would reject";
+function hasLintErrors(diagnostics) {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
 function buildLintSection(diagnostics) {
   if (diagnostics.length === 0) return "";
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
@@ -69316,6 +69326,21 @@ function buildAslFileSection(change, options = {}) {
   const { afterAsl, beforeAsl, filename } = change;
   if (!afterAsl && !beforeAsl) return null;
   if (!afterAsl && beforeAsl) {
+    const deletedHeader = `### \`${filename}\`
+
+> \u26A0\uFE0F **File deleted**
+
+`;
+    if (hasLintErrors(lintAsl({ definition: beforeAsl }))) return {
+      afterAsl: null,
+      filename,
+      header: `${deletedHeader}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+      mermaidCode: "",
+      mermaidLabel: "\u{1F4CA} Before diagram",
+      mermaidOpenByDefault: false
+    };
     const { code } = generateMermaid({
       aslDefinition: beforeAsl,
       ...options
@@ -69323,17 +69348,30 @@ function buildAslFileSection(change, options = {}) {
     return {
       afterAsl: null,
       filename,
-      header: `### \`${filename}\`
-
-> \u26A0\uFE0F **File deleted**
-
-`,
+      header: deletedHeader,
       mermaidCode: code,
       mermaidLabel: "\u{1F4CA} Before diagram",
       mermaidOpenByDefault: false
     };
   }
+  const diagnostics = lintAsl({ definition: afterAsl });
+  const lintSection = buildLintSection(diagnostics);
   if (afterAsl && !beforeAsl) {
+    const newHeader = `### \`${filename}\`
+
+> \u2728 **New file**
+
+${lintSection}`;
+    if (hasLintErrors(diagnostics)) return {
+      afterAsl,
+      filename,
+      header: `${newHeader}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+      mermaidCode: "",
+      mermaidLabel: "\u{1F4CA} Diagram",
+      mermaidOpenByDefault: false
+    };
     const { code } = generateMermaid({
       aslDefinition: afterAsl,
       ...options
@@ -69341,16 +69379,24 @@ function buildAslFileSection(change, options = {}) {
     return {
       afterAsl,
       filename,
-      header: `### \`${filename}\`
-
-> \u2728 **New file**
-
-${buildLintSection(lintAsl({ definition: afterAsl }))}`,
+      header: newHeader,
       mermaidCode: code,
       mermaidLabel: "\u{1F4CA} Diagram",
       mermaidOpenByDefault: false
     };
   }
+  if (hasLintErrors(diagnostics)) return {
+    afterAsl,
+    filename,
+    header: `### \`${filename}\`
+
+${lintSection}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+    mermaidCode: "",
+    mermaidLabel: "\u{1F4CA} Diagram (changes highlighted)",
+    mermaidOpenByDefault: true
+  };
   const diff = generateMermaidDiff({
     after: afterAsl,
     before: beforeAsl,
@@ -69372,13 +69418,14 @@ ${buildLintSection(lintAsl({ definition: afterAsl }))}`,
 |---|---|
 ${rows.join("\n")}
 
-` + buildLintSection(lintAsl({ definition: afterAsl })),
+${lintSection}`,
     mermaidCode: diff.code,
     mermaidLabel: "\u{1F4CA} Diagram (changes highlighted)",
     mermaidOpenByDefault: true
   };
 }
 function renderAslFileSection(section, options = { includeDiagram: true }) {
+  if (section.mermaidCode === "") return section.header;
   if (!options.includeDiagram) return `${section.header}${options.omissionNote ?? "> \u{1F4CE} Diagram omitted \u2014 the diagram was too large to inline"}
 `;
   const openAttribute = section.mermaidOpenByDefault ? " open" : "";

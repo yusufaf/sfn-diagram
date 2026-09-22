@@ -90,9 +90,9 @@ describe('parseArgs', () => {
     });
 
     it('parses --check', () => {
-        expect(parseArgs(['in.json']).check).toBe(false)
-        expect(parseArgs(['in.json', '--check']).check).toBe(true)
-    })
+        expect(parseArgs(['in.json']).check).toBe(false);
+        expect(parseArgs(['in.json', '--check']).check).toBe(true);
+    });
 
     it('parses --diff and --execution', () => {
         expect(parseArgs(['head.json', '--diff', 'base.json']).diff).toBe('base.json');
@@ -288,14 +288,14 @@ describe('run', () => {
     });
 
     it('--check reports a clean definition on stderr and exits 0 with nothing on stdout', async () => {
-        const code = await run([simpleFixture, '--check'])
-        expect(code).toBe(0)
-        expect(stdoutData).toBe('')
-        expect(stderrData).toBe('No problems found\n')
-    })
+        const code = await run([simpleFixture, '--check']);
+        expect(code).toBe(0);
+        expect(stdoutData).toBe('');
+        expect(stderrData).toBe('No problems found\n');
+    });
 
     it('--check exits 0 on warnings only, listing each one', async () => {
-        const inputPath = join(tempDir, 'warn.asl.json')
+        const inputPath = join(tempDir, 'warn.asl.json');
         writeFileSync(
             inputPath,
             JSON.stringify({
@@ -305,45 +305,45 @@ describe('run', () => {
                     Orphan: { Type: 'Pass', End: true },
                 },
             }),
-        )
-        const code = await run([inputPath, '--check'])
-        expect(code).toBe(0)
-        expect(stderrData).toContain('warning /States/Orphan  State "Orphan" is unreachable from StartAt "A"  [unreachable-state]')
-        expect(stderrData).toContain('0 errors, 1 warning\n')
-    })
+        );
+        const code = await run([inputPath, '--check']);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('warning /States/Orphan  State "Orphan" is unreachable from StartAt "A"  [unreachable-state]');
+        expect(stderrData).toContain('0 errors, 1 warning\n');
+    });
 
     it('--check exits 1 on an error-severity finding', async () => {
-        const inputPath = join(tempDir, 'bad.asl.json')
+        const inputPath = join(tempDir, 'bad.asl.json');
         writeFileSync(
             inputPath,
             JSON.stringify({
                 StartAt: 'A',
                 States: { A: { Type: 'Pass', End: true, Next: 'A' } },
             }),
-        )
-        const code = await run([inputPath, '--check'])
-        expect(code).toBe(1)
-        expect(stderrData).toContain('error   /States/A/Next  State "A" sets both "End: true" and "Next"  [end-with-next]')
-        expect(stderrData).toContain('1 error, 0 warnings\n')
-        expect(stdoutData).toBe('')
-    })
+        );
+        const code = await run([inputPath, '--check']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('error   /States/A/Next  State "A" sets both "End: true" and "Next"  [end-with-next]');
+        expect(stderrData).toContain('1 error, 0 warnings\n');
+        expect(stdoutData).toBe('');
+    });
 
     it('--check reports invalid JSON as a diagnostic rather than a read failure', async () => {
-        const inputPath = join(tempDir, 'broken.asl.json')
-        writeFileSync(inputPath, '{ not valid json')
-        const code = await run([inputPath, '--check'])
-        expect(code).toBe(1)
-        expect(stderrData).toContain('[invalid-json]')
-    })
+        const inputPath = join(tempDir, 'broken.asl.json');
+        writeFileSync(inputPath, '{ not valid json');
+        const code = await run([inputPath, '--check']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('[invalid-json]');
+    });
 
     it('--check refuses --diff, --execution and --output', async () => {
         for (const extra of [['--diff', simpleFixture], ['--execution', simpleFixture], ['-o', 'x.svg']]) {
-            stderrData = ''
-            const code = await run([simpleFixture, '--check', ...extra])
-            expect(code).toBe(1)
-            expect(stderrData).toContain('--check lints the input only')
+            stderrData = '';
+            const code = await run([simpleFixture, '--check', ...extra]);
+            expect(code).toBe(1);
+            expect(stderrData).toContain('--check lints the input only');
         }
-    })
+    });
 
     it('returns exit code 2 for an invalid flag value', async () => {
         const code = await run([simpleFixture, '--format', 'gif']);

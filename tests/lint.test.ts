@@ -297,7 +297,20 @@ describe('lintAsl', () => {
             expect(diagnostics.map(({ path }) => path)).toEqual(['/States/A/Arguments', '/States/A/Output']);
         });
 
-        it('honours a per-state QueryLanguage override', () => {
+        it('honours a per-state JSONata override inside a JSONPath machine', () => {
+            const diagnostics = lintAsl({
+                definition: {
+                    StartAt: 'A',
+                    States: {
+                        A: { End: true, InputPath: '$.x', Output: '{% 1 %}', QueryLanguage: 'JSONata', Type: 'Pass' },
+                    },
+                },
+            });
+
+            expect(diagnostics.map(({ path }) => path)).toEqual(['/States/A/InputPath']);
+        });
+
+        it('rejects a per-state JSONPath override inside a JSONata machine', () => {
             const diagnostics = lintAsl({
                 definition: {
                     QueryLanguage: 'JSONata',
@@ -308,7 +321,15 @@ describe('lintAsl', () => {
                 },
             });
 
-            expect(diagnostics).toEqual([]);
+            expect(diagnostics).toEqual([
+                {
+                    code: 'query-language-mismatch',
+                    message:
+                        'State "A" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state',
+                    path: '/States/A/QueryLanguage',
+                    severity: 'error',
+                },
+            ]);
         });
 
         it('does not judge by the shape of a value', () => {

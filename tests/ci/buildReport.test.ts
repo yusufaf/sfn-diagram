@@ -6,6 +6,7 @@ import {
     buildExecutionOverlaySection,
     buildLintSection,
     formatStateList,
+    LINT_ERROR_DIAGRAM_NOTE,
     isAslDefinition,
     matchesPatterns,
     parseAslJson,
@@ -242,6 +243,34 @@ describe('buildAslFileSection', () => {
 
         expect(section?.header.indexOf('➕ Added')).toBeLessThan(section!.header.indexOf('🔍 Lint'));
         expect(section?.header).toContain('`/States/Extra`');
+    });
+
+    it('replaces the diagram with the lint table and a note when the definition has errors', () => {
+        const broken: AslDefinition = {
+            StartAt: 'A',
+            States: { A: { Next: 'Gone', Type: 'Pass' } },
+        };
+
+        const added = buildAslFileSection({ afterAsl: broken, beforeAsl: null, filename: 'flows/new.asl.json' });
+        expect(added?.mermaidCode).toBe('');
+        expect(added?.header).toContain('✨ **New file**');
+        expect(added?.header).toContain('🔍 Lint: ❌ 1 error');
+        expect(added?.header).toContain('`dangling-transition`');
+        expect(added?.header.endsWith(`${LINT_ERROR_DIAGRAM_NOTE}\n\n`)).toBe(true);
+        // Rendering never reaches the fenced block, with or without a diagram budget.
+        expect(renderAslFileSection(added!)).toBe(added!.header);
+        expect(renderAslFileSection(added!, { includeDiagram: false })).toBe(added!.header);
+
+        const modified = buildAslFileSection({ afterAsl: broken, beforeAsl, filename: 'flows/order.asl.json' });
+        expect(modified?.mermaidCode).toBe('');
+        expect(modified?.header).not.toContain('| | States |');
+        expect(modified?.header).toContain(LINT_ERROR_DIAGRAM_NOTE);
+
+        const deleted = buildAslFileSection({ afterAsl: null, beforeAsl: broken, filename: 'flows/gone.asl.json' });
+        expect(deleted?.mermaidCode).toBe('');
+        expect(deleted?.header).toContain('⚠️ **File deleted**');
+        expect(deleted?.header).not.toContain('Lint');
+        expect(deleted?.header).toContain(LINT_ERROR_DIAGRAM_NOTE);
     });
 
     it('omits the lint section for a clean definition and a deleted file', () => {

@@ -36,6 +36,7 @@ export {
     DEFAULT_REPORT_FOOTER,
     DEFAULT_REPORT_HEADING,
     formatStateList,
+    LINT_ERROR_DIAGRAM_NOTE,
     isAslDefinition,
     matchesPatterns,
     parseAslJson,

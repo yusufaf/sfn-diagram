@@ -373,6 +373,8 @@ export async function runGitlabComment(
     if (!includeDiagrams) {
         mkdirSync(outputDir, { recursive: true });
         for (const section of sections) {
+            // A definition with lint errors has no diagram to fall back to either.
+            if (section.mermaidCode === '') continue;
             const parsed = parsedByFilename.get(section.filename);
             if (!parsed) continue;
 
