@@ -7,7 +7,8 @@ Comment an **AWS Step Functions diagram** on every pull request that touches an 
 
 On each PR the action finds changed ASL files, compares the base and head revisions, and posts (or updates) a single comment containing:
 
-- a per-file **added / modified / removed** summary table, and
+- a per-file **added / modified / removed** summary table,
+- a collapsed **🔍 Lint** section whenever the new revision has findings (unreachable states, a Choice without a `Default`, JSONPath fields in a JSONata state, …), and
 - a **Mermaid diagram** in which changed states are colour-highlighted — **added = green, modified = yellow, removed = red** — rendered natively by GitHub, so there are no images to host.
 
 Built on the [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram) library (`generateMermaidDiff`).

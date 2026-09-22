@@ -8,6 +8,7 @@ import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
 import { parseAslSource } from './AslParser';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
+import { lintAsl } from './lint';
 import { exportPng } from './png';
 import {
     collectEdgeData,
@@ -19,6 +20,7 @@ import { embedIcons } from './utils/iconEmbedder';
 import type {
     AslDefinition,
     DiagramFormat,
+    LintDiagnostic,
     DiffOutput,
     ExecutionOutput,
     ExecutionStateStatus,
@@ -32,6 +34,7 @@ import type {
 export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
+    check: boolean;
     collapse: string[] | boolean | null;
     diff: string | null;
     execution: string | null;
@@ -79,6 +82,8 @@ Options:
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
                                    (JSON templates are detected automatically)
   --resource <logicalId>           State machine to extract when the template has several
+  --check                          Lint the definition instead of drawing it: print every
+                                   diagnostic and exit 1 if any is an error
   -h, --help                       Show this help and exit
   -v, --version                    Show version and exit
 
@@ -105,6 +110,7 @@ Examples:
   sfn-diagram state.asl.json --execution history.json -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+  sfn-diagram state.asl.json --check
 `;
 
 const COMMENT_GITLAB_HELP_TEXT = `sfn-diagram comment gitlab — post a Step Functions diagram/diff to a GitLab merge request
@@ -159,6 +165,7 @@ Example .gitlab-ci.yml:
 
 /** `node:util.parseArgs` option spec backing {@link parseArgs}. */
 const OPTION_SPEC = {
+    check: { type: 'boolean' },
     collapse: { type: 'string' },
     diff: { type: 'string' },
     execution: { type: 'string' },
@@ -278,6 +285,7 @@ export function parseArgs(argv: string[]): CliArgs {
     }
 
     return {
+        check: values.check === true,
         collapse:
             collapseValue === undefined
                 ? null
@@ -475,6 +483,27 @@ const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
     'succeeded',
     'notReached',
 ];
+
+/**
+ * Print `--check` diagnostics to stderr, one per line, followed by a count.
+ * Nothing goes to stdout: a clean run is silent apart from the count, so the
+ * command composes with `&&` the same way a linter does.
+ */
+function writeLintReport(diagnostics: LintDiagnostic[]): void {
+    const lines = diagnostics.map(
+        ({ code, message, path, severity }) =>
+            `${severity.padEnd(7)} ${path || '/'}  ${message}  [${code}]`,
+    );
+    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
+    const warnings = diagnostics.length - errors;
+    const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`;
+    lines.push(
+        diagnostics.length === 0
+            ? 'No problems found'
+            : `${plural(errors, 'error')}, ${plural(warnings, 'warning')}`,
+    );
+    process.stderr.write(`${lines.join('\n')}\n`);
+}
 
 /** Print the added/modified/removed breakdown of a `--diff` run to stderr. */
 function writeDiffSummary(
@@ -679,6 +708,12 @@ export async function run(argv: string[]): Promise<number> {
         );
         return 1;
     }
+    if (args.check && (args.diff !== null || args.execution !== null || args.output !== null)) {
+        process.stderr.write(
+            '--check lints the input only; it cannot be combined with --diff, --execution or --output\n',
+        );
+        return 1;
+    }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(args.format)) {
         process.stderr.write(
             `--diff supports --format svg, mermaid or html, not ${args.format}\n`,
@@ -691,7 +726,7 @@ export async function run(argv: string[]): Promise<number> {
         );
         return 1;
     }
-    if (args.format === 'png' && readBuildInfo()?.standalone) {
+    if (args.format === 'png' && !args.check && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--format png is not available in the standalone binary: the native ' +
                 'rasterizer it needs cannot be bundled into a single-file executable. ' +
@@ -700,7 +735,7 @@ export async function run(argv: string[]): Promise<number> {
         );
         return 1;
     }
-    if (args.format === 'png' && !args.output) {
+    if (args.format === 'png' && !args.check && !args.output) {
         process.stderr.write('--output is required when --format is png\n');
         return 1;
     }
@@ -769,6 +804,12 @@ export async function run(argv: string[]): Promise<number> {
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Error: ${message}\n`);
         return 1;
+    }
+
+    if (args.check) {
+        const diagnostics = lintAsl({ definition: definitionSource });
+        writeLintReport(diagnostics);
+        return diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? 1 : 0;
     }
 
     const sharedOptions = {

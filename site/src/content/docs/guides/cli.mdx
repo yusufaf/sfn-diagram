@@ -31,6 +31,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template |
 | `--resource <logicalId>` | State machine to extract when the template has several |
+| `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
 
 ## Diff and execution overlays from the CLI
@@ -65,6 +66,26 @@ programmatic equivalents.
 CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/).
 
 > **`--format png` needs the optional `@resvg/resvg-js` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …`; in a project, `npm install @resvg/resvg-js`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which ships it preinstalled.
+
+## Linting
+
+`--check` runs [`lintAsl`](/reference/index/functions/lintasl/) on the input and prints every
+finding to stderr instead of a diagram. The exit code is `1` when any finding is an
+error, `0` otherwise, so it drops straight into a pre-commit hook or CI step:
+
+```bash
+npx sfn-diagram state.asl.json --check
+```
+
+```
+error   /States/Ship/Next  State "Ship" sets both "End: true" and "Next"  [end-with-next]
+warning /States/Audit  State "Audit" is unreachable from StartAt "Validate"  [unreachable-state]
+1 error, 1 warning
+```
+
+Each line is `severity`, a JSON Pointer to the offending value, the message, and the
+rule code. `--resolve-cfn` / `--resource` work the same way they do for rendering;
+`--check` cannot be combined with `--diff`, `--execution` or `--output`.
 
 ## `comment gitlab`
 

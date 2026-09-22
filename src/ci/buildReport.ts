@@ -9,7 +9,8 @@ import { minimatch } from 'minimatch';
 import { generateMermaid } from '../index';
 import { generateMermaidDiff } from '../diff';
 import { generateMermaidExecution } from '../execution';
-import type { AslDefinition, CatchHandling, LayoutDirection, ThemeOption } from '../types';
+import { lintAsl } from '../lint';
+import type { AslDefinition, LintDiagnostic, CatchHandling, LayoutDirection, ThemeOption } from '../types';
 import type {
     ExecutionMode,
     FetchExecutionForOverlayParams,
@@ -50,6 +51,44 @@ export function matchesPatterns(filepath: string, patterns: string[]): boolean {
 
 export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ');
+}
+
+/** Escape the characters that would end or restyle a Markdown table cell / inline code span. */
+function escapeMarkdownCell(text: string): string {
+    return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+/**
+ * A collapsed `<details>` block listing every {@link lintAsl} finding for the
+ * after-state of a file, or an empty string when the definition is clean.
+ *
+ * Collapsed by default: the diagram is what the comment is for, and a warning
+ * such as an unreachable state is worth a glance, not a wall of text above it.
+ * Errors — a definition Step Functions would reject — are counted separately in
+ * the summary line so they are not mistaken for advice.
+ */
+export function buildLintSection(diagnostics: LintDiagnostic[]): string {
+    if (diagnostics.length === 0) return '';
+
+    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
+    const warnings = diagnostics.length - errors;
+    const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`;
+    const summary = [
+        errors > 0 ? `❌ ${plural(errors, 'error')}` : '',
+        warnings > 0 ? `⚠️ ${plural(warnings, 'warning')}` : '',
+    ]
+        .filter(Boolean)
+        .join(', ');
+
+    const rows = diagnostics.map(
+        ({ code, message, path, severity }) =>
+            `| ${severity === 'error' ? '❌' : '⚠️'} | \`${escapeMarkdownCell(path || '/')}\` | ${escapeMarkdownCell(message)} | \`${code}\` |`,
+    );
+
+    return (
+        `<details>\n<summary>🔍 Lint: ${summary}</summary>\n\n` +
+        `| | Path | Finding | Rule |\n|---|---|---|---|\n${rows.join('\n')}\n\n</details>\n\n`
+    );
 }
 
 /** The before/after ASL for one changed file, ready to be turned into a report section. */
@@ -126,7 +165,7 @@ export function buildAslFileSection(
         return {
             afterAsl,
             filename,
-            header: `### \`${filename}\`\n\n> ✨ **New file**\n\n`,
+            header: `### \`${filename}\`\n\n> ✨ **New file**\n\n${buildLintSection(lintAsl({ definition: afterAsl }))}`,
             mermaidCode: code,
             mermaidLabel: '📊 Diagram',
             mermaidOpenByDefault: false,
@@ -160,7 +199,9 @@ export function buildAslFileSection(
     return {
         afterAsl,
         filename,
-        header: `### \`${filename}\`\n\n| | States |\n|---|---|\n${rows.join('\n')}\n\n`,
+        header:
+            `### \`${filename}\`\n\n| | States |\n|---|---|\n${rows.join('\n')}\n\n` +
+            buildLintSection(lintAsl({ definition: afterAsl as AslDefinition })),
         mermaidCode: diff.code,
         mermaidLabel: '📊 Diagram (changes highlighted)',
         mermaidOpenByDefault: true,

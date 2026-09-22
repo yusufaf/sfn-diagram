@@ -4,6 +4,7 @@ import {
     assembleCommentBody,
     buildAslFileSection,
     buildExecutionOverlaySection,
+    buildLintSection,
     formatStateList,
     isAslDefinition,
     matchesPatterns,
@@ -129,6 +130,24 @@ describe('matchesPatterns', () => {
     });
 });
 
+describe('buildLintSection', () => {
+    it('returns an empty string for no diagnostics', () => {
+        expect(buildLintSection([])).toBe('');
+    });
+
+    it('counts errors and warnings separately and escapes table cells', () => {
+        const markdown = buildLintSection([
+            { code: 'end-with-next', message: 'a | b', path: '/States/x~1y', severity: 'error' },
+            { code: 'unreachable-state', message: 'line one\nline two', path: '/States/Z', severity: 'warning' },
+            { code: 'unreachable-state', message: 'w', path: '/States/W', severity: 'warning' },
+        ]);
+
+        expect(markdown).toContain('<summary>🔍 Lint: ❌ 1 error, ⚠️ 2 warnings</summary>');
+        expect(markdown).toContain('| ❌ | `/States/x~1y` | a \\| b | `end-with-next` |');
+        expect(markdown).toContain('| ⚠️ | `/States/Z` | line one line two | `unreachable-state` |');
+    });
+});
+
 describe('formatStateList', () => {
     it('wraps each name in backticks and comma-joins', () => {
         expect(formatStateList(['A', 'B'])).toBe('`A`, `B`');
@@ -188,6 +207,54 @@ describe('buildAslFileSection', () => {
         expect(section?.header).toContain('`CancelOrder`');
         expect(section?.mermaidOpenByDefault).toBe(true);
         expect(section?.mermaidCode).toContain('classDef diffAdded');
+    });
+
+    it('adds a collapsed lint section to a new file with findings', () => {
+        const section = buildAslFileSection({
+            afterAsl: {
+                StartAt: 'A',
+                States: {
+                    A: { End: true, Type: 'Pass' },
+                    Orphan: { End: true, Type: 'Pass' },
+                },
+            },
+            beforeAsl: null,
+            filename: 'flows/new.asl.json',
+        });
+
+        expect(section?.header).toContain('<details>\n<summary>🔍 Lint: ⚠️ 1 warning</summary>');
+        expect(section?.header).toContain(
+            '| ⚠️ | `/States/Orphan` | State "Orphan" is unreachable from StartAt "A" | `unreachable-state` |',
+        );
+        // The diagram still follows, so the header ends where it used to.
+        expect(section?.header.endsWith('</details>\n\n')).toBe(true);
+    });
+
+    it('adds the lint section after the change table of a modified file', () => {
+        const section = buildAslFileSection({
+            afterAsl: {
+                ...afterAsl,
+                States: { ...afterAsl.States, Extra: { End: true, Type: 'Pass' } },
+            },
+            beforeAsl,
+            filename: 'flows/order.asl.json',
+        });
+
+        expect(section?.header.indexOf('➕ Added')).toBeLessThan(section!.header.indexOf('🔍 Lint'));
+        expect(section?.header).toContain('`/States/Extra`');
+    });
+
+    it('omits the lint section for a clean definition and a deleted file', () => {
+        expect(
+            buildAslFileSection({ afterAsl, beforeAsl: null, filename: 'flows/new.asl.json' })?.header,
+        ).not.toContain('Lint');
+        expect(
+            buildAslFileSection({
+                afterAsl: null,
+                beforeAsl: { StartAt: 'A', States: { A: { End: true, Type: 'Pass' }, B: { End: true, Type: 'Pass' } } },
+                filename: 'flows/gone.asl.json',
+            })?.header,
+        ).not.toContain('Lint');
     });
 
     it('reports "No changes" when a modified file diffs to no state changes', () => {

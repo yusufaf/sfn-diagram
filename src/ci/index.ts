@@ -30,6 +30,7 @@ export {
     assembleCommentBody,
     buildAslFileSection,
     buildExecutionOverlaySection,
+    buildLintSection,
     DEFAULT_DIAGRAM_OMISSION_NOTE,
     DEFAULT_EXECUTION_DIAGRAM_OMISSION_NOTE,
     DEFAULT_REPORT_FOOTER,

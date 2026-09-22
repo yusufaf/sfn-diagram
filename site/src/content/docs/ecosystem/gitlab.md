@@ -3,7 +3,7 @@ title: GitLab CI
 description: Comment a Step Functions diagram and diff on every merge request.
 ---
 
-Comment a Step Functions diagram on every merge request that touches an ASL file, from a plain CI job — no marketplace listing, no separate install. `new` and `deleted` files get a plain diagram; `changed` files get a diff-highlighted diagram plus a change-summary table. The note is upserted (updated in place) on each push.
+Comment a Step Functions diagram on every merge request that touches an ASL file, from a plain CI job — no marketplace listing, no separate install. `new` and `deleted` files get a plain diagram; `changed` files get a diff-highlighted diagram plus a change-summary table, and any [`lintAsl`](/reference/index/functions/lintasl/) findings for the new revision appear in a collapsed **🔍 Lint** section. The note is upserted (updated in place) on each push.
 
 ```yaml
 # .gitlab-ci.yml

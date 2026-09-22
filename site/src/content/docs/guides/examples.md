@@ -119,3 +119,27 @@ const { buffer } = await exportPng({
 });
 writeFileSync('diagram.png', buffer);
 ```
+
+## Lint a Definition
+
+`lintAsl` never throws. It runs the same structural checks `validateAsl` does, then
+adds rules a definition can break while still rendering — unreachable states, a
+`Choice` without a `Default`, `End: true` next to `Next`, `Retry`/`Catch` on a `Wait`,
+JSONPath fields inside a JSONata state. Every finding carries a JSON Pointer to the
+offending value.
+
+```typescript
+import { lintAsl } from 'sfn-diagram';
+
+const diagnostics = lintAsl({ definition: asl });
+// [
+//   { code: 'unreachable-state', severity: 'warning', path: '/States/Audit',
+//     message: 'State "Audit" is unreachable from StartAt "Validate"' },
+// ]
+
+if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+  process.exit(1);
+}
+```
+
+The CLI exposes the same thing as `sfn-diagram state.asl.json --check`.
