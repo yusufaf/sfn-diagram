@@ -6,27 +6,17 @@ import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
-import { parseAslSource } from './AslParser';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { lintAsl } from './lint';
 import { exportPng } from './png';
-import {
-    collectEdgeData,
-    collectStateData,
-    resolveViewerTheme,
-    wrapSvgInInteractiveHtml,
-} from './renderers';
-import { embedIcons } from './utils/iconEmbedder';
 import type {
     AslDefinition,
     DiagramFormat,
+    DiffStateSummary,
+    ExecutionSummary,
     LintDiagnostic,
-    DiffOutput,
-    ExecutionOutput,
     ExecutionStateStatus,
     LayoutDirection,
-    MermaidDiffOutput,
-    MermaidExecutionOutput,
     ThemeOption,
 } from './types';
 
@@ -506,9 +496,7 @@ function writeLintReport(diagnostics: LintDiagnostic[]): void {
 }
 
 /** Print the added/modified/removed breakdown of a `--diff` run to stderr. */
-function writeDiffSummary(
-    metadata: DiffOutput['metadata'] | MermaidDiffOutput['metadata'],
-): void {
+function writeDiffSummary(metadata: DiffStateSummary): void {
     const { added, modified, removed, unchanged } = metadata;
     const lines: string[] = [];
     if (added.length > 0) lines.push(`  Added:     ${added.join(', ')}`);
@@ -525,9 +513,7 @@ function writeDiffSummary(
 }
 
 /** Print the per-status state breakdown of an `--execution` run to stderr. */
-function writeExecutionSummary(
-    metadata: ExecutionOutput['metadata'] | MermaidExecutionOutput['metadata'],
-): void {
+function writeExecutionSummary(metadata: ExecutionSummary): void {
     const lines: string[] = [];
     for (const status of EXECUTION_STATUS_ORDER) {
         const names = metadata[status];
@@ -831,26 +817,6 @@ export async function run(argv: string[]): Promise<number> {
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
     };
 
-    /**
-     * Wrap a diff or execution-overlay SVG in the interactive viewer, so
-     * `--format html` is honoured alongside `--diff` / `--execution` rather than
-     * silently falling back to raw SVG. Icons are inlined so the document stays
-     * offline, matching the plain `--format html` path.
-     */
-    const toInteractiveHtml = async (
-        svg: string,
-        nodeCount: number,
-    ): Promise<string> => {
-        const definition = parseAslSource({ source: definitionSource });
-        return wrapSvgInInteractiveHtml({
-            edgeData: collectEdgeData({ definition, options: svgOptions }),
-            nodeCount,
-            stateData: collectStateData({ definition }),
-            svg: await embedIcons({ svg }),
-            theme: resolveViewerTheme({ theme: args.theme }),
-        });
-    };
-
     try {
         if (baselineDefinition !== null) {
             if (args.format === 'mermaid') {
@@ -863,21 +829,26 @@ export async function run(argv: string[]): Promise<number> {
                 return 0;
             }
 
+            if (args.format === 'html') {
+                // The viewer applies the diff itself; icons are inlined so the document
+                // stays offline, matching the plain `--format html` path.
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    diff: { before: baselineDefinition },
+                    ...svgOptions,
+                });
+                if (result.metadata.diff) writeDiffSummary(result.metadata.diff);
+                writeOutput(result.html, args.output);
+                return 0;
+            }
+
             const result = generateDiff({
                 after: definitionSource,
                 before: baselineDefinition,
                 ...svgOptions,
             });
             writeDiffSummary(result.metadata);
-            writeOutput(
-                args.format === 'html'
-                    ? await toInteractiveHtml(
-                          result.svg,
-                          result.metadata.nodeCount,
-                      )
-                    : result.svg,
-                args.output,
-            );
+            writeOutput(result.svg, args.output);
             return 0;
         }
 
@@ -894,21 +865,24 @@ export async function run(argv: string[]): Promise<number> {
                 return 0;
             }
 
+            if (args.format === 'html') {
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                    ...svgOptions,
+                });
+                if (result.metadata.execution) writeExecutionSummary(result.metadata.execution);
+                writeOutput(result.html, args.output);
+                return 0;
+            }
+
             const result = generateExecution({
                 aslDefinition: definitionSource,
                 history: historySource,
                 ...svgOptions,
             });
             writeExecutionSummary(result.metadata);
-            writeOutput(
-                args.format === 'html'
-                    ? await toInteractiveHtml(
-                          result.svg,
-                          result.metadata.nodeCount,
-                      )
-                    : result.svg,
-                args.output,
-            );
+            writeOutput(result.svg, args.output);
             return 0;
         }
 

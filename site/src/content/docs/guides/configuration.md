@@ -196,6 +196,26 @@ Big, branchy state machines are hard to read as a static image. A few options he
   npx sfn-diagram head.asl.json --diff base.asl.json --format html -o diff.html
   ```
 
+  In the library, the same overlays are options on `generateHtml()` /
+  `generateHtmlAsync()` — `history` for an execution overlay, `diff` for a change
+  overlay — and they compose. `metadata.execution` and `metadata.diff` carry each
+  overlay's summary. (`generateExecutionHtml()` remains as a thin wrapper.)
+
+  ```typescript
+  import { generateHtml } from 'sfn-diagram';
+
+  const { html, metadata } = generateHtml({
+    aslDefinition: after,
+    diff: { before },      // added green, modified amber, removed red
+    history: events,       // a run's status, taken path and durations
+  });
+  ```
+
+  With both, a state that ran takes its execution colour, a state the run never
+  reached keeps its diff colour, and a changed state that ran says so in its
+  annotation (`modified · 1.2s`). A `history` overlay ships the expanded view only —
+  no collapse toggle yet.
+
   > **Icons and offline use:** the CLI inlines AWS service icons as data URIs, so
   > `--format html --show-icons` still works with no network. In the library, the
   > synchronous `generateHtml()` leaves icon URLs pointing at the jsDelivr CDN — use

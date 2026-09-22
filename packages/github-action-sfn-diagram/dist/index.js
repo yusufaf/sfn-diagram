@@ -68843,193 +68843,6 @@ function generateMermaidDiff(params) {
     }
   };
 }
-var RETRY_CATCH_TYPES = /* @__PURE__ */ new Set([
-  "Map",
-  "Parallel",
-  "Task"
-]);
-var JSONPATH_ONLY_FIELDS = [
-  "CausePath",
-  "ErrorPath",
-  "HeartbeatSecondsPath",
-  "InputPath",
-  "ItemsPath",
-  "MaxConcurrencyPath",
-  "OutputPath",
-  "Parameters",
-  "ResultPath",
-  "ResultSelector",
-  "SecondsPath",
-  "TimeoutSecondsPath",
-  "TimestampPath",
-  "ToleratedFailureCountPath",
-  "ToleratedFailurePercentagePath"
-];
-var JSONATA_ONLY_FIELDS = [
-  "Arguments",
-  "Items",
-  "Output"
-];
-var RULE_FIELDS = {
-  JSONPath: [
-    "Variable",
-    "And",
-    "Or",
-    "Not"
-  ].concat([
-    "String",
-    "Numeric",
-    "Boolean",
-    "Timestamp"
-  ].flatMap((kind) => [
-    "Equals",
-    "LessThan",
-    "GreaterThan",
-    "LessThanEquals",
-    "GreaterThanEquals",
-    "Matches"
-  ].flatMap((operator) => [`${kind}${operator}`, `${kind}${operator}Path`])), [
-    "IsPresent",
-    "IsNull",
-    "IsNumeric",
-    "IsString",
-    "IsBoolean",
-    "IsTimestamp"
-  ]),
-  JSONata: ["Condition"]
-};
-function transitionTargets(state2) {
-  const targets = [];
-  if (typeof state2.Next === "string") targets.push(state2.Next);
-  if (typeof state2.Default === "string") targets.push(state2.Default);
-  for (const field of ["Choices", "Catch"]) {
-    const entries = state2[field];
-    if (!Array.isArray(entries)) continue;
-    for (const entry of entries) if (entry && typeof entry === "object" && typeof entry.Next === "string") targets.push(entry.Next);
-  }
-  return targets;
-}
-function lintState(context3, diagnostics) {
-  const { machineQueryLanguage, pointer, scope, state: state2, stateName } = context3;
-  const qualify = (text) => scope === "" ? text : `${scope}: ${text}`;
-  const push = (diagnostic) => {
-    diagnostics.push({
-      ...diagnostic,
-      message: qualify(diagnostic.message)
-    });
-  };
-  const stateType = state2.Type;
-  if (state2.End === true && "Next" in state2 && state2.Next !== void 0) push({
-    code: "end-with-next",
-    message: `State "${stateName}" sets both "End: true" and "Next"`,
-    path: `${pointer}/Next`,
-    severity: "error"
-  });
-  for (const field of ["Retry", "Catch"]) if (state2[field] !== void 0 && !RETRY_CATCH_TYPES.has(stateType)) push({
-    code: "unsupported-retry-catch",
-    message: `State "${stateName}" (Type: ${stateType}) does not support ${field}; only Task, Parallel and Map do`,
-    path: `${pointer}/${field}`,
-    severity: "error"
-  });
-  if (stateType === "Choice" && state2.Default === void 0) push({
-    code: "choice-without-default",
-    message: `Choice state "${stateName}" has no Default; an input matching no rule fails the execution`,
-    path: pointer,
-    severity: "warning"
-  });
-  if (machineQueryLanguage === "JSONata" && state2.QueryLanguage === "JSONPath") push({
-    code: "query-language-mismatch",
-    message: `State "${stateName}" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state`,
-    path: `${pointer}/QueryLanguage`,
-    severity: "error"
-  });
-  const queryLanguage = resolveQueryLanguage({
-    machineQueryLanguage,
-    state: state2
-  });
-  const otherLanguage = queryLanguage === "JSONata" ? "JSONPath" : "JSONata";
-  const foreignFields = queryLanguage === "JSONata" ? JSONPATH_ONLY_FIELDS : JSONATA_ONLY_FIELDS;
-  for (const field of foreignFields) if (state2[field] !== void 0) push({
-    code: "query-language-mismatch",
-    message: `State "${stateName}" is in ${queryLanguage} mode but uses the ${otherLanguage}-only field "${field}"`,
-    path: `${pointer}/${field}`,
-    severity: "error"
-  });
-  if (stateType === "Choice" && Array.isArray(state2.Choices)) for (const [index, rule] of state2.Choices.entries()) {
-    if (!rule || typeof rule !== "object") continue;
-    const foreign = RULE_FIELDS[otherLanguage].find((field) => rule[field] !== void 0);
-    if (foreign !== void 0) push({
-      code: "query-language-mismatch",
-      message: `State "${stateName}" is in ${queryLanguage} mode but Choices[${index}] uses the ${otherLanguage}-only field "${foreign}"`,
-      path: `${pointer}/Choices/${index}/${foreign}`,
-      severity: "error"
-    });
-  }
-}
-function lintScope(context3, diagnostics) {
-  const { pointer, scope, startAt, states } = context3;
-  if (startAt === void 0) return;
-  const reached = /* @__PURE__ */ new Set();
-  const queue = [startAt];
-  while (queue.length > 0) {
-    const name = queue.pop();
-    if (reached.has(name) || !Object.hasOwn(states, name)) continue;
-    reached.add(name);
-    const state2 = states[name];
-    if (state2 && typeof state2 === "object") queue.push(...transitionTargets(state2));
-  }
-  for (const name of Object.keys(states)) {
-    if (reached.has(name)) continue;
-    const text = `State "${name}" is unreachable from StartAt "${startAt}"`;
-    diagnostics.push({
-      code: "unreachable-state",
-      message: scope === "" ? text : `${scope}: ${text}`,
-      path: `${pointer}/States/${escapePointerToken(name)}`,
-      severity: "warning"
-    });
-  }
-}
-function lintAsl(params) {
-  const diagnostics = [];
-  let definition;
-  try {
-    definition = parseAslSource({ source: params.definition });
-  } catch (error2) {
-    return [{
-      code: "invalid-json",
-      message: error2 instanceof Error ? error2.message : String(error2),
-      path: "",
-      severity: "error"
-    }];
-  }
-  const firstUse = /* @__PURE__ */ new Map();
-  runValidation({
-    definition,
-    sink: {
-      onScope: (context3) => {
-        lintScope(context3, diagnostics);
-        for (const name of Object.keys(context3.states)) {
-          const path2 = `${context3.pointer}/States/${escapePointerToken(name)}`;
-          const previous = firstUse.get(name);
-          if (previous === void 0) {
-            firstUse.set(name, path2);
-            continue;
-          }
-          const text = `State name "${name}" is also used at ${previous}`;
-          diagnostics.push({
-            code: "duplicate-state-name",
-            message: context3.scope === "" ? text : `${context3.scope}: ${text}`,
-            path: path2,
-            severity: "warning"
-          });
-        }
-      },
-      onState: (context3) => lintState(context3, diagnostics),
-      report: (diagnostic) => diagnostics.push(diagnostic)
-    }
-  });
-  return diagnostics;
-}
 var FAILURE_EVENT_TYPES = /* @__PURE__ */ new Set([
   "ActivityFailed",
   "ActivityScheduleFailed",
@@ -69270,6 +69083,193 @@ function generateMermaidExecution(params) {
       stateCount: metadata.stateCount
     }
   };
+}
+var RETRY_CATCH_TYPES = /* @__PURE__ */ new Set([
+  "Map",
+  "Parallel",
+  "Task"
+]);
+var JSONPATH_ONLY_FIELDS = [
+  "CausePath",
+  "ErrorPath",
+  "HeartbeatSecondsPath",
+  "InputPath",
+  "ItemsPath",
+  "MaxConcurrencyPath",
+  "OutputPath",
+  "Parameters",
+  "ResultPath",
+  "ResultSelector",
+  "SecondsPath",
+  "TimeoutSecondsPath",
+  "TimestampPath",
+  "ToleratedFailureCountPath",
+  "ToleratedFailurePercentagePath"
+];
+var JSONATA_ONLY_FIELDS = [
+  "Arguments",
+  "Items",
+  "Output"
+];
+var RULE_FIELDS = {
+  JSONPath: [
+    "Variable",
+    "And",
+    "Or",
+    "Not"
+  ].concat([
+    "String",
+    "Numeric",
+    "Boolean",
+    "Timestamp"
+  ].flatMap((kind) => [
+    "Equals",
+    "LessThan",
+    "GreaterThan",
+    "LessThanEquals",
+    "GreaterThanEquals",
+    "Matches"
+  ].flatMap((operator) => [`${kind}${operator}`, `${kind}${operator}Path`])), [
+    "IsPresent",
+    "IsNull",
+    "IsNumeric",
+    "IsString",
+    "IsBoolean",
+    "IsTimestamp"
+  ]),
+  JSONata: ["Condition"]
+};
+function transitionTargets(state2) {
+  const targets = [];
+  if (typeof state2.Next === "string") targets.push(state2.Next);
+  if (typeof state2.Default === "string") targets.push(state2.Default);
+  for (const field of ["Choices", "Catch"]) {
+    const entries = state2[field];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) if (entry && typeof entry === "object" && typeof entry.Next === "string") targets.push(entry.Next);
+  }
+  return targets;
+}
+function lintState(context3, diagnostics) {
+  const { machineQueryLanguage, pointer, scope, state: state2, stateName } = context3;
+  const qualify = (text) => scope === "" ? text : `${scope}: ${text}`;
+  const push = (diagnostic) => {
+    diagnostics.push({
+      ...diagnostic,
+      message: qualify(diagnostic.message)
+    });
+  };
+  const stateType = state2.Type;
+  if (state2.End === true && "Next" in state2 && state2.Next !== void 0) push({
+    code: "end-with-next",
+    message: `State "${stateName}" sets both "End: true" and "Next"`,
+    path: `${pointer}/Next`,
+    severity: "error"
+  });
+  for (const field of ["Retry", "Catch"]) if (state2[field] !== void 0 && !RETRY_CATCH_TYPES.has(stateType)) push({
+    code: "unsupported-retry-catch",
+    message: `State "${stateName}" (Type: ${stateType}) does not support ${field}; only Task, Parallel and Map do`,
+    path: `${pointer}/${field}`,
+    severity: "error"
+  });
+  if (stateType === "Choice" && state2.Default === void 0) push({
+    code: "choice-without-default",
+    message: `Choice state "${stateName}" has no Default; an input matching no rule fails the execution`,
+    path: pointer,
+    severity: "warning"
+  });
+  if (machineQueryLanguage === "JSONata" && state2.QueryLanguage === "JSONPath") push({
+    code: "query-language-mismatch",
+    message: `State "${stateName}" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state`,
+    path: `${pointer}/QueryLanguage`,
+    severity: "error"
+  });
+  const queryLanguage = resolveQueryLanguage({
+    machineQueryLanguage,
+    state: state2
+  });
+  const otherLanguage = queryLanguage === "JSONata" ? "JSONPath" : "JSONata";
+  const foreignFields = queryLanguage === "JSONata" ? JSONPATH_ONLY_FIELDS : JSONATA_ONLY_FIELDS;
+  for (const field of foreignFields) if (state2[field] !== void 0) push({
+    code: "query-language-mismatch",
+    message: `State "${stateName}" is in ${queryLanguage} mode but uses the ${otherLanguage}-only field "${field}"`,
+    path: `${pointer}/${field}`,
+    severity: "error"
+  });
+  if (stateType === "Choice" && Array.isArray(state2.Choices)) for (const [index, rule] of state2.Choices.entries()) {
+    if (!rule || typeof rule !== "object") continue;
+    const foreign = RULE_FIELDS[otherLanguage].find((field) => rule[field] !== void 0);
+    if (foreign !== void 0) push({
+      code: "query-language-mismatch",
+      message: `State "${stateName}" is in ${queryLanguage} mode but Choices[${index}] uses the ${otherLanguage}-only field "${foreign}"`,
+      path: `${pointer}/Choices/${index}/${foreign}`,
+      severity: "error"
+    });
+  }
+}
+function lintScope(context3, diagnostics) {
+  const { pointer, scope, startAt, states } = context3;
+  if (startAt === void 0) return;
+  const reached = /* @__PURE__ */ new Set();
+  const queue = [startAt];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (reached.has(name) || !Object.hasOwn(states, name)) continue;
+    reached.add(name);
+    const state2 = states[name];
+    if (state2 && typeof state2 === "object") queue.push(...transitionTargets(state2));
+  }
+  for (const name of Object.keys(states)) {
+    if (reached.has(name)) continue;
+    const text = `State "${name}" is unreachable from StartAt "${startAt}"`;
+    diagnostics.push({
+      code: "unreachable-state",
+      message: scope === "" ? text : `${scope}: ${text}`,
+      path: `${pointer}/States/${escapePointerToken(name)}`,
+      severity: "warning"
+    });
+  }
+}
+function lintAsl(params) {
+  const diagnostics = [];
+  let definition;
+  try {
+    definition = parseAslSource({ source: params.definition });
+  } catch (error2) {
+    return [{
+      code: "invalid-json",
+      message: error2 instanceof Error ? error2.message : String(error2),
+      path: "",
+      severity: "error"
+    }];
+  }
+  const firstUse = /* @__PURE__ */ new Map();
+  runValidation({
+    definition,
+    sink: {
+      onScope: (context3) => {
+        lintScope(context3, diagnostics);
+        for (const name of Object.keys(context3.states)) {
+          const path2 = `${context3.pointer}/States/${escapePointerToken(name)}`;
+          const previous = firstUse.get(name);
+          if (previous === void 0) {
+            firstUse.set(name, path2);
+            continue;
+          }
+          const text = `State name "${name}" is also used at ${previous}`;
+          diagnostics.push({
+            code: "duplicate-state-name",
+            message: context3.scope === "" ? text : `${context3.scope}: ${text}`,
+            path: path2,
+            severity: "warning"
+          });
+        }
+      },
+      onState: (context3) => lintState(context3, diagnostics),
+      report: (diagnostic) => diagnostics.push(diagnostic)
+    }
+  });
+  return diagnostics;
 }
 function generateMermaid(params) {
   const { aslDefinition, ...options } = params;

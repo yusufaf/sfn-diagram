@@ -2,6 +2,7 @@ import type {
     AslDefinition,
     AslState,
     DiffOutput,
+    DiffStateSummary,
     DiffStatus,
     GenerateDiffParams,
     GenerateMermaidDiffParams,
@@ -13,6 +14,7 @@ import { parseAsl, parseAslSource } from './AslParser';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { resolveQueryLanguage } from './utils/jsonata';
 import { mergeOptions, mergeRecordOptions } from './config';
+import type { CollapsePlan } from './graph';
 import {
     buildIdResolver,
     computeCollapsePlan,
@@ -81,7 +83,8 @@ function toOrphanState(params: ToOrphanStateParams): AslState {
 }
 
 /** Result of comparing the state sets of two ASL definitions. */
-interface StateDiff {
+/** The classified outcome of comparing two definitions, from {@link computeStateDiff}. */
+export interface StateDiff {
     added: string[];
     /** `after` states plus removed states re-added as orphan end-nodes */
     mergedAsl: AslDefinition;
@@ -280,7 +283,12 @@ function diffStates(params: DiffStatesParams): Record<string, AslState> {
  * state keeps its bare name unless it repeats elsewhere, in which case it is scoped
  * exactly as the rendered diagram scopes it.
  */
-function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): StateDiff {
+/**
+ * Compare two definitions state by state, producing the merged definition the diff
+ * renders and every classified id. Exported for `generateHtml`'s `diff` overlay; the
+ * public diff entry points are {@link generateDiff} and {@link generateMermaidDiff}.
+ */
+export function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): StateDiff {
     const classified: ClassifiedState[] = [];
     const mergedStates = diffStates({
         afterStates: afterAsl.States,
@@ -365,6 +373,90 @@ export function computeContainerChangeAnnotations(
     return { nodeAnnotations, nodeOverrides };
 }
 
+/** Parameters for {@link computeDiffStyling}. */
+export interface ComputeDiffStylingParams {
+    /** The diff to colour. */
+    diff: StateDiff;
+    /**
+     * The collapse plan of the view being styled, when it is a collapsed one: each
+     * placeholder hiding a change gets the amber override and a `"<n> changed inside"`
+     * annotation. Omit for an expanded view, where every change is visible.
+     */
+    plan?: CollapsePlan;
+}
+
+/** What {@link computeDiffStyling} contributes to a render, keyed by node id. */
+export interface DiffStyling {
+    /** `"<n> changed inside"` for collapsed placeholders hiding a change. */
+    nodeAnnotations: Record<string, string>;
+    /** Diff colour per changed node (and per placeholder hiding a change). */
+    nodeOverrides: Record<string, Partial<NodeStyle>>;
+    /** Which category each coloured node fell into. */
+    statusByNodeId: Record<string, Exclude<DiffStatus, 'unchanged'>>;
+}
+
+/**
+ * Turn a classified diff into per-node styling for one view: the pure core of
+ * {@link generateDiff}, shared with `generateHtml`'s `diff` overlay. It never touches
+ * layout or rendering.
+ *
+ * @param params - The diff, and the collapse plan when styling a collapsed view
+ * @returns Node colouring and annotations keyed by node id
+ *
+ * @example
+ * ```typescript
+ * const diff = computeStateDiff(before, after);
+ * const { nodeOverrides } = computeDiffStyling({ diff });
+ * ```
+ */
+export function computeDiffStyling(params: ComputeDiffStylingParams): DiffStyling {
+    const { diff, plan } = params;
+    const { added, modified, ownChanges, removed } = diff;
+
+    // Build nodeOverrides for diff coloring
+    const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
+    const statusByNodeId: Record<string, Exclude<DiffStatus, 'unchanged'>> = {};
+    for (const name of added) {
+        nodeOverrides[name] = DIFF_COLORS.added;
+        statusByNodeId[name] = 'added';
+    }
+    for (const name of modified) {
+        nodeOverrides[name] = DIFF_COLORS.modified;
+        statusByNodeId[name] = 'modified';
+    }
+    for (const name of removed) {
+        nodeOverrides[name] = DIFF_COLORS.removed;
+        statusByNodeId[name] = 'removed';
+    }
+
+    // A changed state hidden inside a collapsed container's placeholder would
+    // otherwise carry no visible trace of the change. Flag the placeholder itself.
+    let nodeAnnotations: Record<string, string> = {};
+    if (plan) {
+        // Own changes only: a nested container that is modified purely because one
+        // of its own children changed would otherwise be counted on top of that child.
+        const changed = computeContainerChangeAnnotations({
+            changedNames: new Set(ownChanges),
+            effectiveTargets: plan.effectiveTargets,
+            existingOverrides: nodeOverrides,
+            hiddenIdsByTarget: plan.hiddenIdsByTarget,
+        });
+        nodeAnnotations = changed.nodeAnnotations;
+        for (const id of Object.keys(changed.nodeOverrides)) {
+            nodeOverrides[id] = changed.nodeOverrides[id];
+            statusByNodeId[id] = 'modified';
+        }
+    }
+
+    return { nodeAnnotations, nodeOverrides, statusByNodeId };
+}
+
+/** The per-category summary every diff output reports, from a {@link StateDiff}. */
+export function summarizeDiff(diff: StateDiff): DiffStateSummary {
+    const { added, modified, removed, unchanged } = diff;
+    return { added, modified, removed, unchanged };
+}
+
 /**
  * Generate an SVG diff diagram comparing two AWS Step Functions ASL definitions.
  *
@@ -394,13 +486,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     } = params;
 
     const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
-    const { added, mergedAsl, modified, ownChanges, removed, unchanged } = diff;
-
-    // Build nodeOverrides for diff coloring
-    const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
-    for (const name of added) nodeOverrides[name] = DIFF_COLORS.added;
-    for (const name of modified) nodeOverrides[name] = DIFF_COLORS.modified;
-    for (const name of removed) nodeOverrides[name] = DIFF_COLORS.removed;
+    const { mergedAsl } = diff;
 
     // Same merge generateSvg does, so the diff renders exactly as the plain diagram would.
     const mergedOptions = mergeOptions({
@@ -410,30 +496,14 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     // One parse serves both the collapse plan below and the render.
     const { edges, nodes } = buildDiagramGraph({ definition: mergedAsl, options: mergedOptions });
 
-    // A changed state hidden inside a collapsed container's placeholder would
-    // otherwise carry no visible trace of the change. Flag the placeholder itself.
-    let containerAnnotations: Record<string, string> = {};
-    if (options.collapse) {
-        // The graph has already had catch handling applied, so the hidden-descendant
-        // closure here matches what the rendered diagram actually hides — otherwise a
-        // catch-hidden node could be double-counted as "hidden inside" a placeholder
-        // when it was really stripped from the diagram entirely.
-        const { effectiveTargets, hiddenIdsByTarget } = computeCollapsePlan({
-            collapse: options.collapse,
-            edges,
-            nodes,
-        });
-        // Own changes only: a nested container that is modified purely because one
-        // of its own children changed would otherwise be counted on top of that child.
-        const changed = computeContainerChangeAnnotations({
-            changedNames: new Set(ownChanges),
-            effectiveTargets,
-            existingOverrides: nodeOverrides,
-            hiddenIdsByTarget,
-        });
-        containerAnnotations = changed.nodeAnnotations;
-        Object.assign(nodeOverrides, changed.nodeOverrides);
-    }
+    // The graph has already had catch handling applied, so the hidden-descendant
+    // closure in the plan matches what the rendered diagram actually hides — otherwise
+    // a catch-hidden node could be double-counted as "hidden inside" a placeholder
+    // when it was really stripped from the diagram entirely.
+    const plan = options.collapse
+        ? computeCollapsePlan({ collapse: options.collapse, edges, nodes })
+        : undefined;
+    const { nodeAnnotations: containerAnnotations, nodeOverrides } = computeDiffStyling({ diff, plan });
 
     // A caller-supplied nodeAnnotations entry for the same container wins over ours,
     // same as an explicit diff status on the container wins over the placeholder color.
@@ -451,12 +521,9 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     return {
         height: svgOutput.height,
         metadata: {
-            added,
+            ...summarizeDiff(diff),
             edgeCount: svgOutput.metadata.edgeCount,
-            modified,
             nodeCount: svgOutput.metadata.nodeCount,
-            removed,
-            unchanged,
         },
         svg: svgOutput.svg,
         width: svgOutput.width,
