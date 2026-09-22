@@ -2,6 +2,7 @@
 export { SvgRenderer } from './SvgRenderer';
 export { MermaidRenderer } from './MermaidRenderer';
 export {
+    buildEdgeData,
     buildViewerContent,
     collectEdgeData,
     collectStateData,
@@ -10,6 +11,7 @@ export {
     wrapSvgInInteractiveHtml,
 } from './viewer';
 export type {
+    BuildEdgeDataParams,
     BuildViewerContentParams,
     CollectEdgeDataParams,
     CollectStateDataParams,

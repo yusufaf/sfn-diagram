@@ -1,15 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { generateHtml, generateHtmlAsync, generateViewerUpdate } from '../../src';
 import { DEFAULT_DIAGRAM_OPTIONS } from '../../src/config';
-import * as edgeDataModule from '../../src/renderers/viewer/edgeData';
+import * as aslParserModule from '../../src/AslParser';
 import type { AslDefinition, ViewerEdge } from '../../src/types';
 
-vi.mock('../../src/renderers/viewer/edgeData', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../../src/renderers/viewer/edgeData')>();
-    return { ...actual, collectEdgeData: vi.fn(actual.collectEdgeData) };
+vi.mock('../../src/AslParser', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../src/AslParser')>();
+    return { ...actual, parseAsl: vi.fn(actual.parseAsl) };
 });
 
-const collectEdgeDataSpy = vi.mocked(edgeDataModule.collectEdgeData);
+const parseAslSpy = vi.mocked(aslParserModule.parseAsl);
 
 const catchAsl: AslDefinition = {
     StartAt: 'Work',
@@ -34,11 +34,18 @@ function readEdgeBlob(html: string): Record<string, ViewerEdge> {
     return JSON.parse(match![1]) as Record<string, ViewerEdge>;
 }
 
-function lastCollectEdgeDataOptions(): unknown {
-    const lastCall = collectEdgeDataSpy.mock.calls.at(-1);
-    expect(lastCall).toBeDefined();
-    return lastCall![0].options;
+/**
+ * The viewer's edge data and the rendered SVG come from one `parseAsl` call, so the
+ * options that call received are the options both were built from.
+ */
+function soleParseOptions(): unknown {
+    expect(parseAslSpy).toHaveBeenCalledTimes(1);
+    return parseAslSpy.mock.calls[0][0].options;
 }
+
+beforeEach(() => {
+    parseAslSpy.mockClear();
+});
 
 describe('HTML viewer edge data uses the same merged options as the rendered SVG', () => {
     it('generateHtml labels the panel the way the diagram is drawn for a non-default catchLabelStyle', () => {
@@ -47,9 +54,10 @@ describe('HTML viewer edge data uses the same merged options as the rendered SVG
         expect(readEdgeBlob(html)[ERROR_EDGE_ID].label).toBe('Catch #1');
         expect(html).toContain('Catch #1');
         expect(html).not.toContain('Error: States.ALL');
-        expect(lastCollectEdgeDataOptions()).toEqual({
+        expect(soleParseOptions()).toEqual({
             ...DEFAULT_DIAGRAM_OPTIONS,
             catchLabelStyle: 'catch-number',
+            edgeHitAreas: true,
         });
     });
 
@@ -59,7 +67,7 @@ describe('HTML viewer edge data uses the same merged options as the rendered SVG
         expect(DEFAULT_DIAGRAM_OPTIONS.catchLabelStyle).toBe('error-type');
         expect(readEdgeBlob(html)[ERROR_EDGE_ID].label).toBe('Error: States.ALL');
         expect(html).toContain('Error: States.ALL');
-        expect(lastCollectEdgeDataOptions()).toEqual(DEFAULT_DIAGRAM_OPTIONS);
+        expect(soleParseOptions()).toEqual({ ...DEFAULT_DIAGRAM_OPTIONS, edgeHitAreas: true });
     });
 
     it('generateHtmlAsync passes the same merged options', async () => {
@@ -70,9 +78,10 @@ describe('HTML viewer edge data uses the same merged options as the rendered SVG
 
         expect(readEdgeBlob(html)[ERROR_EDGE_ID].label).toBe('Catch #1');
         expect(html).toContain('Catch #1');
-        expect(lastCollectEdgeDataOptions()).toEqual({
+        expect(soleParseOptions()).toEqual({
             ...DEFAULT_DIAGRAM_OPTIONS,
             catchLabelStyle: 'catch-number',
+            edgeHitAreas: true,
         });
     });
 
@@ -84,9 +93,10 @@ describe('HTML viewer edge data uses the same merged options as the rendered SVG
 
         expect(update.edgeData[ERROR_EDGE_ID].label).toBe('Catch #1');
         expect(update.contentHtml).toContain('Catch #1');
-        expect(lastCollectEdgeDataOptions()).toEqual({
+        expect(soleParseOptions()).toEqual({
             ...DEFAULT_DIAGRAM_OPTIONS,
             catchLabelStyle: 'catch-number',
+            edgeHitAreas: true,
         });
     });
 });

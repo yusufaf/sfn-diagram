@@ -9,12 +9,11 @@ import type {
     NodeStyle,
     QueryLanguage,
 } from './types';
-import { generateSvg } from './index';
 import { parseAsl, parseAslSource } from './AslParser';
+import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { resolveQueryLanguage } from './utils/jsonata';
-import { mergeRecordOptions } from './config';
+import { mergeOptions, mergeRecordOptions } from './config';
 import {
-    applyCatchHandling,
     buildIdResolver,
     computeCollapsePlan,
     getMapProcessor,
@@ -403,21 +402,22 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     for (const name of modified) nodeOverrides[name] = DIFF_COLORS.modified;
     for (const name of removed) nodeOverrides[name] = DIFF_COLORS.removed;
 
+    // Same merge generateSvg does, so the diff renders exactly as the plain diagram would.
+    const mergedOptions = mergeOptions({
+        ...options,
+        diagramTitle: options.diagramTitle ?? mergedAsl.Comment,
+    });
+    // One parse serves both the collapse plan below and the render.
+    const { edges, nodes } = buildDiagramGraph({ definition: mergedAsl, options: mergedOptions });
+
     // A changed state hidden inside a collapsed container's placeholder would
     // otherwise carry no visible trace of the change. Flag the placeholder itself.
     let containerAnnotations: Record<string, string> = {};
     if (options.collapse) {
-        const parsed = parseAsl({ definition: mergedAsl, options });
-        // Mirror generateSvg's own pipeline (catch handling before collapse) so the
-        // hidden-descendant closure here matches what the rendered diagram actually
-        // hides — otherwise a catch-hidden node could be double-counted as "hidden
-        // inside" a placeholder when it was really stripped from the diagram entirely.
-        const { edges, nodes } = applyCatchHandling({
-            edges: parsed.edges,
-            mode: options.catchHandling ?? 'show',
-            nodes: parsed.nodes,
-            startStateId: mergedAsl.StartAt,
-        });
+        // The graph has already had catch handling applied, so the hidden-descendant
+        // closure here matches what the rendered diagram actually hides — otherwise a
+        // catch-hidden node could be double-counted as "hidden inside" a placeholder
+        // when it was really stripped from the diagram entirely.
         const { effectiveTargets, hiddenIdsByTarget } = computeCollapsePlan({
             collapse: options.collapse,
             edges,
@@ -442,11 +442,10 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     // discard the diff coloring computed for every other node (issue #76).
     const mergedNodeOverrides = mergeRecordOptions(nodeOverrides, callerOverrides);
 
-    const svgOutput = generateSvg({
-        aslDefinition: mergedAsl,
-        nodeAnnotations,
-        nodeOverrides: mergedNodeOverrides,
-        ...options,
+    const svgOutput = renderSvgGraph({
+        edges,
+        nodes,
+        options: { ...mergedOptions, nodeAnnotations, nodeOverrides: mergedNodeOverrides },
     });
 
     return {

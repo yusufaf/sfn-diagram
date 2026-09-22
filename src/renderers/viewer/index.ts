@@ -1,6 +1,11 @@
 // Interactive HTML viewer exports
-export { collectEdgeData, serializeEdgeData } from './edgeData';
-export type { CollectEdgeDataParams, SerializeEdgeDataParams, ViewerEdge } from './edgeData';
+export { buildEdgeData, collectEdgeData, serializeEdgeData } from './edgeData';
+export type {
+    BuildEdgeDataParams,
+    CollectEdgeDataParams,
+    SerializeEdgeDataParams,
+    ViewerEdge,
+} from './edgeData';
 export { serializeForScriptBlock } from './scriptJson';
 export type { SerializeForScriptBlockParams } from './scriptJson';
 export { collectStateData, serializeStateData } from './stateData';

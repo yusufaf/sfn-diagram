@@ -1,6 +1,6 @@
 import { parseAsl } from '../../AslParser';
 import { serializeForScriptBlock } from './scriptJson';
-import type { AslDefinition, DiagramOptions, EdgeType } from '../../types';
+import type { AslDefinition, DiagramOptions, EdgeType, GraphEdge } from '../../types';
 
 /**
  * The subset of a graph edge the viewer's detail panel shows, keyed by `edge.id`.
@@ -20,6 +20,12 @@ export interface ViewerEdge {
     to: string;
     /** Transition kind, normalized so an untyped edge reads as `'normal'`. */
     type: EdgeType;
+}
+
+/** Parameters for {@link buildEdgeData}. */
+export interface BuildEdgeDataParams {
+    /** Every edge of the parsed definition, before catch handling or collapse filtered any. */
+    edges: GraphEdge[];
 }
 
 /** Parameters for {@link collectEdgeData}. */
@@ -71,6 +77,26 @@ export interface SerializeEdgeDataParams {
 export function collectEdgeData(params: CollectEdgeDataParams): Record<string, ViewerEdge> {
     const { definition, options } = params;
     const { edges } = parseAsl({ definition, options });
+    return buildEdgeData({ edges });
+}
+
+/**
+ * Build viewer-facing edge detail from edges that have already been parsed — the
+ * parse-free half of {@link collectEdgeData}, for callers that parsed the definition
+ * for rendering and want the panel keyed off that same parse.
+ *
+ * @param params - Parameters for edge data building
+ * @param params.edges - The full parsed edge list, before catch handling or collapse
+ * @returns Record mapping each edge id to its viewer-facing detail
+ *
+ * @example
+ * ```typescript
+ * const { edges } = parseAsl({ definition: asl });
+ * const edgeData = buildEdgeData({ edges });
+ * ```
+ */
+export function buildEdgeData(params: BuildEdgeDataParams): Record<string, ViewerEdge> {
+    const { edges } = params;
 
     const edgeData: Record<string, ViewerEdge> = {};
     for (const edge of edges) {
