@@ -364,7 +364,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * inlined as base64 data URIs, so the document has no external references even with
  * `showIcons: true`. An icon shared by the expanded and collapsed views is fetched
  * once for both. When the diagram has no remote icons this costs nothing —
- * `embedIcons` returns immediately and no network request is made.
+ * no icon is fetched and no network request is made.
  *
  * @param params - ASL definition plus the same options as {@link generateSvg}.
  * @returns Promise resolving to the HTML document string plus dimensions and metadata.
