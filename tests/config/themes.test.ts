@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AWS_DARK_THEME, AWS_LIGHT_THEME } from '../../src/config/themes';
-import type { CustomTheme, StateType } from '../../src/types';
+import type { ResolvedTheme, StateType } from '../../src/types';
 
 // WCAG 2.x contrast math (sRGB relative luminance), independent of the Rec. 601
 // luma helper in src/renderers/viewer/viewerStyles.ts - that one classifies a
@@ -37,7 +37,7 @@ const GRAPHICAL_THRESHOLD = 3.0;
 describe.each([
     ['AWS_LIGHT_THEME', AWS_LIGHT_THEME],
     ['AWS_DARK_THEME', AWS_DARK_THEME],
-])('%s WCAG AA contrast', (_name, theme: CustomTheme) => {
+])('%s WCAG AA contrast', (_name, theme: ResolvedTheme) => {
     const stateTypes = Object.keys(theme.nodeColors) as StateType[];
 
     it.each(stateTypes)('textColor on %s fill clears 4.5:1', (stateType) => {

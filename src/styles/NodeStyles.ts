@@ -1,11 +1,11 @@
-import type { NodeStyle, StateType, StylePreset, CustomTheme } from '../types';
+import type { NodeStyle, StateType, StylePreset, ResolvedTheme } from '../types';
 import { AWS_LIGHT_THEME } from '../config/themes';
 
 interface GetNodeStyleParams {
     customColors?: Partial<Record<StateType, NodeStyle>>;
     stateType: StateType;
     stylePreset?: StylePreset;
-    theme?: CustomTheme;
+    theme?: ResolvedTheme;
 }
 
 /**

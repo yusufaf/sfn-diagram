@@ -66637,26 +66637,48 @@ var AWS_DARK_THEME = {
   fontSize: 14,
   fontFamily: "Arial, sans-serif"
 };
-function getTheme(theme, customColors) {
-  let baseTheme;
-  if (!theme || theme === "light") baseTheme = AWS_LIGHT_THEME;
-  else if (theme === "dark") baseTheme = AWS_DARK_THEME;
-  else baseTheme = theme;
-  if (customColors) {
-    const nodeColors = { ...baseTheme.nodeColors };
-    for (const [stateType, colors] of Object.entries(customColors)) {
-      const key = stateType;
-      nodeColors[key] = {
-        ...nodeColors[key],
-        ...colors
-      };
-    }
-    return {
-      ...baseTheme,
-      nodeColors
+function mergeNodeColors(base, overrides) {
+  if (!overrides) return base;
+  const nodeColors = { ...base };
+  for (const [stateType, colors] of Object.entries(overrides)) {
+    const key = stateType;
+    nodeColors[key] = {
+      ...nodeColors[key],
+      ...withoutUndefined(colors)
     };
   }
-  return baseTheme;
+  return nodeColors;
+}
+function withoutUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== void 0));
+}
+function getTheme(theme, customColors) {
+  let resolved;
+  if (!theme || theme === "light") resolved = AWS_LIGHT_THEME;
+  else if (theme === "dark") resolved = AWS_DARK_THEME;
+  else {
+    const base = theme.base === "dark" ? AWS_DARK_THEME : AWS_LIGHT_THEME;
+    const { background, edgeColors, fontFamily, fontSize, nodeColors, textColor } = theme;
+    resolved = {
+      ...base,
+      ...withoutUndefined({
+        background,
+        fontFamily,
+        fontSize,
+        textColor
+      }),
+      edgeColors: {
+        ...base.edgeColors,
+        ...edgeColors ? withoutUndefined(edgeColors) : {}
+      },
+      nodeColors: mergeNodeColors(base.nodeColors, nodeColors)
+    };
+  }
+  if (customColors) return {
+    ...resolved,
+    nodeColors: mergeNodeColors(resolved.nodeColors, customColors)
+  };
+  return resolved;
 }
 function getNodeStyle(params) {
   const { stateType, theme = AWS_LIGHT_THEME, customColors, stylePreset = "aws-standard" } = params;
@@ -68285,7 +68307,7 @@ function resolveViewerTheme(params) {
   const { theme } = params;
   if (theme === "dark") return "dark";
   if (theme === void 0 || theme === "light") return "light";
-  const luminance = hexLuminance(theme.background);
+  const luminance = hexLuminance(getTheme(theme).background);
   return luminance !== null && luminance < DARK_BACKGROUND_LUMINANCE ? "dark" : "light";
 }
 var MERMAID_LABEL_ENTITIES = {

@@ -673,6 +673,7 @@ export type {
     GraphEdge,
     NodeStyle,
     CustomTheme,
+    ResolvedTheme,
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateHtmlParams,

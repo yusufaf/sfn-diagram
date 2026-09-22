@@ -11,7 +11,7 @@ import {
 import { getTheme } from '../config/themes';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
-import type { StateNode, GraphEdge, DiagramOptions, CustomTheme, LayoutDirection } from '../types';
+import type { StateNode, GraphEdge, DiagramOptions, ResolvedTheme, LayoutDirection } from '../types';
 
 /** Self-loop arc geometry. Each additional loop on a node nests one step further out. */
 const LOOP_BASE_REACH = 40;
@@ -109,7 +109,7 @@ const STACKED_LINE_HEIGHT = 16;
 
 export class DagreLayout {
     private options: DiagramOptions;
-    private theme: CustomTheme;
+    private theme: ResolvedTheme;
 
     constructor(options: DiagramOptions) {
         this.options = options;

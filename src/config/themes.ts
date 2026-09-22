@@ -1,9 +1,9 @@
-import type { CustomTheme, StateType } from '../types';
+import type { CustomTheme, ResolvedTheme, StateType } from '../types';
 
 /**
  * AWS Light Theme - matches the AWS Step Functions console light mode
  */
-export const AWS_LIGHT_THEME: CustomTheme = {
+export const AWS_LIGHT_THEME: ResolvedTheme = {
     background: '#ffffff',
     nodeColors: {
         Pass: { fill: '#e1f5fe', stroke: '#0277bd' },
@@ -30,7 +30,7 @@ export const AWS_LIGHT_THEME: CustomTheme = {
 /**
  * AWS Dark Theme - matches the AWS Step Functions console dark mode
  */
-export const AWS_DARK_THEME: CustomTheme = {
+export const AWS_DARK_THEME: ResolvedTheme = {
     background: '#1e1e1e',
     nodeColors: {
         Pass: { fill: '#01579b', stroke: '#4fc3f7' },
@@ -54,34 +54,78 @@ export const AWS_DARK_THEME: CustomTheme = {
     fontFamily: 'Arial, sans-serif',
 };
 
+/** Per-state-type colour overrides, merged one channel at a time. */
+type NodeColorOverrides = Partial<Record<StateType, Partial<{ fill: string; stroke: string }>>>;
+
 /**
- * Get theme object from theme name or custom theme
+ * Merge node colour overrides per channel rather than per state type: an entry that
+ * names only a fill would otherwise drop the theme's stroke for that type, leaving
+ * the node half-themed.
+ */
+function mergeNodeColors(
+    base: ResolvedTheme['nodeColors'],
+    overrides: NodeColorOverrides | undefined,
+): ResolvedTheme['nodeColors'] {
+    if (!overrides) return base;
+    const nodeColors = { ...base };
+    for (const [stateType, colors] of Object.entries(overrides)) {
+        const key = stateType as StateType;
+        nodeColors[key] = { ...nodeColors[key], ...withoutUndefined(colors) };
+    }
+    return nodeColors;
+}
+
+/** Copy of `value` with every `undefined` entry dropped, so a spread cannot blank a base field. */
+function withoutUndefined<T extends object>(value: T): Partial<T> {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, entry]) => entry !== undefined),
+    ) as Partial<T>;
+}
+
+/**
+ * Resolve a theme option to a fully specified theme.
+ *
+ * `'light'` / `'dark'` (or nothing) return the matching built-in theme. A
+ * {@link CustomTheme} is merged onto the built-in theme named by its `base`
+ * (`'light'` unless set): top-level fields replace, `edgeColors` merges per edge
+ * kind, and `nodeColors` merges per state type and channel — so `{ fontSize: 18 }`
+ * or `{ nodeColors: { Task: { fill: '#eee' } } }` are complete themes. A
+ * fully specified theme resolves to itself, byte for byte.
+ *
+ * @param theme - Theme name or custom theme; `'light'` when omitted
+ * @param customColors - The `customColors` diagram option, applied on top of the theme
+ * @returns The resolved theme every field of which is present
+ *
+ * @example
+ * ```typescript
+ * getTheme({ base: 'dark', fontSize: 18 }).background; // '#1e1e1e'
+ * getTheme({ nodeColors: { Task: { fill: '#eee' } } }).nodeColors.Task.stroke; // '#d84315'
+ * ```
  */
 export function getTheme(
     theme?: 'light' | 'dark' | CustomTheme,
-    customColors?: Partial<Record<StateType, { fill: string; stroke: string }>>
-): CustomTheme {
-    let baseTheme: CustomTheme;
+    customColors?: NodeColorOverrides
+): ResolvedTheme {
+    let resolved: ResolvedTheme;
 
     if (!theme || theme === 'light') {
-        baseTheme = AWS_LIGHT_THEME;
+        resolved = AWS_LIGHT_THEME;
     } else if (theme === 'dark') {
-        baseTheme = AWS_DARK_THEME;
+        resolved = AWS_DARK_THEME;
     } else {
-        baseTheme = theme;
+        const base = theme.base === 'dark' ? AWS_DARK_THEME : AWS_LIGHT_THEME;
+        const { background, edgeColors, fontFamily, fontSize, nodeColors, textColor } = theme;
+        resolved = {
+            ...base,
+            ...withoutUndefined({ background, fontFamily, fontSize, textColor }),
+            edgeColors: { ...base.edgeColors, ...(edgeColors ? withoutUndefined(edgeColors) : {}) },
+            nodeColors: mergeNodeColors(base.nodeColors, nodeColors),
+        };
     }
 
-    // Apply custom color overrides if provided. Merged per channel rather than per
-    // state type: an entry that names only a fill would otherwise drop the theme's
-    // stroke for that type, leaving the node half-themed.
     if (customColors) {
-        const nodeColors = { ...baseTheme.nodeColors };
-        for (const [stateType, colors] of Object.entries(customColors)) {
-            const key = stateType as StateType;
-            nodeColors[key] = { ...nodeColors[key], ...colors };
-        }
-        return { ...baseTheme, nodeColors };
+        return { ...resolved, nodeColors: mergeNodeColors(resolved.nodeColors, customColors) };
     }
 
-    return baseTheme;
+    return resolved;
 }

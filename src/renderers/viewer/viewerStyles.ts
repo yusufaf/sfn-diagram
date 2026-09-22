@@ -1,4 +1,5 @@
 import type { ThemeOption } from '../../types';
+import { getTheme } from '../../config/themes';
 
 /** Viewer chrome theme. Matches the diagram themes so the shell doesn't clash with the SVG. */
 export type ViewerTheme = 'dark' | 'light';
@@ -66,7 +67,8 @@ export function resolveViewerTheme(params: ResolveViewerThemeParams): ViewerThem
         return 'light';
     }
 
-    const luminance = hexLuminance(theme.background);
+    // Resolve first: a partial CustomTheme may leave `background` to its base.
+    const luminance = hexLuminance(getTheme(theme).background);
     return luminance !== null && luminance < DARK_BACKGROUND_LUMINANCE ? 'dark' : 'light';
 }
 

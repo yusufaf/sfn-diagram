@@ -3,14 +3,7 @@ import type { CustomTheme } from 'sfn-diagram'
 import { buildHostToolbarHtml, buildHostToolbarStyles } from './hostToolbar'
 
 function customTheme(background: string): CustomTheme {
-    return {
-        background,
-        edgeColors: { choice: '#000', default: '#000', error: '#000', normal: '#000' },
-        fontFamily: 'sans-serif',
-        fontSize: 12,
-        nodeColors: {},
-        textColor: '#000',
-    } as CustomTheme
+    return { background }
 }
 
 describe('buildHostToolbarHtml', () => {
