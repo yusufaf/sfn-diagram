@@ -9,7 +9,8 @@ import { minimatch } from 'minimatch';
 import { generateMermaid } from '../index';
 import { generateMermaidDiff } from '../diff';
 import { generateMermaidExecution } from '../execution';
-import type { AslDefinition, CatchHandling, LayoutDirection, ThemeOption } from '../types';
+import { lintAsl } from '../lint';
+import type { AslDefinition, LintDiagnostic, CatchHandling, LayoutDirection, ThemeOption } from '../types';
 import type {
     ExecutionMode,
     FetchExecutionForOverlayParams,
@@ -52,6 +53,52 @@ export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ');
 }
 
+/** Escape the characters that would end or restyle a Markdown table cell / inline code span. */
+function escapeMarkdownCell(text: string): string {
+    return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
+
+/** Shown in place of the diagram when the definition has lint errors the renderer would reject. */
+export const LINT_ERROR_DIAGRAM_NOTE =
+    '> ❌ Diagram omitted — the definition has errors Step Functions would reject';
+
+function hasLintErrors(diagnostics: LintDiagnostic[]): boolean {
+    return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+}
+
+/**
+ * A collapsed `<details>` block listing every {@link lintAsl} finding for the
+ * after-state of a file, or an empty string when the definition is clean.
+ *
+ * Collapsed by default: the diagram is what the comment is for, and a warning
+ * such as an unreachable state is worth a glance, not a wall of text above it.
+ * Errors — a definition Step Functions would reject — are counted separately in
+ * the summary line so they are not mistaken for advice.
+ */
+export function buildLintSection(diagnostics: LintDiagnostic[]): string {
+    if (diagnostics.length === 0) return '';
+
+    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
+    const warnings = diagnostics.length - errors;
+    const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`;
+    const summary = [
+        errors > 0 ? `❌ ${plural(errors, 'error')}` : '',
+        warnings > 0 ? `⚠️ ${plural(warnings, 'warning')}` : '',
+    ]
+        .filter(Boolean)
+        .join(', ');
+
+    const rows = diagnostics.map(
+        ({ code, message, path, severity }) =>
+            `| ${severity === 'error' ? '❌' : '⚠️'} | \`${escapeMarkdownCell(path || '/')}\` | ${escapeMarkdownCell(message)} | \`${code}\` |`,
+    );
+
+    return (
+        `<details>\n<summary>🔍 Lint: ${summary}</summary>\n\n` +
+        `| | Path | Finding | Rule |\n|---|---|---|---|\n${rows.join('\n')}\n\n</details>\n\n`
+    );
+}
+
 /** The before/after ASL for one changed file, ready to be turned into a report section. */
 export interface AslFileChange {
     afterAsl: AslDefinition | null;
@@ -70,7 +117,11 @@ export interface AslFileSection {
     filename: string;
     /** Filename heading, status callout, and (for a modified file) the change-summary table. */
     header: string;
-    /** Mermaid source for this file's diagram (plain, or diff-highlighted for a modified file). */
+    /**
+     * Mermaid source for this file's diagram (plain, or diff-highlighted for a modified
+     * file). Empty when the definition has lint errors: the renderer would reject it,
+     * so the header carries the findings and {@link LINT_ERROR_DIAGRAM_NOTE} instead.
+     */
     mermaidCode: string;
     /** Label for the collapsible `<summary>`. */
     mermaidLabel: string;
@@ -92,6 +143,11 @@ export interface BuildAslFileSectionOptions {
  * Builds one report section for a changed ASL file: a plain diagram for an
  * added or deleted file, or a diff-highlighted diagram plus a change-summary
  * table for a modified file. Returns `null` when neither side parsed as ASL.
+ *
+ * The definition is linted before it is drawn. Any error-severity finding means
+ * the renderer would throw on it, so the section then carries the lint table and
+ * {@link LINT_ERROR_DIAGRAM_NOTE} with no diagram — a broken definition should
+ * produce a comment saying what is broken, not a failed CI job.
  */
 export function buildAslFileSection(
     change: AslFileChange,
@@ -104,6 +160,17 @@ export function buildAslFileSection(
     }
 
     if (!afterAsl && beforeAsl) {
+        const deletedHeader = `### \`${filename}\`\n\n> ⚠️ **File deleted**\n\n`;
+        if (hasLintErrors(lintAsl({ definition: beforeAsl }))) {
+            return {
+                afterAsl: null,
+                filename,
+                header: `${deletedHeader}${LINT_ERROR_DIAGRAM_NOTE}\n\n`,
+                mermaidCode: '',
+                mermaidLabel: '📊 Before diagram',
+                mermaidOpenByDefault: false,
+            };
+        }
         const { code } = generateMermaid({
             aslDefinition: beforeAsl,
             ...options,
@@ -111,14 +178,28 @@ export function buildAslFileSection(
         return {
             afterAsl: null,
             filename,
-            header: `### \`${filename}\`\n\n> ⚠️ **File deleted**\n\n`,
+            header: deletedHeader,
             mermaidCode: code,
             mermaidLabel: '📊 Before diagram',
             mermaidOpenByDefault: false,
         };
     }
 
+    const diagnostics = lintAsl({ definition: afterAsl as AslDefinition });
+    const lintSection = buildLintSection(diagnostics);
+
     if (afterAsl && !beforeAsl) {
+        const newHeader = `### \`${filename}\`\n\n> ✨ **New file**\n\n${lintSection}`;
+        if (hasLintErrors(diagnostics)) {
+            return {
+                afterAsl,
+                filename,
+                header: `${newHeader}${LINT_ERROR_DIAGRAM_NOTE}\n\n`,
+                mermaidCode: '',
+                mermaidLabel: '📊 Diagram',
+                mermaidOpenByDefault: false,
+            };
+        }
         const { code } = generateMermaid({
             aslDefinition: afterAsl,
             ...options,
@@ -126,10 +207,21 @@ export function buildAslFileSection(
         return {
             afterAsl,
             filename,
-            header: `### \`${filename}\`\n\n> ✨ **New file**\n\n`,
+            header: newHeader,
             mermaidCode: code,
             mermaidLabel: '📊 Diagram',
             mermaidOpenByDefault: false,
+        };
+    }
+
+    if (hasLintErrors(diagnostics)) {
+        return {
+            afterAsl,
+            filename,
+            header: `### \`${filename}\`\n\n${lintSection}${LINT_ERROR_DIAGRAM_NOTE}\n\n`,
+            mermaidCode: '',
+            mermaidLabel: '📊 Diagram (changes highlighted)',
+            mermaidOpenByDefault: true,
         };
     }
 
@@ -160,7 +252,7 @@ export function buildAslFileSection(
     return {
         afterAsl,
         filename,
-        header: `### \`${filename}\`\n\n| | States |\n|---|---|\n${rows.join('\n')}\n\n`,
+        header: `### \`${filename}\`\n\n| | States |\n|---|---|\n${rows.join('\n')}\n\n${lintSection}`,
         mermaidCode: diff.code,
         mermaidLabel: '📊 Diagram (changes highlighted)',
         mermaidOpenByDefault: true,
@@ -189,6 +281,10 @@ export function renderAslFileSection(
     section: AslFileSection,
     options: RenderAslFileSectionOptions = { includeDiagram: true },
 ): string {
+    // No diagram to include or omit: the header already explains why.
+    if (section.mermaidCode === '') {
+        return section.header;
+    }
     if (!options.includeDiagram) {
         return `${section.header}${options.omissionNote ?? DEFAULT_DIAGRAM_OMISSION_NOTE}\n`;
     }

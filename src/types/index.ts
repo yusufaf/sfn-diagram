@@ -372,6 +372,51 @@ export interface CustomTheme {
     textColor?: string;
 }
 
+// Lint Types
+/** How serious a {@link LintDiagnostic} is. `error` fails `sfn-diagram --check`. */
+export type LintSeverity = 'error' | 'warning';
+
+/** Stable identifier of the rule a {@link LintDiagnostic} comes from. */
+export type LintCode =
+    /** A Choice state has no `Default`, so an unmatched input fails the execution. */
+    | 'choice-without-default'
+    /** `StartAt`, `Next`, `Default`, `Choices[].Next` or `Catch[].Next` names a state that does not exist in its scope. */
+    | 'dangling-transition'
+    /** The same state name is used in more than one `States` block. */
+    | 'duplicate-state-name'
+    /** A state sets both `End: true` and `Next`. */
+    | 'end-with-next'
+    /** A field has the wrong type (`Next` not a string, `Choices` not an array, …). */
+    | 'invalid-field'
+    /** The definition string is not valid JSON. */
+    | 'invalid-json'
+    /** A state's `Type` is missing or not one of the eight ASL state types. */
+    | 'invalid-state-type'
+    /** The definition or a nested scope is not an object, or lacks `StartAt` / `States`. */
+    | 'invalid-structure'
+    /** A non-terminal state has neither `Next` nor `End: true`. */
+    | 'missing-transition'
+    /** A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state. */
+    | 'query-language-mismatch'
+    /** No path from the scope's `StartAt` leads to the state. */
+    | 'unreachable-state'
+    /** `Retry` or `Catch` on a state type other than Task, Parallel or Map. */
+    | 'unsupported-retry-catch';
+
+/** One finding from {@link lintAsl}. */
+export interface LintDiagnostic {
+    /** Which rule produced the finding. */
+    code: LintCode;
+    /** Human-readable description, qualified by scope for nested states. */
+    message: string;
+    /**
+     * JSON Pointer (RFC 6901) to the offending value, e.g. `/States/Fanout/Branches/0/States/Validate/Next`.
+     * Empty for the definition as a whole.
+     */
+    path: string;
+    severity: LintSeverity;
+}
+
 // Diagram Configuration Union Types
 /** Supported output formats for diagram generation */
 export type DiagramFormat = 'html' | 'mermaid' | 'png' | 'svg';

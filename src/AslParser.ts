@@ -6,6 +6,7 @@ import type {
     ChoiceRule,
     CatchBlock,
     DiagramOptions,
+    LintDiagnostic,
     QueryLanguage,
 } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
@@ -130,9 +131,65 @@ interface ValidateAslParams {
     definition: unknown;
 }
 
+/** Context handed to {@link ValidationSink.onScope} once a scope's own checks are done. */
+export interface ScopeContext {
+    /** The machine's top-level `QueryLanguage`; nested scopes resolve against it. */
+    machineQueryLanguage: QueryLanguage | undefined;
+    /** JSON Pointer to this scope's definition; `''` at the machine root. */
+    pointer: string;
+    /** Scope label used in messages; `''` at the machine root. */
+    scope: string;
+    /** The scope's `StartAt`, when it names a state that exists. */
+    startAt: string | undefined;
+    /** The scope's `States` block. */
+    states: Record<string, unknown>;
+}
+
+/** Context handed to {@link ValidationSink.onState} for each state that is an object with a valid `Type`. */
+export interface StateContext {
+    /** The machine's top-level `QueryLanguage`; nested states resolve against it. */
+    machineQueryLanguage: QueryLanguage | undefined;
+    /** JSON Pointer to this state. */
+    pointer: string;
+    /** Scope label used in messages; `''` at the machine root. */
+    scope: string;
+    /** The state object. */
+    state: Record<string, unknown>;
+    /** The state's name within its `States` block. */
+    stateName: string;
+    /** Every state name in the enclosing scope. */
+    stateNames: ReadonlySet<string>;
+}
+
+/**
+ * Where the validation traversal sends what it finds.
+ *
+ * `validateAsl` supplies a sink that throws on the first report, so the render path
+ * fails fast with the outermost fault. `lintAsl` collects every report and attaches
+ * its own rules through the two hooks, so both share one traversal and cannot
+ * disagree about what is structurally valid.
+ */
+export interface ValidationSink {
+    /** Called for each scope after its own checks, before its nested scopes are entered. */
+    onScope?: (context: ScopeContext) => void;
+    /** Called for each state that is an object with a valid `Type`, after its structural checks. */
+    onState?: (context: StateContext) => void;
+    /** Receives every structural fault, in traversal order. */
+    report: (diagnostic: LintDiagnostic) => void;
+}
+
+/** Escape one JSON Pointer reference token (RFC 6901 §3). */
+export function escapePointerToken(token: string): string {
+    return token.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
 interface ValidateScopeParams {
     /** The definition for this scope: the machine root, a Parallel branch, or a Map processor. */
     definition: unknown;
+    /** The machine's top-level `QueryLanguage`, read at the root and passed down unchanged. */
+    machineQueryLanguage: QueryLanguage | undefined;
+    /** JSON Pointer to this scope's definition; `''` at the machine root. */
+    pointer: string;
     /**
      * How to name this scope in an error message. Empty at the machine root, where
      * messages read as they always have; otherwise something like
@@ -140,6 +197,8 @@ interface ValidateScopeParams {
      * their own States block, so an unqualified name is not enough to locate a fault.
      */
     scope: string;
+    /** Where findings go. */
+    sink: ValidationSink;
 }
 
 /**
@@ -149,9 +208,13 @@ interface ValidateScopeParams {
  * transitions: a `Next` inside a Parallel branch may only target a state in that
  * same branch. Validating nested scopes against the root's names would both miss
  * real dangling transitions and reject valid ones.
+ *
+ * Every fault goes through `sink.report`. With the throwing sink `validateAsl` uses,
+ * the first report ends the traversal; with a collecting sink the checks continue
+ * past a fault wherever the rest of the scope can still be examined.
  */
 function validateScope(params: ValidateScopeParams): void {
-    const { definition, scope } = params;
+    const { definition, pointer, scope, sink } = params;
     const isRoot = scope === '';
     // Root messages are preserved verbatim; nested ones are qualified by their scope.
     const subject = isRoot ? 'ASL definition' : scope;
@@ -160,37 +223,47 @@ function validateScope(params: ValidateScopeParams): void {
     // A Map named "Each" inside each of two Parallel branches would otherwise produce
     // the same message for both - the exact ambiguity the qualifier exists to remove.
     const nest = (label: string): string => (isRoot ? label : `${scope} > ${label}`);
+    const report = (code: LintDiagnostic['code'], path: string, message: string): void =>
+        sink.report({ code, message, path, severity: 'error' });
 
     // Check basic structure
     if (!definition || typeof definition !== 'object') {
-        throw new AslValidationError(`${subject} must be a non-null object`);
+        report('invalid-structure', pointer, `${subject} must be a non-null object`);
+        return;
     }
 
     const asl = definition as Record<string, unknown>;
+    const machineQueryLanguage = isRoot
+        ? (asl.QueryLanguage === 'JSONata' || asl.QueryLanguage === 'JSONPath' ? asl.QueryLanguage : undefined)
+        : params.machineQueryLanguage;
 
     // Check for StartAt
+    let startAt: string | undefined;
     if (!('StartAt' in asl)) {
-        throw new AslValidationError(`${subject} missing required field: StartAt`);
-    }
-
-    if (typeof asl.StartAt !== 'string' || asl.StartAt.trim() === '') {
-        throw new AslValidationError(qualify('StartAt must be a non-empty string'));
+        report('invalid-structure', pointer, `${subject} missing required field: StartAt`);
+    } else if (typeof asl.StartAt !== 'string' || asl.StartAt.trim() === '') {
+        report('invalid-field', `${pointer}/StartAt`, qualify('StartAt must be a non-empty string'));
+    } else {
+        startAt = asl.StartAt;
     }
 
     // Check for States
     if (!('States' in asl)) {
-        throw new AslValidationError(`${subject} missing required field: States`);
+        report('invalid-structure', pointer, `${subject} missing required field: States`);
+        return;
     }
 
     if (!asl.States || typeof asl.States !== 'object') {
-        throw new AslValidationError(qualify('States must be a non-null object'));
+        report('invalid-structure', `${pointer}/States`, qualify('States must be a non-null object'));
+        return;
     }
 
     const states = asl.States as Record<string, unknown>;
     const stateNames = Object.keys(states);
 
     if (stateNames.length === 0) {
-        throw new AslValidationError(qualify('States object cannot be empty'));
+        report('invalid-structure', `${pointer}/States`, qualify('States object cannot be empty'));
+        return;
     }
 
     // Set for O(1) reference checks. Every state validates its Next/Default/Choices/Catch
@@ -198,34 +271,55 @@ function validateScope(params: ValidateScopeParams): void {
     const stateNameSet = new Set(stateNames);
 
     // Check that StartAt references an existing state
-    if (!stateNameSet.has(asl.StartAt)) {
-        throw new AslValidationError(
+    if (startAt !== undefined && !stateNameSet.has(startAt)) {
+        report(
+            'dangling-transition',
+            `${pointer}/StartAt`,
             qualify(
-                `StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(', ')}`
+                `StartAt references non-existent state: "${startAt}". Available states: ${stateNames.join(', ')}`
             )
         );
+        startAt = undefined;
     }
 
     // Validate each state
     for (const [stateName, stateValue] of Object.entries(states)) {
-        validateState({ scope, stateName, stateNames: stateNameSet, stateValue });
+        validateState({
+            machineQueryLanguage,
+            pointer: `${pointer}/States/${escapePointerToken(stateName)}`,
+            scope,
+            sink,
+            stateName,
+            stateNames: stateNameSet,
+            stateValue,
+        });
     }
+
+    sink.onScope?.({ machineQueryLanguage, pointer, scope, startAt, states });
 
     // Recurse into every nested scope. Doing this after the current scope is fully
     // checked keeps the reported fault the outermost one, which is the useful one.
     for (const [stateName, stateValue] of Object.entries(states)) {
+        if (!stateValue || typeof stateValue !== 'object') continue;
         const state = stateValue as AslState;
+        const statePointer = `${pointer}/States/${escapePointerToken(stateName)}`;
 
         if (state.Type === 'Parallel' && state.Branches !== undefined) {
             if (!Array.isArray(state.Branches)) {
-                throw new AslValidationError(
+                report(
+                    'invalid-field',
+                    `${statePointer}/Branches`,
                     qualify(`State "${stateName}": Branches must be an array`)
                 );
+                continue;
             }
             state.Branches.forEach((branch, index) => {
                 validateScope({
                     definition: branch,
+                    machineQueryLanguage,
+                    pointer: `${statePointer}/Branches/${index}`,
                     scope: nest(`Parallel state "${stateName}" branch ${index + 1}`),
+                    sink,
                 });
             });
         }
@@ -235,11 +329,33 @@ function validateScope(params: ValidateScopeParams): void {
             if (processor !== undefined) {
                 validateScope({
                     definition: processor,
+                    machineQueryLanguage,
+                    pointer: `${statePointer}/${state.ItemProcessor !== undefined ? 'ItemProcessor' : 'Iterator'}`,
                     scope: nest(`Map state "${stateName}" processor`),
+                    sink,
                 });
             }
         }
     }
+}
+
+/** Parameters for {@link runValidation}. */
+export interface RunValidationParams {
+    /** The ASL definition to walk. */
+    definition: unknown;
+    /** Where findings go. */
+    sink: ValidationSink;
+}
+
+/**
+ * Run the structural validation traversal with a caller-supplied sink.
+ *
+ * Internal seam shared by {@link validateAsl} (throwing sink) and `lintAsl`
+ * (collecting sink with extra rules); not part of the public API.
+ */
+export function runValidation(params: RunValidationParams): void {
+    const { definition, sink } = params;
+    validateScope({ definition, machineQueryLanguage: undefined, pointer: '', scope: '', sink });
 }
 
 /**
@@ -254,12 +370,25 @@ function validateScope(params: ValidateScopeParams): void {
  * @throws {AslValidationError} When the ASL definition is invalid
  */
 export function validateAsl(params: ValidateAslParams): void {
-    validateScope({ definition: params.definition, scope: '' });
+    runValidation({
+        definition: params.definition,
+        sink: {
+            report: (diagnostic) => {
+                throw new AslValidationError(diagnostic.message);
+            },
+        },
+    });
 }
 
 interface ValidateStateParams {
+    /** The machine's top-level `QueryLanguage`. */
+    machineQueryLanguage: QueryLanguage | undefined;
+    /** JSON Pointer to this state. */
+    pointer: string;
     /** Scope label for error messages; empty at the machine root. See {@link validateScope}. */
     scope: string;
+    /** Where findings go. */
+    sink: ValidationSink;
     /** Name of the state being validated */
     stateName: string;
     /** All valid state names *in this scope*, as a set for O(1) reference checking */
@@ -272,40 +401,48 @@ interface ValidateStateParams {
  * Validates an individual state within an ASL definition
  */
 function validateState(params: ValidateStateParams): void {
-    const { scope, stateName, stateNames, stateValue } = params;
+    const { machineQueryLanguage, pointer, scope, sink, stateName, stateNames, stateValue } = params;
     // Nested state names repeat across scopes, so an unqualified message cannot say
     // which "Validate" is at fault. Root messages are left exactly as they were.
-    // Explicitly typed: TypeScript only treats a call as never-returning for
-    // control-flow narrowing when the const carries its own type annotation.
-    const fail: (text: string) => never = (text) => {
-        throw new AslValidationError(scope === '' ? text : `${scope}: ${text}`);
-    };
+    const report = (code: LintDiagnostic['code'], path: string, text: string): void =>
+        sink.report({
+            code,
+            message: scope === '' ? text : `${scope}: ${text}`,
+            path,
+            severity: 'error',
+        });
 
     if (!stateValue || typeof stateValue !== 'object') {
-        fail(`State "${stateName}" must be a non-null object`);
+        report('invalid-structure', pointer, `State "${stateName}" must be a non-null object`);
+        return;
     }
 
     const state = stateValue as Record<string, unknown>;
 
     // Check for Type
     if (!('Type' in state)) {
-        fail(`State "${stateName}" missing required field: Type`);
+        report('invalid-state-type', pointer, `State "${stateName}" missing required field: Type`);
+        return;
     }
 
     const stateType = state.Type;
     if (typeof stateType !== 'string' || !VALID_STATE_TYPES.includes(stateType as typeof VALID_STATE_TYPES[number])) {
-        fail(
+        report(
+            'invalid-state-type',
+            `${pointer}/Type`,
             `State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(', ')}`
         );
+        return;
     }
 
     // Check Next references valid states (if present)
     if ('Next' in state && state.Next !== undefined) {
         if (typeof state.Next !== 'string') {
-            fail(`State "${stateName}": Next must be a string`);
-        }
-        if (!stateNames.has(state.Next)) {
-            fail(
+            report('invalid-field', `${pointer}/Next`, `State "${stateName}": Next must be a string`);
+        } else if (!stateNames.has(state.Next)) {
+            report(
+                'dangling-transition',
+                `${pointer}/Next`,
                 `State "${stateName}": Next references non-existent state "${state.Next}"`
             );
         }
@@ -314,10 +451,11 @@ function validateState(params: ValidateStateParams): void {
     // Check Default references valid state (for Choice)
     if ('Default' in state && state.Default !== undefined) {
         if (typeof state.Default !== 'string') {
-            fail(`State "${stateName}": Default must be a string`);
-        }
-        if (!stateNames.has(state.Default)) {
-            fail(
+            report('invalid-field', `${pointer}/Default`, `State "${stateName}": Default must be a string`);
+        } else if (!stateNames.has(state.Default)) {
+            report(
+                'dangling-transition',
+                `${pointer}/Default`,
                 `State "${stateName}": Default references non-existent state "${state.Default}"`
             );
         }
@@ -328,7 +466,11 @@ function validateState(params: ValidateStateParams): void {
     // Branches used to.
     for (const arrayField of ['Choices', 'Catch', 'Retry'] as const) {
         if (state[arrayField] !== undefined && !Array.isArray(state[arrayField])) {
-            fail(`State "${stateName}": ${arrayField} must be an array`);
+            report(
+                'invalid-field',
+                `${pointer}/${arrayField}`,
+                `State "${stateName}": ${arrayField} must be an array`
+            );
         }
     }
 
@@ -338,7 +480,9 @@ function validateState(params: ValidateStateParams): void {
             if (choice && typeof choice === 'object' && 'Next' in choice) {
                 const choiceNext = (choice as Record<string, unknown>).Next;
                 if (typeof choiceNext === 'string' && !stateNames.has(choiceNext)) {
-                    fail(
+                    report(
+                        'dangling-transition',
+                        `${pointer}/Choices/${index}/Next`,
                         `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`
                     );
                 }
@@ -352,7 +496,9 @@ function validateState(params: ValidateStateParams): void {
             if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
                 const catchNext = (catchBlock as Record<string, unknown>).Next;
                 if (typeof catchNext === 'string' && !stateNames.has(catchNext)) {
-                    fail(
+                    report(
+                        'dangling-transition',
+                        `${pointer}/Catch/${index}/Next`,
                         `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`
                     );
                 }
@@ -362,15 +508,19 @@ function validateState(params: ValidateStateParams): void {
 
     // Validate that non-terminal states have either Next or End
     const terminalTypes = ['Succeed', 'Fail'];
-    if (!terminalTypes.includes(stateType as string) && stateType !== 'Choice') {
+    if (!terminalTypes.includes(stateType) && stateType !== 'Choice') {
         const hasNext = 'Next' in state;
         const hasEnd = 'End' in state && state.End === true;
         if (!hasNext && !hasEnd) {
-            fail(
+            report(
+                'missing-transition',
+                pointer,
                 `State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`
             );
         }
     }
+
+    sink.onState?.({ machineQueryLanguage, pointer, scope, state, stateName, stateNames });
 }
 
 /**

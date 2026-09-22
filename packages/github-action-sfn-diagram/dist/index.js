@@ -67665,37 +67665,82 @@ var VALID_STATE_TYPES = [
   "Parallel",
   "Map"
 ];
+function escapePointerToken(token) {
+  return token.replace(/~/g, "~0").replace(/\//g, "~1");
+}
 function validateScope(params) {
-  const { definition, scope } = params;
+  const { definition, pointer, scope, sink } = params;
   const isRoot = scope === "";
   const subject = isRoot ? "ASL definition" : scope;
   const qualify = (text) => isRoot ? text : `${scope}: ${text}`;
   const nest = (label) => isRoot ? label : `${scope} > ${label}`;
-  if (!definition || typeof definition !== "object") throw new AslValidationError(`${subject} must be a non-null object`);
+  const report = (code, path2, message) => sink.report({
+    code,
+    message,
+    path: path2,
+    severity: "error"
+  });
+  if (!definition || typeof definition !== "object") {
+    report("invalid-structure", pointer, `${subject} must be a non-null object`);
+    return;
+  }
   const asl = definition;
-  if (!("StartAt" in asl)) throw new AslValidationError(`${subject} missing required field: StartAt`);
-  if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") throw new AslValidationError(qualify("StartAt must be a non-empty string"));
-  if (!("States" in asl)) throw new AslValidationError(`${subject} missing required field: States`);
-  if (!asl.States || typeof asl.States !== "object") throw new AslValidationError(qualify("States must be a non-null object"));
+  const machineQueryLanguage = isRoot ? asl.QueryLanguage === "JSONata" || asl.QueryLanguage === "JSONPath" ? asl.QueryLanguage : void 0 : params.machineQueryLanguage;
+  let startAt;
+  if (!("StartAt" in asl)) report("invalid-structure", pointer, `${subject} missing required field: StartAt`);
+  else if (typeof asl.StartAt !== "string" || asl.StartAt.trim() === "") report("invalid-field", `${pointer}/StartAt`, qualify("StartAt must be a non-empty string"));
+  else startAt = asl.StartAt;
+  if (!("States" in asl)) {
+    report("invalid-structure", pointer, `${subject} missing required field: States`);
+    return;
+  }
+  if (!asl.States || typeof asl.States !== "object") {
+    report("invalid-structure", `${pointer}/States`, qualify("States must be a non-null object"));
+    return;
+  }
   const states = asl.States;
   const stateNames = Object.keys(states);
-  if (stateNames.length === 0) throw new AslValidationError(qualify("States object cannot be empty"));
+  if (stateNames.length === 0) {
+    report("invalid-structure", `${pointer}/States`, qualify("States object cannot be empty"));
+    return;
+  }
   const stateNameSet = new Set(stateNames);
-  if (!stateNameSet.has(asl.StartAt)) throw new AslValidationError(qualify(`StartAt references non-existent state: "${asl.StartAt}". Available states: ${stateNames.join(", ")}`));
+  if (startAt !== void 0 && !stateNameSet.has(startAt)) {
+    report("dangling-transition", `${pointer}/StartAt`, qualify(`StartAt references non-existent state: "${startAt}". Available states: ${stateNames.join(", ")}`));
+    startAt = void 0;
+  }
   for (const [stateName, stateValue] of Object.entries(states)) validateState({
+    machineQueryLanguage,
+    pointer: `${pointer}/States/${escapePointerToken(stateName)}`,
     scope,
+    sink,
     stateName,
     stateNames: stateNameSet,
     stateValue
   });
+  sink.onScope?.({
+    machineQueryLanguage,
+    pointer,
+    scope,
+    startAt,
+    states
+  });
   for (const [stateName, stateValue] of Object.entries(states)) {
+    if (!stateValue || typeof stateValue !== "object") continue;
     const state2 = stateValue;
+    const statePointer = `${pointer}/States/${escapePointerToken(stateName)}`;
     if (state2.Type === "Parallel" && state2.Branches !== void 0) {
-      if (!Array.isArray(state2.Branches)) throw new AslValidationError(qualify(`State "${stateName}": Branches must be an array`));
+      if (!Array.isArray(state2.Branches)) {
+        report("invalid-field", `${statePointer}/Branches`, qualify(`State "${stateName}": Branches must be an array`));
+        continue;
+      }
       state2.Branches.forEach((branch, index) => {
         validateScope({
           definition: branch,
-          scope: nest(`Parallel state "${stateName}" branch ${index + 1}`)
+          machineQueryLanguage,
+          pointer: `${statePointer}/Branches/${index}`,
+          scope: nest(`Parallel state "${stateName}" branch ${index + 1}`),
+          sink
         });
       });
     }
@@ -67703,57 +67748,92 @@ function validateScope(params) {
       const processor = getMapProcessor(state2);
       if (processor !== void 0) validateScope({
         definition: processor,
-        scope: nest(`Map state "${stateName}" processor`)
+        machineQueryLanguage,
+        pointer: `${statePointer}/${state2.ItemProcessor !== void 0 ? "ItemProcessor" : "Iterator"}`,
+        scope: nest(`Map state "${stateName}" processor`),
+        sink
       });
     }
   }
 }
-function validateAsl(params) {
+function runValidation(params) {
+  const { definition, sink } = params;
   validateScope({
+    definition,
+    machineQueryLanguage: void 0,
+    pointer: "",
+    scope: "",
+    sink
+  });
+}
+function validateAsl(params) {
+  runValidation({
     definition: params.definition,
-    scope: ""
+    sink: { report: (diagnostic) => {
+      throw new AslValidationError(diagnostic.message);
+    } }
   });
 }
 function validateState(params) {
-  const { scope, stateName, stateNames, stateValue } = params;
-  const fail = (text) => {
-    throw new AslValidationError(scope === "" ? text : `${scope}: ${text}`);
-  };
-  if (!stateValue || typeof stateValue !== "object") fail(`State "${stateName}" must be a non-null object`);
+  const { machineQueryLanguage, pointer, scope, sink, stateName, stateNames, stateValue } = params;
+  const report = (code, path2, text) => sink.report({
+    code,
+    message: scope === "" ? text : `${scope}: ${text}`,
+    path: path2,
+    severity: "error"
+  });
+  if (!stateValue || typeof stateValue !== "object") {
+    report("invalid-structure", pointer, `State "${stateName}" must be a non-null object`);
+    return;
+  }
   const state2 = stateValue;
-  if (!("Type" in state2)) fail(`State "${stateName}" missing required field: Type`);
+  if (!("Type" in state2)) {
+    report("invalid-state-type", pointer, `State "${stateName}" missing required field: Type`);
+    return;
+  }
   const stateType = state2.Type;
-  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) fail(`State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
+  if (typeof stateType !== "string" || !VALID_STATE_TYPES.includes(stateType)) {
+    report("invalid-state-type", `${pointer}/Type`, `State "${stateName}" has invalid Type: "${stateType}". Valid types: ${VALID_STATE_TYPES.join(", ")}`);
+    return;
+  }
   if ("Next" in state2 && state2.Next !== void 0) {
-    if (typeof state2.Next !== "string") fail(`State "${stateName}": Next must be a string`);
-    if (!stateNames.has(state2.Next)) fail(`State "${stateName}": Next references non-existent state "${state2.Next}"`);
+    if (typeof state2.Next !== "string") report("invalid-field", `${pointer}/Next`, `State "${stateName}": Next must be a string`);
+    else if (!stateNames.has(state2.Next)) report("dangling-transition", `${pointer}/Next`, `State "${stateName}": Next references non-existent state "${state2.Next}"`);
   }
   if ("Default" in state2 && state2.Default !== void 0) {
-    if (typeof state2.Default !== "string") fail(`State "${stateName}": Default must be a string`);
-    if (!stateNames.has(state2.Default)) fail(`State "${stateName}": Default references non-existent state "${state2.Default}"`);
+    if (typeof state2.Default !== "string") report("invalid-field", `${pointer}/Default`, `State "${stateName}": Default must be a string`);
+    else if (!stateNames.has(state2.Default)) report("dangling-transition", `${pointer}/Default`, `State "${stateName}": Default references non-existent state "${state2.Default}"`);
   }
   for (const arrayField of [
     "Choices",
     "Catch",
     "Retry"
-  ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) fail(`State "${stateName}": ${arrayField} must be an array`);
+  ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) report("invalid-field", `${pointer}/${arrayField}`, `State "${stateName}": ${arrayField} must be an array`);
   if (Array.isArray(state2.Choices)) {
     for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
       const choiceNext = choice.Next;
-      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) fail(`State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
+      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) report("dangling-transition", `${pointer}/Choices/${index}/Next`, `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
     }
   }
   if (Array.isArray(state2.Catch)) {
     for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
       const catchNext = catchBlock.Next;
-      if (typeof catchNext === "string" && !stateNames.has(catchNext)) fail(`State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
+      if (typeof catchNext === "string" && !stateNames.has(catchNext)) report("dangling-transition", `${pointer}/Catch/${index}/Next`, `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
     }
   }
   if (!["Succeed", "Fail"].includes(stateType) && stateType !== "Choice") {
     const hasNext = "Next" in state2;
     const hasEnd = "End" in state2 && state2.End === true;
-    if (!hasNext && !hasEnd) fail(`State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
+    if (!hasNext && !hasEnd) report("missing-transition", pointer, `State "${stateName}" (Type: ${stateType}) must have either "Next" or "End: true"`);
   }
+  sink.onState?.({
+    machineQueryLanguage,
+    pointer,
+    scope,
+    state: state2,
+    stateName,
+    stateNames
+  });
 }
 function parseAsl(params) {
   const { definition, options } = params;
@@ -68745,6 +68825,193 @@ function generateMermaidDiff(params) {
     }
   };
 }
+var RETRY_CATCH_TYPES = /* @__PURE__ */ new Set([
+  "Map",
+  "Parallel",
+  "Task"
+]);
+var JSONPATH_ONLY_FIELDS = [
+  "CausePath",
+  "ErrorPath",
+  "HeartbeatSecondsPath",
+  "InputPath",
+  "ItemsPath",
+  "MaxConcurrencyPath",
+  "OutputPath",
+  "Parameters",
+  "ResultPath",
+  "ResultSelector",
+  "SecondsPath",
+  "TimeoutSecondsPath",
+  "TimestampPath",
+  "ToleratedFailureCountPath",
+  "ToleratedFailurePercentagePath"
+];
+var JSONATA_ONLY_FIELDS = [
+  "Arguments",
+  "Items",
+  "Output"
+];
+var RULE_FIELDS = {
+  JSONPath: [
+    "Variable",
+    "And",
+    "Or",
+    "Not"
+  ].concat([
+    "String",
+    "Numeric",
+    "Boolean",
+    "Timestamp"
+  ].flatMap((kind) => [
+    "Equals",
+    "LessThan",
+    "GreaterThan",
+    "LessThanEquals",
+    "GreaterThanEquals",
+    "Matches"
+  ].flatMap((operator) => [`${kind}${operator}`, `${kind}${operator}Path`])), [
+    "IsPresent",
+    "IsNull",
+    "IsNumeric",
+    "IsString",
+    "IsBoolean",
+    "IsTimestamp"
+  ]),
+  JSONata: ["Condition"]
+};
+function transitionTargets(state2) {
+  const targets = [];
+  if (typeof state2.Next === "string") targets.push(state2.Next);
+  if (typeof state2.Default === "string") targets.push(state2.Default);
+  for (const field of ["Choices", "Catch"]) {
+    const entries = state2[field];
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) if (entry && typeof entry === "object" && typeof entry.Next === "string") targets.push(entry.Next);
+  }
+  return targets;
+}
+function lintState(context3, diagnostics) {
+  const { machineQueryLanguage, pointer, scope, state: state2, stateName } = context3;
+  const qualify = (text) => scope === "" ? text : `${scope}: ${text}`;
+  const push = (diagnostic) => {
+    diagnostics.push({
+      ...diagnostic,
+      message: qualify(diagnostic.message)
+    });
+  };
+  const stateType = state2.Type;
+  if (state2.End === true && "Next" in state2 && state2.Next !== void 0) push({
+    code: "end-with-next",
+    message: `State "${stateName}" sets both "End: true" and "Next"`,
+    path: `${pointer}/Next`,
+    severity: "error"
+  });
+  for (const field of ["Retry", "Catch"]) if (state2[field] !== void 0 && !RETRY_CATCH_TYPES.has(stateType)) push({
+    code: "unsupported-retry-catch",
+    message: `State "${stateName}" (Type: ${stateType}) does not support ${field}; only Task, Parallel and Map do`,
+    path: `${pointer}/${field}`,
+    severity: "error"
+  });
+  if (stateType === "Choice" && state2.Default === void 0) push({
+    code: "choice-without-default",
+    message: `Choice state "${stateName}" has no Default; an input matching no rule fails the execution`,
+    path: pointer,
+    severity: "warning"
+  });
+  if (machineQueryLanguage === "JSONata" && state2.QueryLanguage === "JSONPath") push({
+    code: "query-language-mismatch",
+    message: `State "${stateName}" sets QueryLanguage to JSONPath inside a JSONata state machine; only JSONPath machines may override per state`,
+    path: `${pointer}/QueryLanguage`,
+    severity: "error"
+  });
+  const queryLanguage = resolveQueryLanguage({
+    machineQueryLanguage,
+    state: state2
+  });
+  const otherLanguage = queryLanguage === "JSONata" ? "JSONPath" : "JSONata";
+  const foreignFields = queryLanguage === "JSONata" ? JSONPATH_ONLY_FIELDS : JSONATA_ONLY_FIELDS;
+  for (const field of foreignFields) if (state2[field] !== void 0) push({
+    code: "query-language-mismatch",
+    message: `State "${stateName}" is in ${queryLanguage} mode but uses the ${otherLanguage}-only field "${field}"`,
+    path: `${pointer}/${field}`,
+    severity: "error"
+  });
+  if (stateType === "Choice" && Array.isArray(state2.Choices)) for (const [index, rule] of state2.Choices.entries()) {
+    if (!rule || typeof rule !== "object") continue;
+    const foreign = RULE_FIELDS[otherLanguage].find((field) => rule[field] !== void 0);
+    if (foreign !== void 0) push({
+      code: "query-language-mismatch",
+      message: `State "${stateName}" is in ${queryLanguage} mode but Choices[${index}] uses the ${otherLanguage}-only field "${foreign}"`,
+      path: `${pointer}/Choices/${index}/${foreign}`,
+      severity: "error"
+    });
+  }
+}
+function lintScope(context3, diagnostics) {
+  const { pointer, scope, startAt, states } = context3;
+  if (startAt === void 0) return;
+  const reached = /* @__PURE__ */ new Set();
+  const queue = [startAt];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (reached.has(name) || !Object.hasOwn(states, name)) continue;
+    reached.add(name);
+    const state2 = states[name];
+    if (state2 && typeof state2 === "object") queue.push(...transitionTargets(state2));
+  }
+  for (const name of Object.keys(states)) {
+    if (reached.has(name)) continue;
+    const text = `State "${name}" is unreachable from StartAt "${startAt}"`;
+    diagnostics.push({
+      code: "unreachable-state",
+      message: scope === "" ? text : `${scope}: ${text}`,
+      path: `${pointer}/States/${escapePointerToken(name)}`,
+      severity: "warning"
+    });
+  }
+}
+function lintAsl(params) {
+  const diagnostics = [];
+  let definition;
+  try {
+    definition = parseAslSource({ source: params.definition });
+  } catch (error2) {
+    return [{
+      code: "invalid-json",
+      message: error2 instanceof Error ? error2.message : String(error2),
+      path: "",
+      severity: "error"
+    }];
+  }
+  const firstUse = /* @__PURE__ */ new Map();
+  runValidation({
+    definition,
+    sink: {
+      onScope: (context3) => {
+        lintScope(context3, diagnostics);
+        for (const name of Object.keys(context3.states)) {
+          const path2 = `${context3.pointer}/States/${escapePointerToken(name)}`;
+          const previous = firstUse.get(name);
+          if (previous === void 0) {
+            firstUse.set(name, path2);
+            continue;
+          }
+          const text = `State name "${name}" is also used at ${previous}`;
+          diagnostics.push({
+            code: "duplicate-state-name",
+            message: context3.scope === "" ? text : `${context3.scope}: ${text}`,
+            path: path2,
+            severity: "warning"
+          });
+        }
+      },
+      onState: (context3) => lintState(context3, diagnostics),
+      report: (diagnostic) => diagnostics.push(diagnostic)
+    }
+  });
+  return diagnostics;
+}
 var FAILURE_EVENT_TYPES = /* @__PURE__ */ new Set([
   "ActivityFailed",
   "ActivityScheduleFailed",
@@ -69032,10 +69299,48 @@ function matchesPatterns(filepath, patterns) {
 function formatStateList(names) {
   return names.map((name) => `\`${name}\``).join(", ");
 }
+function escapeMarkdownCell(text) {
+  return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+var LINT_ERROR_DIAGRAM_NOTE = "> \u274C Diagram omitted \u2014 the definition has errors Step Functions would reject";
+function hasLintErrors(diagnostics) {
+  return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+}
+function buildLintSection(diagnostics) {
+  if (diagnostics.length === 0) return "";
+  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const warnings = diagnostics.length - errors;
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+  return `<details>
+<summary>\u{1F50D} Lint: ${[errors > 0 ? `\u274C ${plural(errors, "error")}` : "", warnings > 0 ? `\u26A0\uFE0F ${plural(warnings, "warning")}` : ""].filter(Boolean).join(", ")}</summary>
+
+| | Path | Finding | Rule |
+|---|---|---|---|
+${diagnostics.map(({ code, message, path: path2, severity }) => `| ${severity === "error" ? "\u274C" : "\u26A0\uFE0F"} | \`${escapeMarkdownCell(path2 || "/")}\` | ${escapeMarkdownCell(message)} | \`${code}\` |`).join("\n")}
+
+</details>
+
+`;
+}
 function buildAslFileSection(change, options = {}) {
   const { afterAsl, beforeAsl, filename } = change;
   if (!afterAsl && !beforeAsl) return null;
   if (!afterAsl && beforeAsl) {
+    const deletedHeader = `### \`${filename}\`
+
+> \u26A0\uFE0F **File deleted**
+
+`;
+    if (hasLintErrors(lintAsl({ definition: beforeAsl }))) return {
+      afterAsl: null,
+      filename,
+      header: `${deletedHeader}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+      mermaidCode: "",
+      mermaidLabel: "\u{1F4CA} Before diagram",
+      mermaidOpenByDefault: false
+    };
     const { code } = generateMermaid({
       aslDefinition: beforeAsl,
       ...options
@@ -69043,17 +69348,30 @@ function buildAslFileSection(change, options = {}) {
     return {
       afterAsl: null,
       filename,
-      header: `### \`${filename}\`
-
-> \u26A0\uFE0F **File deleted**
-
-`,
+      header: deletedHeader,
       mermaidCode: code,
       mermaidLabel: "\u{1F4CA} Before diagram",
       mermaidOpenByDefault: false
     };
   }
+  const diagnostics = lintAsl({ definition: afterAsl });
+  const lintSection = buildLintSection(diagnostics);
   if (afterAsl && !beforeAsl) {
+    const newHeader = `### \`${filename}\`
+
+> \u2728 **New file**
+
+${lintSection}`;
+    if (hasLintErrors(diagnostics)) return {
+      afterAsl,
+      filename,
+      header: `${newHeader}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+      mermaidCode: "",
+      mermaidLabel: "\u{1F4CA} Diagram",
+      mermaidOpenByDefault: false
+    };
     const { code } = generateMermaid({
       aslDefinition: afterAsl,
       ...options
@@ -69061,16 +69379,24 @@ function buildAslFileSection(change, options = {}) {
     return {
       afterAsl,
       filename,
-      header: `### \`${filename}\`
-
-> \u2728 **New file**
-
-`,
+      header: newHeader,
       mermaidCode: code,
       mermaidLabel: "\u{1F4CA} Diagram",
       mermaidOpenByDefault: false
     };
   }
+  if (hasLintErrors(diagnostics)) return {
+    afterAsl,
+    filename,
+    header: `### \`${filename}\`
+
+${lintSection}${LINT_ERROR_DIAGRAM_NOTE}
+
+`,
+    mermaidCode: "",
+    mermaidLabel: "\u{1F4CA} Diagram (changes highlighted)",
+    mermaidOpenByDefault: true
+  };
   const diff = generateMermaidDiff({
     after: afterAsl,
     before: beforeAsl,
@@ -69092,13 +69418,14 @@ function buildAslFileSection(change, options = {}) {
 |---|---|
 ${rows.join("\n")}
 
-`,
+${lintSection}`,
     mermaidCode: diff.code,
     mermaidLabel: "\u{1F4CA} Diagram (changes highlighted)",
     mermaidOpenByDefault: true
   };
 }
 function renderAslFileSection(section, options = { includeDiagram: true }) {
+  if (section.mermaidCode === "") return section.header;
   if (!options.includeDiagram) return `${section.header}${options.omissionNote ?? "> \u{1F4CE} Diagram omitted \u2014 the diagram was too large to inline"}
 `;
   const openAttribute = section.mermaidOpenByDefault ? " open" : "";

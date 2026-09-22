@@ -674,6 +674,9 @@ export type {
     NodeStyle,
     CustomTheme,
     ResolvedTheme,
+    LintCode,
+    LintDiagnostic,
+    LintSeverity,
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateHtmlParams,
@@ -715,6 +718,8 @@ export type { ViewerTheme } from './renderers';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslSyntaxError, AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
+export { lintAsl } from './lint';
+export type { LintAslParams } from './lint';
 export {
     generateExecution,
     generateExecutionHtml,
