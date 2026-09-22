@@ -661,6 +661,97 @@ describe('per-container collapse runtime', () => {
         expect(await hasState('BranchA')).toBe(true);
         expect(await toggleLabel()).toBe('Collapse');
     });
+
+    it('closes a detail panel whose state was just hidden inside a placeholder', async () => {
+        await containerPage.click('[data-state-id="Branch1"] > title + rect');
+        expect(await panelOpen()).toBe(true);
+
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await panelOpen()).toBe(false);
+
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(true);
+    });
+
+    it('keeps a hand-collapsed container collapsed when the toolbar collapses the selection', async () => {
+        // A document whose `collapse` selection names only FanOut: the toolbar
+        // button must add FanOut to the reader's own collapse, not replace it.
+        const selectionPage = await browser.newPage();
+        try {
+            await selectionPage.setViewport({ width: 1280, height: 800 });
+            const { html } = generateHtml({ aslDefinition: twoContainers, collapse: ['FanOut'] });
+            await selectionPage.setContent(html, { waitUntil: 'load' });
+            const present = (id: string): Promise<boolean> =>
+                selectionPage.evaluate((stateId) => document.querySelector(`[data-state-id="${stateId}"]`) !== null, id);
+
+            await selectionPage.click('[data-sfn-collapse-target="Second"]');
+            expect(await present('BranchA')).toBe(false);
+            await selectionPage.click('[data-sfn-collapse-toggle]');
+            expect(await present('Branch1')).toBe(false);
+            expect(await present('BranchA')).toBe(false);
+            expect(
+                await selectionPage.$eval('[data-sfn-collapse-toggle]', (element) => element.textContent),
+            ).toBe('Expand');
+
+            await selectionPage.click('[data-sfn-collapse-toggle]');
+            expect(await present('Branch1')).toBe(true);
+            expect(await present('BranchA')).toBe(true);
+        } finally {
+            await selectionPage.close();
+        }
+    });
+
+    it('re-arms per-container collapse from a setContent update rendered with relayout', async () => {
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(false);
+
+        const edited: AslDefinition = {
+            ...twoContainers,
+            States: {
+                ...twoContainers.States,
+                Done: { Type: 'Pass', End: true },
+            },
+        };
+        const update = generateViewerUpdate({ aslDefinition: edited, relayout: true });
+        expect(update.relayoutModel).toBeDefined();
+        await containerPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        // The reader's own collapse survives the edit, and the controls still work.
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await hasState('BranchA')).toBe(true);
+        expect(await hasState('Done')).toBe(true);
+        await containerPage.click('[data-sfn-collapse-target="Second"]');
+        expect(await hasState('BranchA')).toBe(false);
+        expect(await toggleLabel()).toBe('Expand');
+        await containerPage.click('[data-sfn-collapse-toggle]');
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await hasState('BranchA')).toBe(true);
+    });
+
+    it('strips inert controls from a relayout update in a document that never shipped the bundle', async () => {
+        const plainPage = await browser.newPage();
+        try {
+            await plainPage.setViewport({ width: 1280, height: 800 });
+            const flat: AslDefinition = { StartAt: 'Solo', States: { Solo: { Type: 'Succeed' } } };
+            const { html } = generateHtml({ aslDefinition: flat });
+            expect(html).not.toContain('sfnRelayout');
+            await plainPage.setContent(html, { waitUntil: 'load' });
+
+            const update = generateViewerUpdate({ aslDefinition: twoContainers, relayout: true });
+            await plainPage.evaluate((detail) => {
+                document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+            }, update as unknown as Record<string, unknown>);
+
+            expect(await plainPage.$$eval('[data-sfn-collapse-target]', (elements) => elements.length)).toBe(0);
+            // A containerless document has no toggle to begin with, and gets none.
+            expect(await plainPage.$$eval('[data-sfn-collapse-toggle]', (elements) => elements.length)).toBe(0);
+        } finally {
+            await plainPage.close();
+        }
+    });
 });
 
 describe('minimap auto-visibility across the collapse toggle', () => {

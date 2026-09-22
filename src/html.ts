@@ -408,7 +408,14 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * place — via `ViewerHandle.setContent` — rather than replace the whole document on
  * every edit.
  *
- * @param params - ASL definition plus the same options as {@link generateSvg}.
+ * By default the fragment carries the expanded view and, when there is something to
+ * collapse, the fully collapsed one for the toggle to swap to. With `relayout: true`
+ * it carries one view with per-container controls plus a `relayoutModel` instead —
+ * for a viewer whose document `generateHtml` produced for a diagram with a container,
+ * which is what ships the relayout bundle the model needs.
+ *
+ * @param params - ASL definition plus the same options as {@link generateSvg}, and
+ *   optionally `relayout`.
  * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it.
  *
  * @example
@@ -419,15 +426,15 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * ```
  */
 export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, relayout = false, ...options } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
+    const { collapsedSvg, collapsedSvgOutput, edges, relayoutModel, svgOutput } = buildHtmlViewParts({
         afterObj: aslObj,
         aslObj,
         options: mergedOptions,
-        relayout: false,
+        relayout,
     });
 
     return {
@@ -442,6 +449,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
         edgeData: buildEdgeData({ edges }),
         hasCollapsedView: collapsedSvg !== undefined,
         metadata: svgOutput.metadata,
+        ...(relayoutModel ? { relayoutModel } : {}),
         stateData: collectStateData({ definition: aslObj }),
     };
 }

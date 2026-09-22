@@ -17,8 +17,9 @@ import type { RelayoutModel, RenderCollapsedViewParams, RenderCollapsedViewResul
  *   expands everything.
  * - **Two views** — the content holds two pre-rendered views (expanded and fully
  *   collapsed, see wrapSvgInInteractiveHtml's collapsedSvg param) and the toolbar
- *   toggle swaps which one is visible. This is what `generateViewerUpdate` still
- *   produces, so a `setContent` update switches the viewer to this mode.
+ *   toggle swaps which one is visible. This is what `generateViewerUpdate` produces
+ *   by default, so a `setContent` update switches the viewer to this mode unless it
+ *   carries a fresh relayout model of its own.
  *
  * Either way, search state and the minimap thumbnail are reset against the view now
  * on screen, since both derive from it.
@@ -58,6 +59,13 @@ export interface CreateCollapseToggleParams {
 export interface RestoreViewsParams {
     /** Whether the collapsed view was the visible one before the content swap. */
     collapsedWasActive: boolean;
+    /**
+     * The relayout model describing the swapped-in content, when the host rendered
+     * it for per-container collapse (`generateViewerUpdate({ relayout: true })`).
+     * Needs the relayout bundle the document was opened with; without it the
+     * controls are stripped and the toggle hidden.
+     */
+    relayoutModel?: RelayoutModel;
 }
 
 /** The toggle's view bookkeeping, for `setContent` and the click/keyboard dispatchers. */
@@ -77,9 +85,11 @@ export interface CollapseToggle {
      */
     isCollapsedActive(): boolean;
     /**
-     * Re-resolve the views after a content swap, keeping the previously-visible one on
-     * screen and showing or hiding the toggle to match whether both views exist. The
-     * relayout model, if any, no longer describes the new content and is dropped.
+     * Re-resolve the views after a content swap. Two-view content keeps the
+     * previously-visible view on screen; relayout content re-arms per-container
+     * collapse with the new model, keeping whatever the reader had collapsed that
+     * still exists. The toggle shows or hides to match. Without either, the previous
+     * relayout model no longer describes the content and is dropped.
      */
     restoreViews(params: RestoreViewsParams): void;
 }
@@ -96,8 +106,10 @@ export function createCollapseToggle(params: CreateCollapseToggleParams): Collap
     let expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
     let collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
 
-    // Relayout mode holds until a setContent swap replaces the content the model
-    // describes; the two-view markup takes precedence whenever it is present.
+    // The render function comes with the document (the inlined bundle) and outlives
+    // any one model; the model is swapped by setContent. Relayout mode holds while
+    // there is a model and no two-view markup, which takes precedence when present.
+    const render = params.relayout?.render;
     let relayout = params.relayout;
     const collapsedIds = new Set<string>();
     const inRelayoutMode = (): boolean => relayout !== undefined && !expandedView && !collapsedView;
@@ -174,11 +186,11 @@ export function createCollapseToggle(params: CreateCollapseToggleParams): Collap
     if (collapseToggle) {
         on(collapseToggle, 'click', () => {
             if (inRelayoutMode() && relayout) {
+                // Collapse adds the document's targets to whatever the reader already
+                // collapsed by hand rather than replacing it, so the button never
+                // re-opens a container; Expand opens everything.
                 if (allTargetsCollapsed()) collapsedIds.clear();
-                else {
-                    collapsedIds.clear();
-                    for (const id of relayout.model.collapseTargets) collapsedIds.add(id);
-                }
+                else for (const id of relayout.model.collapseTargets) collapsedIds.add(id);
                 search.clearQuery();
                 panel.closePanel();
                 if (rerender() !== null) viewport.fit();
@@ -214,22 +226,48 @@ export function createCollapseToggle(params: CreateCollapseToggleParams): Collap
             return collapsedView !== null && !collapsedView.hidden;
         },
         restoreViews(restoreParams: RestoreViewsParams): void {
-            const { collapsedWasActive } = restoreParams;
+            const { collapsedWasActive, relayoutModel } = restoreParams;
             expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
             collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
-            relayout = undefined;
-            collapsedIds.clear();
 
             if (expandedView && collapsedView) {
+                relayout = undefined;
+                collapsedIds.clear();
                 expandedView.hidden = collapsedWasActive;
                 collapsedView.hidden = !collapsedWasActive;
                 if (collapseToggle) {
                     collapseToggle.hidden = false;
                     syncToggleLabel();
                 }
-            } else if (collapseToggle) {
-                collapseToggle.hidden = true;
+                return;
             }
+
+            if (relayoutModel && render) {
+                relayout = { model: relayoutModel, render };
+                // Keep the reader's own collapses across a live edit, dropping any
+                // container the edit removed; the swapped-in content is the expanded
+                // view, so anything still collapsed has to be re-rendered.
+                const surviving = new Set(relayoutModel.nodes.map((node) => node.id));
+                for (const id of [...collapsedIds]) if (!surviving.has(id)) collapsedIds.delete(id);
+                if (collapsedWasActive) {
+                    for (const id of relayoutModel.collapseTargets) collapsedIds.add(id);
+                }
+                if (collapseToggle) collapseToggle.hidden = false;
+                if (collapsedIds.size > 0) rerender();
+                else syncToggleLabel();
+                return;
+            }
+
+            relayout = undefined;
+            collapsedIds.clear();
+            if (relayoutModel) {
+                // Rendered for relayout, but this document never shipped the bundle:
+                // the controls would be inert, so they go rather than mislead.
+                for (const control of Array.from(content.querySelectorAll('[data-sfn-collapse-target]'))) {
+                    control.remove();
+                }
+            }
+            if (collapseToggle) collapseToggle.hidden = true;
         },
     };
 }

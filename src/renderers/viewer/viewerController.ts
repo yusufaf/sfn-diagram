@@ -8,6 +8,7 @@ import { attachPanZoom } from './controller/panZoom';
 import { createSearch } from './controller/search';
 import { createViewport } from './controller/viewport';
 import type { ViewerEdge } from './edgeData';
+import type { RelayoutModel } from './relayout';
 
 /**
  * Runtime controller for the interactive viewer: pan/zoom, state search, minimap,
@@ -55,6 +56,13 @@ export interface AttachViewerParams {
 export interface SetViewerContentParams {
     /** Freshly-rendered markup for the `data-sfn="content"` node, from `buildViewerContent`. */
     contentHtml: string;
+    /**
+     * The relayout model for `contentHtml`, when it was rendered for per-container
+     * collapse (`generateViewerUpdate({ relayout: true })`). Only useful in a document
+     * that shipped the relayout bundle — one `generateHtml` produced for a diagram
+     * with a container; elsewhere the controls are stripped and the toggle hidden.
+     */
+    relayoutModel?: RelayoutModel;
     /** Viewer-facing detail for each edge in the new content, keyed by `data-edge-id`. */
     edgeData?: Record<string, ViewerEdge>;
     /** Raw ASL for each state in the new content, keyed by state name. */
@@ -163,7 +171,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
      * Swap in a freshly-rendered diagram in place. See {@link ViewerHandle.setContent}.
      */
     const setContent = (setContentParams: SetViewerContentParams): void => {
-        const { contentHtml, edgeData: nextEdgeData, stateData: nextStateData } = setContentParams;
+        const {
+            contentHtml,
+            edgeData: nextEdgeData,
+            relayoutModel,
+            stateData: nextStateData,
+        } = setContentParams;
         const collapsedWasActive = collapse!.isCollapsedActive();
 
         // An update landing inside the typing debounce window would otherwise let the
@@ -180,7 +193,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         // The tab stops and accessible names sat on the elements just replaced.
         panel.refreshSemantics();
 
-        collapse!.restoreViews({ collapsedWasActive });
+        collapse!.restoreViews({ collapsedWasActive, relayoutModel });
 
         // Same rule the collapse-toggle click handler applies: a freshly swapped-in
         // view can cross the auto-hide node-count threshold in either direction, so
