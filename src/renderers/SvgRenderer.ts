@@ -1037,7 +1037,12 @@ export class SvgRenderer {
      */
     private calculateLabelY(params: CalculateLabelPositionParams): number {
         const { hasIcon, iconPosition, iconSize, stackBelow = 0 } = params;
-        if (!hasIcon || iconPosition !== 'top') return 0;
+        // The base height fits the name plus one stacked line at SUB_LABEL_OFFSET;
+        // DagreLayout grows the box by STACKED_LINE_HEIGHT per line beyond that (see
+        // extraStackedLines). Moving the whole stack up by half of that growth keeps it
+        // centred, so a placeholder's `2 states` sub-label plus an execution summary
+        // no longer runs past the bottom border.
+        if (!hasIcon || iconPosition !== 'top') return -Math.max(0, stackBelow - SUB_LABEL_OFFSET) / 2;
 
         // Icon ends at: -height/2 + padding + iconSize. The space from the gap below
         // it to the bottom edge is centred at iconLabelShift / 2 whatever the height.

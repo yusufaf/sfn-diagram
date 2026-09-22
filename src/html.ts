@@ -12,7 +12,7 @@ import { parseAslSource } from './AslParser';
 import { mergeOptions, mergeRecordOptions } from './config';
 import { computeDiffStyling, computeStateDiff, summarizeDiff } from './diff';
 import { computeExecutionStyling } from './execution';
-import { computeCollapsePlan } from './graph';
+import { computeCollapsePlan, styleCollapsedView } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import {
     buildEdgeData,
@@ -25,7 +25,6 @@ import {
 import { collectIconUrls, replaceIconUrls, resolveIconDataUris } from './utils/iconEmbedder';
 import type { StateDiff } from './diff';
 import type { ExecutionStyling } from './execution';
-import type { CollapsePlan } from './graph';
 import type { MergedDiagramOptions } from './pipeline';
 import type { RelayoutModel, RelayoutRenderOptions } from './renderers';
 import type {
@@ -73,11 +72,10 @@ interface ResolvedOverlays {
 function composeOverlayStyling(params: {
     options: MergedDiagramOptions;
     overlays: ResolvedOverlays;
-    plan?: CollapsePlan;
 }): OverlayStyling {
-    const { options, overlays, plan } = params;
+    const { options, overlays } = params;
     const { execution } = overlays;
-    const diff = overlays.diff ? computeDiffStyling({ diff: overlays.diff, plan }) : undefined;
+    const diff = overlays.diff ? computeDiffStyling({ diff: overlays.diff }) : undefined;
 
     const nodeOverrides: Record<string, Partial<NodeStyle>> = { ...diff?.nodeOverrides };
     const nodeAnnotations: Record<string, string> = { ...diff?.nodeAnnotations };
@@ -136,9 +134,10 @@ function toRelayoutRenderOptions(options: MergedDiagramOptions): RelayoutRenderO
  * `generateViewerUpdate` fragment, whose host swaps content in place), the fully
  * collapsed view is pre-rendered as a second view for the toggle to swap to.
  *
- * A `history` overlay ships the expanded view only, either way: its per-node styling
- * has no notion of a placeholder standing in for the states it hides, so a collapsed
- * view would show a container's own status and lose its children's.
+ * Either way a collapsed view's placeholders are styled by {@link styleCollapsedView}
+ * from the expanded view's styling — a diff's `"<n> changed inside"`, an execution's
+ * rolled-up status and `3/4 succeeded` summary — so the server's pre-rendered
+ * collapsed view and the viewer's in-browser one agree.
  *
  * The raw parsed `edges` come back too, so the viewer's edge data is keyed off the
  * same parse the views were drawn from rather than a fresh one.
@@ -188,25 +187,26 @@ function buildHtmlViews(params: {
                       summaryStateNames: Object.keys(afterObj.States),
                   }),
     };
-    const styleView = (plan?: CollapsePlan): OverlayStyling =>
-        diff === undefined && history === undefined
-            ? {}
-            : composeOverlayStyling({ options, overlays, plan });
+    const expandedStyling: OverlayStyling =
+        diff === undefined && history === undefined ? {} : composeOverlayStyling({ options, overlays });
+    const overlayData = {
+        callerOverrides: { nodeAnnotations: options.nodeAnnotations, nodeOverrides: options.nodeOverrides },
+        ...(diff ? { diffChangedIds: diff.ownChanges } : {}),
+        ...(overlays.execution ? { executionStatusByNodeId: overlays.execution.statusByNodeId } : {}),
+    };
 
-    const plan = history === undefined
-        ? computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes })
-        : undefined;
+    const plan = computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes });
     // A target whose closure is empty (a container with no descendants) collapses to
     // itself; leaving it out is the same guard the two-view path applies by comparing
     // node counts, decided here from the plan instead of from a discarded render.
-    const collapseTargets = plan
-        ? [...plan.effectiveTargets].filter((id) => (plan.hiddenIdsByTarget.get(id)?.size ?? 0) > 0)
-        : [];
+    const collapseTargets = [...plan.effectiveTargets].filter(
+        (id) => (plan.hiddenIdsByTarget.get(id)?.size ?? 0) > 0,
+    );
     const useRelayout = relayout && collapseTargets.length > 0;
 
     const expandedOptions: MergedDiagramOptions = {
         ...viewOptions,
-        ...styleView(),
+        ...expandedStyling,
         collapse: undefined,
         collapseControls: useRelayout,
     };
@@ -214,8 +214,8 @@ function buildHtmlViews(params: {
 
     const relayoutModel: RelayoutModel | undefined = useRelayout
         ? {
+              ...overlayData,
               collapseTargets,
-              ...(diff ? { diffChangedIds: diff.ownChanges } : {}),
               edges,
               nodes,
               options: toRelayoutRenderOptions(expandedOptions),
@@ -223,11 +223,16 @@ function buildHtmlViews(params: {
         : undefined;
 
     const collapsedSvgOutput =
-        plan && plan.effectiveTargets.size > 0 && !useRelayout
+        plan.effectiveTargets.size > 0 && !useRelayout
             ? renderSvgGraph({
                   edges,
                   nodes,
-                  options: { ...viewOptions, ...styleView(plan), collapse: resolvedCollapse },
+                  options: {
+                      ...viewOptions,
+                      ...expandedStyling,
+                      ...styleCollapsedView({ ...overlayData, expanded: expandedStyling, nodes, plan }),
+                      collapse: resolvedCollapse,
+                  },
               })
             : undefined;
 
@@ -372,10 +377,11 @@ function buildHtmlMetadata(params: {
  * so the document is not fully offline. Use {@link generateHtmlAsync} to inline
  * those icons as data URIs.
  *
- * With `history`, `collapse` is not yet applied: the document ships the expanded
- * view only, with no collapse/expand toggle. A `diff` collapses like a plain
- * diagram, with each collapsed placeholder that hides a change annotated
- * `"<n> changed inside"`.
+ * Overlays collapse like a plain diagram. A `diff` placeholder that hides a change is
+ * annotated `"<n> changed inside"`; a `history` placeholder takes the status rolled up
+ * from the states it hides (any failure makes it `failed`, otherwise any `running`
+ * makes it `running`, otherwise the container's own outcome) and a `3/4 succeeded`
+ * summary beside its own duration.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
@@ -563,10 +569,6 @@ function toExecutionHtmlOutput(output: HtmlOutput): ExecutionHtmlOutput {
  * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons, so
  * the document is not fully offline. Use {@link generateExecutionHtmlAsync} to inline
  * those icons as data URIs.
- *
- * `collapse` is not yet applied on this path: the document ships one view only, with
- * no collapse/expand toggle — unlike a plain {@link generateHtml} document, which
- * renders both an expanded and a collapsed view for the toggle to switch between.
  */
 export function generateExecutionHtml(params: GenerateExecutionHtmlParams): ExecutionHtmlOutput {
     return toExecutionHtmlOutput(generateHtml(params));

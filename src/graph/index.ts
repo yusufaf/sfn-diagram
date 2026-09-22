@@ -7,6 +7,10 @@ export type {
 export { applyCatchHandling } from './catchHandling';
 export { computeContainerChangeAnnotations, DIFF_COLORS } from './containerChanges';
 export type { ComputeContainerChangeAnnotationsParams } from './containerChanges';
+export { EXECUTION_COLORS, rollUpExecutionStatuses } from './executionRollup';
+export type { ExecutionRollUp, ExecutionRollUpCounts, RollUpExecutionStatusesParams } from './executionRollup';
+export { styleCollapsedView } from './collapsedViewStyling';
+export type { StyleCollapsedViewParams, ViewNodeStyling } from './collapsedViewStyling';
 export type { ApplyCatchHandlingParams } from './catchHandling';
 export { getMapProcessor, isMarkerNode, isOpenContainer, MARKER_NODE_TYPES } from './containers';
 export { flattenMarkers } from './flattenMarkers';

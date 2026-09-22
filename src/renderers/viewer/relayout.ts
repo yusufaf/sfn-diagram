@@ -13,11 +13,11 @@
  * Kept free of the parser and of anything Node-only: everything it imports must run
  * in a browser from an inline `<script>`.
  */
-import { mergeRecordOptions } from '../../config';
-import { applyCollapse, computeCollapsePlan, computeContainerChangeAnnotations } from '../../graph';
+import { applyCollapse, computeCollapsePlan, styleCollapsedView } from '../../graph';
 import { DagreLayout } from '../../layout';
 import { SvgRenderer } from '../SvgRenderer';
-import type { DiagramOptions, GraphEdge, StateNode } from '../../types';
+import type { ViewNodeStyling } from '../../graph';
+import type { DiagramOptions, ExecutionStateStatus, GraphEdge, StateNode } from '../../types';
 
 /**
  * The render options a relayout runs with: the merged options the expanded view was
@@ -28,6 +28,11 @@ export type RelayoutRenderOptions = Omit<DiagramOptions, 'iconResolver'>;
 
 /** Everything the viewer needs to re-render the diagram for any collapse selection. */
 export interface RelayoutModel {
+    /**
+     * The caller's own `nodeAnnotations` / `nodeOverrides`, re-applied on top of
+     * whatever a placeholder computes so an explicit entry for a container still wins.
+     */
+    callerOverrides?: ViewNodeStyling;
     /**
      * Container ids the toolbar's "Collapse" button collapses — the effective targets
      * of the document's `collapse` option, so the button means what it always has.
@@ -40,6 +45,11 @@ export interface RelayoutModel {
     diffChangedIds?: string[];
     /** The graph's edges after catch handling, before any collapse. */
     edges: GraphEdge[];
+    /**
+     * For an execution overlay, each node's status, so a collapsed placeholder takes
+     * the status rolled up from the states it hides and a `3/4 succeeded` summary.
+     */
+    executionStatusByNodeId?: Record<string, ExecutionStateStatus>;
     /** The graph's nodes after catch handling, before any collapse. */
     nodes: StateNode[];
     /** The options the expanded view was rendered with. */
@@ -76,25 +86,21 @@ export interface RenderCollapsedViewResult {
  */
 export function renderCollapsedView(params: RenderCollapsedViewParams): RenderCollapsedViewResult {
     const { collapsedIds, model } = params;
-    const { diffChangedIds, edges, nodes, options } = model;
+    const { callerOverrides, diffChangedIds, edges, executionStatusByNodeId, nodes, options } = model;
 
     let renderOptions: DiagramOptions = { ...options, collapse: collapsedIds };
-    if (diffChangedIds !== undefined && collapsedIds.length > 0) {
-        const { effectiveTargets, hiddenIdsByTarget } = computeCollapsePlan({
-            collapse: collapsedIds,
-            edges,
-            nodes,
-        });
-        const changed = computeContainerChangeAnnotations({
-            changedNames: new Set(diffChangedIds),
-            effectiveTargets,
-            existingOverrides: options.nodeOverrides ?? {},
-            hiddenIdsByTarget,
-        });
+    if (collapsedIds.length > 0 && (diffChangedIds !== undefined || executionStatusByNodeId !== undefined)) {
+        const plan = computeCollapsePlan({ collapse: collapsedIds, edges, nodes });
         renderOptions = {
             ...renderOptions,
-            nodeAnnotations: mergeRecordOptions(changed.nodeAnnotations, options.nodeAnnotations),
-            nodeOverrides: mergeRecordOptions(changed.nodeOverrides, options.nodeOverrides),
+            ...styleCollapsedView({
+                callerOverrides,
+                diffChangedIds,
+                executionStatusByNodeId,
+                expanded: { nodeAnnotations: options.nodeAnnotations, nodeOverrides: options.nodeOverrides },
+                nodes,
+                plan,
+            }),
         };
     }
 
