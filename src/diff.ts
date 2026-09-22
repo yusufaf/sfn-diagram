@@ -13,7 +13,13 @@ import { generateSvg } from './index';
 import { parseAsl, parseAslSource } from './AslParser';
 import { resolveQueryLanguage } from './utils/jsonata';
 import { mergeRecordOptions } from './config';
-import { applyCatchHandling, computeCollapsePlan } from './graph';
+import {
+    applyCatchHandling,
+    buildIdResolver,
+    computeCollapsePlan,
+    getMapProcessor,
+} from './graph';
+import type { ScopePath } from './graph';
 import { MermaidRenderer } from './renderers';
 
 /** Colors applied to diff nodes as nodeOverrides */
@@ -86,46 +92,165 @@ interface StateDiff {
 }
 
 /**
- * Compare two ASL definitions at the state level, classifying every state as
- * added / modified / removed / unchanged and producing a merged definition that
- * keeps removed states visible as orphan end-nodes. Shared by the SVG and Mermaid
- * diff renderers.
+ * One step from a `States` block down into a nested one: which container was
+ * entered and, for a Parallel, which of its branches.
+ */
+type ScopeStep =
+    | { containerName: string; index: number; kind: 'branch' }
+    | { containerName: string; kind: 'processor' };
+
+/**
+ * A state's classification together with where it sits, so its node id can be
+ * resolved once the merged definition exists.
+ */
+interface ClassifiedState {
+    name: string;
+    status: DiffStatus | 'unchanged';
+    steps: ScopeStep[];
+}
+
+/** Parameters for {@link diffStates}. */
+interface DiffStatesParams {
+    /** The `after` side of the block being compared. */
+    afterStates: Record<string, AslState>;
+    /** Top-level `QueryLanguage` of the *before* definition, stamped onto orphans. */
+    beforeQueryLanguage: QueryLanguage | undefined;
+    /**
+     * The `before` side of the block, or `undefined` when the whole block is new —
+     * inside an added container, or a container whose type changed under it.
+     */
+    beforeStates: Record<string, AslState> | undefined;
+    /** Accumulator every visited state is appended to. */
+    classified: ClassifiedState[];
+    /** Path from the root `States` block to this one. */
+    steps: ScopeStep[];
+}
+
+/**
+ * Compare one `States` block and every block nested inside it, returning the merged
+ * copy of the `after` block with removed states re-inserted as orphans in the scope
+ * they were removed from.
+ *
+ * A container is compared as a whole, so a change anywhere inside it still marks the
+ * container itself modified — the collapsed-placeholder colour relies on that — and
+ * its descendants are then classified individually on top. The descendants of a
+ * removed container (or of a Parallel branch that no longer exists) are not listed:
+ * the orphan stub is the only trace of that subtree in the diagram, and a bare name
+ * with no node behind it could alias a surviving state with the same name.
+ */
+function diffStates(params: DiffStatesParams): Record<string, AslState> {
+    const { afterStates, beforeQueryLanguage, beforeStates, classified, steps } = params;
+    const merged: Record<string, AslState> = {};
+
+    for (const [name, afterState] of Object.entries(afterStates)) {
+        const beforeState = beforeStates?.[name];
+        const status: ClassifiedState['status'] =
+            beforeState === undefined
+                ? 'added'
+                : stableStringify(beforeState) !== stableStringify(afterState)
+                  ? 'modified'
+                  : 'unchanged';
+        classified.push({ name, status, steps });
+
+        // Only a container of the same type on both sides has scopes to pair up; a
+        // Task that became a Parallel has no "before" block for its branches to diff
+        // against, so every state in them is new.
+        const beforeContainer = beforeState?.Type === afterState.Type ? beforeState : undefined;
+        const recurse = (
+            block: AslDefinition,
+            beforeBlock: AslDefinition | undefined,
+            step: ScopeStep,
+        ): AslDefinition => ({
+            ...block,
+            States: diffStates({
+                afterStates: block.States,
+                beforeQueryLanguage,
+                beforeStates: beforeBlock?.States,
+                classified,
+                steps: [...steps, step],
+            }),
+        });
+
+        let mergedState = afterState;
+        if (afterState.Type === 'Parallel' && Array.isArray(afterState.Branches)) {
+            mergedState = {
+                ...afterState,
+                Branches: afterState.Branches.map((branch, index) =>
+                    recurse(branch, beforeContainer?.Branches?.[index], {
+                        containerName: name,
+                        index,
+                        kind: 'branch',
+                    })
+                ),
+            };
+        } else if (afterState.Type === 'Map') {
+            const processor = getMapProcessor(afterState);
+            if (processor) {
+                const beforeProcessor = beforeContainer ? getMapProcessor(beforeContainer) : undefined;
+                const mergedProcessor = recurse(processor, beforeProcessor, {
+                    containerName: name,
+                    kind: 'processor',
+                });
+                mergedState =
+                    afterState.ItemProcessor !== undefined
+                        ? { ...afterState, ItemProcessor: mergedProcessor }
+                        : { ...afterState, Iterator: mergedProcessor };
+            }
+        }
+        merged[name] = mergedState;
+    }
+
+    for (const [name, beforeState] of Object.entries(beforeStates ?? {})) {
+        if (name in afterStates) continue;
+        classified.push({ name, status: 'removed', steps });
+        merged[name] = toOrphanState({ machineQueryLanguage: beforeQueryLanguage, state: beforeState });
+    }
+
+    return merged;
+}
+
+/**
+ * Compare two ASL definitions at the state level, classifying every state — nested
+ * ones included — as added / modified / removed / unchanged and producing a merged
+ * definition that keeps removed states visible as orphan end-nodes in the scope they
+ * were removed from. Shared by the SVG and Mermaid diff renderers.
+ *
+ * The returned names are node ids as assigned by the parser's id resolver for the
+ * merged definition, so they line up with `data-state-id` / `nodeOverrides`: a nested
+ * state keeps its bare name unless it repeats elsewhere, in which case it is scoped
+ * exactly as the rendered diagram scopes it.
  */
 function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): StateDiff {
-    const beforeNames = new Set(Object.keys(beforeAsl.States));
-    const afterNames = new Set(Object.keys(afterAsl.States));
+    const classified: ClassifiedState[] = [];
+    const mergedStates = diffStates({
+        afterStates: afterAsl.States,
+        beforeQueryLanguage: beforeAsl.QueryLanguage,
+        beforeStates: beforeAsl.States,
+        classified,
+        steps: [],
+    });
+    const mergedAsl: AslDefinition = { ...afterAsl, States: mergedStates };
+
+    const resolver = buildIdResolver({ definition: mergedAsl });
+    const scopeFor = (steps: ScopeStep[]): ScopePath =>
+        steps.reduce<ScopePath>(
+            (scope, step) =>
+                step.kind === 'branch'
+                    ? resolver.branchScope(scope, step.containerName, step.index)
+                    : resolver.processorScope(scope, step.containerName),
+            ''
+        );
 
     const added: string[] = [];
     const modified: string[] = [];
     const removed: string[] = [];
     const unchanged: string[] = [];
-
-    for (const name of afterNames) {
-        if (!beforeNames.has(name)) {
-            added.push(name);
-        } else if (stableStringify(beforeAsl.States[name]) !== stableStringify(afterAsl.States[name])) {
-            modified.push(name);
-        } else {
-            unchanged.push(name);
-        }
+    const buckets = { added, modified, removed, unchanged };
+    for (const { name, status, steps } of classified) {
+        buckets[status].push(resolver.resolve(scopeFor(steps), name));
     }
 
-    for (const name of beforeNames) {
-        if (!afterNames.has(name)) {
-            removed.push(name);
-        }
-    }
-
-    // Build merged ASL: after states + removed states as orphan End nodes
-    const mergedStates: Record<string, AslState> = { ...afterAsl.States };
-    for (const name of removed) {
-        mergedStates[name] = toOrphanState({
-            machineQueryLanguage: beforeAsl.QueryLanguage,
-            state: beforeAsl.States[name],
-        });
-    }
-
-    return { added, mergedAsl: { ...afterAsl, States: mergedStates }, modified, removed, unchanged };
+    return { added, mergedAsl, modified, removed, unchanged };
 }
 
 /** Map each changed state to its diff status for per-node highlighting. */
@@ -154,11 +279,8 @@ export interface ComputeContainerChangeAnnotationsParams {
  * For each collapsed container, count how many of its hidden descendants carry a
  * diff status, and build the amber override / `"<n> changed inside"` annotation for
  * the ones that do. Isolated from {@link generateDiff} so the counting/precedence
- * logic can be unit tested directly against synthetic sets — the current diff
- * granularity (top-level ASL state names only, see {@link computeStateDiff}) makes a
- * live ASL definition that actually triggers a nonzero count hard to construct, but
- * the logic itself needs to be right for whenever one does (e.g. a future nested-diff
- * granularity, or a state name reused at two different nesting levels).
+ * logic can be unit tested directly against synthetic sets, independently of how
+ * {@link computeStateDiff} scopes the ids it hands over.
  */
 export function computeContainerChangeAnnotations(
     params: ComputeContainerChangeAnnotationsParams,

@@ -68543,28 +68543,98 @@ function toOrphanState(params) {
   }
   return base;
 }
+function diffStates(params) {
+  const { afterStates, beforeQueryLanguage, beforeStates, classified, steps } = params;
+  const merged = {};
+  for (const [name, afterState] of Object.entries(afterStates)) {
+    const beforeState = beforeStates?.[name];
+    const status = beforeState === void 0 ? "added" : stableStringify(beforeState) !== stableStringify(afterState) ? "modified" : "unchanged";
+    classified.push({
+      name,
+      status,
+      steps
+    });
+    const beforeContainer = beforeState?.Type === afterState.Type ? beforeState : void 0;
+    const recurse = (block, beforeBlock, step) => ({
+      ...block,
+      States: diffStates({
+        afterStates: block.States,
+        beforeQueryLanguage,
+        beforeStates: beforeBlock?.States,
+        classified,
+        steps: [...steps, step]
+      })
+    });
+    let mergedState = afterState;
+    if (afterState.Type === "Parallel" && Array.isArray(afterState.Branches)) mergedState = {
+      ...afterState,
+      Branches: afterState.Branches.map((branch, index) => recurse(branch, beforeContainer?.Branches?.[index], {
+        containerName: name,
+        index,
+        kind: "branch"
+      }))
+    };
+    else if (afterState.Type === "Map") {
+      const processor = getMapProcessor(afterState);
+      if (processor) {
+        const mergedProcessor = recurse(processor, beforeContainer ? getMapProcessor(beforeContainer) : void 0, {
+          containerName: name,
+          kind: "processor"
+        });
+        mergedState = afterState.ItemProcessor !== void 0 ? {
+          ...afterState,
+          ItemProcessor: mergedProcessor
+        } : {
+          ...afterState,
+          Iterator: mergedProcessor
+        };
+      }
+    }
+    merged[name] = mergedState;
+  }
+  for (const [name, beforeState] of Object.entries(beforeStates ?? {})) {
+    if (name in afterStates) continue;
+    classified.push({
+      name,
+      status: "removed",
+      steps
+    });
+    merged[name] = toOrphanState({
+      machineQueryLanguage: beforeQueryLanguage,
+      state: beforeState
+    });
+  }
+  return merged;
+}
 function computeStateDiff(beforeAsl, afterAsl) {
-  const beforeNames = new Set(Object.keys(beforeAsl.States));
-  const afterNames = new Set(Object.keys(afterAsl.States));
+  const classified = [];
+  const mergedStates = diffStates({
+    afterStates: afterAsl.States,
+    beforeQueryLanguage: beforeAsl.QueryLanguage,
+    beforeStates: beforeAsl.States,
+    classified,
+    steps: []
+  });
+  const mergedAsl = {
+    ...afterAsl,
+    States: mergedStates
+  };
+  const resolver = buildIdResolver({ definition: mergedAsl });
+  const scopeFor = (steps) => steps.reduce((scope, step) => step.kind === "branch" ? resolver.branchScope(scope, step.containerName, step.index) : resolver.processorScope(scope, step.containerName), "");
   const added = [];
   const modified = [];
   const removed = [];
   const unchanged = [];
-  for (const name of afterNames) if (!beforeNames.has(name)) added.push(name);
-  else if (stableStringify(beforeAsl.States[name]) !== stableStringify(afterAsl.States[name])) modified.push(name);
-  else unchanged.push(name);
-  for (const name of beforeNames) if (!afterNames.has(name)) removed.push(name);
-  const mergedStates = { ...afterAsl.States };
-  for (const name of removed) mergedStates[name] = toOrphanState({
-    machineQueryLanguage: beforeAsl.QueryLanguage,
-    state: beforeAsl.States[name]
-  });
+  const buckets = {
+    added,
+    modified,
+    removed,
+    unchanged
+  };
+  for (const { name, status, steps } of classified) buckets[status].push(resolver.resolve(scopeFor(steps), name));
   return {
     added,
-    mergedAsl: {
-      ...afterAsl,
-      States: mergedStates
-    },
+    mergedAsl,
     modified,
     removed,
     unchanged

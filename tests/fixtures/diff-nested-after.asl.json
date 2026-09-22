@@ -1,0 +1,66 @@
+{
+  "Comment": "Diff fixture (after): Enrich modified, Archive removed, Publish added inside FanOut's first branch; Transform modified inside ProcessItems",
+  "StartAt": "FanOut",
+  "States": {
+    "FanOut": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "Validate",
+          "States": {
+            "Validate": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Validate",
+              "Next": "Enrich"
+            },
+            "Enrich": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Enrich-v2",
+              "Next": "Publish"
+            },
+            "Publish": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::events:putEvents",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Notify",
+          "States": {
+            "Notify": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "ProcessItems"
+    },
+    "ProcessItems": {
+      "Type": "Map",
+      "ItemsPath": "$.items",
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "Transform",
+        "States": {
+          "Transform": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Transform-v2",
+            "Next": "Store"
+          },
+          "Store": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "End": true
+          }
+        }
+      },
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

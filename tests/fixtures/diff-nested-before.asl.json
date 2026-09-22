@@ -1,0 +1,66 @@
+{
+  "Comment": "Diff fixture (before): a Parallel branch and a Map processor whose children change in the after version",
+  "StartAt": "FanOut",
+  "States": {
+    "FanOut": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "Validate",
+          "States": {
+            "Validate": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Validate",
+              "Next": "Enrich"
+            },
+            "Enrich": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Enrich",
+              "Next": "Archive"
+            },
+            "Archive": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Archive",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Notify",
+          "States": {
+            "Notify": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Next": "ProcessItems"
+    },
+    "ProcessItems": {
+      "Type": "Map",
+      "ItemsPath": "$.items",
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "Transform",
+        "States": {
+          "Transform": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Transform",
+            "Next": "Store"
+          },
+          "Store": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "End": true
+          }
+        }
+      },
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}
