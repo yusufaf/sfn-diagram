@@ -87,6 +87,12 @@ interface StateDiff {
     /** `after` states plus removed states re-added as orphan end-nodes */
     mergedAsl: AslDefinition;
     modified: string[];
+    /**
+     * Every added/removed id plus the modified ids whose *own* definition changed —
+     * a container that is modified only because a state inside it changed is left
+     * out, so counting these inside a collapsed placeholder yields one per edit.
+     */
+    ownChanges: string[];
     removed: string[];
     unchanged: string[];
 }
@@ -105,8 +111,52 @@ type ScopeStep =
  */
 interface ClassifiedState {
     name: string;
+    /** False for a container whose only change is inside its nested `States`. */
+    ownChange: boolean;
     status: DiffStatus | 'unchanged';
     steps: ScopeStep[];
+}
+
+/** A container with each nested `States` block blanked, for comparing its own fields. */
+function withoutNestedStates(state: AslState): AslState {
+    if (state.Type === 'Parallel' && Array.isArray(state.Branches)) {
+        return { ...state, Branches: state.Branches.map((branch) => ({ ...branch, States: {} })) };
+    }
+    if (state.Type === 'Map') {
+        if (state.ItemProcessor) {
+            return { ...state, ItemProcessor: { ...state.ItemProcessor, States: {} } };
+        }
+        if (state.Iterator) {
+            return { ...state, Iterator: { ...state.Iterator, States: {} } };
+        }
+    }
+    return state;
+}
+
+/**
+ * Pair each `after` branch with the `before` branch it evolved from: by `StartAt`
+ * first, so inserting or reordering a branch does not shift every later branch onto
+ * the wrong partner, then by position for the branches that changed their start
+ * state. An unmatched `after` branch is new; an unmatched `before` branch is gone.
+ */
+function pairBranches(
+    afterBranches: AslDefinition[],
+    beforeBranches: AslDefinition[] | undefined,
+): Array<AslDefinition | undefined> {
+    const unclaimed = new Set((beforeBranches ?? []).map((_, index) => index));
+    const claim = (index: number | undefined): AslDefinition | undefined => {
+        if (index === undefined || !unclaimed.has(index)) return undefined;
+        unclaimed.delete(index);
+        return beforeBranches![index];
+    };
+
+    const byStart = afterBranches.map((branch) => {
+        const match = (beforeBranches ?? []).findIndex(
+            (candidate, index) => unclaimed.has(index) && candidate.StartAt === branch.StartAt,
+        );
+        return claim(match === -1 ? undefined : match);
+    });
+    return byStart.map((paired, index) => paired ?? claim(index));
 }
 
 /** Parameters for {@link diffStates}. */
@@ -142,20 +192,30 @@ function diffStates(params: DiffStatesParams): Record<string, AslState> {
     const { afterStates, beforeQueryLanguage, beforeStates, classified, steps } = params;
     const merged: Record<string, AslState> = {};
 
+    // Own-property lookups only: a state named `constructor` or `toString` must not
+    // be compared against, or hidden behind, `Object.prototype`.
+    const beforeState = (name: string): AslState | undefined =>
+        beforeStates !== undefined && Object.hasOwn(beforeStates, name) ? beforeStates[name] : undefined;
+
     for (const [name, afterState] of Object.entries(afterStates)) {
-        const beforeState = beforeStates?.[name];
+        const before = beforeState(name);
         const status: ClassifiedState['status'] =
-            beforeState === undefined
+            before === undefined
                 ? 'added'
-                : stableStringify(beforeState) !== stableStringify(afterState)
+                : stableStringify(before) !== stableStringify(afterState)
                   ? 'modified'
                   : 'unchanged';
-        classified.push({ name, status, steps });
+        const ownChange =
+            status !== 'unchanged' &&
+            (before === undefined ||
+                stableStringify(withoutNestedStates(before)) !==
+                    stableStringify(withoutNestedStates(afterState)));
+        classified.push({ name, ownChange, status, steps });
 
         // Only a container of the same type on both sides has scopes to pair up; a
         // Task that became a Parallel has no "before" block for its branches to diff
         // against, so every state in them is new.
-        const beforeContainer = beforeState?.Type === afterState.Type ? beforeState : undefined;
+        const beforeContainer = before?.Type === afterState.Type ? before : undefined;
         const recurse = (
             block: AslDefinition,
             beforeBlock: AslDefinition | undefined,
@@ -173,10 +233,11 @@ function diffStates(params: DiffStatesParams): Record<string, AslState> {
 
         let mergedState = afterState;
         if (afterState.Type === 'Parallel' && Array.isArray(afterState.Branches)) {
+            const paired = pairBranches(afterState.Branches, beforeContainer?.Branches);
             mergedState = {
                 ...afterState,
                 Branches: afterState.Branches.map((branch, index) =>
-                    recurse(branch, beforeContainer?.Branches?.[index], {
+                    recurse(branch, paired[index], {
                         containerName: name,
                         index,
                         kind: 'branch',
@@ -200,10 +261,10 @@ function diffStates(params: DiffStatesParams): Record<string, AslState> {
         merged[name] = mergedState;
     }
 
-    for (const [name, beforeState] of Object.entries(beforeStates ?? {})) {
-        if (name in afterStates) continue;
-        classified.push({ name, status: 'removed', steps });
-        merged[name] = toOrphanState({ machineQueryLanguage: beforeQueryLanguage, state: beforeState });
+    for (const [name, state] of Object.entries(beforeStates ?? {})) {
+        if (Object.hasOwn(afterStates, name)) continue;
+        classified.push({ name, ownChange: true, status: 'removed', steps });
+        merged[name] = toOrphanState({ machineQueryLanguage: beforeQueryLanguage, state });
     }
 
     return merged;
@@ -243,14 +304,17 @@ function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefinition): St
 
     const added: string[] = [];
     const modified: string[] = [];
+    const ownChanges: string[] = [];
     const removed: string[] = [];
     const unchanged: string[] = [];
     const buckets = { added, modified, removed, unchanged };
-    for (const { name, status, steps } of classified) {
-        buckets[status].push(resolver.resolve(scopeFor(steps), name));
+    for (const { name, ownChange, status, steps } of classified) {
+        const id = resolver.resolve(scopeFor(steps), name);
+        buckets[status].push(id);
+        if (ownChange) ownChanges.push(id);
     }
 
-    return { added, mergedAsl, modified, removed, unchanged };
+    return { added, mergedAsl, modified, ownChanges, removed, unchanged };
 }
 
 /** Map each changed state to its diff status for per-node highlighting. */
@@ -264,7 +328,7 @@ function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
 
 /** Parameters for {@link computeContainerChangeAnnotations}. */
 export interface ComputeContainerChangeAnnotationsParams {
-    /** Names classified added/modified/removed by {@link computeStateDiff}. */
+    /** Ids that count as one change each — {@link StateDiff.ownChanges}. */
     changedNames: Set<string>;
     /** Containers that get their own placeholder — from {@link computeCollapsePlan}. */
     effectiveTargets: Set<string>;
@@ -331,7 +395,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     } = params;
 
     const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
-    const { added, mergedAsl, modified, removed, unchanged } = diff;
+    const { added, mergedAsl, modified, ownChanges, removed, unchanged } = diff;
 
     // Build nodeOverrides for diff coloring
     const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
@@ -359,8 +423,10 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
             edges,
             nodes,
         });
+        // Own changes only: a nested container that is modified purely because one
+        // of its own children changed would otherwise be counted on top of that child.
         const changed = computeContainerChangeAnnotations({
-            changedNames: new Set([...added, ...modified, ...removed]),
+            changedNames: new Set(ownChanges),
             effectiveTargets,
             existingOverrides: nodeOverrides,
             hiddenIdsByTarget,

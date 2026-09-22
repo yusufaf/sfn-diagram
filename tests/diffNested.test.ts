@@ -236,6 +236,133 @@ describe('nested state diff (issue #206)', () => {
         expect(nodeFill(svg, 'Validate')).not.toBe(MODIFIED);
     });
 
+    it('pairs Parallel branches by StartAt so an inserted branch does not shift the rest', () => {
+        const branch = (start: string): AslDefinition => ({
+            StartAt: start,
+            States: { [start]: { End: true, Resource: `arn:${start}`, Type: 'Task' } },
+        });
+        const before: AslDefinition = {
+            StartAt: 'Fan',
+            States: { Fan: { Branches: [branch('A'), branch('B')], End: true, Type: 'Parallel' } },
+        };
+        const inserted: AslDefinition = {
+            StartAt: 'Fan',
+            States: {
+                Fan: { Branches: [branch('New'), branch('A'), branch('B')], End: true, Type: 'Parallel' },
+            },
+        };
+        const reordered: AslDefinition = {
+            StartAt: 'Fan',
+            States: { Fan: { Branches: [branch('B'), branch('A')], End: true, Type: 'Parallel' } },
+        };
+
+        const afterInsert = generateDiff({ after: inserted, before }).metadata;
+        expect(afterInsert.added).toEqual(['New']);
+        expect(afterInsert.removed).toEqual([]);
+        expect(afterInsert.unchanged).toEqual(['A', 'B']);
+
+        const afterReorder = generateDiff({ after: reordered, before }).metadata;
+        expect(afterReorder.added).toEqual([]);
+        expect(afterReorder.removed).toEqual([]);
+        expect(afterReorder.modified).toEqual(['Fan']);
+        expect(afterReorder.unchanged).toEqual(['B', 'A']);
+    });
+
+    it('falls back to positional pairing when a branch changes its StartAt', () => {
+        const before: AslDefinition = {
+            StartAt: 'Fan',
+            States: {
+                Fan: {
+                    Branches: [
+                        {
+                            StartAt: 'Old',
+                            States: {
+                                Old: { Next: 'Keep', Type: 'Pass' },
+                                Keep: { End: true, Resource: 'arn:k', Type: 'Task' },
+                            },
+                        },
+                    ],
+                    End: true,
+                    Type: 'Parallel',
+                },
+            },
+        };
+        const after: AslDefinition = {
+            StartAt: 'Fan',
+            States: {
+                Fan: {
+                    Branches: [
+                        {
+                            StartAt: 'Keep',
+                            States: { Keep: { End: true, Resource: 'arn:k', Type: 'Task' } },
+                        },
+                    ],
+                    End: true,
+                    Type: 'Parallel',
+                },
+            },
+        };
+
+        const { metadata } = generateDiff({ after, before });
+
+        expect(metadata.removed).toEqual(['Old']);
+        expect(metadata.unchanged).toEqual(['Keep']);
+    });
+
+    it('does not confuse state names with Object.prototype members', () => {
+        const before: AslDefinition = {
+            StartAt: 'constructor',
+            States: {
+                constructor: { Next: 'toString', Type: 'Pass' },
+                toString: { End: true, Type: 'Pass' },
+            },
+        };
+        const after: AslDefinition = {
+            StartAt: 'constructor',
+            States: { constructor: { End: true, Type: 'Pass' } },
+        };
+
+        const { metadata } = generateDiff({ after, before });
+
+        expect(metadata.modified).toEqual(['constructor']);
+        expect(metadata.removed).toEqual(['toString']);
+    });
+
+    it('counts one change inside a collapsed container for a single nested edit', () => {
+        const build = (resource: string): AslDefinition => ({
+            StartAt: 'Outer',
+            States: {
+                Outer: {
+                    Branches: [
+                        {
+                            StartAt: 'Inner',
+                            States: {
+                                Inner: {
+                                    End: true,
+                                    ItemProcessor: {
+                                        StartAt: 'Leaf',
+                                        States: { Leaf: { End: true, Resource: resource, Type: 'Task' } },
+                                    },
+                                    Type: 'Map',
+                                },
+                            },
+                        },
+                    ],
+                    End: true,
+                    Type: 'Parallel',
+                },
+            },
+        });
+
+        const { metadata, svg } = generateDiff({ after: build('arn:b'), before: build('arn:a'), collapse: true });
+
+        // Inner is modified only through Leaf, so it colours yellow but is not a
+        // second change on top of Leaf.
+        expect(metadata.modified).toEqual(['Outer', 'Inner', 'Leaf']);
+        expect(svg).toContain('1 changed inside');
+        expect(svg).not.toContain('2 changed inside');
+    });
+
     it('renders a removed nested state under the query language it was written in', () => {
         const jsonata: AslDefinition = {
             QueryLanguage: 'JSONata',

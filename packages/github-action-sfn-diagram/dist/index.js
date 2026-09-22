@@ -68543,18 +68543,59 @@ function toOrphanState(params) {
   }
   return base;
 }
+function withoutNestedStates(state2) {
+  if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) return {
+    ...state2,
+    Branches: state2.Branches.map((branch) => ({
+      ...branch,
+      States: {}
+    }))
+  };
+  if (state2.Type === "Map") {
+    if (state2.ItemProcessor) return {
+      ...state2,
+      ItemProcessor: {
+        ...state2.ItemProcessor,
+        States: {}
+      }
+    };
+    if (state2.Iterator) return {
+      ...state2,
+      Iterator: {
+        ...state2.Iterator,
+        States: {}
+      }
+    };
+  }
+  return state2;
+}
+function pairBranches(afterBranches, beforeBranches) {
+  const unclaimed = new Set((beforeBranches ?? []).map((_2, index) => index));
+  const claim = (index) => {
+    if (index === void 0 || !unclaimed.has(index)) return void 0;
+    unclaimed.delete(index);
+    return beforeBranches[index];
+  };
+  return afterBranches.map((branch) => {
+    const match2 = (beforeBranches ?? []).findIndex((candidate, index) => unclaimed.has(index) && candidate.StartAt === branch.StartAt);
+    return claim(match2 === -1 ? void 0 : match2);
+  }).map((paired, index) => paired ?? claim(index));
+}
 function diffStates(params) {
   const { afterStates, beforeQueryLanguage, beforeStates, classified, steps } = params;
   const merged = {};
+  const beforeState = (name) => beforeStates !== void 0 && Object.hasOwn(beforeStates, name) ? beforeStates[name] : void 0;
   for (const [name, afterState] of Object.entries(afterStates)) {
-    const beforeState = beforeStates?.[name];
-    const status = beforeState === void 0 ? "added" : stableStringify(beforeState) !== stableStringify(afterState) ? "modified" : "unchanged";
+    const before = beforeState(name);
+    const status = before === void 0 ? "added" : stableStringify(before) !== stableStringify(afterState) ? "modified" : "unchanged";
+    const ownChange = status !== "unchanged" && (before === void 0 || stableStringify(withoutNestedStates(before)) !== stableStringify(withoutNestedStates(afterState)));
     classified.push({
       name,
+      ownChange,
       status,
       steps
     });
-    const beforeContainer = beforeState?.Type === afterState.Type ? beforeState : void 0;
+    const beforeContainer = before?.Type === afterState.Type ? before : void 0;
     const recurse = (block, beforeBlock, step) => ({
       ...block,
       States: diffStates({
@@ -68566,15 +68607,17 @@ function diffStates(params) {
       })
     });
     let mergedState = afterState;
-    if (afterState.Type === "Parallel" && Array.isArray(afterState.Branches)) mergedState = {
-      ...afterState,
-      Branches: afterState.Branches.map((branch, index) => recurse(branch, beforeContainer?.Branches?.[index], {
-        containerName: name,
-        index,
-        kind: "branch"
-      }))
-    };
-    else if (afterState.Type === "Map") {
+    if (afterState.Type === "Parallel" && Array.isArray(afterState.Branches)) {
+      const paired = pairBranches(afterState.Branches, beforeContainer?.Branches);
+      mergedState = {
+        ...afterState,
+        Branches: afterState.Branches.map((branch, index) => recurse(branch, paired[index], {
+          containerName: name,
+          index,
+          kind: "branch"
+        }))
+      };
+    } else if (afterState.Type === "Map") {
       const processor = getMapProcessor(afterState);
       if (processor) {
         const mergedProcessor = recurse(processor, beforeContainer ? getMapProcessor(beforeContainer) : void 0, {
@@ -68592,16 +68635,17 @@ function diffStates(params) {
     }
     merged[name] = mergedState;
   }
-  for (const [name, beforeState] of Object.entries(beforeStates ?? {})) {
-    if (name in afterStates) continue;
+  for (const [name, state2] of Object.entries(beforeStates ?? {})) {
+    if (Object.hasOwn(afterStates, name)) continue;
     classified.push({
       name,
+      ownChange: true,
       status: "removed",
       steps
     });
     merged[name] = toOrphanState({
       machineQueryLanguage: beforeQueryLanguage,
-      state: beforeState
+      state: state2
     });
   }
   return merged;
@@ -68623,6 +68667,7 @@ function computeStateDiff(beforeAsl, afterAsl) {
   const scopeFor = (steps) => steps.reduce((scope, step) => step.kind === "branch" ? resolver.branchScope(scope, step.containerName, step.index) : resolver.processorScope(scope, step.containerName), "");
   const added = [];
   const modified = [];
+  const ownChanges = [];
   const removed = [];
   const unchanged = [];
   const buckets = {
@@ -68631,11 +68676,16 @@ function computeStateDiff(beforeAsl, afterAsl) {
     removed,
     unchanged
   };
-  for (const { name, status, steps } of classified) buckets[status].push(resolver.resolve(scopeFor(steps), name));
+  for (const { name, ownChange, status, steps } of classified) {
+    const id = resolver.resolve(scopeFor(steps), name);
+    buckets[status].push(id);
+    if (ownChange) ownChanges.push(id);
+  }
   return {
     added,
     mergedAsl,
     modified,
+    ownChanges,
     removed,
     unchanged
   };
