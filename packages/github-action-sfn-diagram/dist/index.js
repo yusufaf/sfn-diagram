@@ -68623,6 +68623,24 @@ function mergeOptions(options = {}) {
     ...options
   };
 }
+function buildDiagramGraph(params) {
+  const { definition, options } = params;
+  const parsed = parseAsl({
+    definition,
+    options
+  });
+  const { edges, nodes: nodes5 } = applyCatchHandling({
+    edges: parsed.edges,
+    mode: options.catchHandling,
+    nodes: parsed.nodes,
+    startStateId: definition.StartAt
+  });
+  return {
+    edges,
+    nodes: nodes5,
+    parsed
+  };
+}
 function stableStringify(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -69257,20 +69275,14 @@ function generateMermaid(params) {
   const { aslDefinition, ...options } = params;
   const aslObj = parseAslSource({ source: aslDefinition });
   const mergedOptions = mergeOptions(options);
-  const { nodes: nodes5, edges } = parseAsl({
+  const { edges, nodes: nodes5 } = buildDiagramGraph({
     definition: aslObj,
     options: mergedOptions
   });
-  const graph = applyCatchHandling({
-    edges,
-    mode: mergedOptions.catchHandling,
-    nodes: nodes5,
-    startStateId: aslObj.StartAt
-  });
   const collapsedGraph = applyCollapse({
     collapse: mergedOptions.collapse,
-    edges: graph.edges,
-    nodes: graph.nodes
+    edges,
+    nodes: nodes5
   });
   return new MermaidRenderer().render({
     asl: aslObj,

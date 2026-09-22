@@ -17,6 +17,14 @@ interface EmbedIconsParams {
     timeoutMs?: number;
 }
 
+/** Parameters for {@link embedIconsBatch}. */
+export interface EmbedIconsBatchParams {
+    /** SVG strings that may reference external icons, in the order results come back. */
+    svgs: string[];
+    /** Timeout in milliseconds for each icon fetch (default: 5000) */
+    timeoutMs?: number;
+}
+
 interface FetchAsDataUriParams {
     /** Timeout in milliseconds (default: 5000) */
     timeoutMs?: number;
@@ -155,17 +163,39 @@ async function fetchAsDataUri(params: FetchAsDataUriParams): Promise<string> {
  */
 export async function embedIcons(params: EmbedIconsParams): Promise<string> {
     const { svg, timeoutMs } = params;
+    const [embedded] = await embedIconsBatch({ svgs: [svg], timeoutMs });
+    return embedded;
+}
+
+/**
+ * Embed external icon URLs in several SVGs at once, sharing one fetch per distinct
+ * URL across all of them. {@link embedIcons} is the single-SVG case; this is for
+ * callers holding several renderings of the same diagram — an expanded and a
+ * collapsed view, say — that reference the same icons.
+ *
+ * @param params - Parameters for icon embedding
+ * @param params.svgs - SVG strings to embed icons into
+ * @returns Promise resolving to the SVGs with embedded icons, in input order
+ *
+ * @example
+ * ```typescript
+ * const [expanded, collapsed] = await embedIconsBatch({ svgs: [expandedSvg, collapsedSvg] });
+ * ```
+ */
+export async function embedIconsBatch(params: EmbedIconsBatchParams): Promise<string[]> {
+    const { svgs, timeoutMs } = params;
 
     // Find all image href attributes with URLs (not data URIs)
     const hrefPattern = /href="(https?:\/\/[^"]+)"/g;
-    const matches = Array.from(svg.matchAll(hrefPattern));
+    const uniqueUrls = [
+        ...new Set(svgs.flatMap((svg) => Array.from(svg.matchAll(hrefPattern), (match) => match[1]))),
+    ];
 
-    if (matches.length === 0) {
-        return svg; // No external icons to embed
+    if (uniqueUrls.length === 0) {
+        return svgs; // No external icons to embed
     }
 
     // Fetch all unique URLs
-    const uniqueUrls = [...new Set(matches.map(match => match[1]))];
     const dataUris = await mapWithConcurrency({
         concurrency: MAX_CONCURRENT_FETCHES,
         items: uniqueUrls,
@@ -176,8 +206,10 @@ export async function embedIcons(params: EmbedIconsParams): Promise<string> {
         urlToDataUri.set(url, dataUris[index]);
     });
 
-    return svg.replace(hrefPattern, (match, url: string) => {
-        const dataUri = urlToDataUri.get(url);
-        return dataUri === undefined ? match : `href="${dataUri}"`;
-    });
+    return svgs.map((svg) =>
+        svg.replace(hrefPattern, (match, url: string) => {
+            const dataUri = urlToDataUri.get(url);
+            return dataUri === undefined ? match : `href="${dataUri}"`;
+        }),
+    );
 }

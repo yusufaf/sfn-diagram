@@ -23,21 +23,21 @@
  * });
  * ```
  */
-import { parseAsl, parseAslSource } from './AslParser';
-import { applyCatchHandling, applyCollapse, computeCollapsePlan } from './graph';
-import { DagreLayout } from './layout';
+import { parseAslSource } from './AslParser';
+import { applyCollapse, computeCollapsePlan } from './graph';
 import {
-    SvgRenderer,
     MermaidRenderer,
+    buildEdgeData,
     buildViewerContent,
-    collectEdgeData,
     collectStateData,
     minimapStartsCollapsed,
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
 } from './renderers';
 import { mergeDiagramOptions, mergeOptions } from './config';
-import { embedIcons } from './utils/iconEmbedder';
+import { buildDiagramGraph, renderSvgGraph } from './pipeline';
+import { embedIconsBatch } from './utils/iconEmbedder';
+import type { MergedDiagramOptions } from './pipeline';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
@@ -46,15 +46,13 @@ import type {
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
+    GraphEdge,
     SvgOutput,
     MermaidOutput,
     HtmlOutput,
     ViewerUpdate,
     AslDefinition,
 } from './types';
-
-/** User options with every default from `DEFAULT_DIAGRAM_OPTIONS` filled in. */
-type MergedDiagramOptions = ReturnType<typeof mergeOptions>;
 
 /**
  * Generate an SVG diagram from an AWS Step Functions ASL definition
@@ -127,30 +125,8 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
         diagramTitle: options.diagramTitle ?? aslObj.Comment,
     });
 
-    // Parse ASL to graph
-    const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
-
-    // Apply catch handling (drops error branches when mode is 'hide')
-    const graph = applyCatchHandling({
-        edges,
-        mode: mergedOptions.catchHandling,
-        nodes,
-        startStateId: aslObj.StartAt,
-    });
-
-    const collapsedGraph = applyCollapse({
-        collapse: mergedOptions.collapse,
-        edges: graph.edges,
-        nodes: graph.nodes,
-    });
-
-    // Calculate layout
-    const layout = new DagreLayout(mergedOptions);
-    const positioned = layout.calculate(collapsedGraph.nodes, collapsedGraph.edges);
-
-    // Render SVG
-    const renderer = new SvgRenderer(mergedOptions);
-    return renderer.render(positioned);
+    const { edges, nodes } = buildDiagramGraph({ definition: aslObj, options: mergedOptions });
+    return renderSvgGraph({ edges, nodes, options: mergedOptions });
 }
 
 /**
@@ -205,21 +181,8 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
-
-    // Apply catch handling (drops error branches when mode is 'hide')
-    const graph = applyCatchHandling({
-        edges,
-        mode: mergedOptions.catchHandling,
-        nodes,
-        startStateId: aslObj.StartAt,
-    });
-
-    const collapsedGraph = applyCollapse({
-        collapse: mergedOptions.collapse,
-        edges: graph.edges,
-        nodes: graph.nodes,
-    });
+    const { edges, nodes } = buildDiagramGraph({ definition: aslObj, options: mergedOptions });
+    const collapsedGraph = applyCollapse({ collapse: mergedOptions.collapse, edges, nodes });
 
     const renderer = new MermaidRenderer();
     return renderer.render({
@@ -258,43 +221,42 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * those icons as data URIs.
  */
 /**
- * Render the expanded view, and — only when the collapse selection actually
- * removes something — the collapsed view, for {@link generateHtml} and
+ * Parse once, then render the expanded view and — only when the collapse selection
+ * actually removes something — the collapsed view, for {@link generateHtml} and
  * {@link generateHtmlAsync}. `collapse: false` is treated the same as `collapse:
  * []`: both mean "nothing to collapse", so neither should produce a toggle.
  *
  * Deciding via {@link computeCollapsePlan} first (a graph walk, no rendering)
  * means a no-op selection — an unmatched name, `false`, `[]`, or a containerless
- * diagram — never pays for a second `generateSvg` call just to discard it.
+ * diagram — never pays for a second layout and render just to discard it.
+ *
+ * The raw parsed `edges` come back too, so the viewer's edge data is keyed off the
+ * same parse the views were drawn from rather than a fresh one.
  */
 function buildHtmlViews(params: {
     aslObj: AslDefinition;
     options: MergedDiagramOptions;
-}): { collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
+}): { collapsedSvgOutput?: SvgOutput; edges: GraphEdge[]; svgOutput: SvgOutput } {
     const { aslObj, options } = params;
-    const { edges, nodes } = parseAsl({ definition: aslObj, options });
     const resolvedCollapse = options.collapse ?? true;
 
     // Both views feed the interactive viewer, so both get clickable edges.
-    const svgOutput = generateSvg({
-        aslDefinition: aslObj,
+    const viewOptions: MergedDiagramOptions = {
         ...options,
-        collapse: undefined,
+        diagramTitle: options.diagramTitle ?? aslObj.Comment,
         edgeHitAreas: true,
-    });
+    };
+
+    const { edges, nodes, parsed } = buildDiagramGraph({ definition: aslObj, options: viewOptions });
+    const svgOutput = renderSvgGraph({ edges, nodes, options: { ...viewOptions, collapse: undefined } });
 
     const { effectiveTargets } = computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes });
     const collapsedSvgOutput =
         effectiveTargets.size > 0
-            ? generateSvg({
-                  aslDefinition: aslObj,
-                  ...options,
-                  collapse: resolvedCollapse,
-                  edgeHitAreas: true,
-              })
+            ? renderSvgGraph({ edges, nodes, options: { ...viewOptions, collapse: resolvedCollapse } })
             : undefined;
 
-    return { collapsedSvgOutput, svgOutput };
+    return { collapsedSvgOutput, edges: parsed.edges, svgOutput };
 }
 
 /**
@@ -304,19 +266,25 @@ function buildHtmlViews(params: {
  * container with no descendants), which would otherwise ship a second view identical
  * to the first behind a toggle button that does nothing.
  *
- * Shared by {@link generateHtml} and {@link generateViewerUpdate} so the two can never
- * disagree on when a diagram gets a collapse toggle.
+ * Shared by {@link generateHtml}, {@link generateHtmlAsync} and
+ * {@link generateViewerUpdate} so the three can never disagree on when a diagram gets
+ * a collapse toggle.
  */
 function buildHtmlViewParts(params: {
     aslObj: AslDefinition;
     options: MergedDiagramOptions;
-}): { collapsedSvg?: string; collapsedSvgOutput?: SvgOutput; svgOutput: SvgOutput } {
-    const { collapsedSvgOutput, svgOutput } = buildHtmlViews(params);
+}): {
+    collapsedSvg?: string;
+    collapsedSvgOutput?: SvgOutput;
+    edges: GraphEdge[];
+    svgOutput: SvgOutput;
+} {
+    const { collapsedSvgOutput, edges, svgOutput } = buildHtmlViews(params);
     const collapsedSvg =
         collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
             ? collapsedSvgOutput.svg
             : undefined;
-    return { collapsedSvg, collapsedSvgOutput, svgOutput };
+    return { collapsedSvg, collapsedSvgOutput, edges, svgOutput };
 }
 
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
@@ -324,7 +292,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
+    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
         aslObj,
         options: mergedOptions,
     });
@@ -334,7 +302,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
         html: wrapSvgInInteractiveHtml({
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
+            edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             stateData: collectStateData({ definition: aslObj }),
@@ -368,7 +336,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, svgOutput } = buildHtmlViewParts({
+    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
         aslObj,
         options: mergedOptions,
     });
@@ -382,7 +350,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
             minimapCollapsed: minimapStartsCollapsed({ nodeCount: svgOutput.metadata.nodeCount }),
             svg: svgOutput.svg,
         }),
-        edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
+        edgeData: buildEdgeData({ edges }),
         hasCollapsedView: collapsedSvg !== undefined,
         metadata: svgOutput.metadata,
         stateData: collectStateData({ definition: aslObj }),
@@ -394,7 +362,8 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  *
  * Identical to {@link generateHtml}, except AWS service icons are fetched once and
  * inlined as base64 data URIs, so the document has no external references even with
- * `showIcons: true`. When the diagram has no remote icons this costs nothing —
+ * `showIcons: true`. An icon shared by the expanded and collapsed views is fetched
+ * once for both. When the diagram has no remote icons this costs nothing —
  * `embedIcons` returns immediately and no network request is made.
  *
  * @param params - ASL definition plus the same options as {@link generateSvg}.
@@ -413,23 +382,23 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvgOutput, svgOutput } = buildHtmlViews({ aslObj, options: mergedOptions });
-    const embeddedSvg = await embedIcons({ svg: svgOutput.svg });
+    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
+        aslObj,
+        options: mergedOptions,
+    });
 
-    // Same nodeCount guard as generateHtml, applied before paying for icon embedding.
-    let embeddedCollapsedSvg: string | undefined;
-    let collapsedNodeCount: number | undefined;
-    if (collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount) {
-        embeddedCollapsedSvg = await embedIcons({ svg: collapsedSvgOutput.svg });
-        collapsedNodeCount = collapsedSvgOutput.metadata.nodeCount;
-    }
+    // The nodeCount guard has already run, so a discarded collapsed view never pays
+    // for icon embedding; the views that survive share one fetch per icon.
+    const [embeddedSvg, embeddedCollapsedSvg] = await embedIconsBatch({
+        svgs: collapsedSvg === undefined ? [svgOutput.svg] : [svgOutput.svg, collapsedSvg],
+    });
 
     return {
         height: svgOutput.height,
         html: wrapSvgInInteractiveHtml({
-            collapsedNodeCount,
+            collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg: embeddedCollapsedSvg,
-            edgeData: collectEdgeData({ definition: aslObj, options: mergedOptions }),
+            edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             stateData: collectStateData({ definition: aslObj }),
