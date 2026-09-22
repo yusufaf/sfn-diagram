@@ -680,8 +680,14 @@ export interface HtmlOutput {
 
     /** Metadata about the generated diagram. */
     metadata: {
+        /** Change summary, present when the document was rendered with a `diff` overlay. */
+        diff?: DiffStateSummary;
+
         /** Number of edges (transitions) in the diagram. */
         edgeCount: number;
+
+        /** Execution summary, present when the document was rendered with a `history` overlay. */
+        execution?: ExecutionSummary;
 
         /** Number of state nodes in the diagram. */
         nodeCount: number;
@@ -776,10 +782,34 @@ export interface GenerateMermaidParams extends DiagramOptions {
     aslDefinition: AslDefinition | string;
 }
 
+/**
+ * A diff overlay for `generateHtml`: the earlier definition to compare `aslDefinition`
+ * against. The document then shows the merged diagram with added states green,
+ * modified states amber and removed states red, exactly as `generateDiff` draws it.
+ */
+export interface HtmlDiffOverlay {
+    /** The old (base) ASL definition; `aslDefinition` is the new (head) one. */
+    before: AslDefinition | string;
+}
+
 /** Parameters for `generateHtml`. */
 export interface GenerateHtmlParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
+    /**
+     * Render as a diff against an earlier definition. Composes with `history`: a state
+     * that ran takes its execution colour, one the execution never reached keeps its
+     * diff colour, and a changed state that ran carries its diff status in its
+     * annotation (`modified · 1.2s`).
+     */
+    diff?: HtmlDiffOverlay;
+    /**
+     * Execution history to overlay (events array, GetExecutionHistory response, or
+     * JSON string): states coloured by outcome, the taken path emphasized, per-state
+     * duration and retry annotations — what `generateExecutionHtml` produces. With a
+     * `history` the document ships the expanded view only, with no collapse toggle.
+     */
+    history?: ExecutionHistoryInput;
     /**
      * Content-Security-Policy nonce to stamp on every embedded `<style>`/`<script>`
      * tag, so the document runs under a host with a strict `script-src 'nonce-…'`
@@ -857,6 +887,21 @@ export interface ExtractAslResult {
 export interface GenerateFromAwsParams extends DiagramOptions {
     /** AWS SDK DescribeStateMachine command output */
     response: DescribeStateMachineCommandOutput;
+}
+
+/** Per-category state names of a diff, as every diff output reports them. */
+export interface DiffStateSummary {
+    /** State names present in `after` but not `before` */
+    added: string[];
+
+    /** State names modified between `before` and `after` */
+    modified: string[];
+
+    /** State names present in `before` but not `after` */
+    removed: string[];
+
+    /** State names that did not change */
+    unchanged: string[];
 }
 
 /** Diff diagram output */
@@ -1045,6 +1090,12 @@ export interface ExecutionMetadataSummary {
     succeeded: string[];
     /** Number of transitions the execution followed */
     takenEdgeCount: number;
+}
+
+/** Per-status state names plus the overall outcome, as every execution output reports them. */
+export interface ExecutionSummary extends ExecutionMetadataSummary {
+    /** Overall execution status */
+    executionStatus: ExecutionStatus;
 }
 
 /** SVG execution overlay output. */

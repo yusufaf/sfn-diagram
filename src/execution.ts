@@ -1,33 +1,27 @@
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type {
+    AslDefinition,
     EdgeStyleOverride,
     ExecutionHistoryInput,
-    ExecutionHtmlOutput,
     ExecutionMetadataSummary,
     ExecutionOutput,
     ExecutionOverlay,
     ExecutionStateResult,
     ExecutionStateStatus,
     ExecutionStatus,
-    GenerateExecutionHtmlParams,
+    ExecutionSummary,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
+    GraphEdge,
     MermaidExecutionOutput,
     NodeStyle,
+    StateNode,
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
 import { buildIdResolver } from './graph';
-import { DagreLayout } from './layout';
-import {
-    SvgRenderer,
-    MermaidRenderer,
-    collectEdgeData,
-    collectStateData,
-    resolveViewerTheme,
-    wrapSvgInInteractiveHtml,
-} from './renderers';
+import { buildDiagramGraph, renderSvgGraph } from './pipeline';
+import { MermaidRenderer } from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
-import { embedIcons } from './utils/iconEmbedder';
 
 /** Node fill/stroke applied per execution status, mirroring diff's DIFF_COLORS. */
 const EXECUTION_COLORS: Record<ExecutionStateStatus, Partial<NodeStyle>> = {
@@ -411,34 +405,86 @@ function byNodeId<Value>(
     return result;
 }
 
-export function generateExecution(params: GenerateExecutionParams): ExecutionOutput {
-    const {
-        aslDefinition,
-        edgeOverrides: callerEdgeOverrides,
-        history,
-        nodeAnnotations: callerNodeAnnotations,
-        nodeOverrides: callerNodeOverrides,
-        ...options
-    } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const overlay = computeOverlay(history);
-    const mergedOptions = mergeOptions(options);
+/** Parameters for {@link computeExecutionStyling}. */
+export interface ComputeExecutionStylingParams {
+    /**
+     * The caller's own `edgeOverrides`, if any. A legacy bare `${from}->${to}` key in
+     * it claims every edge between that pair, so no styling is emitted for those.
+     */
+    callerEdgeOverrides?: Record<string, EdgeStyleOverride>;
+    /** The definition the graph was parsed from; its top-level state names feed the summary. */
+    definition: AslDefinition;
+    /** The graph's edges, after catch handling. */
+    edges: GraphEdge[];
+    /** Execution history: events array, GetExecutionHistory response, or JSON string. */
+    history: ExecutionHistoryInput;
+    /** The graph's nodes, after catch handling. */
+    nodes: StateNode[];
+    /**
+     * Top-level state names the summary reports — every one the history never
+     * mentions is listed as `notReached`. Defaults to `definition.States`' keys;
+     * a caller rendering a merged diff definition passes the after-side's names so
+     * removed states, which the after definition no longer has, stay out of it.
+     */
+    summaryStateNames?: string[];
+}
 
-    const { nodes, edges } = parseAsl({ definition: aslObj, options: mergedOptions });
+/** What {@link computeExecutionStyling} contributes to a render, keyed by node / edge id. */
+export interface ExecutionStyling {
+    /** Taken transitions emphasized, the rest dimmed; absent for pairs the caller claimed. */
+    edgeOverrides: Record<string, EdgeStyleOverride>;
+    /** `1.2s ×3`-style duration and retry annotations for states that ran. */
+    nodeAnnotations: Record<string, string>;
+    /** Fill and stroke per node for its status; every node gets one. */
+    nodeOverrides: Record<string, Partial<NodeStyle>>;
+    /** The status each node was styled with. */
+    statusByNodeId: Record<string, ExecutionStateStatus>;
+    /** The per-status summary reported in output metadata. */
+    summary: ExecutionSummary;
+}
+
+/**
+ * Turn an execution history into per-node and per-edge styling for a parsed graph:
+ * the pure core of {@link generateExecution}, shared with `generateHtml`'s `history`
+ * overlay. It never touches layout or rendering, so the same styling can be applied
+ * to any view of the graph.
+ *
+ * @param params - The graph, the definition it came from, and the history to overlay
+ * @returns Node / edge styling keyed by id, plus the status summary
+ *
+ * @example
+ * ```typescript
+ * const graph = buildDiagramGraph({ definition, options });
+ * const styling = computeExecutionStyling({ definition, history, ...graph });
+ * const { svg } = renderSvgGraph({ ...graph, options: { ...options, ...styling } });
+ * ```
+ */
+export function computeExecutionStyling(params: ComputeExecutionStylingParams): ExecutionStyling {
+    const {
+        callerEdgeOverrides,
+        definition,
+        edges,
+        history,
+        nodes,
+        summaryStateNames = Object.keys(definition.States),
+    } = params;
+    const overlay = computeOverlay(history);
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
     // once rather than looking up `overlay.states[node.id]`, which silently misses
     // every nested state whose name repeats - see byNodeId.
-    const resolver = buildIdResolver({ definition: aslObj });
+    const resolver = buildIdResolver({ definition });
     const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
 
     // Node colours: known states by status; everything else "not reached".
     const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
     const nodeAnnotations: Record<string, string> = {};
+    const statusByNodeId: Record<string, ExecutionStateStatus> = {};
     for (const node of nodes) {
         const result = statesByNodeId[node.id];
         const status = result?.status ?? 'notReached';
         nodeOverrides[node.id] = EXECUTION_COLORS[status];
+        statusByNodeId[node.id] = status;
         if (result) {
             const annotation = buildAnnotation(result);
             if (annotation) nodeAnnotations[node.id] = annotation;
@@ -491,125 +537,70 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
         edgeOverrides[edge.id] = isTaken ? TAKEN_EDGE_STYLE : UNTAKEN_EDGE_STYLE;
     }
 
+    return {
+        edgeOverrides,
+        nodeAnnotations,
+        nodeOverrides,
+        statusByNodeId,
+        summary: {
+            ...summarize(overlay, summaryStateNames),
+            executionStatus: overlay.executionStatus,
+        },
+    };
+}
+
+export function generateExecution(params: GenerateExecutionParams): ExecutionOutput {
+    const {
+        aslDefinition,
+        edgeOverrides: callerEdgeOverrides,
+        history,
+        nodeAnnotations: callerNodeAnnotations,
+        nodeOverrides: callerNodeOverrides,
+        ...options
+    } = params;
+    const aslObj = parseAslSource({ source: aslDefinition });
+    // Same merge generateSvg does, so the overlay renders on the plain diagram's terms.
+    const mergedOptions = mergeOptions({
+        ...options,
+        diagramTitle: options.diagramTitle ?? aslObj.Comment,
+    });
+
+    const { edges, nodes } = buildDiagramGraph({ definition: aslObj, options: mergedOptions });
+    const styling = computeExecutionStyling({
+        callerEdgeOverrides,
+        definition: aslObj,
+        edges,
+        history,
+        nodes,
+    });
+
     // Caller-supplied entries win per key, matching generateDiff. Merging rather than
     // replacing keeps the overlay's styling for every key the caller did not name.
-    const renderOptions = {
-        ...mergedOptions,
-        edgeOverrides: mergeRecordOptions(edgeOverrides, callerEdgeOverrides),
-        nodeAnnotations: mergeRecordOptions(nodeAnnotations, callerNodeAnnotations),
-        nodeOverrides: mergeRecordOptions(nodeOverrides, callerNodeOverrides),
-    };
-    const layout = new DagreLayout(renderOptions);
-    const positioned = layout.calculate(nodes, edges);
-    const svgOutput = new SvgRenderer(renderOptions).render(positioned);
+    //
+    // `collapse` is deliberately not applied: the per-node styling above has no
+    // notion of a placeholder standing in for the states it hides, so a collapsed
+    // container would render with only its own status and lose its children's.
+    const svgOutput = renderSvgGraph({
+        edges,
+        nodes,
+        options: {
+            ...mergedOptions,
+            collapse: undefined,
+            edgeOverrides: mergeRecordOptions(styling.edgeOverrides, callerEdgeOverrides),
+            nodeAnnotations: mergeRecordOptions(styling.nodeAnnotations, callerNodeAnnotations),
+            nodeOverrides: mergeRecordOptions(styling.nodeOverrides, callerNodeOverrides),
+        },
+    });
 
     return {
         height: svgOutput.height,
         metadata: {
-            ...summarize(overlay, Object.keys(aslObj.States)),
+            ...styling.summary,
             edgeCount: svgOutput.metadata.edgeCount,
-            executionStatus: overlay.executionStatus,
             nodeCount: svgOutput.metadata.nodeCount,
         },
         svg: svgOutput.svg,
         width: svgOutput.width,
-    };
-}
-
-/**
- * Generate a self-contained interactive HTML execution overlay: the same viewer
- * {@link generateHtml} produces (pan/zoom, search, minimap, click-a-state/edge detail
- * panel), wrapped around {@link generateExecution}'s coloured, taken-path-emphasized
- * SVG rather than a plain diagram.
- *
- * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
- * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
- * @param params - Any additional {@link DiagramOptions}
- * @returns {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
- *
- * @example
- * ```typescript
- * import { generateExecutionHtml } from 'sfn-diagram';
- * const { html } = generateExecutionHtml({ aslDefinition: asl, history: events });
- * ```
- *
- * @remarks
- * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons, so
- * the document is not fully offline. Use {@link generateExecutionHtmlAsync} to inline
- * those icons as data URIs.
- *
- * `collapse` is not yet supported on this path: {@link generateExecution} does not
- * apply it, so the document ships one view only, with no collapse/expand toggle -
- * unlike {@link generateHtml}, which renders both an expanded and a collapsed view
- * for the toggle to switch between. Adding it needs the per-node execution-status
- * overrides this function computes to be remapped onto whatever collapsed placeholder
- * node absorbs them, which {@link generateExecution} does not do.
- */
-export function generateExecutionHtml(params: GenerateExecutionHtmlParams): ExecutionHtmlOutput {
-    const { aslDefinition, nonce, ...executionOptions } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
-
-    return {
-        height: result.height,
-        html: wrapSvgInInteractiveHtml({
-            edgeData: collectEdgeData({ definition: aslObj, options: executionOptions }),
-            nodeCount: result.metadata.nodeCount,
-            nonce,
-            stateData: collectStateData({ definition: aslObj }),
-            svg: result.svg,
-            theme: resolveViewerTheme({ theme: executionOptions.theme }),
-        }),
-        metadata: result.metadata,
-        width: result.width,
-    };
-}
-
-/**
- * Generate a fully offline interactive HTML execution overlay from an ASL definition
- * and execution history.
- *
- * Identical to {@link generateExecutionHtml}, except AWS service icons are fetched
- * once and inlined as base64 data URIs, so the document has no external references
- * even with `showIcons: true`.
- *
- * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
- * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
- * @param params - Any additional {@link DiagramOptions}
- * @returns Promise resolving to {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
- *
- * @example
- * ```typescript
- * import { generateExecutionHtmlAsync } from 'sfn-diagram';
- * const { html } = await generateExecutionHtmlAsync({
- *     aslDefinition: asl,
- *     history: events,
- *     showIcons: true,
- * });
- * ```
- */
-export async function generateExecutionHtmlAsync(
-    params: GenerateExecutionHtmlParams,
-): Promise<ExecutionHtmlOutput> {
-    const { aslDefinition, nonce, ...executionOptions } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const result = generateExecution({ ...executionOptions, aslDefinition: aslObj, edgeHitAreas: true });
-    const embeddedSvg = await embedIcons({ svg: result.svg });
-
-    return {
-        height: result.height,
-        html: wrapSvgInInteractiveHtml({
-            edgeData: collectEdgeData({ definition: aslObj, options: executionOptions }),
-            nodeCount: result.metadata.nodeCount,
-            nonce,
-            stateData: collectStateData({ definition: aslObj }),
-            svg: embeddedSvg,
-            theme: resolveViewerTheme({ theme: executionOptions.theme }),
-        }),
-        metadata: result.metadata,
-        width: result.width,
     };
 }
 

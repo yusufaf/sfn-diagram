@@ -105,3 +105,24 @@ describe('generateDiff parses once', () => {
         expect(layoutSpy).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('overlays ride the same single parse', () => {
+    const history = readFileSync(
+        join(__dirname, '..', 'fixtures', 'execution-parallel-edges.json'),
+        'utf-8',
+    );
+
+    it('generateHtml with a history parses once and lays out the one shipped view', () => {
+        generateHtml({ aslDefinition: parallelAsl, history });
+
+        expect(parseAslSpy).toHaveBeenCalledTimes(1);
+        expect(layoutSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('generateHtml with a diff parses the merged definition once', () => {
+        generateHtml({ aslDefinition: parallelAsl, diff: { before: simpleAsl } });
+
+        expect(parseAslSpy).toHaveBeenCalledTimes(1);
+        expect(layoutSpy).toHaveBeenCalledTimes(2);
+    });
+});

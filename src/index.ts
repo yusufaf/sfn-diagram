@@ -24,33 +24,21 @@
  * ```
  */
 import { parseAslSource } from './AslParser';
-import { applyCollapse, computeCollapsePlan } from './graph';
-import {
-    MermaidRenderer,
-    buildEdgeData,
-    buildViewerContent,
-    collectStateData,
-    minimapStartsCollapsed,
-    resolveViewerTheme,
-    wrapSvgInInteractiveHtml,
-} from './renderers';
+import { applyCollapse } from './graph';
+import { MermaidRenderer } from './renderers';
 import { mergeDiagramOptions, mergeOptions } from './config';
+import { generateHtml } from './html';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
-import { embedIconsBatch } from './utils/iconEmbedder';
 import type { MergedDiagramOptions } from './pipeline';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
-    GenerateHtmlParams,
-    GenerateViewerUpdateParams,
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
-    GraphEdge,
     SvgOutput,
     MermaidOutput,
     HtmlOutput,
-    ViewerUpdate,
     AslDefinition,
 } from './types';
 
@@ -194,220 +182,6 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
         showVariables: mergedOptions.showVariables,
         theme: mergedOptions.theme,
     });
-}
-
-/**
- * Generate a self-contained interactive HTML diagram from an ASL definition.
- *
- * Wraps the SVG output in an HTML document with an inline vanilla-JS controller
- * providing pan/zoom, state search (press `/` to focus, `Enter` to cycle hits),
- * and a click-a-state detail panel showing the state's raw ASL. No external
- * dependencies, so it opens from `file://`.
- *
- * @param params - ASL definition plus the same options as {@link generateSvg}.
- * @returns The HTML document string plus dimensions and metadata.
- *
- * @example
- * ```typescript
- * import { generateHtml } from 'sfn-diagram';
- * import { writeFileSync } from 'node:fs';
- * const { html } = generateHtml({ aslDefinition: asl });
- * writeFileSync('diagram.html', html);
- * ```
- *
- * @remarks
- * With `showIcons: true` the embedded SVG references CDN-hosted AWS service icons,
- * so the document is not fully offline. Use {@link generateHtmlAsync} to inline
- * those icons as data URIs.
- */
-/**
- * Parse once, then render the expanded view and — only when the collapse selection
- * actually removes something — the collapsed view, for {@link generateHtml} and
- * {@link generateHtmlAsync}. `collapse: false` is treated the same as `collapse:
- * []`: both mean "nothing to collapse", so neither should produce a toggle.
- *
- * Deciding via {@link computeCollapsePlan} first (a graph walk, no rendering)
- * means a no-op selection — an unmatched name, `false`, `[]`, or a containerless
- * diagram — never pays for a second layout and render just to discard it.
- *
- * The raw parsed `edges` come back too, so the viewer's edge data is keyed off the
- * same parse the views were drawn from rather than a fresh one.
- */
-function buildHtmlViews(params: {
-    aslObj: AslDefinition;
-    options: MergedDiagramOptions;
-}): { collapsedSvgOutput?: SvgOutput; edges: GraphEdge[]; svgOutput: SvgOutput } {
-    const { aslObj, options } = params;
-    const resolvedCollapse = options.collapse ?? true;
-
-    // Both views feed the interactive viewer, so both get clickable edges.
-    const viewOptions: MergedDiagramOptions = {
-        ...options,
-        diagramTitle: options.diagramTitle ?? aslObj.Comment,
-        edgeHitAreas: true,
-    };
-
-    const { edges, nodes, parsed } = buildDiagramGraph({ definition: aslObj, options: viewOptions });
-    const svgOutput = renderSvgGraph({ edges, nodes, options: { ...viewOptions, collapse: undefined } });
-
-    const { effectiveTargets } = computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes });
-    const collapsedSvgOutput =
-        effectiveTargets.size > 0
-            ? renderSvgGraph({ edges, nodes, options: { ...viewOptions, collapse: resolvedCollapse } })
-            : undefined;
-
-    return { collapsedSvgOutput, edges: parsed.edges, svgOutput };
-}
-
-/**
- * Render the expanded view plus (via {@link buildHtmlViews}) the collapsed one, then
- * apply the "is the collapsed view worth shipping" nodeCount guard: a requested target
- * can resolve to an `effectiveTargets` entry whose own closure is still empty (a
- * container with no descendants), which would otherwise ship a second view identical
- * to the first behind a toggle button that does nothing.
- *
- * Shared by {@link generateHtml}, {@link generateHtmlAsync} and
- * {@link generateViewerUpdate} so the three can never disagree on when a diagram gets
- * a collapse toggle.
- */
-function buildHtmlViewParts(params: {
-    aslObj: AslDefinition;
-    options: MergedDiagramOptions;
-}): {
-    collapsedSvg?: string;
-    collapsedSvgOutput?: SvgOutput;
-    edges: GraphEdge[];
-    svgOutput: SvgOutput;
-} {
-    const { collapsedSvgOutput, edges, svgOutput } = buildHtmlViews(params);
-    const collapsedSvg =
-        collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
-            ? collapsedSvgOutput.svg
-            : undefined;
-    return { collapsedSvg, collapsedSvgOutput, edges, svgOutput };
-}
-
-export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { aslDefinition, nonce, ...options } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const mergedOptions = mergeOptions(options);
-
-    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
-        aslObj,
-        options: mergedOptions,
-    });
-
-    return {
-        height: svgOutput.height,
-        html: wrapSvgInInteractiveHtml({
-            collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
-            collapsedSvg,
-            edgeData: buildEdgeData({ edges }),
-            nodeCount: svgOutput.metadata.nodeCount,
-            nonce,
-            stateData: collectStateData({ definition: aslObj }),
-            svg: svgOutput.svg,
-            theme: resolveViewerTheme({ theme: mergedOptions.theme }),
-        }),
-        metadata: svgOutput.metadata,
-        width: svgOutput.width,
-    };
-}
-
-/**
- * Render diagram content a running interactive viewer can swap in, without rebuilding
- * the surrounding document. Counterpart to {@link generateHtml} for hosts that keep one
- * viewer alive across re-renders (e.g. the VS Code preview) and want to patch it in
- * place — via `ViewerHandle.setContent` — rather than replace the whole document on
- * every edit.
- *
- * @param params - ASL definition plus the same options as {@link generateSvg}.
- * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it.
- *
- * @example
- * ```typescript
- * import { generateViewerUpdate } from 'sfn-diagram';
- * const update = generateViewerUpdate({ aslDefinition: asl });
- * webview.postMessage({ command: 'updateContent', ...update });
- * ```
- */
-export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
-    const { aslDefinition, ...options } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const mergedOptions = mergeOptions(options);
-
-    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
-        aslObj,
-        options: mergedOptions,
-    });
-
-    return {
-        contentHtml: buildViewerContent({
-            collapsedMinimapCollapsed: collapsedSvg
-                ? minimapStartsCollapsed({ nodeCount: collapsedSvgOutput?.metadata.nodeCount })
-                : undefined,
-            collapsedSvg,
-            minimapCollapsed: minimapStartsCollapsed({ nodeCount: svgOutput.metadata.nodeCount }),
-            svg: svgOutput.svg,
-        }),
-        edgeData: buildEdgeData({ edges }),
-        hasCollapsedView: collapsedSvg !== undefined,
-        metadata: svgOutput.metadata,
-        stateData: collectStateData({ definition: aslObj }),
-    };
-}
-
-/**
- * Generate a fully offline interactive HTML diagram from an ASL definition.
- *
- * Identical to {@link generateHtml}, except AWS service icons are fetched once and
- * inlined as base64 data URIs, so the document has no external references even with
- * `showIcons: true`. An icon shared by the expanded and collapsed views is fetched
- * once for both. When the diagram has no remote icons this costs nothing —
- * no icon is fetched and no network request is made.
- *
- * @param params - ASL definition plus the same options as {@link generateSvg}.
- * @returns Promise resolving to the HTML document string plus dimensions and metadata.
- *
- * @example
- * ```typescript
- * import { generateHtmlAsync } from 'sfn-diagram';
- * import { writeFileSync } from 'node:fs';
- * const { html } = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
- * writeFileSync('diagram.html', html); // opens offline, icons included
- * ```
- */
-export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { aslDefinition, nonce, ...options } = params;
-    const aslObj = parseAslSource({ source: aslDefinition });
-    const mergedOptions = mergeOptions(options);
-
-    const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
-        aslObj,
-        options: mergedOptions,
-    });
-
-    // The nodeCount guard has already run, so a discarded collapsed view never pays
-    // for icon embedding; the views that survive share one fetch per icon.
-    const [embeddedSvg, embeddedCollapsedSvg] = await embedIconsBatch({
-        svgs: collapsedSvg === undefined ? [svgOutput.svg] : [svgOutput.svg, collapsedSvg],
-    });
-
-    return {
-        height: svgOutput.height,
-        html: wrapSvgInInteractiveHtml({
-            collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
-            collapsedSvg: embeddedCollapsedSvg,
-            edgeData: buildEdgeData({ edges }),
-            nodeCount: svgOutput.metadata.nodeCount,
-            nonce,
-            stateData: collectStateData({ definition: aslObj }),
-            svg: embeddedSvg,
-            theme: resolveViewerTheme({ theme: mergedOptions.theme }),
-        }),
-        metadata: svgOutput.metadata,
-        width: svgOutput.width,
-    };
 }
 
 /**
@@ -655,6 +429,8 @@ export type {
     GenerateDiffParams,
     GenerateMermaidDiffParams,
     GenerateFromAwsParams,
+    HtmlDiffOverlay,
+    DiffStateSummary,
     // Execution overlay
     EdgeStyleOverride,
     ExecutionHistoryInput,
@@ -664,6 +440,7 @@ export type {
     ExecutionStateResult,
     ExecutionStateStatus,
     ExecutionStatus,
+    ExecutionSummary,
     GenerateExecutionHtmlParams,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
@@ -687,12 +464,13 @@ export type { ViewerTheme } from './renderers';
 export { embedIcons } from './utils/iconEmbedder';
 export { AslSyntaxError, AslValidationError, validateAsl } from './AslParser';
 export { generateDiff, generateMermaidDiff } from './diff';
-export { lintAsl } from './lint';
-export type { LintAslParams } from './lint';
 export {
-    generateExecution,
     generateExecutionHtml,
     generateExecutionHtmlAsync,
-    generateMermaidExecution,
-    parseExecutionHistory,
-} from './execution';
+    generateHtml,
+    generateHtmlAsync,
+    generateViewerUpdate,
+} from './html';
+export { lintAsl } from './lint';
+export type { LintAslParams } from './lint';
+export { generateExecution, generateMermaidExecution, parseExecutionHistory } from './execution';
