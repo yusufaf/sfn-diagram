@@ -69,6 +69,8 @@ function mergeNodeColors(
     if (!overrides) return base;
     const nodeColors = { ...base };
     for (const [stateType, colors] of Object.entries(overrides)) {
+        // `{ Task: undefined }` type-checks and used to be a no-op; keep it one.
+        if (!colors) continue;
         const key = stateType as StateType;
         nodeColors[key] = { ...nodeColors[key], ...withoutUndefined(colors) };
     }

@@ -55,6 +55,12 @@ describe('getTheme with a partial CustomTheme (issue #182)', () => {
         expect(theme.edgeColors.normal).toBe(AWS_LIGHT_THEME.edgeColors.normal);
     });
 
+    it('ignores an undefined state-type entry in nodeColors and customColors', () => {
+        const theme = getTheme({ nodeColors: { Task: undefined } }, { Pass: undefined });
+
+        expect(theme.nodeColors).toEqual(AWS_LIGHT_THEME.nodeColors);
+    });
+
     it('applies customColors on top of the resolved theme', () => {
         const theme = getTheme({ nodeColors: { Task: { fill: '#111111' } } }, { Task: { stroke: '#222222' } });
 

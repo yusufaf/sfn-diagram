@@ -66641,6 +66641,7 @@ function mergeNodeColors(base, overrides) {
   if (!overrides) return base;
   const nodeColors = { ...base };
   for (const [stateType, colors] of Object.entries(overrides)) {
+    if (!colors) continue;
     const key = stateType;
     nodeColors[key] = {
       ...nodeColors[key],
