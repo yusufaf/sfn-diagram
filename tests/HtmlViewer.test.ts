@@ -11,13 +11,7 @@ const EXTERNAL_REFERENCE = /https?:\/\/(?!www\.w3\.org\/)/;
 
 /** Minimal custom theme; only `background` matters for chrome resolution. */
 function customThemeWithBackground(background: string): CustomTheme {
-    return {
-        background,
-        edgeColors: { choice: '#000', default: '#000', error: '#000', normal: '#000' },
-        fontFamily: 'sans-serif',
-        fontSize: 12,
-        nodeColors: {},
-    };
+    return { background };
 }
 
 describe('generateHtml', () => {

@@ -13,7 +13,7 @@ import type {
     GraphEdge,
     DiagramOptions,
     SvgOutput,
-    CustomTheme,
+    ResolvedTheme,
     NodeStyle,
     StateType,
 } from '../types';
@@ -138,7 +138,7 @@ interface RenderIconParams {
  */
 export class SvgRenderer {
     private options: DiagramOptions;
-    private theme: CustomTheme;
+    private theme: ResolvedTheme;
     private pathGenerator: (points: Array<{ x: number; y: number }>) => string | null;
     // Non-self-loop edge label midpoints, keyed by edge id - calculateBounds and
     // renderEdge both need the same edge's midpoint; see edgeLabelCenter. Cleared at

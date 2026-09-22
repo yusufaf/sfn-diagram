@@ -13,9 +13,23 @@ description: Themes, layouts, edge styles, large diagrams, service icons, and ot
 
 A `CustomTheme` sets the background, per-state-type fill/stroke colours, edge colours, and typography. Pass it anywhere a theme is accepted.
 
+Every field is optional. Anything you leave out comes from the built-in theme named by `base` (`'light'` unless set), so overriding one thing is a one-line theme:
+
 ```typescript
 import type { CustomTheme } from 'sfn-diagram';
 
+// Dark theme, bigger labels
+const bigDark: CustomTheme = { base: 'dark', fontSize: 18 };
+
+// Light theme with a different Task fill — the Task stroke and every other colour stay
+const greenTasks: CustomTheme = { nodeColors: { Task: { fill: '#e8f5e9' } } };
+
+generateSvg({ aslDefinition: asl, theme: bigDark });
+```
+
+Or spell out the whole thing:
+
+```typescript
 const customTheme: CustomTheme = {
   background: '#ffffff',
   edgeColors: {

@@ -326,8 +326,12 @@ export interface EdgeStyleOverride {
 }
 
 // Theme Types
-/** A fully-specified colour/typography theme for diagram rendering. */
-export interface CustomTheme {
+/**
+ * A theme with every field present: what the built-in `AWS_LIGHT_THEME` /
+ * `AWS_DARK_THEME` are, and what `getTheme` hands to the renderers after merging a
+ * {@link CustomTheme} onto its base.
+ */
+export interface ResolvedTheme {
     background: string;
     edgeColors: {
         choice: string;
@@ -341,6 +345,31 @@ export interface CustomTheme {
     fontSize: number;
     nodeColors: Record<StateType, { fill: string; stroke: string }>;
     textColor: string;
+}
+
+/**
+ * A colour/typography theme for diagram rendering.
+ *
+ * Every field is optional. Whatever is omitted comes from the built-in theme named
+ * by `base` (`'light'` unless set), so a theme that only changes `fontSize`, or one
+ * state type's fill, is a one-line object. A fully specified theme still works as
+ * before.
+ *
+ * @example
+ * ```typescript
+ * const bigDark: CustomTheme = { base: 'dark', fontSize: 18 };
+ * const greenTasks: CustomTheme = { nodeColors: { Task: { fill: '#e8f5e9' } } };
+ * ```
+ */
+export interface CustomTheme {
+    background?: string;
+    /** Built-in theme the omitted fields are taken from. Defaults to `'light'`. */
+    base?: 'dark' | 'light';
+    edgeColors?: Partial<ResolvedTheme['edgeColors']>;
+    fontFamily?: string;
+    fontSize?: number;
+    nodeColors?: Partial<Record<StateType, Partial<{ fill: string; stroke: string }>>>;
+    textColor?: string;
 }
 
 // Diagram Configuration Union Types
