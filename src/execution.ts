@@ -18,19 +18,11 @@ import type {
     StateNode,
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
-import { buildIdResolver } from './graph';
+import { buildIdResolver, computeCollapsePlan, EXECUTION_COLORS, styleCollapsedView } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { MermaidRenderer } from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
 
-/** Node fill/stroke applied per execution status, mirroring diff's DIFF_COLORS. */
-const EXECUTION_COLORS: Record<ExecutionStateStatus, Partial<NodeStyle>> = {
-    caught: { fill: '#ffe0b2', stroke: '#e65100', strokeWidth: 2 },
-    failed: { fill: '#ffcdd2', stroke: '#c62828', strokeWidth: 3 },
-    notReached: { fill: '#f5f5f5', stroke: '#bdbdbd', strokeWidth: 1 },
-    running: { fill: '#bbdefb', stroke: '#1565c0', strokeWidth: 2 },
-    succeeded: { fill: '#c8e6c9', stroke: '#2e7d32', strokeWidth: 2 },
-};
 
 /** Emphasis applied to edges the execution followed. */
 const TAKEN_EDGE_STYLE: EdgeStyleOverride = { stroke: '#2e7d32', strokeWidth: 3 };
@@ -372,6 +364,11 @@ function computeOverlay(history: ExecutionHistoryInput): ExecutionOverlay {
  * sharing a `Next` are both highlighted when either fires. `Retry` self-loops are
  * never highlighted — retries emit no transition event.
  *
+ * With `collapse`, each collapsed container's placeholder is coloured by the status
+ * rolled up from the states it hides — any failure makes it `failed`, otherwise any
+ * `running` makes it `running`, otherwise the container's own outcome — and
+ * annotated with a `3/4 succeeded`-style summary beside its own duration.
+ *
  * @example
  * ```typescript
  * import { generateExecution } from 'sfn-diagram';
@@ -576,19 +573,30 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
 
     // Caller-supplied entries win per key, matching generateDiff. Merging rather than
     // replacing keeps the overlay's styling for every key the caller did not name.
-    //
-    // `collapse` is deliberately not applied: the per-node styling above has no
-    // notion of a placeholder standing in for the states it hides, so a collapsed
-    // container would render with only its own status and lose its children's.
+    const expanded = {
+        nodeAnnotations: mergeRecordOptions(styling.nodeAnnotations, callerNodeAnnotations),
+        nodeOverrides: mergeRecordOptions(styling.nodeOverrides, callerNodeOverrides),
+    };
+    // A collapsed container's placeholder takes the status rolled up from the states
+    // it hides, and a `3/4 succeeded` summary beside its own annotation. Edges need no
+    // remapping: every edge into or out of a container is already anchored at the
+    // container's own id, so its taken/untaken styling carries over as is.
+    const collapsed = mergedOptions.collapse
+        ? styleCollapsedView({
+              callerOverrides: { nodeAnnotations: callerNodeAnnotations, nodeOverrides: callerNodeOverrides },
+              executionStatusByNodeId: styling.statusByNodeId,
+              expanded,
+              nodes,
+              plan: computeCollapsePlan({ collapse: mergedOptions.collapse, edges, nodes }),
+          })
+        : expanded;
     const svgOutput = renderSvgGraph({
         edges,
         nodes,
         options: {
             ...mergedOptions,
-            collapse: undefined,
+            ...collapsed,
             edgeOverrides: mergeRecordOptions(styling.edgeOverrides, callerEdgeOverrides),
-            nodeAnnotations: mergeRecordOptions(styling.nodeAnnotations, callerNodeAnnotations),
-            nodeOverrides: mergeRecordOptions(styling.nodeOverrides, callerNodeOverrides),
         },
     });
 

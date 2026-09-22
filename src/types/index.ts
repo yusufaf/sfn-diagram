@@ -819,8 +819,9 @@ export interface GenerateHtmlParams extends DiagramOptions {
     /**
      * Execution history to overlay (events array, GetExecutionHistory response, or
      * JSON string): states coloured by outcome, the taken path emphasized, per-state
-     * duration and retry annotations — what `generateExecutionHtml` produces. With a
-     * `history` the document ships the expanded view only, with no collapse toggle.
+     * duration and retry annotations — what `generateExecutionHtml` produces. A
+     * collapsed container's placeholder takes the status rolled up from the states
+     * it hides and a `3/4 succeeded` summary.
      */
     history?: ExecutionHistoryInput;
     /**

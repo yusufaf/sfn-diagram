@@ -85,15 +85,15 @@ describe('generateHtml with a history overlay', () => {
         expect(wrapper.metadata).not.toHaveProperty('execution');
     });
 
-    it('ships the expanded view only, with no collapse toggle, even with a container', () => {
-        const plain = generateHtml({ aslDefinition: parallelAsl });
+    it('collapses like a plain diagram: one view, controls, model and toggle', () => {
         const overlaid = generateHtml({
             aslDefinition: parallelAsl,
-            history: loadHistoryJson('execution-parallel-edges'),
+            history: loadHistoryJson('execution-parallel-partial-failure'),
         });
 
-        expect(plain.html).toContain('data-sfn-collapse-toggle');
-        expect(overlaid.html).not.toContain('data-sfn-collapse-toggle');
+        expect(overlaid.html).toContain('data-sfn-collapse-toggle');
+        expect(overlaid.html).toContain('id="sfn-relayout-model"');
+        expect(overlaid.html).toMatch(/<g[^>]*data-sfn-collapse-target="ParallelExecution"/);
         expect(overlaid.html).not.toMatch(/<div data-sfn-view=/);
     });
 

@@ -67461,6 +67461,46 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+var DEFAULT_DIAGRAM_OPTIONS = {
+  format: "svg",
+  theme: "light",
+  customColors: void 0,
+  layout: "TB",
+  rankSeparation: 50,
+  nodeSeparation: 50,
+  width: void 0,
+  height: void 0,
+  nodeWidth: 120,
+  nodeHeight: 60,
+  padding: 20,
+  includeComments: true,
+  showStateTypes: false,
+  showVariables: true,
+  edgeStyle: "curved",
+  edgeHitAreas: false,
+  collapseControls: false,
+  catchHandling: "show",
+  catchLabelStyle: "error-type",
+  collapse: void 0,
+  stylePreset: "aws-standard",
+  iconPosition: "left",
+  iconResolver: void 0,
+  iconSize: 24,
+  showIcons: false,
+  pngQuality: 90,
+  backgroundColor: "transparent",
+  nodeOverrides: void 0,
+  edgeOverrides: void 0,
+  nodeAnnotations: void 0,
+  diagramDescription: void 0,
+  diagramTitle: void 0
+};
+function mergeOptions(options = {}) {
+  return {
+    ...DEFAULT_DIAGRAM_OPTIONS,
+    ...options
+  };
+}
 function flattenMarkers(params) {
   const { edges, nodes: nodes5 } = params;
   const markerIds = new Set(nodes5.filter((node) => isMarkerNode(node)).map((node) => node.id));
@@ -68584,46 +68624,6 @@ var MermaidRenderer = class {
     return nodes5.find((node) => !targetNodes.has(node.id))?.id || nodes5[0]?.id || null;
   }
 };
-var DEFAULT_DIAGRAM_OPTIONS = {
-  format: "svg",
-  theme: "light",
-  customColors: void 0,
-  layout: "TB",
-  rankSeparation: 50,
-  nodeSeparation: 50,
-  width: void 0,
-  height: void 0,
-  nodeWidth: 120,
-  nodeHeight: 60,
-  padding: 20,
-  includeComments: true,
-  showStateTypes: false,
-  showVariables: true,
-  edgeStyle: "curved",
-  edgeHitAreas: false,
-  collapseControls: false,
-  catchHandling: "show",
-  catchLabelStyle: "error-type",
-  collapse: void 0,
-  stylePreset: "aws-standard",
-  iconPosition: "left",
-  iconResolver: void 0,
-  iconSize: 24,
-  showIcons: false,
-  pngQuality: 90,
-  backgroundColor: "transparent",
-  nodeOverrides: void 0,
-  edgeOverrides: void 0,
-  nodeAnnotations: void 0,
-  diagramDescription: void 0,
-  diagramTitle: void 0
-};
-function mergeOptions(options = {}) {
-  return {
-    ...DEFAULT_DIAGRAM_OPTIONS,
-    ...options
-  };
-}
 function buildDiagramGraph(params) {
   const { definition, options } = params;
   const parsed = parseAsl({

@@ -199,8 +199,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   Per-container collapse re-runs the layout in the browser: a document with something
   to collapse embeds its parsed graph plus a minified copy of the layout and SVG
   renderer (about 80 KB, 28 KB gzipped) alongside the viewer. A diagram with no
-  container never pays for it, and neither does an execution overlay, which ships the
-  expanded view only for now. The `collapseControls` diagram option draws the controls
+  container never pays for it. The `collapseControls` diagram option draws the controls
   themselves; `generateHtml()` sets it for you.
 
   In the library, the same overlays are options on `generateHtml()` /
@@ -220,8 +219,16 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   With both, a state that ran takes its execution colour, a state the run never
   reached keeps its diff colour, and a changed state that ran says so in its
-  annotation (`modified · 1.2s`). A `history` overlay ships the expanded view only —
-  no collapse toggle yet.
+  annotation (`modified · 1.2s`).
+
+  Overlays collapse too — in the viewer, and with `collapse` on `generateExecution()`
+  / `--execution --collapse`. A collapsed container's placeholder takes the status
+  rolled up from the states it hides: any failure makes it red, otherwise anything
+  still running makes it blue, otherwise the container's own outcome stands. Its
+  annotation gains a `3/4 succeeded` (or `1/4 failed`, `2/4 running`) summary beside
+  the container's own duration, and a placeholder hiding a diff change keeps its
+  `1 changed inside` count. Edges into and out of the placeholder keep their taken /
+  untaken styling.
 
   > **Icons and offline use:** the CLI inlines AWS service icons as data URIs, so
   > `--format html --show-icons` still works with no network. In the library, the
