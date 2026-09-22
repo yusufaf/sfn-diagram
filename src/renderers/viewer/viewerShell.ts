@@ -1,40 +1,14 @@
 import type { AslState } from '../../types';
 import { serializeEdgeData, type ViewerEdge } from './edgeData';
 import { serializeStateData } from './stateData';
+import { minimapStartsCollapsed } from './minimapThreshold';
+import { serializeForScriptBlock } from './scriptJson';
 import { buildViewerScript } from './viewerScript';
 import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
+import type { RelayoutModel } from './relayout';
 
-/** Node count at or below which the minimap starts collapsed. */
-const MINIMAP_AUTO_VISIBLE_THRESHOLD = 25;
-
-/** Parameters for {@link minimapStartsCollapsed}. */
-export interface MinimapStartsCollapsedParams {
-    /**
-     * Node count from the rendered diagram's metadata. Omit (or pass `undefined`) when
-     * unknown - the minimap starts collapsed in that case too.
-     */
-    nodeCount?: number;
-}
-
-/**
- * Decide whether the minimap should start collapsed for a diagram with `nodeCount`
- * nodes: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD}, or when the
- * count is unknown; open above it. Shared by {@link wrapSvgInInteractiveHtml} and
- * `generateViewerUpdate`, so the threshold can't drift between the two.
- *
- * @param params - Threshold parameters
- * @returns Whether the minimap should start collapsed
- *
- * @example
- * ```typescript
- * minimapStartsCollapsed({ nodeCount: 10 }); // => true
- * minimapStartsCollapsed({ nodeCount: 30 }); // => false
- * ```
- */
-export function minimapStartsCollapsed(params: MinimapStartsCollapsedParams): boolean {
-    const { nodeCount } = params;
-    return nodeCount === undefined || nodeCount <= MINIMAP_AUTO_VISIBLE_THRESHOLD;
-}
+export { minimapStartsCollapsed };
+export type { MinimapStartsCollapsedParams } from './minimapThreshold';
 
 /** Parameters for {@link buildViewerBody}. */
 export interface BuildViewerBodyParams {
@@ -63,6 +37,12 @@ export interface BuildViewerBodyParams {
     minimapCollapsed: boolean;
     /** Whether to render the click-a-state detail panel markup. */
     panel: boolean;
+    /**
+     * Whether the document ships the in-browser relayout (see
+     * {@link WrapSvgInInteractiveHtmlParams.relayoutModel}): the toolbar then gets the
+     * collapse toggle even though there is only one view to show.
+     */
+    relayout?: boolean;
     /** The rendered SVG (or other) markup to embed as the stage content. */
     svg: string;
 }
@@ -175,10 +155,11 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         legacyIds = false,
         minimapCollapsed,
         panel,
+        relayout = false,
         svg,
     } = params;
     const id = (name: string): string => (legacyIds ? ` id="sfn-${name}"` : '');
-    const hasCollapse = collapsedSvg !== undefined;
+    const hasCollapse = collapsedSvg !== undefined || relayout;
 
     const panelMarkup = panel
         ? `<aside${id('panel')} data-sfn="panel" role="dialog" tabindex="-1">
@@ -236,7 +217,7 @@ export interface WrapSvgInInteractiveHtmlParams {
     edgeData?: Record<string, ViewerEdge>;
     /**
      * Node count from the rendered diagram's metadata. Decides the minimap's initial
-     * visibility: collapsed at or below {@link MINIMAP_AUTO_VISIBLE_THRESHOLD} nodes,
+     * visibility: collapsed at or below `MINIMAP_AUTO_VISIBLE_THRESHOLD` nodes,
      * open above it (still toggleable either way via the toolbar button or `m`). The
      * collapse toggle re-applies this rule (against `collapsedNodeCount` instead) on
      * every switch, unless the minimap has since been toggled by hand.
@@ -251,6 +232,15 @@ export interface WrapSvgInInteractiveHtmlParams {
      * (the default, byte-identical to output produced before nonce support existed).
      */
     nonce?: string;
+    /**
+     * The parsed graph and render options for in-browser per-container collapse. When
+     * provided, the document embeds it as JSON together with the relayout bundle, the
+     * toolbar gets the collapse toggle, and `svg` should have been rendered with
+     * `collapseControls` so each container carries its control. Mutually exclusive
+     * with `collapsedSvg` in practice: a document that can re-render itself has no
+     * use for a second pre-rendered view.
+     */
+    relayoutModel?: RelayoutModel;
     /**
      * Raw ASL for each state, keyed by graph node id (as produced by
      * `collectStateData`), which matches the `data-state-id` on the rendered node.
@@ -303,12 +293,14 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         edgeData,
         nodeCount,
         nonce,
+        relayoutModel,
         stateData,
         svg,
         theme = 'light',
     } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
+    const hasRelayout = relayoutModel !== undefined;
     const minimapCollapsed = minimapStartsCollapsed({ nodeCount });
     const collapsedMinimapCollapsed =
         collapsedNodeCount === undefined
@@ -323,12 +315,17 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         ? `<script${nonceAttr} type="application/json" id="sfn-edge-data">${serializeEdgeData({ edgeData })}</script>\n`
         : '';
 
+    const relayoutModelScript = hasRelayout
+        ? `<script${nonceAttr} type="application/json" id="sfn-relayout-model">${serializeForScriptBlock({ value: relayoutModel })}</script>\n`
+        : '';
+
     const body = buildViewerBody({
         collapsedMinimapCollapsed,
         collapsedSvg,
         legacyIds: true,
         minimapCollapsed,
         panel: hasStateData || hasEdgeData,
+        relayout: hasRelayout,
         svg,
     });
 
@@ -342,7 +339,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 </head>
 <body>
 ${body}
-${stateDataScript}${edgeDataScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasStateData })}</script>
+${stateDataScript}${edgeDataScript}${relayoutModelScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasRelayout, hasStateData })}</script>
 </body>
 </html>`;
 }

@@ -20,6 +20,8 @@ import type {
 import type { LayoutResult } from '../layout/DagreLayout';
 import {
     CONTAINER_HEADER_HEIGHT,
+    COLLAPSE_CONTROL_GAP,
+    COLLAPSE_CONTROL_SIZE,
     CONTAINER_HEADER_PADDING_X,
     CONTAINER_HEADER_TEXT_HEIGHT,
     CONTAINER_LINE_GAP_RATIO,
@@ -49,6 +51,8 @@ const DEFAULT_NODE_WIDTH = 120;
 
 /** Icon size assumed when the options do not supply one. */
 const DEFAULT_ICON_SIZE = 24;
+/** Fallback node height for a hand-built layout that carries none, matching the shape code. */
+const DEFAULT_NODE_HEIGHT = 60;
 
 /** Inset of an icon from the node edge it sits against. */
 const ICON_PADDING = 8;
@@ -82,6 +86,11 @@ interface RenderShapeParams {
 }
 
 interface RenderNodeParams {
+    /**
+     * Top-most group the node's collapse control goes in under `collapseControls`,
+     * so it hit-tests above the edge hit areas; absent when controls are off.
+     */
+    controlsGroup?: SvgElement;
     group: SvgElement;
     node: StateNode;
 }
@@ -293,6 +302,12 @@ export class SvgRenderer {
             ? svg.append('g').attr('class', 'edge-hit-areas')
             : undefined;
         const nodesGroup = svg.append('g').attr('class', 'nodes');
+        // Collapse controls last of all: a container's control sits in its header
+        // band, where an edge routed into the container - and its hit area, drawn
+        // above the container - can pass right over it.
+        const collapseControlsGroup = this.options.collapseControls
+            ? svg.append('g').attr('class', 'collapse-controls')
+            : undefined;
 
         // Separate container nodes from regular nodes
         const containerNodes = layout.nodes.filter((node) => isOpenContainer(node));
@@ -320,12 +335,12 @@ export class SvgRenderer {
 
         // Render container nodes (bounding boxes)
         containerNodes.forEach((node) => {
-            this.renderContainer({ group: containersGroup, node });
+            this.renderContainer({ controlsGroup: collapseControlsGroup, group: containersGroup, node });
         });
 
         // Render regular nodes on top
         regularNodes.forEach((node) => {
-            this.renderNode({ group: nodesGroup, node });
+            this.renderNode({ controlsGroup: collapseControlsGroup, group: nodesGroup, node });
         });
 
         return {
@@ -470,7 +485,7 @@ export class SvgRenderer {
      * Render a container node (Parallel/Map) with bounding box
      */
     private renderContainer(params: RenderNodeParams): void {
-        const { group, node } = params;
+        const { controlsGroup, group, node } = params;
         const containerGroup = group
             .append('g')
             .attr('class', `container container-${node.type}`)
@@ -538,7 +553,12 @@ export class SvgRenderer {
         const { canFitSubLabel, nameFontSize, subFontSize } = getContainerHeaderFontSizes(
             this.theme.fontSize
         );
-        const headerAvailableWidth = width - CONTAINER_HEADER_PADDING_X * 2;
+        // Under collapseControls the control takes the right end of the band, and the
+        // same room is kept on the left so the centred text stays centred.
+        const controlAllowance = this.options.collapseControls
+            ? (COLLAPSE_CONTROL_SIZE + COLLAPSE_CONTROL_GAP) * 2
+            : 0;
+        const headerAvailableWidth = width - CONTAINER_HEADER_PADDING_X * 2 - controlAllowance;
 
         // The layout already grew the box to fit the header's widest line up to
         // CONTAINER_MAX_HEADER_WIDTH (see DagreLayout.calculateContainerBounds), so
@@ -606,6 +626,73 @@ export class SvgRenderer {
                 .attr('opacity', 0.7)
                 .text(subLabel);
         }
+
+        if (controlsGroup) {
+            this.renderCollapseControl({
+                action: 'collapse',
+                group: controlsGroup,
+                node,
+                stroke,
+                x: (node.x ?? 0) + width / 2 - CONTAINER_HEADER_PADDING_X - COLLAPSE_CONTROL_SIZE / 2,
+                y: (node.y ?? 0) + textMiddle,
+            });
+        }
+    }
+
+    /**
+     * Draw the per-container collapse/expand control the interactive viewer wires up:
+     * a small square with a minus (collapse) or plus (expand) glyph, tagged with the
+     * container's id so the viewer knows which container to toggle. It is a keyboard
+     * tab stop with an accessible name of its own, distinct from the container's, and
+     * `renderContainer` / `renderNode` place it clear of the text they draw. `x`/`y`
+     * are diagram coordinates: the control lives in the top-most group, not in the
+     * container's own, so nothing drawn later can cover it.
+     */
+    private renderCollapseControl(params: {
+        action: 'collapse' | 'expand';
+        group: SvgElement;
+        node: StateNode;
+        stroke: string;
+        x: number;
+        y: number;
+    }): void {
+        const { action, group, node, stroke, x, y } = params;
+        const half = COLLAPSE_CONTROL_SIZE / 2;
+        const arm = half - 4;
+        const verb = action === 'collapse' ? 'Collapse' : 'Expand';
+
+        const control = group
+            .append('g')
+            .attr('class', `collapse-control collapse-control-${action}`)
+            .attr('data-sfn-collapse-target', node.id)
+            .attr('data-sfn-collapse-action', action)
+            .attr('role', 'button')
+            .attr('tabindex', 0)
+            .attr('aria-label', `${verb} ${node.label}`)
+            .attr('transform', `translate(${x}, ${y})`);
+        control.append('title').text(verb);
+        control
+            .append('rect')
+            .attr('x', -half)
+            .attr('y', -half)
+            .attr('width', COLLAPSE_CONTROL_SIZE)
+            .attr('height', COLLAPSE_CONTROL_SIZE)
+            .attr('rx', 3)
+            .attr('fill', this.theme.background)
+            .attr('stroke', stroke)
+            .attr('stroke-width', 1);
+        control
+            .append('path')
+            .attr(
+                'd',
+                action === 'collapse'
+                    ? `M ${-arm},0 H ${arm}`
+                    : `M ${-arm},0 H ${arm} M 0,${-arm} V ${arm}`,
+            )
+            .attr('stroke', this.theme.textColor)
+            .attr('stroke-width', 1.5)
+            .attr('stroke-linecap', 'round')
+            .attr('fill', 'none');
     }
 
     /**
@@ -639,7 +726,7 @@ export class SvgRenderer {
      * Render a single node
      */
     private renderNode(params: RenderNodeParams): void {
-        const { group, node } = params;
+        const { controlsGroup, group, node } = params;
         const nodeGroup = group
             .append('g')
             .attr('class', `node node-${node.type}`)
@@ -672,6 +759,20 @@ export class SvgRenderer {
                 break;
             default:
                 this.renderRect({ group: nodeGroup, node, style });
+        }
+
+        // A collapsed placeholder gets its expand control in the top-right corner,
+        // inside the box, where neither the centred label nor its sub-label reach.
+        if (node.collapsed && controlsGroup) {
+            const inset = 4 + COLLAPSE_CONTROL_SIZE / 2;
+            this.renderCollapseControl({
+                action: 'expand',
+                group: controlsGroup,
+                node,
+                stroke: style.stroke ?? this.theme.textColor,
+                x: (node.x ?? 0) + (node.width || DEFAULT_NODE_WIDTH) / 2 - inset,
+                y: (node.y ?? 0) - (node.height || DEFAULT_NODE_HEIGHT) / 2 + inset,
+            });
         }
 
         const hasIcon = !!node.iconUrl && !!this.options.showIcons;

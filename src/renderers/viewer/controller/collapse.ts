@@ -3,14 +3,35 @@ import type { Minimap } from './minimap';
 import type { DetailPanel } from './panel';
 import type { Search } from './search';
 import type { Viewport } from './viewport';
+import { minimapStartsCollapsed } from '../minimapThreshold';
+import type { RelayoutModel, RenderCollapsedViewParams, RenderCollapsedViewResult } from '../relayout';
 
 /**
- * The collapse/expand toggle. Present only when generateHtml() shipped two
- * pre-rendered views (expanded and fully collapsed containers) - see
- * wrapSvgInInteractiveHtml's collapsedSvg param. Swaps which view is visible; search
- * state and the minimap thumbnail are reset against the now-active view since both
- * derive from it.
+ * Container collapsing, in one of two modes:
+ *
+ * - **Relayout** — generateHtml() embedded a {@link RelayoutModel} and the relayout
+ *   bundle. Every open container carries a `[data-sfn-collapse-target]` control in its
+ *   header, and every collapsed placeholder one to expand it again; activating one
+ *   re-renders the single view with that container toggled. The toolbar toggle
+ *   collapses the document's `collapse` selection (every container by default), or
+ *   expands everything.
+ * - **Two views** — the content holds two pre-rendered views (expanded and fully
+ *   collapsed, see wrapSvgInInteractiveHtml's collapsedSvg param) and the toolbar
+ *   toggle swaps which one is visible. This is what `generateViewerUpdate` produces
+ *   by default, so a `setContent` update switches the viewer to this mode unless it
+ *   carries a fresh relayout model of its own.
+ *
+ * Either way, search state and the minimap thumbnail are reset against the view now
+ * on screen, since both derive from it.
  */
+
+/** The relayout hook-up: the embedded model plus the bundle's render function. */
+export interface ViewerRelayout {
+    /** The embedded {@link RelayoutModel}. */
+    model: RelayoutModel;
+    /** `renderCollapsedView` from the relayout bundle. */
+    render: (params: RenderCollapsedViewParams) => RenderCollapsedViewResult;
+}
 
 /** Parameters for {@link createCollapseToggle}. */
 export interface CreateCollapseToggleParams {
@@ -18,10 +39,14 @@ export interface CreateCollapseToggleParams {
     content: HTMLElement;
     /** The minimap, rebuilt against the newly-visible view. */
     minimap: Minimap;
+    /** The document focus is moved within after a relayout; null when `root` is detached. */
+    ownerDoc: Document | null;
     /** The detail panel, closed when the view it points at is hidden. */
     panel: DetailPanel;
     /** Listener registry for the toggle's click handler. */
     registry: ListenerRegistry;
+    /** The in-browser relayout, when the document shipped one. */
+    relayout?: ViewerRelayout;
     /** Scope for hook lookups. */
     root: ParentNode;
     /** The search box, cleared and re-scoped to the newly-visible view. */
@@ -34,24 +59,44 @@ export interface CreateCollapseToggleParams {
 export interface RestoreViewsParams {
     /** Whether the collapsed view was the visible one before the content swap. */
     collapsedWasActive: boolean;
+    /**
+     * The relayout model describing the swapped-in content, when the host rendered
+     * it for per-container collapse (`generateViewerUpdate({ relayout: true })`).
+     * Needs the relayout bundle the document was opened with; without it the
+     * controls are stripped and the toggle hidden.
+     */
+    relayoutModel?: RelayoutModel;
 }
 
-/** The toggle's view bookkeeping, for `setContent`. */
+/** The toggle's view bookkeeping, for `setContent` and the click/keyboard dispatchers. */
 export interface CollapseToggle {
     /** The view currently on screen, or null when the content has no view wrappers. */
     activeView(): HTMLElement | null;
-    /** Whether the collapsed view is present and currently visible. */
+    /**
+     * Handle an activation (click, Enter, Space) that may have landed on a
+     * per-container collapse control. Returns true when it did and was handled, so
+     * the caller leaves the detail panel alone.
+     */
+    handleActivation(target: EventTarget | null): boolean;
+    /**
+     * Whether the diagram is showing collapsed: the two-view collapsed view is on
+     * screen, or every relayout target is collapsed. `setContent` carries this over
+     * to the two-view content it swaps in.
+     */
     isCollapsedActive(): boolean;
     /**
-     * Re-resolve the views after a content swap, keeping the previously-visible one on
-     * screen and showing or hiding the toggle to match whether both views exist.
+     * Re-resolve the views after a content swap. Two-view content keeps the
+     * previously-visible view on screen; relayout content re-arms per-container
+     * collapse with the new model, keeping whatever the reader had collapsed that
+     * still exists. The toggle shows or hides to match. Without either, the previous
+     * relayout model no longer describes the content and is dropped.
      */
     restoreViews(params: RestoreViewsParams): void;
 }
 
-/** Wire up the collapse/expand toggle inside `root`, if the toolbar has one. */
+/** Wire up container collapsing inside `root`. */
 export function createCollapseToggle(params: CreateCollapseToggleParams): CollapseToggle {
-    const { content, minimap, panel, registry, root, search, viewport } = params;
+    const { content, minimap, ownerDoc, panel, registry, root, search, viewport } = params;
     const { on } = registry;
 
     const collapseToggle = hook(root, 'collapse-toggle');
@@ -61,23 +106,105 @@ export function createCollapseToggle(params: CreateCollapseToggleParams): Collap
     let expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
     let collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
 
+    // The render function comes with the document (the inlined bundle) and outlives
+    // any one model; the model is swapped by setContent. Relayout mode holds while
+    // there is a model and no two-view markup, which takes precedence when present.
+    const render = params.relayout?.render;
+    let relayout = params.relayout;
+    const collapsedIds = new Set<string>();
+    const inRelayoutMode = (): boolean => relayout !== undefined && !expandedView && !collapsedView;
+
+    const allTargetsCollapsed = (): boolean =>
+        relayout !== undefined &&
+        relayout.model.collapseTargets.length > 0 &&
+        relayout.model.collapseTargets.every((id) => collapsedIds.has(id));
+
+    const syncToggleLabel = (): void => {
+        if (!collapseToggle) return;
+        const collapsed = inRelayoutMode()
+            ? allTargetsCollapsed()
+            : collapsedView !== null && !collapsedView.hidden;
+        collapseToggle.textContent = collapsed ? 'Expand' : 'Collapse';
+        // "Expanded" is a state (the expanded view is what's showing), not the
+        // button's own action label - the two disagree once the view is collapsed.
+        collapseToggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+
+    /** Common tail of every view change: re-derive everything that follows the view. */
+    const afterViewChange = (autoHidden: boolean): void => {
+        search.refreshSearchables();
+        minimap.rebuildThumbnail();
+        minimap.applyAutoVisibility(autoHidden);
+        syncToggleLabel();
+    };
+
+    /**
+     * Re-render the single view for the current `collapsedIds`. Returns the new
+     * node count, or null when the relayout is unavailable.
+     */
+    const rerender = (): number | null => {
+        if (!relayout) return null;
+        const { nodeCount, svg } = relayout.render({
+            collapsedIds: [...collapsedIds],
+            model: relayout.model,
+        });
+        search.cancelPending();
+        panel.clearEdgeSelection();
+        content.innerHTML = svg;
+        panel.refreshSemantics();
+        afterViewChange(minimapStartsCollapsed({ nodeCount }));
+        search.run();
+        // The selected state may now be hidden inside a placeholder; restoreSelection
+        // closes the panel in that case rather than leaving it pointing at nothing.
+        panel.restoreSelection();
+        return nodeCount;
+    };
+
+    const toggleContainer = (containerId: string): void => {
+        // Focus only moves when the control being activated had it (keyboard); the
+        // old control leaves with the old view, so this is read before the swap.
+        const hadFocus =
+            ownerDoc !== null &&
+            ownerDoc.activeElement !== null &&
+            ownerDoc.activeElement.hasAttribute('data-sfn-collapse-target');
+
+        if (collapsedIds.has(containerId)) collapsedIds.delete(containerId);
+        else collapsedIds.add(containerId);
+        if (rerender() === null) return;
+
+        // Keep the reader where they were: same scale, the toggled container centred,
+        // and keyboard focus on its control again so Enter toggles it straight back.
+        const group = content.querySelector(`[data-state-id="${cssEscape(containerId)}"]`);
+        if (group) viewport.centerOn(group);
+        else viewport.fit();
+        const control = content.querySelector(
+            `[data-sfn-collapse-target="${cssEscape(containerId)}"]`,
+        ) as HTMLElement | SVGElement | null;
+        if (hadFocus && control) control.focus({ preventScroll: true });
+    };
+
     if (collapseToggle) {
         on(collapseToggle, 'click', () => {
+            if (inRelayoutMode() && relayout) {
+                // Collapse adds the document's targets to whatever the reader already
+                // collapsed by hand rather than replacing it, so the button never
+                // re-opens a container; Expand opens everything.
+                if (allTargetsCollapsed()) collapsedIds.clear();
+                else for (const id of relayout.model.collapseTargets) collapsedIds.add(id);
+                search.clearQuery();
+                panel.closePanel();
+                if (rerender() !== null) viewport.fit();
+                return;
+            }
             if (!expandedView || !collapsedView) return;
             expandedView.hidden = !expandedView.hidden;
             collapsedView.hidden = !collapsedView.hidden;
-            collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
-            // "Expanded" is a state (the expanded view is what's showing), not the
-            // button's own action label - the two disagree once the view is collapsed.
-            collapseToggle.setAttribute('aria-expanded', collapsedView.hidden ? 'true' : 'false');
             search.clearQuery();
             // The highlighted paths belong to the view being hidden; the panel would
             // otherwise keep pointing at elements no longer on screen.
             panel.closePanel();
-            search.refreshSearchables();
-            minimap.rebuildThumbnail();
             const activeView = collapsedView.hidden ? expandedView : collapsedView;
-            minimap.applyAutoVisibility(activeView.dataset.sfnMinimapAuto === '1');
+            afterViewChange(activeView.dataset.sfnMinimapAuto === '1');
             viewport.fit();
         });
     }
@@ -86,24 +213,70 @@ export function createCollapseToggle(params: CreateCollapseToggleParams): Collap
         activeView(): HTMLElement | null {
             return expandedView && !expandedView.hidden ? expandedView : collapsedView;
         },
+        handleActivation(target: EventTarget | null): boolean {
+            if (!inRelayoutMode()) return false;
+            const element = target instanceof Element ? target : null;
+            const control = element ? element.closest('[data-sfn-collapse-target]') : null;
+            if (!control) return false;
+            toggleContainer(control.getAttribute('data-sfn-collapse-target')!);
+            return true;
+        },
         isCollapsedActive(): boolean {
+            if (inRelayoutMode()) return allTargetsCollapsed();
             return collapsedView !== null && !collapsedView.hidden;
         },
         restoreViews(restoreParams: RestoreViewsParams): void {
-            const { collapsedWasActive } = restoreParams;
+            const { collapsedWasActive, relayoutModel } = restoreParams;
             expandedView = content.querySelector('[data-sfn-view="expanded"]') as HTMLElement | null;
             collapsedView = content.querySelector('[data-sfn-view="collapsed"]') as HTMLElement | null;
 
             if (expandedView && collapsedView) {
+                relayout = undefined;
+                collapsedIds.clear();
                 expandedView.hidden = collapsedWasActive;
                 collapsedView.hidden = !collapsedWasActive;
                 if (collapseToggle) {
                     collapseToggle.hidden = false;
-                    collapseToggle.textContent = collapsedView.hidden ? 'Collapse' : 'Expand';
+                    syncToggleLabel();
                 }
-            } else if (collapseToggle) {
-                collapseToggle.hidden = true;
+                return;
             }
+
+            if (relayoutModel && render) {
+                relayout = { model: relayoutModel, render };
+                // Keep the reader's own collapses across a live edit, dropping any
+                // container the edit removed; the swapped-in content is the expanded
+                // view, so anything still collapsed has to be re-rendered.
+                const surviving = new Set(relayoutModel.nodes.map((node) => node.id));
+                for (const id of [...collapsedIds]) if (!surviving.has(id)) collapsedIds.delete(id);
+                if (collapsedWasActive) {
+                    for (const id of relayoutModel.collapseTargets) collapsedIds.add(id);
+                }
+                if (collapseToggle) collapseToggle.hidden = false;
+                if (collapsedIds.size > 0) rerender();
+                else syncToggleLabel();
+                return;
+            }
+
+            relayout = undefined;
+            collapsedIds.clear();
+            if (relayoutModel) {
+                // Rendered for relayout, but this document never shipped the bundle:
+                // the controls would be inert, so they go rather than mislead.
+                for (const control of Array.from(content.querySelectorAll('[data-sfn-collapse-target]'))) {
+                    control.remove();
+                }
+            }
+            if (collapseToggle) collapseToggle.hidden = true;
         },
     };
+}
+
+/**
+ * Escape a state id for use inside a double-quoted attribute selector. `CSS.escape`
+ * is the standard way, but the bundle also runs where `CSS` is absent, so this quotes
+ * the two characters that can break out of the quoted value.
+ */
+function cssEscape(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }

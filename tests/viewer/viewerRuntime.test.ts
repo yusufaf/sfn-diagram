@@ -484,34 +484,32 @@ describe('collapse toggle runtime', () => {
 
     const collapseToggleAriaExpanded = (): Promise<string | null> =>
         collapsePage.$eval('[data-sfn-collapse-toggle]', (element) => element.getAttribute('aria-expanded'));
+    const hasState = (stateId: string): Promise<boolean> =>
+        collapsePage.evaluate((id) => document.querySelector(`[data-state-id="${id}"]`) !== null, stateId);
+    const controlAction = (stateId: string): Promise<string | null> =>
+        collapsePage.evaluate(
+            (id) =>
+                document
+                    .querySelector(`[data-sfn-collapse-target="${id}"]`)
+                    ?.getAttribute('data-sfn-collapse-action') ?? null,
+            stateId,
+        );
 
-    it('shows the expanded view with both branch states visible by default', async () => {
-        const expandedVisible = await collapsePage.$eval(
-            '[data-sfn-view="expanded"]',
-            (element) => !(element as HTMLElement).hidden,
-        );
-        const collapsedHidden = await collapsePage.$eval(
-            '[data-sfn-view="collapsed"]',
-            (element) => (element as HTMLElement).hidden,
-        );
-        expect(expandedVisible).toBe(true);
-        expect(collapsedHidden).toBe(true);
+    it('ships one expanded view with a collapse control on the container', async () => {
+        const viewWrappers = await collapsePage.$$eval('[data-sfn-view]', (elements) => elements.length);
+        expect(viewWrappers).toBe(0);
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await controlAction('FanOut')).toBe('collapse');
         expect(await collapseToggleAriaExpanded()).toBe('true');
     });
 
-    it('toggling shows the collapsed placeholder and hides the branch states', async () => {
+    it('toggling re-renders with the container collapsed and hides the branch states', async () => {
         await collapsePage.click('[data-sfn-collapse-toggle]');
 
-        const expandedHidden = await collapsePage.$eval(
-            '[data-sfn-view="expanded"]',
-            (element) => (element as HTMLElement).hidden,
-        );
-        const collapsedHidden = await collapsePage.$eval(
-            '[data-sfn-view="collapsed"]',
-            (element) => (element as HTMLElement).hidden,
-        );
-        expect(expandedHidden).toBe(true);
-        expect(collapsedHidden).toBe(false);
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await hasState('Branch2')).toBe(false);
+        expect(await hasState('FanOut')).toBe(true);
+        expect(await controlAction('FanOut')).toBe('expand');
         expect(await collapseToggleAriaExpanded()).toBe('false');
 
         const buttonLabel = await collapsePage.$eval(
@@ -521,16 +519,24 @@ describe('collapse toggle runtime', () => {
         expect(buttonLabel).toBe('Expand');
     });
 
-    it('keeps the collapsed view keyboard-navigable for an edge id shared with the expanded view', async () => {
-        // FanOut->Done exists in both the expanded and collapsed SVGs under the same
-        // data-edge-id - a global, content-wide dedup pass would only make it a tab
-        // stop in whichever view's DOM query visits it first (the expanded view,
-        // rendered first), leaving the now-visible collapsed view's copy untabbable.
-        const collapsedEdgeTabIndexes = await collapsePage.$$eval(
-            '[data-sfn-view="collapsed"] [data-edge-id="FanOut->Done#normal#0"]',
+    it('keeps the re-rendered view keyboard-navigable', async () => {
+        // The tab stops sat on the elements the relayout replaced; they must be
+        // re-applied to the new ones - the edge, the placeholder, and its control.
+        const edgeTabIndexes = await collapsePage.$$eval(
+            '[data-edge-id="FanOut->Done#normal#0"]',
             (elements) => elements.map((element) => element.getAttribute('tabindex')),
         );
-        expect(collapsedEdgeTabIndexes).toContain('0');
+        expect(edgeTabIndexes).toContain('0');
+        const placeholderTabIndex = await collapsePage.$eval(
+            '[data-state-id="FanOut"]',
+            (element) => element.getAttribute('tabindex'),
+        );
+        expect(placeholderTabIndex).toBe('0');
+        const controlTabIndex = await collapsePage.$eval(
+            '[data-sfn-collapse-target="FanOut"]',
+            (element) => element.getAttribute('tabindex'),
+        );
+        expect(controlTabIndex).toBe('0');
     });
 
     it('search after toggling only matches states in the now-visible view', async () => {
@@ -551,6 +557,200 @@ describe('collapse toggle runtime', () => {
         );
         expect(buttonLabel).toBe('Collapse');
         expect(await collapseToggleAriaExpanded()).toBe('true');
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await controlAction('FanOut')).toBe('collapse');
+    });
+});
+
+describe('per-container collapse runtime', () => {
+    let containerPage: Page;
+
+    const twoContainers: AslDefinition = {
+        StartAt: 'FanOut',
+        States: {
+            FanOut: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
+                    { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                ],
+                Next: 'Second',
+            },
+            Second: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'BranchA', States: { BranchA: { Type: 'Task', Resource: 'arn:a', End: true } } },
+                ],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        containerPage = await browser.newPage();
+        await containerPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: twoContainers });
+        await containerPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await containerPage.close();
+    });
+
+    const hasState = (stateId: string): Promise<boolean> =>
+        containerPage.evaluate((id) => document.querySelector(`[data-state-id="${id}"]`) !== null, stateId);
+    const toggleLabel = (): Promise<string | null> =>
+        containerPage.$eval('[data-sfn-collapse-toggle]', (element) => element.textContent);
+    const panelOpen = (): Promise<boolean> =>
+        containerPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'));
+
+    it('collapses just the clicked container from its header control', async () => {
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await hasState('BranchA')).toBe(true);
+        // A partial collapse leaves the toolbar offering to collapse the rest.
+        expect(await toggleLabel()).toBe('Collapse');
+    });
+
+    it('does not open the detail panel for the container whose control was clicked', async () => {
+        expect(await panelOpen()).toBe(false);
+    });
+
+    it('expands it again from the placeholder control', async () => {
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await hasState('BranchA')).toBe(true);
+    });
+
+    it('still opens the detail panel when the container itself is clicked', async () => {
+        await containerPage.click('[data-state-id="FanOut"] > title + rect');
+        expect(await panelOpen()).toBe(true);
+        await containerPage.keyboard.press('Escape');
+        expect(await panelOpen()).toBe(false);
+    });
+
+    it('toggles from the keyboard and keeps focus on the container\'s control', async () => {
+        await containerPage.evaluate(() => {
+            (document.querySelector('[data-sfn-collapse-target="Second"]') as SVGElement).focus();
+        });
+        await containerPage.keyboard.press('Enter');
+
+        expect(await hasState('BranchA')).toBe(false);
+        expect(await hasState('Branch1')).toBe(true);
+        const focused = await containerPage.evaluate(() =>
+            document.activeElement?.getAttribute('data-sfn-collapse-target') ?? null,
+        );
+        expect(focused).toBe('Second');
+
+        await containerPage.keyboard.press('Enter');
+        expect(await hasState('BranchA')).toBe(true);
+    });
+
+    it('flips the toolbar to Expand once every container is collapsed by hand, and expands all', async () => {
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        await containerPage.click('[data-sfn-collapse-target="Second"]');
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await hasState('BranchA')).toBe(false);
+        expect(await toggleLabel()).toBe('Expand');
+
+        await containerPage.click('[data-sfn-collapse-toggle]');
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await hasState('BranchA')).toBe(true);
+        expect(await toggleLabel()).toBe('Collapse');
+    });
+
+    it('closes a detail panel whose state was just hidden inside a placeholder', async () => {
+        await containerPage.click('[data-state-id="Branch1"] > title + rect');
+        expect(await panelOpen()).toBe(true);
+
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await panelOpen()).toBe(false);
+
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(true);
+    });
+
+    it('keeps a hand-collapsed container collapsed when the toolbar collapses the selection', async () => {
+        // A document whose `collapse` selection names only FanOut: the toolbar
+        // button must add FanOut to the reader's own collapse, not replace it.
+        const selectionPage = await browser.newPage();
+        try {
+            await selectionPage.setViewport({ width: 1280, height: 800 });
+            const { html } = generateHtml({ aslDefinition: twoContainers, collapse: ['FanOut'] });
+            await selectionPage.setContent(html, { waitUntil: 'load' });
+            const present = (id: string): Promise<boolean> =>
+                selectionPage.evaluate((stateId) => document.querySelector(`[data-state-id="${stateId}"]`) !== null, id);
+
+            await selectionPage.click('[data-sfn-collapse-target="Second"]');
+            expect(await present('BranchA')).toBe(false);
+            await selectionPage.click('[data-sfn-collapse-toggle]');
+            expect(await present('Branch1')).toBe(false);
+            expect(await present('BranchA')).toBe(false);
+            expect(
+                await selectionPage.$eval('[data-sfn-collapse-toggle]', (element) => element.textContent),
+            ).toBe('Expand');
+
+            await selectionPage.click('[data-sfn-collapse-toggle]');
+            expect(await present('Branch1')).toBe(true);
+            expect(await present('BranchA')).toBe(true);
+        } finally {
+            await selectionPage.close();
+        }
+    });
+
+    it('re-arms per-container collapse from a setContent update rendered with relayout', async () => {
+        await containerPage.click('[data-sfn-collapse-target="FanOut"]');
+        expect(await hasState('Branch1')).toBe(false);
+
+        const edited: AslDefinition = {
+            ...twoContainers,
+            States: {
+                ...twoContainers.States,
+                Done: { Type: 'Pass', End: true },
+            },
+        };
+        const update = generateViewerUpdate({ aslDefinition: edited, relayout: true });
+        expect(update.relayoutModel).toBeDefined();
+        await containerPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        // The reader's own collapse survives the edit, and the controls still work.
+        expect(await hasState('Branch1')).toBe(false);
+        expect(await hasState('BranchA')).toBe(true);
+        expect(await hasState('Done')).toBe(true);
+        await containerPage.click('[data-sfn-collapse-target="Second"]');
+        expect(await hasState('BranchA')).toBe(false);
+        expect(await toggleLabel()).toBe('Expand');
+        await containerPage.click('[data-sfn-collapse-toggle]');
+        expect(await hasState('Branch1')).toBe(true);
+        expect(await hasState('BranchA')).toBe(true);
+    });
+
+    it('strips inert controls from a relayout update in a document that never shipped the bundle', async () => {
+        const plainPage = await browser.newPage();
+        try {
+            await plainPage.setViewport({ width: 1280, height: 800 });
+            const flat: AslDefinition = { StartAt: 'Solo', States: { Solo: { Type: 'Succeed' } } };
+            const { html } = generateHtml({ aslDefinition: flat });
+            expect(html).not.toContain('sfnRelayout');
+            await plainPage.setContent(html, { waitUntil: 'load' });
+
+            const update = generateViewerUpdate({ aslDefinition: twoContainers, relayout: true });
+            await plainPage.evaluate((detail) => {
+                document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+            }, update as unknown as Record<string, unknown>);
+
+            expect(await plainPage.$$eval('[data-sfn-collapse-target]', (elements) => elements.length)).toBe(0);
+            // A containerless document has no toggle to begin with, and gets none.
+            expect(await plainPage.$$eval('[data-sfn-collapse-toggle]', (elements) => elements.length)).toBe(0);
+        } finally {
+            await plainPage.close();
+        }
     });
 });
 

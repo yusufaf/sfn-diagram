@@ -61,8 +61,15 @@ export interface DetailPanel {
     /** Whether any state or edge data was supplied at attach time. */
     hasPanelData: boolean;
     /**
+     * Make every selectable state/edge in the current content a keyboard tab stop
+     * with an accessible name again - for after the content has been swapped, since
+     * the attributes live on the elements that were replaced.
+     */
+    refreshSemantics(): void;
+    /**
      * Re-open the previously-selected state/edge against the current data, or close
-     * the panel when its subject no longer exists (renamed or removed mid-edit).
+     * the panel when its subject no longer exists (renamed or removed mid-edit) or is
+     * no longer drawn (hidden inside a collapsed container).
      */
     restoreSelection(): void;
     /** Open the panel for the node/edge under `target`, or close it when there is none. */
@@ -82,6 +89,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
     let openPanel: (stateId: string, options: SelectionOptions) => void = () => {};
     let openEdgePanel: (edgeId: string, options: SelectionOptions) => void = () => {};
     let closePanel: () => void = () => {};
+    let refreshSemantics: () => void = () => {};
 
     // The currently-selected state or edge, if any - restored by setContent after a
     // content swap, and cleared whenever the panel closes.
@@ -346,6 +354,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                 }
             };
             applySelectableSemantics();
+            refreshSemantics = applySelectableSemantics;
         }
     }
 
@@ -375,7 +384,13 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
         // focus actually lands in the panel, which moveFocus: false guarantees it won't.
         const options: SelectionOptions = { moveFocus: false, trigger: stage };
         if (selection.kind === 'state') {
-            // openPanel already closes when the id has no entry in the new stateData.
+            // openPanel already closes when the id has no entry in the new stateData;
+            // a state that is still defined but no longer drawn (collapsed away) would
+            // otherwise keep a panel open beside a diagram that no longer shows it.
+            if (elementsByDataValue('data-state-id', selection.id).length === 0) {
+                closePanel();
+                return;
+            }
             openPanel(selection.id, options);
         } else if (data.edgeData?.[selection.id] !== undefined) {
             openEdgePanel(selection.id, options);
@@ -388,6 +403,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
         clearEdgeSelection,
         closePanel,
         hasPanelData,
+        refreshSemantics: () => refreshSemantics(),
         restoreSelection,
         selectFromTarget,
     };

@@ -9,6 +9,8 @@ import {
     generateHtml,
     generateHtmlAsync,
 } from '../src';
+import { renderCollapsedView } from '../src/renderers/viewer/relayout';
+import type { RelayoutModel } from '../src/renderers/viewer/relayout';
 import type { AslDefinition } from '../src/types';
 
 const loadAsl = (name: string): AslDefinition =>
@@ -142,20 +144,38 @@ describe('generateHtml with a diff overlay', () => {
         expect(stateData.HighValue).toEqual(choiceAsl.States.HighValue);
     });
 
-    it('collapses like a plain diagram, annotating only the collapsed placeholder', () => {
-        const { html } = generateHtml({
-            aslDefinition: loadAsl('diff-nested-after'),
-            collapse: true,
-            diff: { before: loadAsl('diff-nested-before') },
-        });
+    it('collapses like a plain diagram, annotating only a collapsed placeholder', () => {
+        const after = loadAsl('diff-nested-after');
+        const before = loadAsl('diff-nested-before');
+        const { html } = generateHtml({ aslDefinition: after, collapse: true, diff: { before } });
 
         expect(html).toContain('data-sfn-collapse-toggle');
-        const collapsedStart = html.indexOf('<div data-sfn-view="collapsed"');
-        expect(collapsedStart).toBeGreaterThan(0);
-        // The change is visible in the expanded view, so only the collapsed view
-        // carries the "hidden inside" annotation.
-        expect(html.slice(0, collapsedStart)).not.toContain('changed inside');
-        expect(html.slice(collapsedStart)).toContain('3 changed inside');
+        // The change is visible in the expanded view, so it carries no "hidden
+        // inside" annotation; the relayout model knows which ids count as changes.
+        // (The inlined relayout bundle carries the phrase as source, so only the
+        // rendered SVG is checked.)
+        const svgStart = html.indexOf('<svg');
+        const svgEnd = html.indexOf('</svg>');
+        expect(html.slice(svgStart, svgEnd)).not.toContain('changed inside');
+        const match = html.match(
+            /<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/,
+        );
+        expect(match).not.toBeNull();
+        const model = JSON.parse(match![1]) as RelayoutModel;
+        expect(model.diffChangedIds).toBeDefined();
+
+        // Collapsed in the browser, the placeholders annotate exactly as generateDiff does.
+        const collapsed = renderCollapsedView({ collapsedIds: model.collapseTargets, model });
+        expect(collapsed.svg).toContain('3 changed inside');
+        expect(collapsed.svg).toContain('1 changed inside');
+        const reference = generateDiff({
+            after,
+            before,
+            collapse: true,
+            collapseControls: true,
+            edgeHitAreas: true,
+        });
+        expect(collapsed.svg).toBe(reference.svg);
     });
 });
 

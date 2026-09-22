@@ -72,6 +72,17 @@ export const CONTAINER_LINE_GAP_RATIO = 0.95;
  */
 export const CONTAINER_HEADER_PADDING_X = 8;
 
+/**
+ * Side of the square collapse/expand control drawn under `collapseControls`, in the
+ * right end of a container's header band and the top-right corner of a collapsed
+ * placeholder. Shared between the layout, which widens the header to keep the control
+ * clear of the name, and the renderer, which draws it.
+ */
+export const COLLAPSE_CONTROL_SIZE = 16;
+
+/** Gap kept between a collapse control and the header text beside it. */
+export const COLLAPSE_CONTROL_GAP = 6;
+
 /** Floor for the shrunk container sub-label, below which it stops being legible. */
 export const MIN_SUB_LABEL_FONT_SIZE = 8;
 

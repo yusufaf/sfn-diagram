@@ -1,5 +1,4 @@
 import { hook, type ListenerRegistry } from './dom';
-import type { DetailPanel } from './panel';
 import { MAX_SCALE, MIN_SCALE, type Viewport } from './viewport';
 
 /**
@@ -10,10 +9,10 @@ import { MAX_SCALE, MIN_SCALE, type Viewport } from './viewport';
 
 /** Parameters for {@link attachPanZoom}. */
 export interface AttachPanZoomParams {
+    /** What a click that did not turn into a drag activates: a collapse control or a selection. */
+    activate: (params: { moveFocus: boolean; target: EventTarget | null }) => void;
     /** The document focus checks read from; null when `root` is detached. */
     ownerDoc: Document | null;
-    /** The detail panel, opened by a click that did not turn into a drag. */
-    panel: DetailPanel;
     /** Listener registry for every handler this module attaches. */
     registry: ListenerRegistry;
     /** Scope for hook lookups and the engagement focus checks. */
@@ -35,7 +34,7 @@ export interface PanZoom {
 
 /** Wire up drag-to-pan, wheel zoom, the zoom buttons, and engagement tracking. */
 export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
-    const { ownerDoc, panel, registry, root, stage, viewport } = params;
+    const { activate, ownerDoc, registry, root, stage, viewport } = params;
     const { on } = registry;
 
     let dragging = false;
@@ -191,7 +190,7 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         if (pointerEvent.pointerId === engagingPointerId) engagingPointerId = null;
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         endDrag(pointerEvent);
-        if (travel <= CLICK_SLOP) panel.selectFromTarget({ moveFocus: false, target: downTarget });
+        if (travel <= CLICK_SLOP) activate({ moveFocus: false, target: downTarget });
         downTarget = null;
     });
     // A cancelled pointer never sends pointerup; without this the drag would stay

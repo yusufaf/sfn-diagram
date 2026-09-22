@@ -189,6 +189,10 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="search-count"] { min-width: 52px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
   .sfn-divider { width: 1px; align-self: stretch; background: ${palette.border}; margin: 0 4px; }
   [data-state-id] { cursor: pointer; }
+  [data-sfn-collapse-target] { cursor: pointer; }
+  [data-sfn-collapse-target]:hover > rect { stroke-width: 2; }
+  [data-sfn-collapse-target]:focus-visible { outline: none; }
+  [data-sfn-collapse-target]:focus-visible > rect { outline: 2px solid ${palette.accent}; outline-offset: 1px; }
   /* Keyed off the hit area, not [data-edge-id]: edges are only clickable when one was
      rendered, and the id alone is also on the label and on inert static output. */
   [data-edge-hit-area] { cursor: pointer; }

@@ -2,6 +2,8 @@ import dagre from '@dagrejs/dagre';
 import { getNodeSubLabel, getNodeSubLabelParts } from '../constants/labels';
 import {
     CONTAINER_HEADER_HEIGHT,
+    COLLAPSE_CONTROL_GAP,
+    COLLAPSE_CONTROL_SIZE,
     CONTAINER_HEADER_PADDING_X,
     CONTAINER_MAX_HEADER_WIDTH,
     CONTAINER_PADDING,
@@ -477,7 +479,12 @@ export class DagreLayout {
               )
             : 0;
 
-        return Math.max(nameWidth, subLabelWidth) + CONTAINER_HEADER_PADDING_X * 2;
+        // The collapse control sits at the right end of the band; the text stays
+        // centred, so the same room is reserved on both sides to keep it symmetric.
+        const controlAllowance = this.options.collapseControls
+            ? (COLLAPSE_CONTROL_SIZE + COLLAPSE_CONTROL_GAP) * 2
+            : 0;
+        return Math.max(nameWidth, subLabelWidth) + CONTAINER_HEADER_PADDING_X * 2 + controlAllowance;
     }
 
     /**

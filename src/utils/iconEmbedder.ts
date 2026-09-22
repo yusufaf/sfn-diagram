@@ -184,32 +184,88 @@ export async function embedIcons(params: EmbedIconsParams): Promise<string> {
  */
 export async function embedIconsBatch(params: EmbedIconsBatchParams): Promise<string[]> {
     const { svgs, timeoutMs } = params;
-
-    // Find all image href attributes with URLs (not data URIs)
-    const hrefPattern = /href="(https?:\/\/[^"]+)"/g;
-    const uniqueUrls = [
-        ...new Set(svgs.flatMap((svg) => Array.from(svg.matchAll(hrefPattern), (match) => match[1]))),
-    ];
-
-    if (uniqueUrls.length === 0) {
+    const urls = collectIconUrls({ svgs });
+    if (urls.length === 0) {
         return svgs; // No external icons to embed
     }
+    const urlToDataUri = await resolveIconDataUris({ timeoutMs, urls });
+    return svgs.map((svg) => replaceIconUrls({ svg, urlToDataUri }));
+}
 
-    // Fetch all unique URLs
+/** Matches an image `href` pointing at a remote URL (never a data URI). */
+const ICON_HREF_PATTERN = /href="(https?:\/\/[^"]+)"/g;
+
+/** Parameters for {@link collectIconUrls}. */
+export interface CollectIconUrlsParams {
+    /** SVG strings to scan. */
+    svgs: string[];
+}
+
+/**
+ * Every distinct remote icon URL referenced by any of the SVGs, in first-seen order.
+ *
+ * @param params - The SVGs to scan
+ * @returns The unique remote `href` URLs
+ */
+export function collectIconUrls(params: CollectIconUrlsParams): string[] {
+    const { svgs } = params;
+    return [
+        ...new Set(
+            svgs.flatMap((svg) => Array.from(svg.matchAll(ICON_HREF_PATTERN), (match) => match[1])),
+        ),
+    ];
+}
+
+/** Parameters for {@link resolveIconDataUris}. */
+export interface ResolveIconDataUrisParams {
+    /** Timeout in milliseconds for each icon fetch (default: 5000) */
+    timeoutMs?: number;
+    /** Distinct remote URLs to fetch. */
+    urls: string[];
+}
+
+/**
+ * Fetch each URL once (at most six in flight) and map it to its base64 data URI. A
+ * URL that fails to fetch maps to itself, so a caller substituting through the map
+ * leaves that reference as it was.
+ *
+ * @param params - The URLs to fetch and the per-fetch timeout
+ * @returns Map from URL to data URI (or to the URL itself on failure)
+ */
+export async function resolveIconDataUris(
+    params: ResolveIconDataUrisParams,
+): Promise<Map<string, string>> {
+    const { timeoutMs, urls } = params;
     const dataUris = await mapWithConcurrency({
         concurrency: MAX_CONCURRENT_FETCHES,
-        items: uniqueUrls,
+        items: urls,
         mapper: (url) => fetchAsDataUri({ timeoutMs, url }),
     });
     const urlToDataUri = new Map<string, string>();
-    uniqueUrls.forEach((url, index) => {
+    urls.forEach((url, index) => {
         urlToDataUri.set(url, dataUris[index]);
     });
+    return urlToDataUri;
+}
 
-    return svgs.map((svg) =>
-        svg.replace(hrefPattern, (match, url: string) => {
-            const dataUri = urlToDataUri.get(url);
-            return dataUri === undefined ? match : `href="${dataUri}"`;
-        }),
-    );
+/** Parameters for {@link replaceIconUrls}. */
+export interface ReplaceIconUrlsParams {
+    /** The SVG whose remote icon `href`s to rewrite. */
+    svg: string;
+    /** URL → data URI, from {@link resolveIconDataUris}. */
+    urlToDataUri: Map<string, string>;
+}
+
+/**
+ * Rewrite every remote icon `href` the map knows about to its data URI, in one pass.
+ *
+ * @param params - The SVG and the resolved URLs
+ * @returns The SVG with known icon URLs inlined
+ */
+export function replaceIconUrls(params: ReplaceIconUrlsParams): string {
+    const { svg, urlToDataUri } = params;
+    return svg.replace(ICON_HREF_PATTERN, (match, url: string) => {
+        const dataUri = urlToDataUri.get(url);
+        return dataUri === undefined ? match : `href="${dataUri}"`;
+    });
 }

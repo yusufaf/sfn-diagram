@@ -4,6 +4,7 @@ import type {
     HistoryEvent,
 } from '@aws-sdk/client-sfn';
 import type { ViewerEdge } from '../renderers/viewer/edgeData';
+import type { RelayoutModel } from '../renderers/viewer/relayout';
 
 // ASL Definition Types
 /** The set of Amazon States Language state types a state machine can contain. */
@@ -472,6 +473,18 @@ export interface DiagramOptions {
      */
     collapse?: string[] | boolean;
 
+    /**
+     * Draw a collapse control in every open container's header and an expand control
+     * on every collapsed placeholder, each tagged `data-sfn-collapse-target="<id>"`,
+     * for the interactive viewer's per-container collapse.
+     *
+     * Only useful for interactive output — `generateHtml` sets it for itself when it
+     * embeds the in-browser relayout. It stays off by default so static SVG and PNG
+     * export carry no controls.
+     * @default false
+     */
+    collapseControls?: boolean;
+
     /** Custom styling overrides for specific state types */
     customColors?: Partial<Record<StateType, NodeStyle>>;
 
@@ -824,6 +837,15 @@ export interface GenerateHtmlParams extends DiagramOptions {
 export interface GenerateViewerUpdateParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
+    /**
+     * Render for per-container collapse: one view with collapse controls plus a
+     * `relayoutModel`, instead of the expanded and fully-collapsed views the toggle
+     * swaps between. Only for a viewer whose document `generateHtml` produced for a
+     * diagram with a container, since that is what ships the relayout bundle the
+     * model needs; the viewer strips the controls otherwise.
+     * @default false
+     */
+    relayout?: boolean;
 }
 
 /**
@@ -843,6 +865,13 @@ export interface ViewerUpdate {
 
     /** Metadata about the rendered diagram (the expanded view's, when both are shipped). */
     metadata: SvgOutput['metadata'];
+
+    /**
+     * The model for per-container collapse, present when rendered with
+     * `relayout: true` and the diagram has something to collapse. Pass it to
+     * `ViewerHandle.setContent` alongside `contentHtml`.
+     */
+    relayoutModel?: RelayoutModel;
 
     /** Raw ASL for each state, keyed by state name. */
     stateData: Record<string, AslState>;

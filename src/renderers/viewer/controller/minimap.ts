@@ -67,7 +67,12 @@ export function createMinimap(params: CreateMinimapParams): Minimap {
         // to render differently per-copy. Edges keep their marker-end url(#...)
         // attributes, but with no matching id in the document they just draw without
         // an arrowhead, which doesn't matter at thumbnail scale.
-        for (const node of Array.from(clone.querySelectorAll('text, image, title, desc, defs'))) {
+        // Collapse controls go too: at thumbnail scale they are noise, and a copy
+        // of the attribute the collapse controller keys off has no business in a
+        // decorative clone.
+        for (const node of Array.from(
+            clone.querySelectorAll('text, image, title, desc, defs, [data-sfn-collapse-target]'),
+        )) {
             node.remove();
         }
         // The clone is taken from the live SVG *after* applySelectableSemantics has
