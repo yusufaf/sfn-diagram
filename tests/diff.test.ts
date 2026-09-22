@@ -124,12 +124,8 @@ describe('generateDiff', () => {
 })
 
 describe('computeContainerChangeAnnotations', () => {
-    // `generateDiff`'s own diff comparison (computeStateDiff) only classifies
-    // top-level ASL state names, which — given ASL's Branches/Iterator nesting — can
-    // never coincide with a collapsed container's *hidden descendant* ids in a normal
-    // definition. The counting/precedence logic still has to be right for whenever it
-    // does (a future nested-diff granularity, or a name reused at two nesting levels),
-    // so it's exercised directly here against synthetic sets instead of a live ASL diff.
+    // The counting/precedence logic is exercised directly against synthetic sets here;
+    // the live nested-diff path that feeds it is covered in diffNested.test.ts.
 
     it('counts hidden changed ids and annotates only containers with a nonzero count', () => {
         const result = computeContainerChangeAnnotations({
@@ -205,12 +201,11 @@ describe('generateDiff with collapse', () => {
         },
     }
 
-    it('still colors a container modified by a change in one of its branches once collapsed', () => {
-        // computeStateDiff compares whole top-level ASL state entries, so a change
-        // inside FanOut's own branch makes FanOut itself "modified" — this is the
-        // container's own status (already applied before collapse), not the new
-        // hidden-descendant annotation; asserting it here guards against a regression
-        // in how collapse and the existing per-name diff coloring interact.
+    it('colors a container modified by a change in one of its branches and counts it once collapsed', () => {
+        // computeStateDiff compares a container as a whole, so a change inside
+        // FanOut's own branch makes FanOut itself "modified" (its own status, applied
+        // before collapse) — and, since #206, Branch1 is classified on its own too, so
+        // the collapsed placeholder also reports the hidden change.
         const after: AslDefinition = {
             ...containerBaseAsl,
             States: {
@@ -225,9 +220,9 @@ describe('generateDiff with collapse', () => {
         }
         const result = generateDiff({ after, before: containerBaseAsl, collapse: true })
 
-        expect(result.metadata.modified).toEqual(['FanOut'])
+        expect(result.metadata.modified).toEqual(['FanOut', 'Branch1'])
         expect(result.svg).toContain('#fff9c4')
-        expect(result.svg).not.toContain('changed inside')
+        expect(result.svg).toContain('1 changed inside')
     })
 
     it('does not annotate a placeholder whose hidden contents are unchanged', () => {
