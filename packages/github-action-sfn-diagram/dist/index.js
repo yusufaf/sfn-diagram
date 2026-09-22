@@ -68761,6 +68761,7 @@ function diffStates(params) {
     classified.push({
       name,
       ownChange: true,
+      removedState: state2,
       status: "removed",
       steps
     });
@@ -68791,16 +68792,18 @@ function computeStateDiff(beforeAsl, afterAsl) {
   const ownChanges = [];
   const removed = [];
   const unchanged = [];
+  const removedStates = {};
   const buckets = {
     added,
     modified,
     removed,
     unchanged
   };
-  for (const { name, ownChange, status, steps } of classified) {
+  for (const { name, ownChange, removedState, status, steps } of classified) {
     const id = resolver.resolve(scopeFor(steps), name);
     buckets[status].push(id);
     if (ownChange) ownChanges.push(id);
+    if (removedState) removedStates[id] = removedState;
   }
   return {
     added,
@@ -68808,6 +68811,7 @@ function computeStateDiff(beforeAsl, afterAsl) {
     modified,
     ownChanges,
     removed,
+    removedStates,
     unchanged
   };
 }

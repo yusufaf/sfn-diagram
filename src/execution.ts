@@ -420,6 +420,13 @@ export interface ComputeExecutionStylingParams {
     history: ExecutionHistoryInput;
     /** The graph's nodes, after catch handling. */
     nodes: StateNode[];
+    /**
+     * Top-level state names the summary reports — every one the history never
+     * mentions is listed as `notReached`. Defaults to `definition.States`' keys;
+     * a caller rendering a merged diff definition passes the after-side's names so
+     * removed states, which the after definition no longer has, stay out of it.
+     */
+    summaryStateNames?: string[];
 }
 
 /** What {@link computeExecutionStyling} contributes to a render, keyed by node / edge id. */
@@ -453,7 +460,14 @@ export interface ExecutionStyling {
  * ```
  */
 export function computeExecutionStyling(params: ComputeExecutionStylingParams): ExecutionStyling {
-    const { callerEdgeOverrides, definition, edges, history, nodes } = params;
+    const {
+        callerEdgeOverrides,
+        definition,
+        edges,
+        history,
+        nodes,
+        summaryStateNames = Object.keys(definition.States),
+    } = params;
     const overlay = computeOverlay(history);
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
@@ -529,7 +543,7 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         nodeOverrides,
         statusByNodeId,
         summary: {
-            ...summarize(overlay, Object.keys(definition.States)),
+            ...summarize(overlay, summaryStateNames),
             executionStatus: overlay.executionStatus,
         },
     };

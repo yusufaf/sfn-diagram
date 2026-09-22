@@ -30,7 +30,12 @@ const choiceBefore: AslDefinition = {
     States: {
         ...choiceAsl.States,
         HighValue: { ...choiceAsl.States.HighValue, Comment: 'the old high-value branch' },
-        Legacy: { Type: 'Pass', End: true },
+        Legacy: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:legacy',
+            Retry: [{ ErrorEquals: ['States.ALL'], MaxAttempts: 2 }],
+            End: true,
+        },
     },
 };
 
@@ -125,13 +130,16 @@ describe('generateHtml with a diff overlay', () => {
         expect(metadata.execution).toBeUndefined();
     });
 
-    it('serves the removed state to the detail panel too', () => {
+    it('serves the removed state to the detail panel with its real ASL, not the orphan stub', () => {
         const { html } = generateHtml({ aslDefinition: choiceAsl, diff: { before: choiceBefore } });
         const match = html.match(
             /<script type="application\/json" id="sfn-state-data">([\s\S]*?)<\/script>/,
         );
         expect(match).not.toBeNull();
-        expect(JSON.parse(match![1])).toHaveProperty('Legacy');
+        const stateData = JSON.parse(match![1]) as Record<string, unknown>;
+        expect(stateData.Legacy).toEqual(choiceBefore.States.Legacy);
+        // The states that survived still come from the after definition.
+        expect(stateData.HighValue).toEqual(choiceAsl.States.HighValue);
     });
 
     it('collapses like a plain diagram, annotating only the collapsed placeholder', () => {
@@ -179,11 +187,41 @@ describe('generateHtml with both overlays', () => {
         expect(both.html).toContain('stroke-opacity="0.2"');
     });
 
-    it('reports both summaries', () => {
+    it('reports both summaries, with the execution summary scoped to the after definition', () => {
         expect(both.metadata.diff?.modified).toEqual(['HighValue']);
         expect(both.metadata.diff?.removed).toEqual(['Legacy']);
         expect(both.metadata.execution?.succeeded).toContain('HighValue');
-        expect(both.metadata.execution?.notReached).toContain('Legacy');
+        expect(both.metadata.execution?.notReached).toContain('LowValue');
+        // A removed state was never part of the machine that ran.
+        expect(both.metadata.execution?.notReached).not.toContain('Legacy');
+        // Same summary a plain execution overlay of the after definition reports.
+        const { edgeCount, nodeCount, ...plainSummary } = generateExecution({
+            aslDefinition: choiceAsl,
+            history: choiceHistory,
+        }).metadata;
+        expect(both.metadata.execution).toEqual(plainSummary);
+        expect(both.metadata.nodeCount).toBe(nodeCount + 1); // the removed orphan
+        expect(both.metadata.edgeCount).toBeGreaterThanOrEqual(edgeCount);
+    });
+
+    it('keeps the diff status in the annotation of a changed state that ran but has no duration', () => {
+        // `HighValue` is entered but never exited: still running, so no duration or
+        // retry count to annotate — the diff status must still be shown.
+        const truncated = JSON.stringify({
+            events: (JSON.parse(choiceHistory) as { events: { type: string }[] }).events.filter(
+                (event) => event.type !== 'PassStateExited' && event.type !== 'SucceedStateEntered',
+            ),
+        });
+        const { html, metadata } = generateHtml({
+            aslDefinition: choiceAsl,
+            diff: { before: choiceBefore },
+            history: truncated,
+        });
+
+        expect(metadata.execution?.running).toContain('HighValue');
+        const highValue = nodeMarkup(html, 'HighValue');
+        expect(highValue).toContain('>modified<');
+        expect(highValue).not.toContain(DIFF_MODIFIED_FILL);
     });
 
     it('lets a caller override win over both overlays', () => {

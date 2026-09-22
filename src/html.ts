@@ -29,6 +29,7 @@ import type { CollapsePlan } from './graph';
 import type { MergedDiagramOptions } from './pipeline';
 import type {
     AslDefinition,
+    AslState,
     EdgeStyleOverride,
     ExecutionHistoryInput,
     ExecutionHtmlOutput,
@@ -64,7 +65,8 @@ interface ResolvedOverlays {
  * When both overlays are present, the execution decides the colour of every state
  * that ran and the diff keeps the colour of every state it never reached — a removed
  * state is always one of those — while a changed state that ran carries its diff
- * status in its annotation (`modified · 1.2s`), so neither signal is lost.
+ * status in its annotation (`modified · 1.2s`, or just `modified` for a state with
+ * no duration to show), so neither signal is lost.
  */
 function composeOverlayStyling(params: {
     options: MergedDiagramOptions;
@@ -84,10 +86,17 @@ function composeOverlayStyling(params: {
                 continue;
             }
             nodeOverrides[id] = style;
+            // The execution colour just replaced the diff colour, so the diff status
+            // moves into the annotation — whether or not the state has a duration.
+            if (diffStatus !== undefined) {
+                nodeAnnotations[id] = [diffStatus, nodeAnnotations[id]]
+                    .filter((part) => part !== undefined)
+                    .join(' · ');
+            }
         }
         for (const [id, annotation] of Object.entries(execution.nodeAnnotations)) {
-            const parts = [diff?.statusByNodeId[id], nodeAnnotations[id], annotation];
-            nodeAnnotations[id] = parts.filter((part) => part !== undefined).join(' · ');
+            nodeAnnotations[id] =
+                nodeAnnotations[id] === undefined ? annotation : `${nodeAnnotations[id]} · ${annotation}`;
         }
     }
 
@@ -116,6 +125,9 @@ function composeOverlayStyling(params: {
  * same parse the views were drawn from rather than a fresh one.
  */
 function buildHtmlViews(params: {
+    /** The definition as the caller passed it — the after side when diffing. */
+    afterObj: AslDefinition;
+    /** The definition to draw: `afterObj`, or the diff's merged definition. */
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
@@ -126,7 +138,7 @@ function buildHtmlViews(params: {
     execution?: ExecutionSummary;
     svgOutput: SvgOutput;
 } {
-    const { aslObj, diff, history, options } = params;
+    const { afterObj, aslObj, diff, history, options } = params;
     const resolvedCollapse = options.collapse ?? true;
 
     // Both views feed the interactive viewer, so both get clickable edges.
@@ -148,6 +160,10 @@ function buildHtmlViews(params: {
                       edges,
                       history,
                       nodes,
+                      // Report against the definition the caller passed: a diff's
+                      // merged definition also holds removed states, which are not
+                      // "unreached" states of the machine that actually ran.
+                      summaryStateNames: Object.keys(afterObj.States),
                   }),
     };
     const styleView = (plan?: CollapsePlan): OverlayStyling =>
@@ -193,6 +209,7 @@ function buildHtmlViews(params: {
  * a collapse toggle.
  */
 function buildHtmlViewParts(params: {
+    afterObj: AslDefinition;
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
@@ -218,6 +235,7 @@ function buildHtmlViewParts(params: {
  * states stay visible), the classified diff, and the merged options.
  */
 function resolveHtmlInputs(params: GenerateHtmlParams): {
+    afterObj: AslDefinition;
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
@@ -229,7 +247,27 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
     const diff = diffOverlay
         ? computeStateDiff(parseAslSource({ source: diffOverlay.before }), afterObj)
         : undefined;
-    return { aslObj: diff?.mergedAsl ?? afterObj, diff, history, nonce, options: mergeOptions(options) };
+    return {
+        afterObj,
+        aslObj: diff?.mergedAsl ?? afterObj,
+        diff,
+        history,
+        nonce,
+        options: mergeOptions(options),
+    };
+}
+
+/**
+ * The detail panel's state data for the drawn definition. A diff draws its merged
+ * definition, in which each removed state is only an orphan stub, so those entries
+ * are swapped for the state's real ASL from the `before` side.
+ */
+function collectHtmlStateData(params: {
+    aslObj: AslDefinition;
+    diff?: StateDiff;
+}): Record<string, AslState> {
+    const { aslObj, diff } = params;
+    return { ...collectStateData({ definition: aslObj }), ...diff?.removedStates };
 }
 
 /** Assemble {@link HtmlOutput.metadata}, adding an overlay's summary only when it ran. */
@@ -295,9 +333,10 @@ function buildHtmlMetadata(params: {
  * `"<n> changed inside"`.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
+    const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, svgOutput } = buildHtmlViewParts({
+        afterObj,
         aslObj,
         diff,
         history,
@@ -312,7 +351,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
-            stateData: collectStateData({ definition: aslObj }),
+            stateData: collectHtmlStateData({ aslObj, diff }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
         }),
@@ -344,6 +383,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
     const mergedOptions = mergeOptions(options);
 
     const { collapsedSvg, collapsedSvgOutput, edges, svgOutput } = buildHtmlViewParts({
+        afterObj: aslObj,
         aslObj,
         options: mergedOptions,
     });
@@ -386,9 +426,10 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
+    const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, svgOutput } = buildHtmlViewParts({
+        afterObj,
         aslObj,
         diff,
         history,
@@ -409,7 +450,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
-            stateData: collectStateData({ definition: aslObj }),
+            stateData: collectHtmlStateData({ aslObj, diff }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
         }),

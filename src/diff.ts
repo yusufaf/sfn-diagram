@@ -96,6 +96,12 @@ export interface StateDiff {
      */
     ownChanges: string[];
     removed: string[];
+    /**
+     * Each removed state's definition as it was in `before`, keyed by the same id
+     * `removed` lists. `mergedAsl` only carries an orphan stub for it, so this is the
+     * only place its real ASL survives for a detail panel to show.
+     */
+    removedStates: Record<string, AslState>;
     unchanged: string[];
 }
 
@@ -115,6 +121,8 @@ interface ClassifiedState {
     name: string;
     /** False for a container whose only change is inside its nested `States`. */
     ownChange: boolean;
+    /** The `before` definition of a removed state; absent for every other status. */
+    removedState?: AslState;
     status: DiffStatus | 'unchanged';
     steps: ScopeStep[];
 }
@@ -265,7 +273,7 @@ function diffStates(params: DiffStatesParams): Record<string, AslState> {
 
     for (const [name, state] of Object.entries(beforeStates ?? {})) {
         if (Object.hasOwn(afterStates, name)) continue;
-        classified.push({ name, ownChange: true, status: 'removed', steps });
+        classified.push({ name, ownChange: true, removedState: state, status: 'removed', steps });
         merged[name] = toOrphanState({ machineQueryLanguage: beforeQueryLanguage, state });
     }
 
@@ -314,14 +322,16 @@ export function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefiniti
     const ownChanges: string[] = [];
     const removed: string[] = [];
     const unchanged: string[] = [];
+    const removedStates: Record<string, AslState> = {};
     const buckets = { added, modified, removed, unchanged };
-    for (const { name, ownChange, status, steps } of classified) {
+    for (const { name, ownChange, removedState, status, steps } of classified) {
         const id = resolver.resolve(scopeFor(steps), name);
         buckets[status].push(id);
         if (ownChange) ownChanges.push(id);
+        if (removedState) removedStates[id] = removedState;
     }
 
-    return { added, mergedAsl, modified, ownChanges, removed, unchanged };
+    return { added, mergedAsl, modified, ownChanges, removed, removedStates, unchanged };
 }
 
 /** Map each changed state to its diff status for per-node highlighting. */
