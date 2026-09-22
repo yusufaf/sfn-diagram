@@ -22,11 +22,12 @@ import {
     resolveViewerTheme,
     wrapSvgInInteractiveHtml,
 } from './renderers';
-import { embedIconsBatch } from './utils/iconEmbedder';
+import { collectIconUrls, replaceIconUrls, resolveIconDataUris } from './utils/iconEmbedder';
 import type { StateDiff } from './diff';
 import type { ExecutionStyling } from './execution';
 import type { CollapsePlan } from './graph';
 import type { MergedDiagramOptions } from './pipeline';
+import type { RelayoutModel, RelayoutRenderOptions } from './renderers';
 import type {
     AslDefinition,
     AslState,
@@ -40,6 +41,7 @@ import type {
     GraphEdge,
     HtmlOutput,
     NodeStyle,
+    StateNode,
     SvgOutput,
     ViewerUpdate,
 } from './types';
@@ -108,18 +110,35 @@ function composeOverlayStyling(params: {
 }
 
 /**
- * Parse once, then render the expanded view and — only when the collapse selection
- * actually removes something — the collapsed view, for {@link generateHtml} and
- * {@link generateHtmlAsync}. `collapse: false` is treated the same as `collapse:
+ * The render options as JSON can carry them: `iconResolver` is a function and has
+ * already done its work (every node's `iconUrl` is resolved), so it is the one field
+ * left out.
+ */
+function toRelayoutRenderOptions(options: MergedDiagramOptions): RelayoutRenderOptions {
+    const serializable: Partial<MergedDiagramOptions> = { ...options };
+    delete serializable.iconResolver;
+    return serializable;
+}
+
+/**
+ * Parse once, then render the expanded view, for {@link generateHtml},
+ * {@link generateHtmlAsync} and {@link generateViewerUpdate}, and decide how the
+ * viewer collapses containers. `collapse: false` is treated the same as `collapse:
  * []`: both mean "nothing to collapse", so neither should produce a toggle.
  *
  * Deciding via {@link computeCollapsePlan} first (a graph walk, no rendering)
  * means a no-op selection — an unmatched name, `false`, `[]`, or a containerless
  * diagram — never pays for a second layout and render just to discard it.
  *
- * A `history` overlay ships the expanded view only: its per-node styling has no notion
- * of a placeholder standing in for the states it hides, so a collapsed view would show
- * a container's own status and lose its children's.
+ * With `relayout`, a diagram with something to collapse ships one view rendered with
+ * per-container controls plus a {@link RelayoutModel}, and the viewer re-lays the
+ * diagram out itself for whatever the reader collapses. Without it (a
+ * `generateViewerUpdate` fragment, whose host swaps content in place), the fully
+ * collapsed view is pre-rendered as a second view for the toggle to swap to.
+ *
+ * A `history` overlay ships the expanded view only, either way: its per-node styling
+ * has no notion of a placeholder standing in for the states it hides, so a collapsed
+ * view would show a container's own status and lose its children's.
  *
  * The raw parsed `edges` come back too, so the viewer's edge data is keyed off the
  * same parse the views were drawn from rather than a fresh one.
@@ -132,13 +151,16 @@ function buildHtmlViews(params: {
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
     options: MergedDiagramOptions;
+    /** Whether the document can ship the in-browser relayout instead of a second view. */
+    relayout: boolean;
 }): {
     collapsedSvgOutput?: SvgOutput;
     edges: GraphEdge[];
     execution?: ExecutionSummary;
+    relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { afterObj, aslObj, diff, history, options } = params;
+    const { afterObj, aslObj, diff, history, options, relayout } = params;
     const resolvedCollapse = options.collapse ?? true;
 
     // Both views feed the interactive viewer, so both get clickable edges.
@@ -171,17 +193,37 @@ function buildHtmlViews(params: {
             ? {}
             : composeOverlayStyling({ options, overlays, plan });
 
-    const svgOutput = renderSvgGraph({
-        edges,
-        nodes,
-        options: { ...viewOptions, ...styleView(), collapse: undefined },
-    });
-
     const plan = history === undefined
         ? computeCollapsePlan({ collapse: resolvedCollapse, edges, nodes })
         : undefined;
+    // A target whose closure is empty (a container with no descendants) collapses to
+    // itself; leaving it out is the same guard the two-view path applies by comparing
+    // node counts, decided here from the plan instead of from a discarded render.
+    const collapseTargets = plan
+        ? [...plan.effectiveTargets].filter((id) => (plan.hiddenIdsByTarget.get(id)?.size ?? 0) > 0)
+        : [];
+    const useRelayout = relayout && collapseTargets.length > 0;
+
+    const expandedOptions: MergedDiagramOptions = {
+        ...viewOptions,
+        ...styleView(),
+        collapse: undefined,
+        collapseControls: useRelayout,
+    };
+    const svgOutput = renderSvgGraph({ edges, nodes, options: expandedOptions });
+
+    const relayoutModel: RelayoutModel | undefined = useRelayout
+        ? {
+              collapseTargets,
+              ...(diff ? { diffChangedIds: diff.ownChanges } : {}),
+              edges,
+              nodes,
+              options: toRelayoutRenderOptions(expandedOptions),
+          }
+        : undefined;
+
     const collapsedSvgOutput =
-        plan && plan.effectiveTargets.size > 0
+        plan && plan.effectiveTargets.size > 0 && !useRelayout
             ? renderSvgGraph({
                   edges,
                   nodes,
@@ -193,6 +235,7 @@ function buildHtmlViews(params: {
         collapsedSvgOutput,
         edges: parsed.edges,
         execution: overlays.execution?.summary,
+        relayoutModel,
         svgOutput,
     };
 }
@@ -214,19 +257,21 @@ function buildHtmlViewParts(params: {
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
     options: MergedDiagramOptions;
+    relayout: boolean;
 }): {
     collapsedSvg?: string;
     collapsedSvgOutput?: SvgOutput;
     edges: GraphEdge[];
     execution?: ExecutionSummary;
+    relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { collapsedSvgOutput, edges, execution, svgOutput } = buildHtmlViews(params);
+    const { collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } = buildHtmlViews(params);
     const collapsedSvg =
         collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
             ? collapsedSvgOutput.svg
             : undefined;
-    return { collapsedSvg, collapsedSvgOutput, edges, execution, svgOutput };
+    return { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput };
 }
 
 /**
@@ -335,13 +380,8 @@ function buildHtmlMetadata(params: {
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, svgOutput } = buildHtmlViewParts({
-        afterObj,
-        aslObj,
-        diff,
-        history,
-        options,
-    });
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
+        buildHtmlViewParts({ afterObj, aslObj, diff, history, options, relayout: true });
 
     return {
         height: svgOutput.height,
@@ -351,6 +391,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
+            relayoutModel,
             stateData: collectHtmlStateData({ aslObj, diff }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -386,6 +427,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
         afterObj: aslObj,
         aslObj,
         options: mergedOptions,
+        relayout: false,
     });
 
     return {
@@ -410,8 +452,10 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * Identical to {@link generateHtml} — overlays included — except AWS service icons
  * are fetched once and inlined as base64 data URIs, so the document has no external
  * references even with `showIcons: true`. An icon shared by the expanded and collapsed
- * views is fetched once for both. When the diagram has no remote icons this costs
- * nothing — no icon is fetched and no network request is made.
+ * views is fetched once for both, and the embedded relayout model carries the same
+ * data URIs, so a container collapsed in the browser re-renders offline too. When the
+ * diagram has no remote icons this costs nothing — no icon is fetched and no network
+ * request is made.
  *
  * @param params - ASL definition plus the same options as {@link generateSvg}, and
  *   optionally `history` and/or `diff`.
@@ -428,19 +472,21 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
     const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, svgOutput } = buildHtmlViewParts({
-        afterObj,
-        aslObj,
-        diff,
-        history,
-        options,
-    });
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
+        buildHtmlViewParts({ afterObj, aslObj, diff, history, options, relayout: true });
 
     // The nodeCount guard has already run, so a discarded collapsed view never pays
-    // for icon embedding; the views that survive share one fetch per icon.
-    const [embeddedSvg, embeddedCollapsedSvg] = await embedIconsBatch({
-        svgs: collapsedSvg === undefined ? [svgOutput.svg] : [svgOutput.svg, collapsedSvg],
-    });
+    // for icon embedding; the views that survive share one fetch per icon. The
+    // expanded view draws every icon the relayout model can ever need, so its URLs
+    // cover the model's nodes as well.
+    const svgs = collapsedSvg === undefined ? [svgOutput.svg] : [svgOutput.svg, collapsedSvg];
+    const urls = collectIconUrls({ svgs });
+    const urlToDataUri = urls.length === 0 ? new Map<string, string>() : await resolveIconDataUris({ urls });
+    const [embeddedSvg, embeddedCollapsedSvg] = svgs.map((svg) => replaceIconUrls({ svg, urlToDataUri }));
+    const embeddedModel =
+        relayoutModel && urlToDataUri.size > 0
+            ? { ...relayoutModel, nodes: relayoutModel.nodes.map((node) => withEmbeddedIcon(node, urlToDataUri)) }
+            : relayoutModel;
 
     return {
         height: svgOutput.height,
@@ -450,6 +496,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             edgeData: buildEdgeData({ edges }),
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
+            relayoutModel: embeddedModel,
             stateData: collectHtmlStateData({ aslObj, diff }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
@@ -457,6 +504,12 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
         metadata: buildHtmlMetadata({ diff, execution, svgOutput }),
         width: svgOutput.width,
     };
+}
+
+/** A copy of `node` whose `iconUrl`, if it was fetched, now points at its data URI. */
+function withEmbeddedIcon(node: StateNode, urlToDataUri: Map<string, string>): StateNode {
+    const dataUri = node.iconUrl === undefined ? undefined : urlToDataUri.get(node.iconUrl);
+    return dataUri === undefined ? node : { ...node, iconUrl: dataUri };
 }
 
 /**

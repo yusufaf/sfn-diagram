@@ -1,5 +1,5 @@
 import type { AslState } from '../../types';
-import { createCollapseToggle } from './controller/collapse';
+import { createCollapseToggle, type CollapseToggle, type ViewerRelayout } from './controller/collapse';
 import { createListenerRegistry, hook, type ViewerData } from './controller/dom';
 import { attachKeyboardHandlers } from './controller/keyboard';
 import { createMinimap } from './controller/minimap';
@@ -32,6 +32,12 @@ export interface AttachViewerParams {
      * leave edges inert.
      */
     edgeData?: Record<string, ViewerEdge>;
+    /**
+     * The in-browser relayout for per-container collapse: the embedded model plus
+     * the bundle's `renderCollapsedView`. Omit it to leave the collapse controls (if
+     * the SVG carries any) inert and fall back to the two-view toggle.
+     */
+    relayout?: ViewerRelayout;
     /**
      * Root to scope every lookup and event listener to. Pass `document` for the
      * standalone HTML viewer (one instance per page); pass the custom element
@@ -119,8 +125,18 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
     const viewport = createViewport({ content, registry, root, stage, zoomLabel });
     const panel = createDetailPanel({ content, data, ownerDoc, registry, root, stage, viewport });
-    attachKeyboardHandlers({ panel, registry, root, stage, viewport });
-    const panZoom = attachPanZoom({ ownerDoc, panel, registry, root, stage, viewport });
+
+    // A click or Enter on a per-container collapse control toggles that container;
+    // anything else selects for the detail panel. The collapse module is created
+    // last (it needs the minimap), so the dispatcher reaches it through this binding.
+    let collapse: CollapseToggle | null = null;
+    const activate = (activateParams: { moveFocus: boolean; target: EventTarget | null }): void => {
+        if (collapse && collapse.handleActivation(activateParams.target)) return;
+        panel.selectFromTarget(activateParams);
+    };
+
+    attachKeyboardHandlers({ activate, registry, root, stage, viewport, panel });
+    const panZoom = attachPanZoom({ activate, ownerDoc, registry, root, stage, viewport });
     const search = createSearch({ content, ownerDoc, registry, root, viewport });
     const minimap = createMinimap({
         ownerDoc,
@@ -131,14 +147,24 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         stage,
         viewport,
     });
-    const collapse = createCollapseToggle({ content, minimap, panel, registry, root, search, viewport });
+    collapse = createCollapseToggle({
+        content,
+        minimap,
+        ownerDoc,
+        panel,
+        registry,
+        relayout: params.relayout,
+        root,
+        search,
+        viewport,
+    });
 
     /**
      * Swap in a freshly-rendered diagram in place. See {@link ViewerHandle.setContent}.
      */
     const setContent = (setContentParams: SetViewerContentParams): void => {
         const { contentHtml, edgeData: nextEdgeData, stateData: nextStateData } = setContentParams;
-        const collapsedWasActive = collapse.isCollapsedActive();
+        const collapsedWasActive = collapse!.isCollapsedActive();
 
         // An update landing inside the typing debounce window would otherwise let the
         // queued pass run afterwards and re-centre on its first hit, undoing the
@@ -151,14 +177,16 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         panel.clearEdgeSelection();
         content.innerHTML = contentHtml;
+        // The tab stops and accessible names sat on the elements just replaced.
+        panel.refreshSemantics();
 
-        collapse.restoreViews({ collapsedWasActive });
+        collapse!.restoreViews({ collapsedWasActive });
 
         // Same rule the collapse-toggle click handler applies: a freshly swapped-in
         // view can cross the auto-hide node-count threshold in either direction, so
         // the minimap's visibility must be re-derived from the view now actually on
         // screen rather than left at whatever it was for the old content.
-        const activeView = collapse.activeView();
+        const activeView = collapse!.activeView();
         if (activeView) {
             minimap.applyAutoVisibility(activeView.dataset.sfnMinimapAuto === '1');
         }

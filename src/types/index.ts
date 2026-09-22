@@ -472,6 +472,18 @@ export interface DiagramOptions {
      */
     collapse?: string[] | boolean;
 
+    /**
+     * Draw a collapse control in every open container's header and an expand control
+     * on every collapsed placeholder, each tagged `data-sfn-collapse-target="<id>"`,
+     * for the interactive viewer's per-container collapse.
+     *
+     * Only useful for interactive output — `generateHtml` sets it for itself when it
+     * embeds the in-browser relayout. It stays off by default so static SVG and PNG
+     * export carry no controls.
+     * @default false
+     */
+    collapseControls?: boolean;
+
     /** Custom styling overrides for specific state types */
     customColors?: Partial<Record<StateType, NodeStyle>>;
 

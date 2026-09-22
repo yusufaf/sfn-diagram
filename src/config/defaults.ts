@@ -55,6 +55,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     edgeStyle: 'curved',
     // Interactive-only; generateHtml and the custom element opt in for themselves.
     edgeHitAreas: false,
+    collapseControls: false,
     catchHandling: 'show',
     catchLabelStyle: 'error-type',
     collapse: undefined,

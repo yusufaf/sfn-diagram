@@ -43,13 +43,13 @@ afterEach(() => {
  * the collapse selection removes something.
  */
 describe('generateHtml parses once', () => {
-    it('parses once and lays out each shipped view once for a diagram with a container', () => {
+    it('parses once and lays out once for a diagram with a container - the collapsed view is rendered in the browser', () => {
         const { html } = generateHtml({ aslDefinition: parallelAsl });
 
         expect(html).toContain('data-sfn-collapse-toggle');
+        expect(html).toContain('id="sfn-relayout-model"');
         expect(parseAslSpy).toHaveBeenCalledTimes(1);
-        // Expanded view plus the collapsed view behind the toggle.
-        expect(layoutSpy).toHaveBeenCalledTimes(2);
+        expect(layoutSpy).toHaveBeenCalledTimes(1);
     });
 
     it('parses once and lays out once when there is nothing to collapse', () => {
@@ -66,17 +66,18 @@ describe('generateHtml parses once', () => {
         expect(layoutSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('generateViewerUpdate parses once too', () => {
+    it('generateViewerUpdate lays out both pre-rendered views from one parse', () => {
         const update = generateViewerUpdate({ aslDefinition: parallelAsl });
 
         expect(update.hasCollapsedView).toBe(true);
         expect(parseAslSpy).toHaveBeenCalledTimes(1);
+        // Expanded view plus the collapsed view behind the toggle.
         expect(layoutSpy).toHaveBeenCalledTimes(2);
     });
 });
 
-describe('generateHtmlAsync fetches each icon once across both views', () => {
-    it('shares one fetch per distinct icon URL between the expanded and collapsed views', async () => {
+describe('generateHtmlAsync fetches each icon once', () => {
+    it('fetches each distinct icon URL once and embeds it in the relayout model too', async () => {
         const fetchMock = vi.fn(
             async (): Promise<Response> => new Response(new Uint8Array([137, 80, 78, 71]), { status: 200 }),
         );
@@ -87,12 +88,23 @@ describe('generateHtmlAsync fetches each icon once across both views', () => {
         expect(html).toContain('data-sfn-collapse-toggle');
         expect(html).not.toMatch(EXTERNAL_REFERENCE);
         expect(parseAslSpy).toHaveBeenCalledTimes(1);
-        expect(layoutSpy).toHaveBeenCalledTimes(2);
+        expect(layoutSpy).toHaveBeenCalledTimes(1);
 
-        // Both Lambda tasks share one icon; it must be fetched once, not once per view.
+        // Both Lambda tasks share one icon; it must be fetched once.
         const fetchedUrls = fetchMock.mock.calls.map(([input]) => String(input));
         expect(fetchedUrls.length).toBeGreaterThan(0);
         expect(new Set(fetchedUrls).size).toBe(fetchedUrls.length);
+
+        // A container collapsed in the browser re-renders from the model, so the
+        // model's icon URLs must be the data URIs as well or it would go back online.
+        const match = html.match(
+            /<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/,
+        );
+        expect(match).not.toBeNull();
+        const model = JSON.parse(match![1]) as { nodes: { iconUrl?: string }[] };
+        const iconUrls = model.nodes.flatMap((node) => (node.iconUrl ? [node.iconUrl] : []));
+        expect(iconUrls.length).toBeGreaterThan(0);
+        for (const url of iconUrls) expect(url).toMatch(/^data:/);
     });
 });
 
@@ -123,6 +135,6 @@ describe('overlays ride the same single parse', () => {
         generateHtml({ aslDefinition: parallelAsl, diff: { before: simpleAsl } });
 
         expect(parseAslSpy).toHaveBeenCalledTimes(1);
-        expect(layoutSpy).toHaveBeenCalledTimes(2);
+        expect(layoutSpy).toHaveBeenCalledTimes(1);
     });
 });

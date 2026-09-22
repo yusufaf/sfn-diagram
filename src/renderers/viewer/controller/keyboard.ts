@@ -10,7 +10,9 @@ import type { Viewport } from './viewport';
 
 /** Parameters for {@link attachKeyboardHandlers}. */
 export interface AttachKeyboardHandlersParams {
-    /** The detail panel to open and close. */
+    /** What Enter/Space on a focused element activates: a collapse control or a selection. */
+    activate: (params: { moveFocus: boolean; target: EventTarget | null }) => void;
+    /** The detail panel, closed on Escape. */
     panel: DetailPanel;
     /** Listener registry for every handler this module attaches. */
     registry: ListenerRegistry;
@@ -24,7 +26,7 @@ export interface AttachKeyboardHandlersParams {
 
 /** Wire up the diagram's keyboard and focus handlers. */
 export function attachKeyboardHandlers(params: AttachKeyboardHandlersParams): void {
-    const { panel, registry, root, stage, viewport } = params;
+    const { activate, panel, registry, root, stage, viewport } = params;
     const { on } = registry;
 
     on(root, 'keydown', (event) => {
@@ -37,7 +39,7 @@ export function attachKeyboardHandlers(params: AttachKeyboardHandlersParams): vo
         // Space would otherwise scroll the stage (an overflow: hidden container still
         // honours the default scroll action a native button would suppress on its own).
         keyboardEvent.preventDefault();
-        panel.selectFromTarget({ moveFocus: true, target: event.target });
+        activate({ moveFocus: true, target: event.target });
     });
 
     // `[data-sfn="stage"]` is `overflow: hidden`, which a browser still scrolls
@@ -48,7 +50,7 @@ export function attachKeyboardHandlers(params: AttachKeyboardHandlersParams): vo
     // same way search already does.
     on(stage, 'focusin', (event) => {
         const target = event.target instanceof Element ? event.target : null;
-        const group = target?.closest('[data-state-id], [data-edge-id]');
+        const group = target?.closest('[data-state-id], [data-edge-id], [data-sfn-collapse-target]');
         if (!group) return;
 
         stage.scrollLeft = 0;

@@ -18,17 +18,17 @@ import type { CollapsePlan } from './graph';
 import {
     buildIdResolver,
     computeCollapsePlan,
+    computeContainerChangeAnnotations,
+    DIFF_COLORS,
     getMapProcessor,
 } from './graph';
 import type { ScopePath } from './graph';
 import { MermaidRenderer } from './renderers';
 
-/** Colors applied to diff nodes as nodeOverrides */
-const DIFF_COLORS: Record<'added' | 'modified' | 'removed', Partial<NodeStyle>> = {
-    added: { fill: '#c8e6c9', stroke: '#2e7d32', strokeWidth: 2 },
-    modified: { fill: '#fff9c4', stroke: '#f57f17', strokeWidth: 2 },
-    removed: { fill: '#ffcdd2', stroke: '#c62828', strokeWidth: 2 },
-};
+// Lives in `graph/containerChanges` so the viewer's relayout bundle can annotate a
+// collapsed placeholder without this module; re-exported here where it started.
+export { computeContainerChangeAnnotations };
+export type { ComputeContainerChangeAnnotationsParams } from './graph';
 
 /**
  * Serialize a value with object keys sorted recursively so that two semantically
@@ -341,46 +341,6 @@ function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
     for (const name of diff.modified) statusByState[name] = 'modified';
     for (const name of diff.removed) statusByState[name] = 'removed';
     return statusByState;
-}
-
-/** Parameters for {@link computeContainerChangeAnnotations}. */
-export interface ComputeContainerChangeAnnotationsParams {
-    /** Ids that count as one change each — {@link StateDiff.ownChanges}. */
-    changedNames: Set<string>;
-    /** Containers that get their own placeholder — from {@link computeCollapsePlan}. */
-    effectiveTargets: Set<string>;
-    /** The `nodeOverrides` built so far — checked so a container's own more specific
-     *  added/removed status is never overwritten with the generic "modified" one. */
-    existingOverrides: Record<string, Partial<NodeStyle>>;
-    /** Each effective target's hidden descendant ids — from {@link computeCollapsePlan}. */
-    hiddenIdsByTarget: Map<string, Set<string>>;
-}
-
-/**
- * For each collapsed container, count how many of its hidden descendants carry a
- * diff status, and build the amber override / `"<n> changed inside"` annotation for
- * the ones that do. Isolated from {@link generateDiff} so the counting/precedence
- * logic can be unit tested directly against synthetic sets, independently of how
- * {@link computeStateDiff} scopes the ids it hands over.
- */
-export function computeContainerChangeAnnotations(
-    params: ComputeContainerChangeAnnotationsParams,
-): { nodeAnnotations: Record<string, string>; nodeOverrides: Record<string, Partial<NodeStyle>> } {
-    const { changedNames, effectiveTargets, existingOverrides, hiddenIdsByTarget } = params;
-    const nodeAnnotations: Record<string, string> = {};
-    const nodeOverrides: Record<string, Partial<NodeStyle>> = {};
-
-    for (const containerId of effectiveTargets) {
-        const hiddenIds = hiddenIdsByTarget.get(containerId) ?? new Set<string>();
-        const hiddenChangeCount = [...hiddenIds].filter((id) => changedNames.has(id)).length;
-        if (hiddenChangeCount === 0) continue;
-        if (!(containerId in existingOverrides)) {
-            nodeOverrides[containerId] = DIFF_COLORS.modified;
-        }
-        nodeAnnotations[containerId] = `${hiddenChangeCount} changed inside`;
-    }
-
-    return { nodeAnnotations, nodeOverrides };
 }
 
 /** Parameters for {@link computeDiffStyling}. */

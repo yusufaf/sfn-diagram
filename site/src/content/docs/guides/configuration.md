@@ -174,7 +174,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
   | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
   | Inspect an edge | click any transition (or its label) — the same panel shows the edge's id, its endpoints, its kind (`normal`/`error`/`choice`/`default`/`retry`) and, for a Choice branch, the condition that produced it. The edge and both endpoints highlight while it's open |
-  | Expand/Collapse | when the diagram has a Parallel or Map state, a toggle button switches between the expanded and fully-collapsed view |
+  | Expand/Collapse | when the diagram has a Parallel or Map state, each container header carries a **−** control that collapses just that container to a placeholder (and a **+** on the placeholder to expand it again), and the toolbar's **Collapse**/**Expand** button collapses or expands every container at once. The diagram is re-laid out in place, so nothing is pre-rendered per combination |
   | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
   | Keyboard | `Tab` reaches every state and transition; `Enter`/`Space` opens the detail panel and moves focus into it; `Esc` closes it and returns focus to what opened it. `/` focuses search, `m` toggles the minimap |
 
@@ -195,6 +195,13 @@ Big, branchy state machines are hard to read as a static image. A few options he
   ```bash
   npx sfn-diagram head.asl.json --diff base.asl.json --format html -o diff.html
   ```
+
+  Per-container collapse re-runs the layout in the browser: a document with something
+  to collapse embeds its parsed graph plus a minified copy of the layout and SVG
+  renderer (about 80 KB, 28 KB gzipped) alongside the viewer. A diagram with no
+  container never pays for it, and neither does an execution overlay, which ships the
+  expanded view only for now. The `collapseControls` diagram option draws the controls
+  themselves; `generateHtml()` sets it for you.
 
   In the library, the same overlays are options on `generateHtml()` /
   `generateHtmlAsync()` — `history` for an execution overlay, `diff` for a change

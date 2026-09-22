@@ -1,9 +1,16 @@
+import { VIEWER_RELAYOUT_BUNDLE } from './viewerRelayout.generated';
 import { VIEWER_CONTROLLER_BUNDLE } from './viewerScript.generated';
 
 /** Parameters for {@link buildViewerScript}. */
 export interface BuildViewerScriptParams {
     /** Whether the click-an-edge panel is wired up (only when edge data was embedded). */
     hasEdgeData?: boolean;
+    /**
+     * Whether per-container collapse is wired up (only when a relayout model was
+     * embedded). Inlines the relayout bundle — the graph, layout and renderer code —
+     * which the plain viewer never pays for.
+     */
+    hasRelayout?: boolean;
     /** Whether the click-a-state panel is wired up (only when state data was embedded). */
     hasStateData: boolean;
 }
@@ -40,6 +47,7 @@ function readBlob(variableName: string, elementId: string): string {
  *
  * @param params - Script parameters
  * @param params.hasEdgeData - Whether to wire up the click-an-edge panel
+ * @param params.hasRelayout - Whether to inline the relayout bundle and wire up per-container collapse
  * @param params.hasStateData - Whether to wire up the click-a-state panel
  * @returns JavaScript source for inlining into a `<script>` element
  *
@@ -50,19 +58,26 @@ function readBlob(variableName: string, elementId: string): string {
  * ```
  */
 export function buildViewerScript(params: BuildViewerScriptParams): string {
-    const { hasEdgeData = false, hasStateData } = params;
+    const { hasEdgeData = false, hasRelayout = false, hasStateData } = params;
 
     const reads =
         (hasStateData ? readBlob('stateData', 'sfn-state-data') : '') +
-        (hasEdgeData ? readBlob('edgeData', 'sfn-edge-data') : '');
+        (hasEdgeData ? readBlob('edgeData', 'sfn-edge-data') : '') +
+        (hasRelayout ? readBlob('relayoutModel', 'sfn-relayout-model') : '');
 
-    const attachArgs = ['root: document'];
-    if (hasEdgeData) attachArgs.unshift('edgeData: edgeData');
+    // Alphabetical, matching the AttachViewerParams field order.
+    const attachArgs: string[] = [];
+    if (hasEdgeData) attachArgs.push('edgeData: edgeData');
+    if (hasRelayout) {
+        attachArgs.push('relayout: { model: relayoutModel, render: sfnRelayout.renderCollapsedView }');
+    }
+    attachArgs.push('root: document');
     if (hasStateData) attachArgs.push('stateData: stateData');
 
     return `
 (function () {
 ${VIEWER_CONTROLLER_BUNDLE}
+${hasRelayout ? VIEWER_RELAYOUT_BUNDLE : ''}
 ${reads}
   var handle = attachViewer({ ${attachArgs.join(', ')} });
   document.addEventListener('sfn-set-content', function (event) {

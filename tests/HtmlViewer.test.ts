@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateHtmlAsync, generateSvg } from '../src';
+import { generateHtml, generateHtmlAsync, generateSvg, generateViewerUpdate } from '../src';
 import { resolveViewerTheme, wrapSvgInInteractiveHtml } from '../src/renderers';
+import { renderCollapsedView } from '../src/renderers/viewer/relayout';
+import type { RelayoutModel } from '../src/renderers/viewer/relayout';
 import type { AslDefinition, CustomTheme } from '../src/types';
 
 const asl = { StartAt: 'A', States: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } } };
@@ -384,13 +386,50 @@ describe('collapse toggle', () => {
         },
     };
 
-    it('embeds two views and a toggle button when the diagram has a container', () => {
+    it('embeds one view with per-container controls, the relayout model and a toggle when the diagram has a container', () => {
         const result = generateHtml({ aslDefinition: parallelAsl });
-        expect(result.html).toContain('data-sfn-view="expanded"');
-        expect(result.html).toContain('data-sfn-view="collapsed"');
         expect(result.html).toContain('data-sfn-collapse-toggle');
-        // Collapsed wrapper starts hidden; expanded is the default view.
-        expect(result.html).toMatch(/data-sfn-view="collapsed"[^>]* hidden/);
+        expect(result.html).toContain('data-sfn-collapse-target="FanOut"');
+        expect(result.html).toContain('id="sfn-relayout-model"');
+        // The relayout bundle rides along only in documents that can use it.
+        expect(result.html).toContain('sfnRelayout.renderCollapsedView');
+        // One view: the collapsed rendering is produced in the browser, not shipped.
+        expect(result.html).not.toMatch(/<div data-sfn-view=/);
+    });
+
+    it('leaves the relayout bundle and controls out of a document with nothing to collapse', () => {
+        const result = generateHtml({ aslDefinition: asl });
+        expect(result.html).not.toContain('sfnRelayout');
+        expect(result.html).not.toContain('sfn-relayout-model');
+        // The controller bundle names the attribute in a selector; only the renderer
+        // writes it onto an element.
+        expect(result.html).not.toMatch(/<g[^>]*data-sfn-collapse-target=/);
+    });
+
+    it('embeds a relayout model the viewer can re-render the collapsed view from', () => {
+        const result = generateHtml({ aslDefinition: parallelAsl });
+        const match = result.html.match(
+            /<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/,
+        );
+        expect(match).not.toBeNull();
+        const model = JSON.parse(match![1]) as RelayoutModel;
+        expect(model.collapseTargets).toEqual(['FanOut']);
+        expect(model.options.collapseControls).toBe(true);
+        expect(model.options.edgeHitAreas).toBe(true);
+        expect(model.options).not.toHaveProperty('iconResolver');
+
+        // The same collapsed view generateSvg draws for the same selection, controls included.
+        const collapsed = renderCollapsedView({ collapsedIds: ['FanOut'], model });
+        const reference = generateSvg({
+            aslDefinition: parallelAsl,
+            collapse: ['FanOut'],
+            collapseControls: true,
+            edgeHitAreas: true,
+        });
+        expect(collapsed.svg).toBe(reference.svg);
+        expect(collapsed.nodeCount).toBe(reference.metadata.nodeCount);
+        expect(collapsed.svg).toContain('data-sfn-collapse-action="expand"');
+        expect(collapsed.svg).not.toContain('data-state-id="Branch1"');
     });
 
     it('embeds only one view and no toggle when the diagram has no container', () => {
@@ -405,7 +444,10 @@ describe('collapse toggle', () => {
     });
 
     it('namespaces marker ids so the two embedded views never collide', () => {
-        const result = generateHtml({ aslDefinition: parallelAsl });
+        // generateViewerUpdate still ships the two pre-rendered views (its host swaps
+        // content in place and has no relayout), so it is where the namespacing lives.
+        const result = { html: generateViewerUpdate({ aslDefinition: parallelAsl }).contentHtml };
+        expect(result.html).toContain('data-sfn-view="collapsed"');
 
         const markerIds = result.html.match(/id="arrowhead-[^"]*"/g) ?? [];
         expect(markerIds.length).toBeGreaterThan(1); // both views define their own
@@ -438,7 +480,7 @@ describe('collapse toggle', () => {
                 Done: { Type: 'Succeed' },
             },
         };
-        const result = generateHtml({ aslDefinition: trickyAsl });
+        const result = { html: generateViewerUpdate({ aslDefinition: trickyAsl }).contentHtml };
         expect(result.html).toContain('data-state-id="arrowhead-check"');
         expect(result.html).not.toContain('data-state-id="arrowhead-collapsed-check"');
     });

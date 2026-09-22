@@ -14,6 +14,8 @@ export type {
     BuildEdgeDataParams,
     BuildViewerContentParams,
     CollectEdgeDataParams,
+    RelayoutModel,
+    RelayoutRenderOptions,
     CollectStateDataParams,
     MinimapStartsCollapsedParams,
     ViewerEdge,

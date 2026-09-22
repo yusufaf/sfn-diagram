@@ -61,6 +61,12 @@ export interface DetailPanel {
     /** Whether any state or edge data was supplied at attach time. */
     hasPanelData: boolean;
     /**
+     * Make every selectable state/edge in the current content a keyboard tab stop
+     * with an accessible name again - for after the content has been swapped, since
+     * the attributes live on the elements that were replaced.
+     */
+    refreshSemantics(): void;
+    /**
      * Re-open the previously-selected state/edge against the current data, or close
      * the panel when its subject no longer exists (renamed or removed mid-edit).
      */
@@ -82,6 +88,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
     let openPanel: (stateId: string, options: SelectionOptions) => void = () => {};
     let openEdgePanel: (edgeId: string, options: SelectionOptions) => void = () => {};
     let closePanel: () => void = () => {};
+    let refreshSemantics: () => void = () => {};
 
     // The currently-selected state or edge, if any - restored by setContent after a
     // content swap, and cleared whenever the panel closes.
@@ -346,6 +353,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                 }
             };
             applySelectableSemantics();
+            refreshSemantics = applySelectableSemantics;
         }
     }
 
@@ -388,6 +396,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
         clearEdgeSelection,
         closePanel,
         hasPanelData,
+        refreshSemantics: () => refreshSemantics(),
         restoreSelection,
         selectFromTarget,
     };
