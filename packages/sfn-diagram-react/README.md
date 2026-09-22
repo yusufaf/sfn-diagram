@@ -83,8 +83,9 @@ Consequences worth knowing:
   wrapper with a fixed aspect ratio).
 - `onStateClick` does not fire from inside it — clicks inside a sandboxed iframe never
   reach the parent document's event handlers.
-- `history` cannot be combined with `format="html"` — core's `generateHtml` accepts
-  neither `history` nor a diff. Combining them calls `onError` and renders `null`.
+- `history` cannot be combined with `format="html"` yet — core's `generateHtml` accepts
+  `history` and `diff` overlays since sfn-diagram 1.8, but this hook does not wire them
+  up. Combining them calls `onError` and renders `null`.
 
 ```tsx
 <SfnDiagram definition={definition} format="html" style={{ height: 600, width: '100%' }} />
