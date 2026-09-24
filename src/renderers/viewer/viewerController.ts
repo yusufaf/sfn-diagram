@@ -208,6 +208,10 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         data.stateData = nextStateData;
         data.edgeData = nextEdgeData;
+        // Same reason playback retires: the timeline describes the diagram being swapped
+        // out. Left in place, the panel would attribute the old run - and, with payloads,
+        // the old inputs and outputs - to whatever now carries that node id.
+        data.timeline = undefined;
 
         // The replayed classes sat on the elements about to be replaced, and the
         // timeline describes the diagram being swapped out - not the one coming in.

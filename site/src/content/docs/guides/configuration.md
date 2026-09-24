@@ -284,8 +284,10 @@ Big, branchy state machines are hard to read as a static image. A few options he
   means those payloads travel with the file.
 
   Each payload is cut to 4096 characters (`EXECUTION_PAYLOAD_CAP`) with a visible
-  `Truncated to 4096 of 6014 characters` notice, so one oversized Map input cannot
-  balloon the document. Each block is pretty-printed and has a copy button. The same
+  `Truncated to 4096 of 6014 characters` notice, and capture stops altogether once
+  256 KB (`EXECUTION_PAYLOAD_TOTAL_CAP`) has been embedded — a two-thousand-iteration
+  Map is two thousand runs, each entitled to its own capped input and output, so the
+  per-payload cap alone would not bound the file. Each block is pretty-printed and has a copy button. The same
   payloads are on the timeline itself via
   `buildExecutionTimeline({ events, includePayloads: true })`, as `entry.input`,
   `entry.output` and `entry.cause`.

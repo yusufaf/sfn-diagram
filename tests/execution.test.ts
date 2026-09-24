@@ -5,6 +5,7 @@ import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import {
     buildExecutionTimeline,
     EXECUTION_PAYLOAD_CAP,
+    EXECUTION_PAYLOAD_TOTAL_CAP,
     generateExecution,
     generateExecutionHtml,
     generateExecutionHtmlAsync,
@@ -12,7 +13,7 @@ import {
     parseExecutionHistory,
 } from '../src/index';
 import { parseAsl } from '../src/AslParser';
-import type { AslDefinition, ExecutionTimeline } from '../src/types';
+import type { AslDefinition, ExecutionTimeline, TimelineEntry } from '../src/types';
 
 const loadAsl = (name: string): AslDefinition =>
     JSON.parse(readFileSync(join(__dirname, 'fixtures', `${name}.asl.json`), 'utf-8'));
@@ -849,6 +850,91 @@ describe('buildExecutionTimeline', () => {
         expect(input?.text).toHaveLength(EXECUTION_PAYLOAD_CAP);
         expect(input?.truncatedFrom).toBe(huge.length);
         expect(input?.text).toBe(huge.slice(0, EXECUTION_PAYLOAD_CAP));
+    });
+
+    it('stops capturing once the whole-history budget is spent', () => {
+        // Many iterations of one state, each with its own oversized payload: the
+        // per-payload cap alone would let the document grow without bound.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+        ];
+        const iterations = Math.ceil(EXECUTION_PAYLOAD_TOTAL_CAP / EXECUTION_PAYLOAD_CAP) + 10;
+        for (let index = 0; index < iterations; index++) {
+            events.push({
+                id: events.length + 1,
+                previousEventId: 1,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Work', input: 'x'.repeat(EXECUTION_PAYLOAD_CAP) },
+            } as HistoryEvent);
+            events.push({
+                id: events.length + 1,
+                previousEventId: events.length,
+                type: 'TaskStateExited',
+                stateExitedEventDetails: { name: 'Work' },
+            } as HistoryEvent);
+        }
+
+        const timeline = buildExecutionTimeline({ events, includePayloads: true });
+        const captured = timeline.entries.filter((entry) => entry.input !== undefined);
+        const total = captured.reduce((sum, entry) => sum + (entry.input?.text.length ?? 0), 0);
+
+        expect(timeline.entries).toHaveLength(iterations);
+        expect(total).toBeLessThanOrEqual(EXECUTION_PAYLOAD_TOTAL_CAP);
+        // The early runs carry theirs; the ones past the budget carry none at all.
+        expect(captured.length).toBeLessThan(iterations);
+        expect(timeline.entries[0].input).toBeDefined();
+        expect(timeline.entries[iterations - 1].input).toBeUndefined();
+    });
+
+    it('keeps an entry\u2019s error and cause from different failures apart', () => {
+        // Branch2 fails with its own error and cause; the Parallel that goes down with
+        // it carries neither of its own, so both halves come from the failing leaf.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                stateEnteredEventDetails: { name: 'ParallelExecution' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'ParallelStateStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Branch1' },
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Branch2' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'TaskFailed',
+                taskFailedEventDetails: { error: 'Lambda.Unknown', cause: 'branch two exploded' },
+            } as HistoryEvent,
+            { id: 7, previousEventId: 6, type: 'ParallelStateFailed' } as HistoryEvent,
+            { id: 8, previousEventId: 7, type: 'ExecutionFailed' } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('parallel'),
+            events,
+            includePayloads: true,
+        });
+        const byName = (name: string): TimelineEntry =>
+            timeline.entries.find((entry) => entry.stateName === name)!;
+
+        expect(byName('Branch2').error).toBe('Lambda.Unknown');
+        expect(byName('Branch2').cause?.text).toBe('branch two exploded');
+        // The container inherits the leaf's failure, both halves of it.
+        expect(byName('ParallelExecution').error).toBe('Lambda.Unknown');
+        expect(byName('ParallelExecution').cause?.text).toBe('branch two exploded');
+        // The sibling was abandoned, not failed - it has no cause of its own to show.
+        expect(byName('Branch1').cause).toBeUndefined();
     });
 
     it('leaves the entry a still-running execution is inside open', () => {

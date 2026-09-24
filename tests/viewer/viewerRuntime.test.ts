@@ -2379,6 +2379,8 @@ describe('execution payloads in the detail panel', () => {
                 Next: 'Done',
             },
             Done: { Type: 'Succeed' },
+            // Never entered by the fixture history - the never-reached case.
+            Abandoned: { Type: 'Pass', End: true },
         },
     };
 
@@ -2496,18 +2498,58 @@ describe('execution payloads in the detail panel', () => {
     });
 
     it('shows no execution section for a state the run never reached', async () => {
+        // Done ran, so it has one; Abandoned is in the definition but not the history.
         await clickState(payloadPage, 'Done');
-        const runs = await payloadPage.$eval(
+        const ran = await payloadPage.$eval(
             '[data-sfn="panel-runs"]',
             (section) => section.querySelectorAll('summary').length,
         );
-        expect(runs).toBe(1);
+        expect(ran).toBe(1);
 
+        // Close and re-fit first: the open panel is a column over the right of the
+        // stage, where an orphan state sits, and a click there would hit the panel.
+        await payloadPage.evaluate(() => {
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
+            (document.querySelector('[data-sfn-zoom="fit"]') as HTMLElement).click();
+        });
+        await clickState(payloadPage, 'Abandoned');
+
+        // The panel still opened - it is the runs section alone that is absent.
+        expect(await payloadPage.$eval('#sfn-panel-title', (element) => element.textContent)).toBe(
+            'Abandoned',
+        );
+        expect(await payloadPage.$('[data-sfn="panel-runs"]')).toBeNull();
+    });
+
+    it('has no section at all in a document built without a history', async () => {
         const { html } = generateHtml({ aslDefinition: retryDefinition });
         const plain = await browser.newPage();
         await plain.setContent(html, { waitUntil: 'load' });
         await clickState(plain, 'Submit');
         expect(await plain.$('[data-sfn="panel-runs"]')).toBeNull();
         await plain.close();
+    });
+
+    it('reaches a run summary by keyboard, so it can be expanded without a mouse', async () => {
+        await clickState(plainPage, 'Submit');
+        // Tab from the close button must land somewhere that opens a run.
+        await plainPage.focus('[data-sfn="panel-close"]');
+        await plainPage.keyboard.press('Tab');
+
+        const focused = await plainPage.evaluate(() => document.activeElement?.tagName);
+        expect(focused).toBe('SUMMARY');
+    });
+
+    it('drops the previous run when the host swaps in a different diagram', async () => {
+        const update: ViewerUpdate = generateViewerUpdate({
+            aslDefinition: { StartAt: 'Submit', States: { Submit: { Type: 'Pass', End: true } } } as AslDefinition,
+        });
+        await payloadPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        await clickState(payloadPage, 'Submit');
+        // The timeline described the diagram that was just replaced, payloads and all.
+        expect(await payloadPage.$('[data-sfn="panel-runs"]')).toBeNull();
     });
 });

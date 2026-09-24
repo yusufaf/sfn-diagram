@@ -403,8 +403,12 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
 
             on(panelClose, 'click', closePanel);
 
+            // `summary` is natively focusable but carries no `tabindex` attribute, so it
+            // has to be named here: without it Tab could never reach a run's disclosure
+            // triangle, and in the default document (no payloads, so no copy buttons)
+            // the close button would be the panel's only stop.
             const PANEL_FOCUSABLE_SELECTOR =
-                'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+                'a[href], button:not([disabled]), input:not([disabled]), select, summary, textarea, [tabindex]:not([tabindex="-1"])';
 
             // Bound to the panel itself, so a mouse user who never enters it is never
             // trapped - it only engages once focus is actually inside. The panel is

@@ -477,7 +477,7 @@ export {
 } from './html';
 export { lintAsl } from './lint';
 export type { LintAslParams } from './lint';
-export { EXECUTION_PAYLOAD_CAP } from './execution';
+export { EXECUTION_PAYLOAD_CAP, EXECUTION_PAYLOAD_TOTAL_CAP } from './execution';
 export {
     buildExecutionTimeline,
     generateExecution,

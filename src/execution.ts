@@ -205,11 +205,28 @@ function extractCause(event: HistoryEvent): string | undefined {
  */
 export const EXECUTION_PAYLOAD_CAP: number = 4096;
 
-/** Capture a payload, cut to {@link EXECUTION_PAYLOAD_CAP}. */
-function capturePayload(raw: string | undefined): TimelinePayload | undefined {
-    if (raw === undefined) return undefined;
-    if (raw.length <= EXECUTION_PAYLOAD_CAP) return { text: raw };
-    return { text: raw.slice(0, EXECUTION_PAYLOAD_CAP), truncatedFrom: raw.length };
+/**
+ * Total payload text embedded across one history, in characters.
+ *
+ * The per-payload cap alone does not bound a document: a 2,000-iteration Map is 2,000
+ * entries, each free to carry its own capped input and output. Capture stops once this
+ * budget is spent, so a long run yields a document that opens rather than one that has
+ * to parse megabytes of JSON before it draws anything.
+ */
+export const EXECUTION_PAYLOAD_TOTAL_CAP: number = 262_144;
+
+/**
+ * A capture budget: cuts each payload to {@link EXECUTION_PAYLOAD_CAP} and stops
+ * capturing altogether once {@link EXECUTION_PAYLOAD_TOTAL_CAP} is spent.
+ */
+function createPayloadCapture(): (raw: string | undefined) => TimelinePayload | undefined {
+    let spent = 0;
+    return (raw) => {
+        if (raw === undefined || spent >= EXECUTION_PAYLOAD_TOTAL_CAP) return undefined;
+        const text = raw.length <= EXECUTION_PAYLOAD_CAP ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
+        spent += text.length;
+        return text.length === raw.length ? { text } : { text, truncatedFrom: raw.length };
+    };
 }
 
 /** Per-open-entry bookkeeping, pushed on enter and folded into the result on exit. */
@@ -240,6 +257,8 @@ interface OpenFrame {
     nodeId: string;
     /** Index in `entries` of this frame's open run, or undefined between attempts. */
     openEntryIndex?: number;
+    /** The failure cause this frame recorded, beside `error`. */
+    payloadCause?: TimelinePayload;
     /** The state's input, stamped on every attempt of this entry when captured. */
     payloadInput?: TimelinePayload;
 }
@@ -355,6 +374,9 @@ function walkExecutionHistory(params: {
     // Node ids need the definition: a history names a state but not the branch or
     // iterator it ran in. Without one the state name stands in as the id, which is
     // exactly what it is for any definition whose names do not repeat across scopes.
+    // One budget per walk, so a long run cannot outgrow the document it is embedded in.
+    const capturePayload = createPayloadCapture();
+
     const resolver = definition ? buildIdResolver({ definition }) : undefined;
     const childScopes =
         definition && resolver ? buildChildScopes({ definition, resolver }) : undefined;
@@ -502,7 +524,9 @@ function walkExecutionHistory(params: {
         result.attempts += Math.max(frame.failures, 1);
         const error = frame.error ?? fallbackError;
         if (error && !result.error) result.error = error;
-        closeEntry(frame, ms, 'failed', error, { cause });
+        // Paired with the error, so an entry never shows one state's error name beside
+        // another's cause text: a leaf that recorded its own failure keeps both halves.
+        closeEntry(frame, ms, 'failed', error, { cause: frame.payloadCause ?? cause });
     };
 
     for (const event of events) {
@@ -640,7 +664,8 @@ function walkExecutionHistory(params: {
                 // `ParallelStateFailed` carries no error details of its own, so fall back
                 // to the error of the leaf that actually failed - that is the failure
                 // that took the container down.
-                const leafError = leaves.find((leaf) => leaf.lastOutcome === 'failure')?.error;
+                const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === 'failure');
+                const leafError = failingLeaf?.error;
                 // The container itself stays open: it exits normally when a Catch
                 // handles the error, and that exit reads `lastOutcome` as `caught`.
                 const container = openStack[containerIndex];
@@ -651,7 +676,9 @@ function walkExecutionHistory(params: {
                 container.lastOutcome = 'failure';
                 container.error = container.error ?? eventError ?? leafError;
                 if (containerFailure.terminal) container.failureClosed = true;
-                closeEntry(container, nowMs, 'failed', eventError ?? leafError, { cause: eventCause });
+                closeEntry(container, nowMs, 'failed', eventError ?? leafError, {
+                    cause: eventCause ?? failingLeaf?.payloadCause,
+                });
             }
             continue;
         }
@@ -698,9 +725,9 @@ function walkExecutionHistory(params: {
                 activeFrame.failures += 1;
                 activeFrame.lastOutcome = 'failure';
                 activeFrame.error = extractError(event) ?? activeFrame.error;
-                closeEntry(activeFrame, nowMs, 'failed', extractError(event), {
-                    cause: includePayloads ? capturePayload(extractCause(event)) : undefined,
-                });
+                const cause = includePayloads ? capturePayload(extractCause(event)) : undefined;
+                activeFrame.payloadCause = cause ?? activeFrame.payloadCause;
+                closeEntry(activeFrame, nowMs, 'failed', extractError(event), { cause });
             }
             continue;
         }

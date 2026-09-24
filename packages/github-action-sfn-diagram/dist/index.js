@@ -68926,12 +68926,16 @@ function extractCause(event) {
   return event.taskFailedEventDetails?.cause ?? event.lambdaFunctionFailedEventDetails?.cause ?? event.activityFailedEventDetails?.cause ?? event.executionFailedEventDetails?.cause ?? event.taskTimedOutEventDetails?.cause ?? event.lambdaFunctionTimedOutEventDetails?.cause ?? event.evaluationFailedEventDetails?.cause ?? event.mapRunFailedEventDetails?.cause ?? void 0;
 }
 var EXECUTION_PAYLOAD_CAP = 4096;
-function capturePayload(raw) {
-  if (raw === void 0) return void 0;
-  if (raw.length <= 4096) return { text: raw };
-  return {
-    text: raw.slice(0, EXECUTION_PAYLOAD_CAP),
-    truncatedFrom: raw.length
+function createPayloadCapture() {
+  let spent = 0;
+  return (raw) => {
+    if (raw === void 0 || spent >= 262144) return void 0;
+    const text = raw.length <= 4096 ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
+    spent += text.length;
+    return text.length === raw.length ? { text } : {
+      text,
+      truncatedFrom: raw.length
+    };
   };
 }
 var CONTAINER_ENTERED_TYPES = /* @__PURE__ */ new Set(["MapStateEntered", "ParallelStateEntered"]);
@@ -68979,6 +68983,7 @@ function walkExecutionHistory(params) {
   const entries = [];
   let executionStatus = "running";
   let startState;
+  const capturePayload = createPayloadCapture();
   const resolver = definition ? buildIdResolver({ definition }) : void 0;
   const childScopes = definition && resolver ? buildChildScopes({
     definition,
@@ -69071,7 +69076,7 @@ function walkExecutionHistory(params) {
     result.attempts += Math.max(frame.failures, 1);
     const error2 = frame.error ?? fallbackError;
     if (error2 && !result.error) result.error = error2;
-    closeEntry(frame, ms, "failed", error2, { cause });
+    closeEntry(frame, ms, "failed", error2, { cause: frame.payloadCause ?? cause });
   };
   for (const event of events) {
     const type = event.type ?? "";
@@ -69144,7 +69149,8 @@ function walkExecutionHistory(params) {
         const eventCause = includePayloads ? capturePayload(extractCause(event)) : void 0;
         const leaves = openStack.splice(containerIndex + 1);
         for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError, eventCause);
-        const leafError = leaves.find((leaf) => leaf.lastOutcome === "failure")?.error;
+        const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === "failure");
+        const leafError = failingLeaf?.error;
         const container = openStack[containerIndex];
         if (!container.failureCounted) {
           container.failures += 1;
@@ -69153,7 +69159,7 @@ function walkExecutionHistory(params) {
         container.lastOutcome = "failure";
         container.error = container.error ?? eventError ?? leafError;
         if (containerFailure.terminal) container.failureClosed = true;
-        closeEntry(container, nowMs, "failed", eventError ?? leafError, { cause: eventCause });
+        closeEntry(container, nowMs, "failed", eventError ?? leafError, { cause: eventCause ?? failingLeaf?.payloadCause });
       }
       continue;
     }
@@ -69176,7 +69182,9 @@ function walkExecutionHistory(params) {
         activeFrame.failures += 1;
         activeFrame.lastOutcome = "failure";
         activeFrame.error = extractError(event) ?? activeFrame.error;
-        closeEntry(activeFrame, nowMs, "failed", extractError(event), { cause: includePayloads ? capturePayload(extractCause(event)) : void 0 });
+        const cause = includePayloads ? capturePayload(extractCause(event)) : void 0;
+        activeFrame.payloadCause = cause ?? activeFrame.payloadCause;
+        closeEntry(activeFrame, nowMs, "failed", extractError(event), { cause });
       }
       continue;
     }
