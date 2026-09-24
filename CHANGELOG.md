@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.7.0...sfn-diagram-v1.8.0) (2026-09-24)
+
+
+### Features
+
+* **execution:** collapse support on the execution overlay path ([#306](https://github.com/yusufaf/sfn-diagram/issues/306)) ([294aebe](https://github.com/yusufaf/sfn-diagram/commit/294aebe13fa6ff7c5fe6988a3c356e180afd4f8f))
+* **execution:** replay a history as an ordered timeline ([#310](https://github.com/yusufaf/sfn-diagram/issues/310)) ([ea9f1a5](https://github.com/yusufaf/sfn-diagram/commit/ea9f1a5565e499afc90196d327be0f1333da3902))
+* **html:** generateHtml accepts history and diff overlays ([#303](https://github.com/yusufaf/sfn-diagram/issues/303)) ([9bc1e3e](https://github.com/yusufaf/sfn-diagram/commit/9bc1e3e48829c0e8e6a149c89d9b73ddcb4da0a0))
+* **parser:** honour QueryLanguage instead of duck-typing JSONata ([#292](https://github.com/yusufaf/sfn-diagram/issues/292)) ([d809869](https://github.com/yusufaf/sfn-diagram/commit/d809869d70ce38201a4b5b30005c4b88648baad8))
+* **parser:** lintAsl() structured diagnostics and CLI --check ([#301](https://github.com/yusufaf/sfn-diagram/issues/301)) ([6dbf9d7](https://github.com/yusufaf/sfn-diagram/commit/6dbf9d724c64dbc1ee412e4d18c7c1de62a670b6))
+* **parser:** render Arguments, Output, ItemSelector, Label on nodes ([#293](https://github.com/yusufaf/sfn-diagram/issues/293)) ([dbfd634](https://github.com/yusufaf/sfn-diagram/commit/dbfd63488d38521f30a93d72146f4970f201a305))
+* **theme:** CustomTheme requires every field, blocking partial overrides ([#300](https://github.com/yusufaf/sfn-diagram/issues/300)) ([c5e4c68](https://github.com/yusufaf/sfn-diagram/commit/c5e4c68066abad8407efcebdef55380648379e66))
+* **viewer:** execution playback controls ([#311](https://github.com/yusufaf/sfn-diagram/issues/311)) ([da446e4](https://github.com/yusufaf/sfn-diagram/commit/da446e483796c7a71abea6c28d8bf63051851edf))
+* **viewer:** per-container collapse with in-browser relayout ([#305](https://github.com/yusufaf/sfn-diagram/issues/305)) ([4d16e4d](https://github.com/yusufaf/sfn-diagram/commit/4d16e4d0add35f17026bbe8bd9703113862482db))
+* **viewer:** per-state execution runs and payloads in the detail panel ([#312](https://github.com/yusufaf/sfn-diagram/issues/312)) ([40820a8](https://github.com/yusufaf/sfn-diagram/commit/40820a8046602d453622534feb348a1791a08cd9))
+
+
+### Bug Fixes
+
+* **diff:** diff granularity is top-level States keys only — nested states are never classified ([#299](https://github.com/yusufaf/sfn-diagram/issues/299)) ([355663e](https://github.com/yusufaf/sfn-diagram/commit/355663e7efdccc87b193b26e2192b6a3e4a8f931))
+* **execution:** fail a leaf abandoned by a caught container failure ([#308](https://github.com/yusufaf/sfn-diagram/issues/308)) ([20baeac](https://github.com/yusufaf/sfn-diagram/commit/20baeacc20271acab4cdc0a5f09f0736e6f8e097))
+* **parser:** wrap JSON.parse failures in AslValidationError ([#291](https://github.com/yusufaf/sfn-diagram/issues/291)) ([5f0f375](https://github.com/yusufaf/sfn-diagram/commit/5f0f37567f61ea814ffa53b92a4f7325f17e1809))
+
+
+### Performance Improvements
+
+* **html:** parse and lay out the ASL once across the HTML viewer and diff pipelines ([#302](https://github.com/yusufaf/sfn-diagram/issues/302)) ([4c1a179](https://github.com/yusufaf/sfn-diagram/commit/4c1a179441e52261e52f90ecd0d4c7d56f614017))
+
 ## [1.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.1...sfn-diagram-v1.7.0) (2026-09-20)
 
 

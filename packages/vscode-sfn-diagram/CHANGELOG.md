@@ -4,6 +4,14 @@ All notable changes to the Step Functions Diagram VS Code extension are document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.2.0...vscode-sfn-diagram-v0.3.0) (2026-09-24)
+
+
+### Features
+
+* **execution:** replay a history as an ordered timeline ([#310](https://github.com/yusufaf/sfn-diagram/issues/310)) ([ea9f1a5](https://github.com/yusufaf/sfn-diagram/commit/ea9f1a5565e499afc90196d327be0f1333da3902))
+* **theme:** CustomTheme requires every field, blocking partial overrides ([#300](https://github.com/yusufaf/sfn-diagram/issues/300)) ([c5e4c68](https://github.com/yusufaf/sfn-diagram/commit/c5e4c68066abad8407efcebdef55380648379e66))
+
 ## [0.2.0](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.1.1...vscode-sfn-diagram-v0.2.0) (2026-09-20)
 
 

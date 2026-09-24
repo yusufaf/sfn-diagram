@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.5.0...sfn-diagram-react-v0.5.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **react:** raise the sfn-diagram peer floor to ^1.7.0 ([#272](https://github.com/yusufaf/sfn-diagram/issues/272)) ([25f4d7a](https://github.com/yusufaf/sfn-diagram/commit/25f4d7a4cf7ff518f8df0eb33e7fcef1945a9c97))
+
 ## [0.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.4.0...sfn-diagram-react-v0.5.0) (2026-09-20)
 
 
