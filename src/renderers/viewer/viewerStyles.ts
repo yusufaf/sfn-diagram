@@ -125,6 +125,63 @@ const DARK_PALETTE: ChromePalette = {
 };
 
 /**
+ * Colours playback paints a state with, matching `EXECUTION_COLORS` so the replay's
+ * last frame is indistinguishable from the static overlay the document was served
+ * with. Kept as literals here rather than imported: this stylesheet is compiled into
+ * the viewer bundle, which may not reach outside `src/renderers/viewer`.
+ */
+const PLAYBACK_STATUS_COLORS: Array<{ fill: string; status: string; stroke: string }> = [
+    { fill: '#ffe0b2', status: 'caught', stroke: '#e65100' },
+    { fill: '#ffcdd2', status: 'failed', stroke: '#c62828' },
+    { fill: '#f5f5f5', status: 'pending', stroke: '#bdbdbd' },
+    { fill: '#c8e6c9', status: 'succeeded', stroke: '#2e7d32' },
+    { fill: '#bbdefb', status: 'active', stroke: '#1565c0' },
+];
+
+/**
+ * Rules for the playback bar and the classes the replay paints with.
+ *
+ * Every rule is a CSS property, which beats the `fill` / `stroke` presentation
+ * attributes the overlay baked into the SVG - so the replay never edits those, and
+ * dropping its classes restores exactly the document that was served. Scoped to the
+ * group's own shapes (`>`), or a container would repaint every state nested inside it.
+ */
+function playbackRules(palette: ChromePalette): string {
+    const statusRules = PLAYBACK_STATUS_COLORS.map(
+        ({ fill, status, stroke }) =>
+            `  .sfn-exec-${status} > rect, .sfn-exec-${status} > circle, .sfn-exec-${status} > ellipse, .sfn-exec-${status} > polygon` +
+            ` { fill: ${fill}; stroke: ${stroke}; }`,
+    ).join('\n');
+
+    return `
+  [data-sfn="playback"] { position: absolute; top: 60px; left: 12px; right: 12px; z-index: 2; display: flex; gap: 4px;
+    align-items: center; background: ${palette.panelBackground}; border: 1px solid ${palette.border};
+    border-radius: 8px; padding: 4px 8px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  [data-sfn="playback"] button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
+    padding: 4px 8px; cursor: pointer; font-size: 14px; }
+  [data-sfn="playback"] button:hover { background: ${palette.surfaceHover}; }
+  [data-sfn="playback"] button[aria-pressed="true"] { background: ${palette.accent}; color: #ffffff; }
+  [data-sfn="playback-scrub"] { flex: 1 1 auto; min-width: 80px; accent-color: ${palette.accent}; }
+  [data-sfn="playback-time"] { min-width: 96px; text-align: center; font-size: 12px; color: ${palette.mutedText};
+    font-variant-numeric: tabular-nums; }
+  [data-sfn="playback-entry"] { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; color: ${palette.mutedText}; }
+${statusRules}
+  /* An edge lights up once the run it leads into has begun, and stays dim until then -
+     the same emphasis the static overlay bakes in, moved onto the playhead. */
+  path.sfn-exec-taken:not([data-edge-hit-area]) { stroke: #2e7d32; stroke-width: 3; stroke-opacity: 1; }
+  path.sfn-exec-untaken:not([data-edge-hit-area]) { stroke-opacity: .2; }
+  @media not (prefers-reduced-motion: reduce) {
+    .sfn-playing [data-state-id] > rect, .sfn-playing [data-state-id] > circle,
+    .sfn-playing [data-state-id] > ellipse, .sfn-playing [data-state-id] > polygon {
+      transition: fill .18s ease, stroke .18s ease; }
+    .sfn-exec-active > rect, .sfn-exec-active > circle, .sfn-exec-active > ellipse, .sfn-exec-active > polygon {
+      animation: sfn-exec-pulse 1.1s ease-in-out infinite; }
+    @keyframes sfn-exec-pulse { 50% { stroke-width: 4; } }
+  }`;
+}
+
+/**
  * Build the viewer's inline stylesheet.
  *
  * The chrome (stage background, toolbar, detail panel) is themed alongside the
@@ -209,6 +266,7 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
      edge, on the label's own rect and text, which a 3px stroke would render illegible. */
   path.sfn-edge-selected:not([data-edge-hit-area]) { stroke: ${palette.accent}; stroke-width: 3; }
   .sfn-edge-endpoint > title + *, .sfn-edge-endpoint > :first-child:not(title) { outline: 2px dashed ${palette.accent}; }
+${playbackRules(palette)}
   [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
     box-shadow: -2px 0 8px rgba(0,0,0,.12); }

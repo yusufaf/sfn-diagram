@@ -1,4 +1,4 @@
-import type { AslState } from '../../types';
+import type { AslState, ExecutionTimeline } from '../../types';
 import { serializeEdgeData, type ViewerEdge } from './edgeData';
 import { serializeStateData } from './stateData';
 import { minimapStartsCollapsed } from './minimapThreshold';
@@ -37,6 +37,12 @@ export interface BuildViewerBodyParams {
     minimapCollapsed: boolean;
     /** Whether to render the click-a-state detail panel markup. */
     panel: boolean;
+    /**
+     * Whether to render the execution playback bar. Only meaningful when a timeline
+     * was embedded for {@link attachViewer} to replay; without one the controls would
+     * have nothing to drive.
+     */
+    playback?: boolean;
     /**
      * Whether the document ships the in-browser relayout (see
      * {@link WrapSvgInInteractiveHtmlParams.relayoutModel}): the toolbar then gets the
@@ -155,6 +161,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         legacyIds = false,
         minimapCollapsed,
         panel,
+        playback = false,
         relayout = false,
         svg,
     } = params;
@@ -177,6 +184,26 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers" aria-expanded="true">Collapse</button>'
         : '';
 
+    // Its own bar rather than more buttons on the toolbar: playback needs a full-width
+    // scrubber and a clock, and it is only ever present for a document built from an
+    // execution history.
+    const playbackMarkup = playback
+        ? `<div${id('playback')} data-sfn="playback">
+  <button data-sfn="playback-play" data-sfn-playback="toggle" title="Play / pause (Space)" aria-label="Play">&#9654;</button>
+  <button data-sfn="playback-prev" data-sfn-playback="prev" title="Previous step (Left arrow)" aria-label="Previous step">&#9198;</button>
+  <button data-sfn="playback-next" data-sfn-playback="next" title="Next step (Right arrow)" aria-label="Next step">&#9197;</button>
+  <input${id('playback-scrub')} data-sfn="playback-scrub" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+  <span${id('playback-time')} data-sfn="playback-time" role="status" aria-live="off"></span>
+  <span class="sfn-divider"></span>
+  <button data-sfn-speed="1" title="Normal speed" aria-pressed="true">1x</button>
+  <button data-sfn-speed="4" title="4x speed" aria-pressed="false">4x</button>
+  <button data-sfn-speed="16" title="16x speed" aria-pressed="false">16x</button>
+  <button data-sfn-speed="Infinity" title="Jump to the end" aria-pressed="false">Instant</button>
+  <button data-sfn-playback="proportional" title="Play in real-time proportions instead of compressed" aria-pressed="false">Real</button>
+  <span${id('playback-entry')} data-sfn="playback-entry" role="status" aria-live="polite"></span>
+</div>\n`
+        : '';
+
     return `<div${id('toolbar')} data-sfn="toolbar">
   <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out" aria-label="Zoom out">-</button>
   <span${id('zoom-label')} data-sfn="zoom-label" role="status" aria-live="polite">100%</span>
@@ -189,7 +216,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <span class="sfn-divider"></span>
   <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}
 </div>
-${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+${playbackMarkup}${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
 
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */
@@ -252,6 +279,12 @@ export interface WrapSvgInInteractiveHtmlParams {
      * width/height attributes at runtime, so they need not be passed separately.
      */
     svg: string;
+    /**
+     * The execution timeline to replay, from an execution overlay's
+     * `metadata.timeline`. When provided, the document embeds it as JSON and gains the
+     * playback bar; omit it for a document with no playback controls at all.
+     */
+    timeline?: ExecutionTimeline;
     /** Viewer chrome theme. Defaults to `'light'`. */
     theme?: ViewerTheme;
 }
@@ -297,6 +330,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         stateData,
         svg,
         theme = 'light',
+        timeline,
     } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
@@ -319,12 +353,18 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         ? `<script${nonceAttr} type="application/json" id="sfn-relayout-model">${serializeForScriptBlock({ value: relayoutModel })}</script>\n`
         : '';
 
+    const hasTimeline = timeline !== undefined && timeline.entries.length > 0;
+    const timelineScript = hasTimeline
+        ? `<script${nonceAttr} type="application/json" id="sfn-timeline-data">${serializeForScriptBlock({ value: timeline })}</script>\n`
+        : '';
+
     const body = buildViewerBody({
         collapsedMinimapCollapsed,
         collapsedSvg,
         legacyIds: true,
         minimapCollapsed,
         panel: hasStateData || hasEdgeData,
+        playback: hasTimeline,
         relayout: hasRelayout,
         svg,
     });
@@ -339,7 +379,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 </head>
 <body>
 ${body}
-${stateDataScript}${edgeDataScript}${relayoutModelScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasRelayout, hasStateData })}</script>
+${stateDataScript}${edgeDataScript}${relayoutModelScript}${timelineScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasRelayout, hasStateData, hasTimeline })}</script>
 </body>
 </html>`;
 }

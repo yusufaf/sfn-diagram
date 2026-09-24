@@ -1,10 +1,12 @@
 import type { ListenerRegistry } from './dom';
 import type { DetailPanel } from './panel';
+import type { Playback } from './playback';
 import type { Viewport } from './viewport';
 
 /**
  * Keyboard and focus handling for the diagram itself: Escape closes the panel,
  * Enter/Space selects the focused node or edge, and tabbing to one keeps it in view.
+ * Playback's own shortcuts (Space, the arrow keys, Home and End) ride along here.
  * The search box and minimap register their own shortcuts (`/` and `m`) themselves.
  */
 
@@ -14,6 +16,8 @@ export interface AttachKeyboardHandlersParams {
     activate: (params: { moveFocus: boolean; target: EventTarget | null }) => void;
     /** The detail panel, closed on Escape. */
     panel: DetailPanel;
+    /** Execution playback, driven by Space, the arrow keys, Home and End. */
+    playback: Playback;
     /** Listener registry for every handler this module attaches. */
     registry: ListenerRegistry;
     /** Root the Escape shortcut listens on. */
@@ -26,12 +30,31 @@ export interface AttachKeyboardHandlersParams {
 
 /** Wire up the diagram's keyboard and focus handlers. */
 export function attachKeyboardHandlers(params: AttachKeyboardHandlersParams): void {
-    const { activate, panel, registry, root, stage, viewport } = params;
+    const { activate, panel, playback, registry, root, stage, viewport } = params;
     const { on } = registry;
 
     on(root, 'keydown', (event) => {
         if ((event as KeyboardEvent).key === 'Escape') panel.closePanel();
     });
+
+    // Playback's shortcuts are document-wide, but only outside a text field - Space and
+    // the arrows belong to the search box while it has focus - and never over a focused
+    // node, where Space already means "select this state".
+    if (playback.enabled) {
+        on(root, 'keydown', (event) => {
+            const keyboardEvent = event as KeyboardEvent;
+            const target = keyboardEvent.target;
+            if (target instanceof Element) {
+                if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+                if (keyboardEvent.key === ' ' && target.closest('[data-state-id], [data-edge-id]')) {
+                    return;
+                }
+            }
+            if (!playback.handleKey(keyboardEvent.key)) return;
+            // Space scrolls, Home/End jump the document - neither makes sense here.
+            keyboardEvent.preventDefault();
+        });
+    }
 
     on(stage, 'keydown', (event) => {
         const keyboardEvent = event as KeyboardEvent;
