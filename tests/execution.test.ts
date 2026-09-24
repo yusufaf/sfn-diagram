@@ -162,6 +162,175 @@ describe('parseExecutionHistory', () => {
         expect(overlay.states.ProcessItems.status).toBe('caught');
     });
 
+    it('closes a sibling branch the container failure aborted mid-run', () => {
+        // Branch1 is still in flight when Branch2 takes the Parallel down. It reports
+        // `failed` with no error of its own rather than staying open as `running`.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                stateEnteredEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'ParallelStateStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Slow' },
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Doomed' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'TaskFailed',
+                taskFailedEventDetails: { error: 'Boom' },
+            } as HistoryEvent,
+            { id: 7, previousEventId: 6, type: 'ParallelStateFailed' } as HistoryEvent,
+            {
+                id: 8,
+                previousEventId: 7,
+                type: 'ParallelStateExited',
+                stateExitedEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            { id: 9, previousEventId: 8, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const overlay = parseExecutionHistory({ events });
+
+        expect(overlay.states.Doomed.status).toBe('failed');
+        expect(overlay.states.Doomed.error).toBe('Boom');
+        expect(overlay.states.Slow.status).toBe('failed');
+        expect(overlay.states.Slow.error).toBeUndefined();
+        expect(overlay.states.Fanout.status).toBe('caught');
+    });
+
+    it('resolves nested container failures outermost-last, not to the inner frame twice', () => {
+        // An inner Map fails uncaught, so it never exits and its frame stays open; the
+        // outer Map's own failure must resolve to the outer frame rather than matching
+        // the still-open inner one again.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                stateEnteredEventDetails: { name: 'OuterMap' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapStateStarted' } as HistoryEvent,
+            { id: 4, previousEventId: 3, type: 'MapIterationStarted' } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'MapStateEntered',
+                stateEnteredEventDetails: { name: 'InnerMap' },
+            } as HistoryEvent,
+            { id: 6, previousEventId: 5, type: 'MapStateStarted' } as HistoryEvent,
+            { id: 7, previousEventId: 6, type: 'MapIterationStarted' } as HistoryEvent,
+            {
+                id: 8,
+                previousEventId: 7,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Leaf' },
+            } as HistoryEvent,
+            {
+                id: 9,
+                previousEventId: 8,
+                type: 'TaskFailed',
+                taskFailedEventDetails: { error: 'Boom' },
+            } as HistoryEvent,
+            { id: 10, previousEventId: 9, type: 'MapIterationFailed' } as HistoryEvent,
+            { id: 11, previousEventId: 10, type: 'MapStateFailed' } as HistoryEvent,
+            { id: 12, previousEventId: 11, type: 'MapIterationFailed' } as HistoryEvent,
+            { id: 13, previousEventId: 12, type: 'MapStateFailed' } as HistoryEvent,
+            {
+                id: 14,
+                previousEventId: 13,
+                type: 'MapStateExited',
+                stateExitedEventDetails: { name: 'OuterMap' },
+            } as HistoryEvent,
+            { id: 15, previousEventId: 14, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const overlay = parseExecutionHistory({ events });
+
+        expect(overlay.executionStatus).toBe('succeeded');
+        expect(overlay.states.Leaf.status).toBe('failed');
+        expect(overlay.states.InnerMap.status).toBe('failed');
+        expect(overlay.states.OuterMap.status).toBe('caught');
+        expect(overlay.states.OuterMap.attempts).toBe(1);
+    });
+
+    it('counts a distributed Map run failure once, not once per failure event', () => {
+        // A distributed Map emits MapRunFailed and then MapStateFailed for the same
+        // failed attempt; both belong to the one Map frame.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                stateEnteredEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapRunStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'MapRunFailed',
+                mapRunFailedEventDetails: { error: 'States.ExceedToleratedFailureThreshold' },
+            } as HistoryEvent,
+            { id: 5, previousEventId: 4, type: 'MapStateFailed' } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'MapStateExited',
+                stateExitedEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 7, previousEventId: 6, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const overlay = parseExecutionHistory({ events });
+
+        expect(overlay.states.ProcessItems.status).toBe('caught');
+        expect(overlay.states.ProcessItems.attempts).toBe(1);
+        expect(overlay.states.ProcessItems.error).toBe('States.ExceedToleratedFailureThreshold');
+    });
+
+    it('counts each failed attempt of a retried container', () => {
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                stateEnteredEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'ParallelStateStarted' } as HistoryEvent,
+            { id: 4, previousEventId: 3, type: 'ParallelStateFailed' } as HistoryEvent,
+            { id: 5, previousEventId: 4, type: 'ParallelStateStarted' } as HistoryEvent,
+            { id: 6, previousEventId: 5, type: 'ParallelStateFailed' } as HistoryEvent,
+            {
+                id: 7,
+                previousEventId: 6,
+                type: 'ParallelStateExited',
+                stateExitedEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            { id: 8, previousEventId: 7, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const overlay = parseExecutionHistory({ events });
+
+        // Two failed attempts, then a Catch exit - so no successful try to add.
+        expect(overlay.states.Fanout.status).toBe('caught');
+        expect(overlay.states.Fanout.attempts).toBe(2);
+    });
+
     it('aggregates a state entered multiple times (Map iterations)', () => {
         // Two iterations of the same inner state: one succeeds, one fails terminally.
         const events: HistoryEvent[] = [

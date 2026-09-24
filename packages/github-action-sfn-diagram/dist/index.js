@@ -68863,9 +68863,23 @@ var FAILURE_EVENT_TYPES = /* @__PURE__ */ new Set([
   "TaskTimedOut"
 ]);
 var CONTAINER_FAILURE_EVENT_TYPES = /* @__PURE__ */ new Map([
-  ["MapRunFailed", "MapStateEntered"],
-  ["MapStateFailed", "MapStateEntered"],
-  ["ParallelFailed", "ParallelStateEntered"]
+  ["MapRunFailed", {
+    enteredType: "MapStateEntered",
+    terminal: false
+  }],
+  ["MapStateFailed", {
+    enteredType: "MapStateEntered",
+    terminal: true
+  }],
+  ["ParallelStateFailed", {
+    enteredType: "ParallelStateEntered",
+    terminal: true
+  }]
+]);
+var CONTAINER_START_EVENT_TYPES = /* @__PURE__ */ new Map([
+  ["MapRunStarted", "MapStateEntered"],
+  ["MapStateStarted", "MapStateEntered"],
+  ["ParallelStateStarted", "ParallelStateEntered"]
 ]);
 var SUCCESS_EVENT_TYPES = /* @__PURE__ */ new Set([
   "ActivitySucceeded",
@@ -68940,6 +68954,10 @@ function parseExecutionHistory(params) {
     };
     return results[name];
   };
+  const findFrameIndex = (predicate) => {
+    for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (predicate(openStack[i5])) return i5;
+    return -1;
+  };
   const closeAsFailed = (frame, fallbackError) => {
     const result = ensure2(frame.name);
     result.status = mergeStatus(result.status, "failed");
@@ -68981,11 +68999,7 @@ function parseExecutionHistory(params) {
     if (type.endsWith("StateExited")) {
       const name = exitedName(event);
       if (!name) continue;
-      let frameIndex = -1;
-      for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (openStack[i5].name === name) {
-        frameIndex = i5;
-        break;
-      }
+      const frameIndex = findFrameIndex((candidate) => candidate.name === name);
       const frame = frameIndex >= 0 ? openStack.splice(frameIndex, 1)[0] : void 0;
       const result = ensure2(name);
       const exitMs = toMillis(event.timestamp);
@@ -68997,22 +69011,31 @@ function parseExecutionHistory(params) {
       if (frame?.error && !result.error) result.error = frame.error;
       continue;
     }
-    const containerEnteredType = CONTAINER_FAILURE_EVENT_TYPES.get(type);
-    if (containerEnteredType) {
-      let containerIndex = -1;
-      for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (openStack[i5].enteredType === containerEnteredType) {
-        containerIndex = i5;
-        break;
-      }
+    const containerFailure = CONTAINER_FAILURE_EVENT_TYPES.get(type);
+    if (containerFailure) {
+      const containerIndex = findFrameIndex((frame) => frame.enteredType === containerFailure.enteredType && !frame.failureClosed);
       if (containerIndex >= 0) {
         const eventError = extractError(event);
         const leaves = openStack.splice(containerIndex + 1);
         for (const leaf of leaves) closeAsFailed(leaf, eventError);
-        const leafError = leaves[leaves.length - 1]?.error;
+        const leafError = leaves.find((leaf) => leaf.lastOutcome === "failure")?.error;
         const container = openStack[containerIndex];
-        container.failures += 1;
+        if (!container.failureCounted) {
+          container.failures += 1;
+          container.failureCounted = true;
+        }
         container.lastOutcome = "failure";
         container.error = container.error ?? eventError ?? leafError;
+        if (containerFailure.terminal) container.failureClosed = true;
+      }
+      continue;
+    }
+    const startedEnteredType = CONTAINER_START_EVENT_TYPES.get(type);
+    if (startedEnteredType) {
+      const containerIndex = findFrameIndex((frame) => frame.enteredType === startedEnteredType);
+      if (containerIndex >= 0) {
+        openStack[containerIndex].failureClosed = false;
+        openStack[containerIndex].failureCounted = false;
       }
       continue;
     }

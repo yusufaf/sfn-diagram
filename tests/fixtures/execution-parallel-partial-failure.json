@@ -12,7 +12,7 @@
     { "id": 10, "previousEventId": 8, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:00.600Z" },
     { "id": 11, "previousEventId": 10, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:00.620Z", "stateExitedEventDetails": { "name": "Branch1" } },
     { "id": 12, "previousEventId": 9, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:00.900Z", "taskFailedEventDetails": { "error": "Lambda.Unknown", "cause": "branch two exploded" } },
-    { "id": 13, "previousEventId": 12, "type": "ParallelFailed", "timestamp": "2024-01-01T00:00:00.910Z", "parallelFailedEventDetails": { "error": "Lambda.Unknown", "cause": "branch two exploded" } },
+    { "id": 13, "previousEventId": 12, "type": "ParallelStateFailed", "timestamp": "2024-01-01T00:00:00.910Z" },
     { "id": 14, "previousEventId": 13, "type": "ExecutionFailed", "timestamp": "2024-01-01T00:00:00.920Z", "executionFailedEventDetails": { "error": "Lambda.Unknown", "cause": "branch two exploded" } }
   ]
 }

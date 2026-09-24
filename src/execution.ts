@@ -1,4 +1,4 @@
-import type { HistoryEvent } from '@aws-sdk/client-sfn';
+import type { HistoryEvent, HistoryEventType } from '@aws-sdk/client-sfn';
 import type {
     AslDefinition,
     EdgeStyleOverride,
@@ -45,16 +45,53 @@ const FAILURE_EVENT_TYPES = new Set<string>([
     'TaskTimedOut',
 ]);
 
+/** What a container-level failure event says about the frame it belongs to. */
+interface ContainerFailureEvent {
+    /** The `*StateEntered` type of the frame this event's failure belongs to. */
+    enteredType: HistoryEventType;
+    /**
+     * Whether this event ends the container's attempt. `MapRunFailed` does not — the
+     * `MapStateFailed` that follows it does — so the two are not counted twice and a
+     * nested container's failure is not mistaken for its parent's.
+     */
+    terminal: boolean;
+}
+
 /**
- * Container-level failure events, mapped to the entered-event type of the frame each
- * one belongs to. A Parallel branch or Map iteration that fails emits its own leaf
- * failure and then one of these, but the leaf never emits a `StateExited` — so the
- * container failure is the only event that can close those leaves.
+ * Container-level failure events, mapped to the frame each one belongs to. A Parallel
+ * branch or Map iteration that fails emits its own leaf failure and then one of these,
+ * but the leaf never emits a `StateExited` — so the container failure is the only event
+ * that can close those leaves.
+ *
+ * Keyed by {@link HistoryEventType} rather than by bare strings so a name AWS does not
+ * emit (there is no `ParallelFailed`; it is `ParallelStateFailed`) fails to compile
+ * instead of silently never matching.
+ *
+ * `MapIterationFailed` is deliberately absent: a Map with `MaxConcurrency > 1` runs
+ * iterations in parallel, so one iteration's failure says nothing about the leaves of
+ * the iterations still in flight.
  */
-const CONTAINER_FAILURE_EVENT_TYPES = new Map<string, string>([
-    ['MapRunFailed', 'MapStateEntered'],
-    ['MapStateFailed', 'MapStateEntered'],
-    ['ParallelFailed', 'ParallelStateEntered'],
+const CONTAINER_FAILURE_EVENT_TYPES: ReadonlyMap<string, ContainerFailureEvent> = new Map<
+    HistoryEventType,
+    ContainerFailureEvent
+>([
+    ['MapRunFailed', { enteredType: 'MapStateEntered', terminal: false }],
+    ['MapStateFailed', { enteredType: 'MapStateEntered', terminal: true }],
+    ['ParallelStateFailed', { enteredType: 'ParallelStateEntered', terminal: true }],
+]);
+
+/**
+ * Events that (re)start a container's attempt, mapped to the frame they belong to.
+ * They clear the failure bookkeeping {@link CONTAINER_FAILURE_EVENT_TYPES} sets, so a
+ * container with a `Retry` records each failed attempt rather than only the first.
+ */
+const CONTAINER_START_EVENT_TYPES: ReadonlyMap<string, HistoryEventType> = new Map<
+    HistoryEventType,
+    HistoryEventType
+>([
+    ['MapRunStarted', 'MapStateEntered'],
+    ['MapStateStarted', 'MapStateEntered'],
+    ['ParallelStateStarted', 'ParallelStateEntered'],
 ]);
 
 /** Task-level events that mark the active state's latest attempt as successful. */
@@ -122,6 +159,15 @@ interface OpenFrame {
     /** The `*StateEntered` event type that opened this frame, e.g. `ParallelStateEntered`. */
     enteredType: string;
     error?: string;
+    /**
+     * Set once a container frame has absorbed the failure that ends its attempt, so a
+     * further container failure resolves to the frame *outside* it rather than matching
+     * this one again — a nested container that failed uncaught never exits, and its
+     * frame would otherwise shadow its parent's.
+     */
+    failureClosed?: boolean;
+    /** Set once this attempt's failure has been counted, so two events cannot count it twice. */
+    failureCounted?: boolean;
     failures: number;
     lastOutcome?: 'failure' | 'success';
     name: string;
@@ -200,6 +246,14 @@ export function parseExecutionHistory(params: {
         return results[name];
     };
 
+    /** Index of the innermost open frame matching `predicate`, or -1. */
+    const findFrameIndex = (predicate: (frame: OpenFrame) => boolean): number => {
+        for (let i = openStack.length - 1; i >= 0; i--) {
+            if (predicate(openStack[i])) return i;
+        }
+        return -1;
+    };
+
     /** Fold a frame that never exited into its result as a failed run. */
     const closeAsFailed = (frame: OpenFrame, fallbackError?: string): void => {
         const result = ensure(frame.name);
@@ -253,13 +307,7 @@ export function parseExecutionHistory(params: {
             const name = exitedName(event);
             if (!name) continue;
             // Pop the most recent matching open frame.
-            let frameIndex = -1;
-            for (let i = openStack.length - 1; i >= 0; i--) {
-                if (openStack[i].name === name) {
-                    frameIndex = i;
-                    break;
-                }
-            }
+            const frameIndex = findFrameIndex((candidate) => candidate.name === name);
             const frame = frameIndex >= 0 ? openStack.splice(frameIndex, 1)[0] : undefined;
             const result = ensure(name);
 
@@ -283,31 +331,50 @@ export function parseExecutionHistory(params: {
         // leaf emits its own failure but never a `StateExited`, so without this its
         // frame would stay open and the state would be reported `running` long after
         // the container was caught and the execution moved on.
-        const containerEnteredType = CONTAINER_FAILURE_EVENT_TYPES.get(type);
-        if (containerEnteredType) {
-            let containerIndex = -1;
-            for (let i = openStack.length - 1; i >= 0; i--) {
-                if (openStack[i].enteredType === containerEnteredType) {
-                    containerIndex = i;
-                    break;
-                }
-            }
+        const containerFailure = CONTAINER_FAILURE_EVENT_TYPES.get(type);
+        if (containerFailure) {
+            const containerIndex = findFrameIndex(
+                (frame) => frame.enteredType === containerFailure.enteredType && !frame.failureClosed
+            );
             if (containerIndex >= 0) {
                 const eventError = extractError(event);
+                // Every leaf still open under the container is closed, not just the one
+                // that errored: a failing Parallel branch aborts its siblings mid-run,
+                // and they emit nothing further. An aborted sibling reports `failed`
+                // with no error of its own - the model has no `aborted` status to tell
+                // an abandoned run from a failed one (#309), and leaving it open would
+                // report it `running` long after the execution finished.
                 const leaves = openStack.splice(containerIndex + 1);
                 for (const leaf of leaves) {
                     closeAsFailed(leaf, eventError);
                 }
-                // `ParallelFailed` carries no error details of its own, so fall back to
-                // the innermost failed leaf's error — that is the failure that took the
-                // container down.
-                const leafError = leaves[leaves.length - 1]?.error;
+                // `ParallelStateFailed` carries no error details of its own, so fall back
+                // to the error of the leaf that actually failed - that is the failure
+                // that took the container down.
+                const leafError = leaves.find((leaf) => leaf.lastOutcome === 'failure')?.error;
                 // The container itself stays open: it exits normally when a Catch
                 // handles the error, and that exit reads `lastOutcome` as `caught`.
                 const container = openStack[containerIndex];
-                container.failures += 1;
+                if (!container.failureCounted) {
+                    container.failures += 1;
+                    container.failureCounted = true;
+                }
                 container.lastOutcome = 'failure';
                 container.error = container.error ?? eventError ?? leafError;
+                if (containerFailure.terminal) container.failureClosed = true;
+            }
+            continue;
+        }
+
+        // --- Container (re)start: a Retry attempt begins with a clean failure record ---
+        const startedEnteredType = CONTAINER_START_EVENT_TYPES.get(type);
+        if (startedEnteredType) {
+            const containerIndex = findFrameIndex(
+                (frame) => frame.enteredType === startedEnteredType
+            );
+            if (containerIndex >= 0) {
+                openStack[containerIndex].failureClosed = false;
+                openStack[containerIndex].failureCounted = false;
             }
             continue;
         }
