@@ -24,6 +24,11 @@ const STATUS_CLASSES = [
     'sfn-exec-succeeded',
 ];
 
+/** Everything a replay may have painted, for the sweep that undoes all of it. */
+const PAINTED_SELECTOR = STATUS_CLASSES.map((name) => '.' + name)
+    .concat('.sfn-exec-taken', '.sfn-exec-untaken')
+    .join(', ');
+
 /**
  * Display duration bounds, in milliseconds, for one interval of the run.
  *
@@ -42,6 +47,9 @@ const COMPRESSION_CEILING_MS = 60_000;
 
 /** Total display duration, in ms, a proportional (real-ratio) replay is scaled to. */
 const PROPORTIONAL_TOTAL_MS = 8_000;
+
+/** Slack, in real ms, that a step must clear to count as leaving the current instant. */
+const STEP_EPSILON_MS = 0.001;
 
 /** Parameters for {@link createPlayback}. */
 export interface CreatePlaybackParams {
@@ -149,6 +157,18 @@ function buildTimeScale(timeline: ExecutionTimeline, proportional: boolean): Tim
     };
 }
 
+/**
+ * The `from->to` half of an edge id, which is `${from}->${to}#${type}#${ordinal}`.
+ *
+ * Everything before the last two `#` segments, not before the first: a state name may
+ * itself contain `#`, and splitting on the first one would silently stop painting that
+ * edge as taken - the same trap `computeExecutionStyling` documents (issue #79).
+ */
+function edgePairOf(edgeId: string): string {
+    const parts = edgeId.split('#');
+    return parts.slice(0, Math.max(1, parts.length - 2)).join('#');
+}
+
 /** Format a real duration as `1.2s`, matching the overlay's own annotations. */
 function formatSeconds(ms: number): string {
     if (ms < 1000) return Math.round(ms) + 'ms';
@@ -218,23 +238,32 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
     let paintedSvg: SVGSVGElement | null = null;
     let lastActiveNodeId: string | null = null;
 
+    /**
+     * Drop every class playback applied, leaving the served overlay untouched.
+     *
+     * Swept across the whole content node rather than the cached targets: a document
+     * with a container ships two views and only the visible one is ever painted, so
+     * classes left on the other by a mid-replay collapse toggle would otherwise freeze
+     * it at that playhead until the next render.
+     */
+    const clearPaint = (): void => {
+        const painted = content.querySelectorAll(PAINTED_SELECTOR);
+        for (let index = 0; index < painted.length; index++) {
+            painted[index].classList.remove(...STATUS_CLASSES, 'sfn-exec-taken', 'sfn-exec-untaken');
+        }
+        content.classList.remove(PLAYING_CLASS);
+        lastActiveNodeId = null;
+    };
+
     /** Re-read the nodes and edges to paint whenever the visible view changed. */
     const syncTargets = (): void => {
         const svg = viewport.activeSvg();
         if (svg === paintedSvg) return;
+        // The view being left behind keeps whatever it was painted with, so wipe first.
+        if (paintedSvg) clearPaint();
         paintedSvg = svg;
         paintedNodes = svg ? Array.prototype.slice.call(svg.querySelectorAll('[data-state-id]')) : [];
         paintedEdges = svg ? Array.prototype.slice.call(svg.querySelectorAll('[data-edge-id]')) : [];
-        lastActiveNodeId = null;
-    };
-
-    /** Drop every class playback applied, leaving the served overlay untouched. */
-    const clearPaint = (): void => {
-        for (const node of paintedNodes) node.classList.remove(...STATUS_CLASSES);
-        for (const edge of paintedEdges) {
-            edge.classList.remove('sfn-exec-taken', 'sfn-exec-untaken');
-        }
-        content.classList.remove(PLAYING_CLASS);
         lastActiveNodeId = null;
     };
 
@@ -267,9 +296,7 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
             }
         }
         for (const edge of paintedEdges) {
-            const edgeId = edge.getAttribute('data-edge-id') ?? '';
-            const pair = edgeId.split('#')[0];
-            const taken = takenPairs.has(pair);
+            const taken = takenPairs.has(edgePairOf(edge.getAttribute('data-edge-id') ?? ''));
             edge.classList.toggle('sfn-exec-taken', taken);
             edge.classList.toggle('sfn-exec-untaken', !taken);
         }
@@ -317,10 +344,24 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
         entryLabel.textContent = parts.join(' · ');
     };
 
-    /** Move the playhead to a display position and repaint. */
+    /**
+     * Move the playhead to a display position and repaint. A non-finite position (an
+     * instant speed's `0 * Infinity`) means the end of the run, not a stuck playhead:
+     * `Math.min` would otherwise carry `NaN` through every later comparison.
+     */
     const seek = (nextDisplayMs: number): void => {
-        displayMs = Math.max(0, Math.min(scale.displayTotal, nextDisplayMs));
+        displayMs = Number.isFinite(nextDisplayMs)
+            ? Math.max(0, Math.min(scale.displayTotal, nextDisplayMs))
+            : scale.displayTotal;
         paint(scale.realAt(displayMs));
+    };
+
+    /** Settle at the end of the run: the static overlay, exactly as it was served. */
+    const finish = (): void => {
+        setPlaying(false);
+        displayMs = scale.displayTotal;
+        clearPaint();
+        updateReadout(timeline.endMs);
     };
 
     const stopFrames = (): void => {
@@ -329,7 +370,10 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
     };
 
     const setPlaying = (next: boolean): void => {
-        playing = next;
+        // Without a window there are no animation frames to drive a replay, so claiming
+        // to play would leave the button reading "Pause" over a playhead that never moves.
+        const canPlay = next && view !== null;
+        playing = canPlay;
         if (playButton) {
             playButton.textContent = playing ? '❚❚' : '▶';
             playButton.setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -342,31 +386,45 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
         if (displayMs >= scale.displayTotal) seek(0);
         autoPanSuspended = false;
         lastFrameMs = 0;
-        if (!view) return;
-        const step = (now: number): void => {
+        const advance = (now: number): void => {
             const elapsed = lastFrameMs === 0 ? 0 : now - lastFrameMs;
             lastFrameMs = now;
-            seek(displayMs + elapsed * speed);
+            // `elapsed * Infinity` is NaN on the first frame, where elapsed is 0 - the
+            // instant speed means "all of it now" rather than "no distance at all".
+            seek(Number.isFinite(speed) ? displayMs + elapsed * speed : scale.displayTotal);
             if (displayMs >= scale.displayTotal) {
-                setPlaying(false);
-                // The end of the run is the static overlay, exactly as served.
-                clearPaint();
+                finish();
                 return;
             }
-            frameHandle = view.requestAnimationFrame(step);
+            frameHandle = view!.requestAnimationFrame(advance);
         };
-        frameHandle = view.requestAnimationFrame(step);
+        frameHandle = view!.requestAnimationFrame(advance);
     };
 
-    /** Jump to the entry start before or after the playhead. */
+    /**
+     * Jump to the entry start before or after the playhead.
+     *
+     * The epsilon only has to clear the rounding of a display-time round trip, so it
+     * stays well under a millisecond: history timestamps have millisecond resolution,
+     * and a 1ms margin would make two states a millisecond apart unreachable in either
+     * direction.
+     */
     const step = (direction: -1 | 1): void => {
         setPlaying(false);
         const realMs = scale.realAt(displayMs);
         const target =
             direction === 1
-                ? stepInstants.find((instant) => instant > realMs + 1)
-                : [...stepInstants].reverse().find((instant) => instant < realMs - 1);
-        seek(scale.displayAt(target ?? (direction === 1 ? timeline.endMs : timeline.startMs)));
+                ? stepInstants.find((instant) => instant > realMs + STEP_EPSILON_MS)
+                : stepInstants
+                      .slice()
+                      .reverse()
+                      .find((instant) => instant < realMs - STEP_EPSILON_MS);
+        if (direction === 1 && target === undefined) {
+            // Stepping past the last thing that ran ends the replay, same as playing out.
+            finish();
+            return;
+        }
+        seek(scale.displayAt(target ?? timeline.startMs));
     };
 
     /** Swap the time model, keeping the playhead on the same real instant. */
@@ -386,6 +444,9 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
     };
 
     registry.on(bar, 'click', (event) => {
+        // Retired controls stay inert even if a host leaves the bar on screen: the
+        // timeline no longer describes what is rendered, so a replay would grey it out.
+        if (!controls.enabled) return;
         const target = event.target instanceof Element ? event.target : null;
         const control = target?.closest('[data-sfn-playback], [data-sfn-speed]');
         if (!control) return;
@@ -408,6 +469,10 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
 
     if (scrubber) {
         registry.on(scrubber, 'input', () => {
+            if (!controls.enabled) return;
+            // Every frame writes the thumb's position back, so a replay still running
+            // would drag it out from under the pointer.
+            setPlaying(false);
             autoPanSuspended = true;
             seek((Number(scrubber.value) / 1000) * scale.displayTotal);
         });
@@ -447,9 +512,7 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
                 return true;
             }
             if (key === 'End') {
-                setPlaying(false);
-                seek(scale.displayTotal);
-                clearPaint();
+                finish();
                 return true;
             }
             return false;

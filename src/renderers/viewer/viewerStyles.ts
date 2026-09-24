@@ -157,6 +157,13 @@ function playbackRules(palette: ChromePalette): string {
   [data-sfn="playback"] { position: absolute; top: 60px; left: 12px; right: 12px; z-index: 2; display: flex; gap: 4px;
     align-items: center; background: ${palette.panelBackground}; border: 1px solid ${palette.border};
     border-radius: 8px; padding: 4px 8px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  /* The display above is an author rule, which beats the user agent's own
+     [hidden] { display: none } - without this, retiring the bar would leave it on
+     screen (and clickable) after a host swapped the diagram out from under it. */
+  [data-sfn="playback"][hidden] { display: none; }
+  /* The panel is a 360px column over the right-hand end of the bar, where the speed
+     buttons and the running-state line live. It shrinks the stage; shrink this too. */
+  [data-sfn="panel"].sfn-open ~ [data-sfn="playback"] { right: 372px; }
   [data-sfn="playback"] button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
     padding: 4px 8px; cursor: pointer; font-size: 14px; }
   [data-sfn="playback"] button:hover { background: ${palette.surfaceHover}; }
@@ -210,6 +217,8 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
     [data-sfn="panel"] { top: auto; left: 0; width: auto; max-height: 60%; border-left: 0;
       border-top: 1px solid ${palette.border}; box-shadow: 0 -2px 8px rgba(0,0,0,.12); }
     [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 0; }
+    /* A bottom sheet covers nothing at the top, so the bar keeps the full width. */
+    [data-sfn="panel"].sfn-open ~ [data-sfn="playback"] { right: 12px; }
     /* The sheet spans the full width, so the minimap (bottom-right, a lower z-index)
        would sit underneath it, unreachable - it comes back when the sheet closes. */
     [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] [data-sfn="minimap"] { display: none; }

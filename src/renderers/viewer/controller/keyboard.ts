@@ -46,7 +46,13 @@ export function attachKeyboardHandlers(params: AttachKeyboardHandlersParams): vo
             const target = keyboardEvent.target;
             if (target instanceof Element) {
                 if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
-                if (keyboardEvent.key === ' ' && target.closest('[data-state-id], [data-edge-id]')) {
+                // Space already activates whatever has focus: a button (including the
+                // playback bar's own speed buttons, which a keyboard user could not
+                // otherwise press) or a node the viewer selects.
+                if (
+                    keyboardEvent.key === ' ' &&
+                    target.closest('button, a[href], summary, [data-state-id], [data-edge-id]')
+                ) {
                     return;
                 }
             }

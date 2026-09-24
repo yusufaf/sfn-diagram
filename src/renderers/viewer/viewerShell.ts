@@ -186,7 +186,8 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
 
     // Its own bar rather than more buttons on the toolbar: playback needs a full-width
     // scrubber and a clock, and it is only ever present for a document built from an
-    // execution history.
+    // execution history. Emitted after the panel so an open panel, which is a column
+    // over the bar's right-hand end, can shrink it with a sibling rule.
     const playbackMarkup = playback
         ? `<div${id('playback')} data-sfn="playback">
   <button data-sfn="playback-play" data-sfn-playback="toggle" title="Play / pause (Space)" aria-label="Play">&#9654;</button>
@@ -216,7 +217,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <span class="sfn-divider"></span>
   <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}
 </div>
-${playbackMarkup}${panelMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
+${panelMarkup}${playbackMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
 
 /** Parameters for {@link wrapSvgInInteractiveHtml}. */

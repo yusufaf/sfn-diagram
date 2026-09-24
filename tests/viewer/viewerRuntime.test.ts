@@ -2126,6 +2126,8 @@ describe('execution playback runtime', () => {
     });
 
     it('toggles play with Space and does not scroll the stage', async () => {
+        // Space belongs to whatever has focus, so this is the nothing-focused case.
+        await playbackPage.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await playbackPage.keyboard.press('Home');
         await playbackPage.keyboard.press('Space');
         const playingLabel = await playbackPage.$eval(
@@ -2140,6 +2142,70 @@ describe('execution playback runtime', () => {
             (element) => element.getAttribute('aria-label'),
         );
         expect(pausedLabel).toBe('Play');
+    });
+
+    it('runs the instant speed to the end instead of stalling on a non-finite step', async () => {
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.click('[data-sfn-speed="Infinity"]');
+        await playbackPage.click('[data-sfn-playback="toggle"]');
+        await playbackPage.waitForFunction(
+            () =>
+                document.querySelector('[data-sfn="playback-play"]')!.getAttribute('aria-label') ===
+                'Play',
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const readings = await playbackPage.evaluate(() => ({
+            clock: document.querySelector('[data-sfn="playback-time"]')!.textContent,
+            painted: document.querySelectorAll('[class*="sfn-exec-"]').length,
+            scrub: (document.querySelector('[data-sfn="playback-scrub"]') as HTMLInputElement).value,
+        }));
+        expect(readings.clock).not.toContain('NaN');
+        expect(readings.scrub).not.toBe('NaN');
+        // Reaching the end leaves the served overlay, same as playing out at 1x.
+        expect(readings.painted).toBe(0);
+        await playbackPage.click('[data-sfn-speed="1"]');
+    });
+
+    it('clears the paint when stepping past the last entry, not only when playing out', async () => {
+        await playbackPage.keyboard.press('Home');
+        for (let step = 0; step < 8; step++) {
+            await playbackPage.click('[data-sfn-playback="next"]');
+        }
+        const painted = await playbackPage.evaluate(
+            () => document.querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(painted).toBe(0);
+    });
+
+    it('leaves Space to a focused speed button', async () => {
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.focus('[data-sfn-speed="4"]');
+        await playbackPage.keyboard.press('Space');
+
+        const state = await playbackPage.evaluate(() => ({
+            play: document.querySelector('[data-sfn="playback-play"]')!.getAttribute('aria-label'),
+            pressed: document
+                .querySelector('[data-sfn-speed="4"]')!
+                .getAttribute('aria-pressed'),
+        }));
+        // The button took the key; playback did not start behind it.
+        expect(state).toEqual({ play: 'Play', pressed: 'true' });
+        await playbackPage.click('[data-sfn-speed="1"]');
+    });
+
+    it('keeps the right-hand controls clear of an open detail panel', async () => {
+        const before = await playbackPage.$eval(
+            '[data-sfn="playback"]',
+            (element) => element.getBoundingClientRect().right,
+        );
+        await playbackPage.click('[data-state-id="Done"]');
+        const withPanel = await playbackPage.$eval(
+            '[data-sfn="playback"]',
+            (element) => element.getBoundingClientRect().right,
+        );
+        expect(withPanel).toBeLessThan(before - 300);
+        await playbackPage.click('[data-sfn="panel-close"]');
     });
 
     it('leaves Space to the search box while it has focus', async () => {
@@ -2197,16 +2263,103 @@ describe('execution playback across a setContent update', () => {
             document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
         }, update as unknown as Record<string, unknown>);
 
-        // The timeline described the diagram that was just replaced.
-        const hidden = await updatePage.$eval(
-            '[data-sfn="playback"]',
-            (element) => (element as HTMLElement).hidden,
-        );
-        expect(hidden).toBe(true);
+        // The timeline described the diagram that was just replaced. The bar's own
+        // display rule is an author declaration, so `hidden` alone would not hide it.
+        const barState = await updatePage.$eval('[data-sfn="playback"]', (element) => ({
+            display: getComputedStyle(element).display,
+            hidden: (element as HTMLElement).hidden,
+        }));
+        expect(barState).toEqual({ display: 'none', hidden: true });
 
+        // Neither route back in may repaint: the new diagram's nodes are not in this
+        // timeline, so a replay would grey the whole thing out.
+        await updatePage.evaluate(() => {
+            (document.querySelector('[data-sfn-playback="toggle"]') as HTMLElement).click();
+        });
         await updatePage.keyboard.press('ArrowRight');
         const painted = await updatePage.evaluate(
             () => document.querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(painted).toBe(0);
+    });
+});
+
+describe('execution playback with a container and a name containing #', () => {
+    let hashPage: Page;
+
+    beforeAll(async () => {
+        hashPage = await browser.newPage();
+        await hashPage.setViewport({ width: 1280, height: 800 });
+        const at = (ms: number): Date => new Date(Date.parse('2024-01-01T00:00:00.000Z') + ms);
+        const { html } = generateHtml({
+            aslDefinition: {
+                StartAt: 'Fanout',
+                States: {
+                    Fanout: {
+                        Type: 'Parallel',
+                        Branches: [
+                            {
+                                StartAt: 'Pay#1',
+                                States: {
+                                    'Pay#1': { Type: 'Pass', Next: 'Settle' },
+                                    Settle: { Type: 'Pass', End: true },
+                                },
+                            },
+                        ],
+                        Next: 'Done',
+                    },
+                    Done: { Type: 'Succeed' },
+                },
+            } as AslDefinition,
+            history: {
+                events: [
+                    { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: at(0) },
+                    { id: 2, previousEventId: 1, type: 'ParallelStateEntered', timestamp: at(10), stateEnteredEventDetails: { name: 'Fanout' } },
+                    { id: 3, previousEventId: 2, type: 'ParallelStateStarted', timestamp: at(20) },
+                    { id: 4, previousEventId: 3, type: 'PassStateEntered', timestamp: at(30), stateEnteredEventDetails: { name: 'Pay#1' } },
+                    { id: 5, previousEventId: 4, type: 'PassStateExited', timestamp: at(40), stateExitedEventDetails: { name: 'Pay#1' } },
+                    { id: 6, previousEventId: 5, type: 'PassStateEntered', timestamp: at(50), stateEnteredEventDetails: { name: 'Settle' } },
+                    { id: 7, previousEventId: 6, type: 'PassStateExited', timestamp: at(60), stateExitedEventDetails: { name: 'Settle' } },
+                    { id: 8, previousEventId: 7, type: 'ParallelStateExited', timestamp: at(70), stateExitedEventDetails: { name: 'Fanout' } },
+                    { id: 9, previousEventId: 8, type: 'SucceedStateEntered', timestamp: at(80), stateEnteredEventDetails: { name: 'Done' } },
+                    { id: 10, previousEventId: 9, type: 'SucceedStateExited', timestamp: at(90), stateExitedEventDetails: { name: 'Done' } },
+                    { id: 11, previousEventId: 10, type: 'ExecutionSucceeded', timestamp: at(100) },
+                ],
+            },
+        });
+        await hashPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await hashPage.close();
+    });
+
+    it('lights an edge whose source state name contains a #', async () => {
+        // Edge ids are `${from}->${to}#${type}#${ordinal}`, and a state name may itself
+        // contain a # - splitting on the first one would never match the pair (#79).
+        for (let step = 0; step < 3; step++) {
+            await hashPage.click('[data-sfn-playback="next"]');
+        }
+        const taken = await hashPage.evaluate(() =>
+            Array.from(document.querySelectorAll('.sfn-exec-taken')).map((edge) =>
+                edge.getAttribute('data-edge-id'),
+            ),
+        );
+        expect(taken.some((id) => id?.indexOf('Pay#1->Settle#') === 0)).toBe(true);
+    });
+
+    it('clears both views when a collapse toggle happened mid-replay', async () => {
+        await hashPage.keyboard.press('Home');
+        await hashPage.click('[data-sfn-playback="next"]');
+        await hashPage.click('[data-sfn-collapse-toggle]');
+        await hashPage.keyboard.press('End');
+
+        // Including the view left behind, which no longer gets painted.
+        const painted = await hashPage.evaluate(
+            () =>
+                document
+                    .querySelector('[data-sfn="content"]')!
+                    .querySelectorAll('[class*="sfn-exec-"]').length,
         );
         expect(painted).toBe(0);
     });
