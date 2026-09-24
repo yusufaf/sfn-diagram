@@ -1062,6 +1062,59 @@ export interface TakenEdge {
 }
 
 /**
+ * Outcome of one timeline entry — one run of one state.
+ *
+ * Unlike {@link ExecutionStateStatus} there is no `notReached`: an entry exists only
+ * because the execution entered the state. `running` means the entry never closed,
+ * which on a finished execution only happens to a state the run was still inside.
+ */
+export type TimelineEntryStatus = 'caught' | 'failed' | 'running' | 'succeeded';
+
+/**
+ * One ordered run of one state: a single attempt, a single Map iteration, a single
+ * pass through a Parallel branch. Retries and re-entries are separate entries rather
+ * than being summed the way {@link ExecutionStateResult} sums them.
+ */
+export interface TimelineEntry {
+    /** 1-based attempt number within this entry of the state; a `Retry` increments it. */
+    attempt: number;
+    /** Branches this Parallel started, from the history. Absent for any other state. */
+    branchCount?: number;
+    /** Epoch ms the state was entered, or the attempt began. */
+    enteredMs: number;
+    /** Error name for a `failed` or `caught` entry, when the history records one. */
+    error?: string;
+    /** Epoch ms the entry ended; absent while it is still open. */
+    exitedMs?: number;
+    /** Node id of the state this entry was transitioned from, when the history records one. */
+    fromNodeId?: string;
+    /** Iterations this Map started, from the history. Absent for any other state. */
+    iterationCount?: number;
+    /** Graph node id, matching the renderer's `data-state-id`. */
+    nodeId: string;
+    /** ASL state name, as the history records it. */
+    stateName: string;
+    /** How this run of the state ended. */
+    status: TimelineEntryStatus;
+}
+
+/**
+ * An execution replayed as an ordered list of state runs, produced by
+ * {@link buildExecutionTimeline}. The foundation for a scrubber, a Gantt view, or a
+ * "what ran when" report.
+ */
+export interface ExecutionTimeline {
+    /** Epoch ms of the last event in the history. */
+    endMs: number;
+    /** Every run of every state, in the order the execution entered them. */
+    entries: TimelineEntry[];
+    /** Epoch ms of the first event in the history. */
+    startMs: number;
+    /** Overall execution status. */
+    status: ExecutionStatus;
+}
+
+/**
  * The computed execution model produced by {@link parseExecutionHistory}.
  * A pure, render-agnostic summary that any surface can consume.
  */
@@ -1126,6 +1179,8 @@ export interface ExecutionMetadataSummary {
 export interface ExecutionSummary extends ExecutionMetadataSummary {
     /** Overall execution status */
     executionStatus: ExecutionStatus;
+    /** The same run as an ordered list of state runs, for a scrubber or a Gantt view */
+    timeline: ExecutionTimeline;
 }
 
 /** SVG execution overlay output. */
@@ -1133,11 +1188,9 @@ export interface ExecutionOutput {
     /** Height of the diagram in pixels */
     height: number;
     /** Execution summary metadata */
-    metadata: ExecutionMetadataSummary & {
+    metadata: ExecutionSummary & {
         /** Number of edges in the rendered diagram */
         edgeCount: number;
-        /** Overall execution status */
-        executionStatus: ExecutionStatus;
         /** Number of nodes in the rendered diagram */
         nodeCount: number;
     };
@@ -1175,11 +1228,9 @@ export interface MermaidExecutionOutput {
     /** Mermaid state diagram syntax with execution highlighting */
     code: string;
     /** Execution summary metadata */
-    metadata: ExecutionMetadataSummary & {
+    metadata: ExecutionSummary & {
         /** Number of transitions in the diagram */
         edgeCount: number;
-        /** Overall execution status */
-        executionStatus: ExecutionStatus;
         /** Number of states in the diagram */
         stateCount: number;
     };

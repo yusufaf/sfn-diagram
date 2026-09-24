@@ -1,0 +1,26 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2024-01-01T00:00:00.000Z" },
+    { "id": 2, "previousEventId": 1, "type": "PassStateEntered", "timestamp": "2024-01-01T00:00:00.010Z", "stateEnteredEventDetails": { "name": "SplitInput" } },
+    { "id": 3, "previousEventId": 2, "type": "PassStateExited", "timestamp": "2024-01-01T00:00:00.020Z", "stateExitedEventDetails": { "name": "SplitInput" } },
+    { "id": 4, "previousEventId": 3, "type": "MapStateEntered", "timestamp": "2024-01-01T00:00:00.030Z", "stateEnteredEventDetails": { "name": "ProcessItems" } },
+    { "id": 5, "previousEventId": 4, "type": "MapStateStarted", "timestamp": "2024-01-01T00:00:00.040Z" },
+    { "id": 6, "previousEventId": 5, "type": "MapIterationStarted", "timestamp": "2024-01-01T00:00:00.050Z", "mapIterationStartedEventDetails": { "name": "ProcessItems", "index": 0 } },
+    { "id": 7, "previousEventId": 6, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.060Z", "stateEnteredEventDetails": { "name": "ProcessItem" } },
+    { "id": 8, "previousEventId": 7, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.070Z" },
+    { "id": 9, "previousEventId": 8, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.080Z" },
+    { "id": 10, "previousEventId": 9, "type": "TaskSucceeded", "timestamp": "2024-01-01T00:00:00.200Z" },
+    { "id": 11, "previousEventId": 10, "type": "TaskStateExited", "timestamp": "2024-01-01T00:00:00.210Z", "stateExitedEventDetails": { "name": "ProcessItem" } },
+    { "id": 12, "previousEventId": 11, "type": "PassStateEntered", "timestamp": "2024-01-01T00:00:00.220Z", "stateEnteredEventDetails": { "name": "ValidateItem" } },
+    { "id": 13, "previousEventId": 12, "type": "PassStateExited", "timestamp": "2024-01-01T00:00:00.230Z", "stateExitedEventDetails": { "name": "ValidateItem" } },
+    { "id": 14, "previousEventId": 13, "type": "MapIterationSucceeded", "timestamp": "2024-01-01T00:00:00.240Z", "mapIterationSucceededEventDetails": { "name": "ProcessItems", "index": 0 } },
+    { "id": 15, "previousEventId": 5, "type": "MapIterationStarted", "timestamp": "2024-01-01T00:00:00.250Z", "mapIterationStartedEventDetails": { "name": "ProcessItems", "index": 1 } },
+    { "id": 16, "previousEventId": 15, "type": "TaskStateEntered", "timestamp": "2024-01-01T00:00:00.260Z", "stateEnteredEventDetails": { "name": "ProcessItem" } },
+    { "id": 17, "previousEventId": 16, "type": "TaskScheduled", "timestamp": "2024-01-01T00:00:00.270Z" },
+    { "id": 18, "previousEventId": 17, "type": "TaskStarted", "timestamp": "2024-01-01T00:00:00.280Z" },
+    { "id": 19, "previousEventId": 18, "type": "TaskFailed", "timestamp": "2024-01-01T00:00:00.400Z", "taskFailedEventDetails": { "error": "States.TaskFailed", "cause": "item 1 rejected" } },
+    { "id": 20, "previousEventId": 19, "type": "MapIterationFailed", "timestamp": "2024-01-01T00:00:00.410Z", "mapIterationFailedEventDetails": { "name": "ProcessItems", "index": 1 } },
+    { "id": 21, "previousEventId": 20, "type": "MapStateFailed", "timestamp": "2024-01-01T00:00:00.420Z" },
+    { "id": 22, "previousEventId": 21, "type": "ExecutionFailed", "timestamp": "2024-01-01T00:00:00.430Z", "executionFailedEventDetails": { "error": "States.TaskFailed", "cause": "item 1 rejected" } }
+  ]
+}

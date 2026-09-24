@@ -83,6 +83,7 @@ describe('buildPreviewDocument', () => {
                 running: [],
                 succeeded: ['A'],
                 takenEdgeCount: 0,
+                timeline: { endMs: 0, entries: [], startMs: 0, status: 'succeeded' },
             },
         })
         expect(document).toContain('Clear overlay')
