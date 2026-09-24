@@ -2364,3 +2364,192 @@ describe('execution playback with a container and a name containing #', () => {
         expect(painted).toBe(0);
     });
 });
+
+describe('execution payloads in the detail panel', () => {
+    let payloadPage: Page;
+    let plainPage: Page;
+
+    const retryDefinition: AslDefinition = {
+        StartAt: 'Submit',
+        States: {
+            Submit: {
+                Type: 'Task',
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:submit',
+                Retry: [{ ErrorEquals: ['States.Timeout'], MaxAttempts: 3 }],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+            // Never entered by the fixture history - the never-reached case.
+            Abandoned: { Type: 'Pass', End: true },
+        },
+    };
+
+    /** The retry fixture, with payloads attached - one of them past the cap. */
+    const historyWithPayloads = (): { events: unknown[] } => {
+        const events = JSON.parse(
+            readFileSync(join(__dirname, '..', 'fixtures', 'execution-retry-success.json'), 'utf-8'),
+        ).events;
+        events[1].stateEnteredEventDetails.input = '{"orderId":"A-1"}';
+        events[4].taskFailedEventDetails.cause = 'connection reset by peer';
+        events[11].stateExitedEventDetails.output = '{"receipt":"' + 'x'.repeat(6000) + '"}';
+        return { events };
+    };
+
+    beforeAll(async () => {
+        payloadPage = await browser.newPage();
+        await payloadPage.setViewport({ width: 1280, height: 900 });
+        const withPayloads = generateHtml({
+            aslDefinition: retryDefinition,
+            history: historyWithPayloads() as never,
+            includeExecutionPayloads: true,
+        });
+        await payloadPage.setContent(withPayloads.html, { waitUntil: 'load' });
+
+        plainPage = await browser.newPage();
+        await plainPage.setViewport({ width: 1280, height: 900 });
+        const withoutPayloads = generateHtml({
+            aslDefinition: retryDefinition,
+            history: historyWithPayloads() as never,
+        });
+        await plainPage.setContent(withoutPayloads.html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await payloadPage.close();
+        await plainPage.close();
+    });
+
+    /**
+     * Click a state by its centre in page coordinates.
+     *
+     * `page.click(selector)` first scrolls the element into view, which an SVG group
+     * inside the stage's `overflow: hidden` box never satisfies - the viewer pans by
+     * transform rather than by scrolling - so it times out instead of clicking.
+     */
+    const clickState = async (target: Page, stateId: string): Promise<void> => {
+        const box = await target.evaluate((id) => {
+            const rect = document
+                .querySelector('[data-sfn="content"] [data-state-id="' + id + '"]')!
+                .getBoundingClientRect();
+            return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+        }, stateId);
+        await target.mouse.click(box.x, box.y);
+    };
+
+    it('lists every run of the clicked state, newest attempt folded away', async () => {
+        await clickState(payloadPage, 'Submit');
+
+        const runs = await payloadPage.$eval('[data-sfn="panel-runs"]', (section) => ({
+            heading: section.querySelector('.sfn-runs-title')!.textContent,
+            open: Array.from(section.querySelectorAll('details')).map(
+                (block) => (block as HTMLDetailsElement).open,
+            ),
+            summaries: Array.from(section.querySelectorAll('summary')).map(
+                (summary) => summary.textContent,
+            ),
+        }));
+
+        expect(runs.heading).toBe('Execution \u00b7 3 runs');
+        expect(runs.summaries).toEqual([
+            'Attempt 1 \u00b7 failed \u00b7 200ms \u00b7 States.Timeout',
+            'Attempt 2 \u00b7 failed \u00b7 200ms \u00b7 States.Timeout',
+            'Attempt 3 \u00b7 succeeded \u00b7 550ms',
+        ]);
+        expect(runs.open).toEqual([true, false, false]);
+    });
+
+    it('shows the input, the failure cause and the output, pretty-printed', async () => {
+        const labels = await payloadPage.$$eval('[data-sfn="panel-runs"] .sfn-payload-head span', (heads) =>
+            heads.map((head) => head.textContent),
+        );
+        expect(labels).toEqual(['Input', 'Cause', 'Input', 'Input', 'Output']);
+
+        const firstInput = await payloadPage.$eval(
+            '[data-sfn="panel-runs"] .sfn-payload-json',
+            (element) => element.textContent,
+        );
+        expect(firstInput).toBe('{\n  "orderId": "A-1"\n}');
+    });
+
+    it('says how much of an oversized payload is on screen', async () => {
+        const note = await payloadPage.$eval(
+            '[data-sfn="panel-runs"] .sfn-payload-note',
+            (element) => element.textContent,
+        );
+        expect(note).toBe('Truncated to 4096 of 6014 characters');
+    });
+
+    it('carries no payloads at all unless the document asked for them', async () => {
+        await clickState(plainPage, 'Submit');
+
+        const section = await plainPage.$eval('[data-sfn="panel-runs"]', (element) => ({
+            payloads: element.querySelectorAll('.sfn-payload').length,
+            summaries: Array.from(element.querySelectorAll('summary')).map(
+                (summary) => summary.textContent,
+            ),
+        }));
+        // The runs themselves are still worth showing - only their contents are gated.
+        expect(section.summaries).toHaveLength(3);
+        expect(section.payloads).toBe(0);
+
+        const html = await plainPage.content();
+        expect(html).not.toContain('connection reset by peer');
+        expect(html).not.toContain('orderId');
+    });
+
+    it('shows no execution section for a state the run never reached', async () => {
+        // Done ran, so it has one; Abandoned is in the definition but not the history.
+        await clickState(payloadPage, 'Done');
+        const ran = await payloadPage.$eval(
+            '[data-sfn="panel-runs"]',
+            (section) => section.querySelectorAll('summary').length,
+        );
+        expect(ran).toBe(1);
+
+        // Close and re-fit first: the open panel is a column over the right of the
+        // stage, where an orphan state sits, and a click there would hit the panel.
+        await payloadPage.evaluate(() => {
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
+            (document.querySelector('[data-sfn-zoom="fit"]') as HTMLElement).click();
+        });
+        await clickState(payloadPage, 'Abandoned');
+
+        // The panel still opened - it is the runs section alone that is absent.
+        expect(await payloadPage.$eval('#sfn-panel-title', (element) => element.textContent)).toBe(
+            'Abandoned',
+        );
+        expect(await payloadPage.$('[data-sfn="panel-runs"]')).toBeNull();
+    });
+
+    it('has no section at all in a document built without a history', async () => {
+        const { html } = generateHtml({ aslDefinition: retryDefinition });
+        const plain = await browser.newPage();
+        await plain.setContent(html, { waitUntil: 'load' });
+        await clickState(plain, 'Submit');
+        expect(await plain.$('[data-sfn="panel-runs"]')).toBeNull();
+        await plain.close();
+    });
+
+    it('reaches a run summary by keyboard, so it can be expanded without a mouse', async () => {
+        await clickState(plainPage, 'Submit');
+        // Tab from the close button must land somewhere that opens a run.
+        await plainPage.focus('[data-sfn="panel-close"]');
+        await plainPage.keyboard.press('Tab');
+
+        const focused = await plainPage.evaluate(() => document.activeElement?.tagName);
+        expect(focused).toBe('SUMMARY');
+    });
+
+    it('drops the previous run when the host swaps in a different diagram', async () => {
+        const update: ViewerUpdate = generateViewerUpdate({
+            aslDefinition: { StartAt: 'Submit', States: { Submit: { Type: 'Pass', End: true } } } as AslDefinition,
+        });
+        await payloadPage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        await clickState(payloadPage, 'Submit');
+        // The timeline described the diagram that was just replaced, payloads and all.
+        expect(await payloadPage.$('[data-sfn="panel-runs"]')).toBeNull();
+    });
+});

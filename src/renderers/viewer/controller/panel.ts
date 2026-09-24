@@ -1,5 +1,6 @@
 import { hasEntries, hook, type ListenerRegistry, type ViewerData } from './dom';
 import type { Viewport } from './viewport';
+import type { TimelinePayload } from '../../../types';
 
 /**
  * The click-for-detail panel: opens on a state or edge, shows its summary fields and
@@ -186,7 +187,131 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
             };
 
             /** Fill and open the panel. Shared by the state and edge views. */
-            const showPanel = (title: string, rows: HTMLElement[], raw: unknown): void => {
+            /** `412ms` / `1.2s`, matching the overlay's own annotations. */
+            const formatRunDuration = (ms: number): string =>
+                ms < 1000 ? Math.round(ms) + 'ms' : (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + 's';
+
+            /**
+             * One payload block: a heading, a copy button, the JSON, and - when the
+             * capture was cut short - how much of the original is on screen.
+             */
+            const payloadBlock = (label: string, payload: TimelinePayload): HTMLElement => {
+                const block = document.createElement('div');
+                block.className = 'sfn-payload';
+
+                const head = document.createElement('div');
+                head.className = 'sfn-payload-head';
+                const heading = document.createElement('span');
+                heading.textContent = label;
+                head.appendChild(heading);
+
+                const copy = document.createElement('button');
+                copy.type = 'button';
+                copy.className = 'sfn-payload-copy';
+                copy.textContent = 'Copy';
+                copy.addEventListener('click', () => {
+                    // No clipboard in an insecure context or an older browser; say so
+                    // rather than leaving the click looking like it did nothing.
+                    const clipboard = ownerDoc?.defaultView?.navigator?.clipboard;
+                    if (!clipboard) {
+                        copy.textContent = 'Unavailable';
+                        return;
+                    }
+                    void clipboard.writeText(payload.text).then(
+                        () => {
+                            copy.textContent = 'Copied';
+                        },
+                        () => {
+                            copy.textContent = 'Failed';
+                        },
+                    );
+                });
+                head.appendChild(copy);
+                block.appendChild(head);
+
+                const body = document.createElement('pre');
+                body.className = 'sfn-payload-json';
+                // Pretty-printed when it parses. A truncated payload is no longer valid
+                // JSON, so it is shown as the text it is rather than not at all.
+                let text = payload.text;
+                try {
+                    text = JSON.stringify(JSON.parse(payload.text), null, 2);
+                } catch {
+                    text = payload.text;
+                }
+                body.textContent = text;
+                block.appendChild(body);
+
+                if (payload.truncatedFrom !== undefined) {
+                    const note = document.createElement('p');
+                    note.className = 'sfn-payload-note';
+                    note.textContent =
+                        'Truncated to ' +
+                        payload.text.length +
+                        ' of ' +
+                        payload.truncatedFrom +
+                        ' characters';
+                    block.appendChild(note);
+                }
+                return block;
+            };
+
+            /**
+             * The state's runs from the execution timeline: one collapsible block per
+             * run, with its payloads when the document embedded them.
+             *
+             * Absent entirely for a document built without a history, and for a state
+             * the execution never reached - there is nothing to say about either.
+             */
+            const buildRunsSection = (stateId: string): HTMLElement | null => {
+                const runs = (data.timeline?.entries ?? []).filter(
+                    (entry) => entry.nodeId === stateId,
+                );
+                if (runs.length === 0) return null;
+
+                const section = document.createElement('section');
+                section.className = 'sfn-runs';
+                section.setAttribute('data-sfn', 'panel-runs');
+
+                const heading = document.createElement('h3');
+                heading.className = 'sfn-runs-title';
+                heading.textContent =
+                    runs.length === 1 ? 'Execution' : 'Execution \u00b7 ' + runs.length + ' runs';
+                section.appendChild(heading);
+
+                runs.forEach((run, index) => {
+                    const block = document.createElement('details');
+                    block.className = 'sfn-run';
+                    // The first is open and the rest folded: a retried state can have
+                    // several, and the first is where it started going wrong.
+                    block.open = index === 0;
+
+                    const summary = document.createElement('summary');
+                    const parts: string[] = [];
+                    if (runs.length > 1) parts.push('Attempt ' + run.attempt);
+                    parts.push(run.status);
+                    if (run.exitedMs !== undefined) {
+                        parts.push(formatRunDuration(run.exitedMs - run.enteredMs));
+                    }
+                    if (run.error) parts.push(run.error);
+                    summary.textContent = parts.join(' \u00b7 ');
+                    block.appendChild(summary);
+
+                    if (run.input) block.appendChild(payloadBlock('Input', run.input));
+                    if (run.output) block.appendChild(payloadBlock('Output', run.output));
+                    if (run.cause) block.appendChild(payloadBlock('Cause', run.cause));
+                    section.appendChild(block);
+                });
+
+                return section;
+            };
+
+            const showPanel = (
+                title: string,
+                rows: HTMLElement[],
+                raw: unknown,
+                extra?: HTMLElement | null,
+            ): void => {
                 panelTitle.textContent = title;
 
                 const list = document.createElement('dl');
@@ -202,6 +327,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                 panelBody.textContent = '';
                 panelBody.appendChild(list);
                 panelBody.appendChild(pre);
+                if (extra) panelBody.appendChild(extra);
                 panel.classList.add('sfn-open');
                 // At full width the side panel just shrank the stage, which changes
                 // how much of the diagram the minimap's viewport rect should cover.
@@ -248,7 +374,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                     if (state[field] === undefined) continue;
                     rows.push(fieldRow(field, summarize(state[field])));
                 }
-                showPanel(stateId, rows, state);
+                showPanel(stateId, rows, state, buildRunsSection(stateId));
                 selection = { id: stateId, kind: 'state' };
                 panelTrigger = options.trigger;
                 if (options.moveFocus) focusPanel();
@@ -277,8 +403,12 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
 
             on(panelClose, 'click', closePanel);
 
+            // `summary` is natively focusable but carries no `tabindex` attribute, so it
+            // has to be named here: without it Tab could never reach a run's disclosure
+            // triangle, and in the default document (no payloads, so no copy buttons)
+            // the close button would be the panel's only stop.
             const PANEL_FOCUSABLE_SELECTOR =
-                'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+                'a[href], button:not([disabled]), input:not([disabled]), select, summary, textarea, [tabindex]:not([tabindex="-1"])';
 
             // Bound to the panel itself, so a mouse user who never enters it is never
             // trapped - it only engages once focus is actually inside. The panel is

@@ -149,6 +149,8 @@ function buildHtmlViews(params: {
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
+    /** Whether the reported timeline carries each run's input, output and cause. */
+    includeExecutionPayloads?: boolean;
     options: MergedDiagramOptions;
     /** Whether the document can ship the in-browser relayout instead of a second view. */
     relayout: boolean;
@@ -159,7 +161,7 @@ function buildHtmlViews(params: {
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { afterObj, aslObj, diff, history, options, relayout } = params;
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, options, relayout } = params;
     const resolvedCollapse = options.collapse ?? true;
 
     // Both views feed the interactive viewer, so both get clickable edges.
@@ -180,6 +182,7 @@ function buildHtmlViews(params: {
                       definition: aslObj,
                       edges,
                       history,
+                      includeExecutionPayloads,
                       nodes,
                       // Report against the definition the caller passed: a diff's
                       // merged definition also holds removed states, which are not
@@ -261,6 +264,7 @@ function buildHtmlViewParts(params: {
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
+    includeExecutionPayloads?: boolean;
     options: MergedDiagramOptions;
     relayout: boolean;
 }): {
@@ -289,10 +293,18 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
     aslObj: AslDefinition;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
+    includeExecutionPayloads?: boolean;
     nonce?: string;
     options: MergedDiagramOptions;
 } {
-    const { aslDefinition, diff: diffOverlay, history, nonce, ...options } = params;
+    const {
+        aslDefinition,
+        diff: diffOverlay,
+        history,
+        includeExecutionPayloads,
+        nonce,
+        ...options
+    } = params;
     const afterObj = parseAslSource({ source: aslDefinition });
     const diff = diffOverlay
         ? computeStateDiff(parseAslSource({ source: diffOverlay.before }), afterObj)
@@ -302,6 +314,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
         aslObj: diff?.mergedAsl ?? afterObj,
         diff,
         history,
+        includeExecutionPayloads,
         nonce,
         options: mergeOptions(options),
     };
@@ -384,10 +397,19 @@ function buildHtmlMetadata(params: {
  * summary beside its own duration.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options } =
+        resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
-        buildHtmlViewParts({ afterObj, aslObj, diff, history, options, relayout: true });
+        buildHtmlViewParts({
+            afterObj,
+            aslObj,
+            diff,
+            history,
+            includeExecutionPayloads,
+            options,
+            relayout: true,
+        });
 
     return {
         height: svgOutput.height,
@@ -485,10 +507,19 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { afterObj, aslObj, diff, history, nonce, options } = resolveHtmlInputs(params);
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options } =
+        resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
-        buildHtmlViewParts({ afterObj, aslObj, diff, history, options, relayout: true });
+        buildHtmlViewParts({
+            afterObj,
+            aslObj,
+            diff,
+            history,
+            includeExecutionPayloads,
+            options,
+            relayout: true,
+        });
 
     // The nodeCount guard has already run, so a discarded collapsed view never pays
     // for icon embedding; the views that survive share one fetch per icon. The

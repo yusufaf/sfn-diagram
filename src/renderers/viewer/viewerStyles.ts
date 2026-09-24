@@ -291,6 +291,22 @@ ${playbackRules(palette)}
   .sfn-field dd { margin: 0; overflow-wrap: anywhere; }
   .sfn-panel-json { margin: 12px 0 0; padding: 10px; background: ${palette.surface}; border-radius: 6px;
     font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .sfn-runs { margin-top: 16px; border-top: 1px solid ${palette.border}; padding-top: 12px; }
+  .sfn-runs-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: ${palette.mutedText}; }
+  .sfn-run { margin-bottom: 8px; }
+  .sfn-run > summary { cursor: pointer; font-size: 12px; padding: 4px 6px; border-radius: 4px;
+    background: ${palette.surface}; }
+  .sfn-run > summary:hover { background: ${palette.surfaceHover}; }
+  .sfn-payload { margin-top: 8px; }
+  .sfn-payload-head { display: flex; align-items: center; gap: 8px; font-size: 11px;
+    color: ${palette.mutedText}; }
+  .sfn-payload-copy { margin-left: auto; border: 0; background: ${palette.surface}; color: ${palette.text};
+    border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-family: inherit; }
+  .sfn-payload-copy:hover { background: ${palette.surfaceHover}; }
+  .sfn-payload-json { margin: 4px 0 0; padding: 8px; background: ${palette.surface}; border-radius: 6px;
+    font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 240px; overflow: auto; }
+  .sfn-payload-note { margin: 4px 0 0; font-size: 11px; color: ${palette.mutedText}; }
   [data-sfn="minimap"] { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 6px;
     box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden; }
