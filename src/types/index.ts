@@ -825,6 +825,17 @@ export interface GenerateHtmlParams extends DiagramOptions {
      */
     history?: ExecutionHistoryInput;
     /**
+     * Embed each run's input, output and failure cause so the detail panel can show
+     * them per attempt. Requires `history`, and each payload is cut to 4096 characters
+     * with a visible truncation notice.
+     *
+     * Off by default, deliberately: a history's payloads are the most sensitive content
+     * it carries — request bodies, tokens, ARNs, anything a Task was handed — and the
+     * default document is something people paste into an issue or a chat. Turning this
+     * on means the payloads travel with the file.
+     */
+    includeExecutionPayloads?: boolean;
+    /**
      * Content-Security-Policy nonce to stamp on every embedded `<style>`/`<script>`
      * tag, so the document runs under a host with a strict `script-src 'nonce-…'`
      * policy (e.g. a VS Code webview). Must match `/^[A-Za-z0-9+/=_-]+$/` or an
@@ -1071,6 +1082,21 @@ export interface TakenEdge {
 export type TimelineEntryStatus = 'caught' | 'failed' | 'running' | 'succeeded';
 
 /**
+ * One captured execution payload — a state's input, its output, or a failure's cause.
+ *
+ * Truncated rather than embedded whole: these are the largest and the most sensitive
+ * content a history carries, and one oversized Map input would otherwise dominate a
+ * document. `truncatedFrom` is the original's length, so a reader can tell how much of
+ * it they are looking at.
+ */
+export interface TimelinePayload {
+    /** The payload, cut to the embedding cap. */
+    text: string;
+    /** Length of the original in characters; present only when `text` is a prefix of it. */
+    truncatedFrom?: number;
+}
+
+/**
  * One ordered run of one state: a single attempt, a single Map iteration, a single
  * pass through a Parallel branch. Retries and re-entries are separate entries rather
  * than being summed the way {@link ExecutionStateResult} sums them.
@@ -1080,6 +1106,8 @@ export interface TimelineEntry {
     attempt: number;
     /** Branches this Parallel started, from the history. Absent for any other state. */
     branchCount?: number;
+    /** The failure's `cause`, when payloads were captured and this run failed. */
+    cause?: TimelinePayload;
     /** Epoch ms the state was entered, or the attempt began. */
     enteredMs: number;
     /** Error name for a `failed` or `caught` entry, when the history records one. */
@@ -1088,10 +1116,14 @@ export interface TimelineEntry {
     exitedMs?: number;
     /** Node id of the state this entry was transitioned from, when the history records one. */
     fromNodeId?: string;
+    /** The state's input, when payloads were captured and the history recorded one. */
+    input?: TimelinePayload;
     /** Iterations this Map started, from the history. Absent for any other state. */
     iterationCount?: number;
     /** Graph node id, matching the renderer's `data-state-id`. */
     nodeId: string;
+    /** The state's output, when payloads were captured and this run exited normally. */
+    output?: TimelinePayload;
     /** ASL state name, as the history records it. */
     stateName: string;
     /** How this run of the state ended. */
@@ -1202,6 +1234,12 @@ export interface ExecutionOutput {
 
 /** Parameters for `generateExecutionHtml`/`generateExecutionHtmlAsync`. */
 export interface GenerateExecutionHtmlParams extends GenerateExecutionParams {
+    /**
+     * Embed each run's input, output and failure cause for the detail panel, each cut
+     * to 4096 characters. Off by default — see
+     * {@link GenerateHtmlParams.includeExecutionPayloads}.
+     */
+    includeExecutionPayloads?: boolean;
     /**
      * Content-Security-Policy nonce to stamp on every embedded `<style>`/`<script>`
      * tag, so the document runs under a host with a strict `script-src 'nonce-…'`

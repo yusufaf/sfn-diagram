@@ -1,4 +1,4 @@
-import type { AslState } from '../../../types';
+import type { AslState, ExecutionTimeline } from '../../../types';
 import type { ViewerEdge } from '../edgeData';
 
 /**
@@ -21,6 +21,12 @@ export interface ViewerData {
     edgeData?: Record<string, ViewerEdge>;
     /** Raw ASL for each state, keyed by state name. */
     stateData?: Record<string, AslState>;
+    /**
+     * The execution timeline, when the document was built from a history: what the
+     * detail panel reads to list a state's runs, with their payloads when those were
+     * embedded too.
+     */
+    timeline?: ExecutionTimeline;
 }
 
 /** Whether a data record was supplied and has at least one entry. */

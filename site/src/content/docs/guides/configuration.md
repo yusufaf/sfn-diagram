@@ -262,6 +262,34 @@ Big, branchy state machines are hard to read as a static image. A few options he
   `prefers-reduced-motion` by dropping the transitions and the pulse (stepping still
   works).
 
+  **Per-state runs.** Clicking a state in an execution document lists what it actually
+  did: one collapsible block per run, each headed with its attempt number, outcome,
+  duration and error name. A retried Task shows all three attempts; a Map's inner state
+  shows one block per iteration.
+
+  The payloads those runs carried — a state's input, its output, a failure's `cause` —
+  are **opt-in**, via `includeExecutionPayloads: true`:
+
+  ```typescript
+  const { html } = generateHtml({
+    aslDefinition: asl,
+    history: events,
+    includeExecutionPayloads: true, // off by default
+  });
+  ```
+
+  They are off by default on purpose. A history's payloads are the most sensitive thing
+  it carries — request bodies, tokens, ARNs, whatever a Task was handed — and the
+  default document is something people paste into an issue or a chat. Turning this on
+  means those payloads travel with the file.
+
+  Each payload is cut to 4096 characters (`EXECUTION_PAYLOAD_CAP`) with a visible
+  `Truncated to 4096 of 6014 characters` notice, so one oversized Map input cannot
+  balloon the document. Each block is pretty-printed and has a copy button. The same
+  payloads are on the timeline itself via
+  `buildExecutionTimeline({ events, includePayloads: true })`, as `entry.input`,
+  `entry.output` and `entry.cause`.
+
   Overlays collapse too — in the viewer, and with `collapse` on `generateExecution()`
   / `--execution --collapse`. A collapsed container's placeholder takes the status
   rolled up from the states it hides: any failure makes it red, otherwise anything

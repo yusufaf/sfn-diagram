@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import {
     buildExecutionTimeline,
+    EXECUTION_PAYLOAD_CAP,
     generateExecution,
     generateExecutionHtml,
     generateExecutionHtmlAsync,
@@ -792,6 +793,62 @@ describe('buildExecutionTimeline', () => {
         // An untimestamped first event must not stretch the span back to 1970.
         expect(timeline.startMs).toBe(Date.parse('2024-01-01T00:00:00.000Z'));
         expect(timeline.entries[0].enteredMs).toBe(timeline.startMs);
+    });
+
+    it('captures no payloads unless asked', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('simple'),
+            events: loadEvents('execution-success'),
+        });
+
+        for (const entry of timeline.entries) {
+            expect(entry.input).toBeUndefined();
+            expect(entry.output).toBeUndefined();
+            expect(entry.cause).toBeUndefined();
+        }
+    });
+
+    it('captures input, output and cause per run when asked', () => {
+        const events = loadEvents('execution-retry-success');
+        events[1].stateEnteredEventDetails!.input = '{"orderId":"A-1"}';
+        events[4].taskFailedEventDetails!.cause = 'connection reset by peer';
+        events[11].stateExitedEventDetails!.output = '{"receipt":"r-9"}';
+
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('retry'),
+            events,
+            includePayloads: true,
+        });
+        const attempts = timeline.entries.filter((entry) => entry.stateName === 'Submit');
+
+        // The input is recorded once, on the entry - every retry ran on that same input.
+        expect(attempts.map((entry) => entry.input?.text)).toEqual([
+            '{"orderId":"A-1"}',
+            '{"orderId":"A-1"}',
+            '{"orderId":"A-1"}',
+        ]);
+        expect(attempts[0].cause?.text).toBe('connection reset by peer');
+        expect(attempts[1].cause).toBeUndefined();
+        // Output belongs to the run that actually exited.
+        expect(attempts[2].output?.text).toBe('{"receipt":"r-9"}');
+        expect(attempts[0].output).toBeUndefined();
+    });
+
+    it('truncates a payload past the cap and says how much was cut', () => {
+        const events = loadEvents('execution-success');
+        const huge = '{"blob":"' + 'x'.repeat(EXECUTION_PAYLOAD_CAP * 2) + '"}';
+        events[1].stateEnteredEventDetails!.input = huge;
+
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('simple'),
+            events,
+            includePayloads: true,
+        });
+        const { input } = timeline.entries[0];
+
+        expect(input?.text).toHaveLength(EXECUTION_PAYLOAD_CAP);
+        expect(input?.truncatedFrom).toBe(huge.length);
+        expect(input?.text).toBe(huge.slice(0, EXECUTION_PAYLOAD_CAP));
     });
 
     it('leaves the entry a still-running execution is inside open', () => {

@@ -112,7 +112,11 @@ export interface ViewerHandle {
  */
 export function attachViewer(params: AttachViewerParams): ViewerHandle {
     const { root } = params;
-    const data: ViewerData = { edgeData: params.edgeData, stateData: params.stateData };
+    const data: ViewerData = {
+        edgeData: params.edgeData,
+        stateData: params.stateData,
+        timeline: params.timeline,
+    };
 
     // `Document.ownerDocument` is always null, so normalize both cases to "the
     // document this viewer's focus checks should read from".

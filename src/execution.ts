@@ -19,6 +19,7 @@ import type {
     StateNode,
     TimelineEntry,
     TimelineEntryStatus,
+    TimelinePayload,
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
 import {
@@ -179,6 +180,38 @@ function extractError(event: HistoryEvent): string | undefined {
     );
 }
 
+/** Extract a failure's `cause` from any of the failure detail shapes on an event. */
+function extractCause(event: HistoryEvent): string | undefined {
+    return (
+        event.taskFailedEventDetails?.cause ??
+        event.lambdaFunctionFailedEventDetails?.cause ??
+        event.activityFailedEventDetails?.cause ??
+        event.executionFailedEventDetails?.cause ??
+        event.taskTimedOutEventDetails?.cause ??
+        event.lambdaFunctionTimedOutEventDetails?.cause ??
+        event.evaluationFailedEventDetails?.cause ??
+        event.mapRunFailedEventDetails?.cause ??
+        undefined
+    );
+}
+
+/**
+ * Longest payload captured per timeline entry, in characters.
+ *
+ * A history's payloads are unbounded — a Distributed Map's input can be megabytes —
+ * and every one of them would otherwise land in the HTML document. 4 KB covers a
+ * typical Task's input or output whole and bounds the worst case to something a
+ * browser can still open.
+ */
+export const EXECUTION_PAYLOAD_CAP: number = 4096;
+
+/** Capture a payload, cut to {@link EXECUTION_PAYLOAD_CAP}. */
+function capturePayload(raw: string | undefined): TimelinePayload | undefined {
+    if (raw === undefined) return undefined;
+    if (raw.length <= EXECUTION_PAYLOAD_CAP) return { text: raw };
+    return { text: raw.slice(0, EXECUTION_PAYLOAD_CAP), truncatedFrom: raw.length };
+}
+
 /** Per-open-entry bookkeeping, pushed on enter and folded into the result on exit. */
 interface OpenFrame {
     /** Runs started directly inside this container that began a branch or an iteration. */
@@ -207,6 +240,8 @@ interface OpenFrame {
     nodeId: string;
     /** Index in `entries` of this frame's open run, or undefined between attempts. */
     openEntryIndex?: number;
+    /** The state's input, stamped on every attempt of this entry when captured. */
+    payloadInput?: TimelinePayload;
 }
 
 /** The entered-event types that open a container frame (a Parallel or a Map). */
@@ -301,8 +336,9 @@ interface ExecutionWalk {
 function walkExecutionHistory(params: {
     definition?: AslDefinition;
     events: HistoryEvent[];
+    includePayloads?: boolean;
 }): ExecutionWalk {
-    const { definition, events } = params;
+    const { definition, events, includePayloads = false } = params;
     const eventById = new Map<number, HistoryEvent>();
     for (const event of events) {
         if (event.id !== undefined) eventById.set(event.id, event);
@@ -426,6 +462,9 @@ function walkExecutionHistory(params: {
             attempt,
             enteredMs: ms,
             ...(fromNodeId !== undefined ? { fromNodeId } : {}),
+            // Every attempt of one entry re-runs the state on the same input, which the
+            // history records once, on the `StateEntered` that opened the frame.
+            ...(frame.payloadInput !== undefined ? { input: frame.payloadInput } : {}),
             nodeId: frame.nodeId,
             stateName: frame.name,
             status: 'running',
@@ -437,25 +476,33 @@ function walkExecutionHistory(params: {
         frame: OpenFrame,
         ms: number,
         status: TimelineEntryStatus,
-        error?: string
+        error?: string,
+        payloads?: { cause?: TimelinePayload; output?: TimelinePayload }
     ): void => {
         if (frame.openEntryIndex === undefined) return;
         const entry = entries[frame.openEntryIndex];
         entry.exitedMs = ms;
         entry.status = status;
         if (error !== undefined && entry.error === undefined) entry.error = error;
+        if (payloads?.cause !== undefined) entry.cause = payloads.cause;
+        if (payloads?.output !== undefined) entry.output = payloads.output;
         stampChildCount(frame, entry);
         frame.openEntryIndex = undefined;
     };
 
     /** Fold a frame that never exited into its result as a failed run. */
-    const closeAsFailed = (frame: OpenFrame, ms: number, fallbackError?: string): void => {
+    const closeAsFailed = (
+        frame: OpenFrame,
+        ms: number,
+        fallbackError?: string,
+        cause?: TimelinePayload
+    ): void => {
         const result = ensure(frame.name);
         result.status = mergeStatus(result.status, 'failed');
         result.attempts += Math.max(frame.failures, 1);
         const error = frame.error ?? fallbackError;
         if (error && !result.error) result.error = error;
-        closeEntry(frame, ms, 'failed', error);
+        closeEntry(frame, ms, 'failed', error, { cause });
     };
 
     for (const event of events) {
@@ -482,6 +529,9 @@ function walkExecutionHistory(params: {
                 lastEntryIndex: -1,
                 name,
                 nodeId: resolver ? resolver.resolve(scope, name) : name,
+                ...(includePayloads
+                    ? { payloadInput: capturePayload(event.stateEnteredEventDetails?.input) }
+                    : {}),
             };
             openStack.push(frame);
 
@@ -549,7 +599,11 @@ function walkExecutionHistory(params: {
             if (frame?.error && !result.error) result.error = frame.error;
             if (frame) {
                 if (frame.openEntryIndex !== undefined) {
-                    closeEntry(frame, exitMs ?? nowMs, 'succeeded');
+                    closeEntry(frame, exitMs ?? nowMs, 'succeeded', undefined, {
+                        output: includePayloads
+                            ? capturePayload(event.stateExitedEventDetails?.output)
+                            : undefined,
+                    });
                 } else if (frame.lastEntryIndex >= 0 && wasCaught) {
                     // The attempt was already closed as `failed` when it errored; the
                     // exit is what reveals a Catch handled it. Its `exitedMs` stays at
@@ -572,6 +626,7 @@ function walkExecutionHistory(params: {
             );
             if (containerIndex >= 0) {
                 const eventError = extractError(event);
+                const eventCause = includePayloads ? capturePayload(extractCause(event)) : undefined;
                 // Every leaf still open under the container is closed, not just the one
                 // that errored: a failing Parallel branch aborts its siblings mid-run,
                 // and they emit nothing further. An aborted sibling reports `failed`
@@ -580,7 +635,7 @@ function walkExecutionHistory(params: {
                 // report it `running` long after the execution finished.
                 const leaves = openStack.splice(containerIndex + 1);
                 for (const leaf of leaves) {
-                    closeAsFailed(leaf, nowMs, eventError);
+                    closeAsFailed(leaf, nowMs, eventError, eventCause);
                 }
                 // `ParallelStateFailed` carries no error details of its own, so fall back
                 // to the error of the leaf that actually failed - that is the failure
@@ -596,7 +651,7 @@ function walkExecutionHistory(params: {
                 container.lastOutcome = 'failure';
                 container.error = container.error ?? eventError ?? leafError;
                 if (containerFailure.terminal) container.failureClosed = true;
-                closeEntry(container, nowMs, 'failed', eventError ?? leafError);
+                closeEntry(container, nowMs, 'failed', eventError ?? leafError, { cause: eventCause });
             }
             continue;
         }
@@ -643,7 +698,9 @@ function walkExecutionHistory(params: {
                 activeFrame.failures += 1;
                 activeFrame.lastOutcome = 'failure';
                 activeFrame.error = extractError(event) ?? activeFrame.error;
-                closeEntry(activeFrame, nowMs, 'failed', extractError(event));
+                closeEntry(activeFrame, nowMs, 'failed', extractError(event), {
+                    cause: includePayloads ? capturePayload(extractCause(event)) : undefined,
+                });
             }
             continue;
         }
@@ -671,8 +728,9 @@ function walkExecutionHistory(params: {
             // Any state still open when the execution ends failed to complete.
             // Add this entry's attempts (failed tries, at least one) to any prior
             // completed iterations of the same state.
+            const execCause = includePayloads ? capturePayload(extractCause(event)) : undefined;
             for (const frame of openStack) {
-                closeAsFailed(frame, nowMs, execError);
+                closeAsFailed(frame, nowMs, execError, execCause);
             }
             openStack.length = 0;
         }
@@ -737,6 +795,12 @@ export interface BuildExecutionTimelineParams {
     definition?: AslDefinition;
     /** Ordered execution history events (from GetExecutionHistory). */
     events: HistoryEvent[];
+    /**
+     * Capture each run's input, output and failure cause onto its entry, each cut to
+     * {@link EXECUTION_PAYLOAD_CAP}. Off by default: payloads are the most sensitive
+     * content a history carries, so nothing embeds them unless asked.
+     */
+    includePayloads?: boolean;
 }
 
 /**
@@ -776,8 +840,8 @@ export interface BuildExecutionTimelineParams {
 export function buildExecutionTimeline(
     params: BuildExecutionTimelineParams
 ): ExecutionTimeline {
-    const { definition, events } = params;
-    return walkExecutionHistory({ definition, events }).timeline;
+    const { definition, events, includePayloads } = params;
+    return walkExecutionHistory({ definition, events, includePayloads }).timeline;
 }
 
 /** Format a duration for a node annotation, e.g. 45 -> "45ms", 1200 -> "1.2s". */
@@ -825,9 +889,10 @@ function summarize(
  */
 function computeExecutionWalk(
     definition: AslDefinition,
-    history: ExecutionHistoryInput
+    history: ExecutionHistoryInput,
+    includePayloads?: boolean
 ): ExecutionWalk {
-    return walkExecutionHistory({ definition, events: normalizeEvents(history) });
+    return walkExecutionHistory({ definition, events: normalizeEvents(history), includePayloads });
 }
 
 /**
@@ -903,6 +968,11 @@ export interface ComputeExecutionStylingParams {
     edges: GraphEdge[];
     /** Execution history: events array, GetExecutionHistory response, or JSON string. */
     history: ExecutionHistoryInput;
+    /**
+     * Capture each run's input, output and failure cause onto the reported timeline's
+     * entries, each cut to {@link EXECUTION_PAYLOAD_CAP}. Off by default.
+     */
+    includeExecutionPayloads?: boolean;
     /** The graph's nodes, after catch handling. */
     nodes: StateNode[];
     /**
@@ -950,10 +1020,11 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         definition,
         edges,
         history,
+        includeExecutionPayloads,
         nodes,
         summaryStateNames = Object.keys(definition.States),
     } = params;
-    const walk = computeExecutionWalk(definition, history);
+    const walk = computeExecutionWalk(definition, history, includeExecutionPayloads);
     const { overlay, timeline } = walk;
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
