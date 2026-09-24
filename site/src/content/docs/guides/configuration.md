@@ -242,6 +242,26 @@ Big, branchy state machines are hard to read as a static image. A few options he
   Distributed Map runs its iterations as child executions, whose events are not in the
   parent history, so its count is `0`.
 
+  **Playback.** An HTML document built from a history gets a playback bar under the
+  toolbar, driven by that timeline: play/pause, step back and forward, a scrubber, and
+  1x / 4x / 16x / instant speeds. Space plays and pauses, the arrow keys step, Home and
+  End jump to either end.
+
+  The diagram shows the status each state *held at the playhead*, not the outcome it
+  ended with: a state that has been entered but has not finished is blue and pulsing,
+  one that finished shows the outcome it had by then, and anything not yet reached is
+  grey. An edge lights up once the run it leads into has begun. A step lands on the
+  next thing that actually ran, so every `Retry` attempt and every Map iteration is its
+  own stop. Reaching the end drops every playback class, leaving exactly the static
+  overlay the document was served with.
+
+  Real durations are compressed — each interval of the run is log-scaled between 70ms
+  and 900ms of display time — so a five-minute `Wait` does not stall the replay while a
+  40ms Task still registers. **Real** switches to true proportions. Playback keeps the
+  running state in view until you pan or zoom by hand, and honours
+  `prefers-reduced-motion` by dropping the transitions and the pulse (stepping still
+  works).
+
   Overlays collapse too — in the viewer, and with `collapse` on `generateExecution()`
   / `--execution --collapse`. A collapsed container's placeholder takes the status
   rolled up from the states it hides: any failure makes it red, otherwise anything

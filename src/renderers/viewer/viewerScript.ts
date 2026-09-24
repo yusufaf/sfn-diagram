@@ -13,6 +13,8 @@ export interface BuildViewerScriptParams {
     hasRelayout?: boolean;
     /** Whether the click-a-state panel is wired up (only when state data was embedded). */
     hasStateData: boolean;
+    /** Whether execution playback is wired up (only when a timeline was embedded). */
+    hasTimeline?: boolean;
 }
 
 /**
@@ -49,6 +51,7 @@ function readBlob(variableName: string, elementId: string): string {
  * @param params.hasEdgeData - Whether to wire up the click-an-edge panel
  * @param params.hasRelayout - Whether to inline the relayout bundle and wire up per-container collapse
  * @param params.hasStateData - Whether to wire up the click-a-state panel
+ * @param params.hasTimeline - Whether to wire up execution playback
  * @returns JavaScript source for inlining into a `<script>` element
  *
  * @example
@@ -58,12 +61,13 @@ function readBlob(variableName: string, elementId: string): string {
  * ```
  */
 export function buildViewerScript(params: BuildViewerScriptParams): string {
-    const { hasEdgeData = false, hasRelayout = false, hasStateData } = params;
+    const { hasEdgeData = false, hasRelayout = false, hasStateData, hasTimeline = false } = params;
 
     const reads =
         (hasStateData ? readBlob('stateData', 'sfn-state-data') : '') +
         (hasEdgeData ? readBlob('edgeData', 'sfn-edge-data') : '') +
-        (hasRelayout ? readBlob('relayoutModel', 'sfn-relayout-model') : '');
+        (hasRelayout ? readBlob('relayoutModel', 'sfn-relayout-model') : '') +
+        (hasTimeline ? readBlob('timeline', 'sfn-timeline-data') : '');
 
     // Alphabetical, matching the AttachViewerParams field order.
     const attachArgs: string[] = [];
@@ -73,6 +77,7 @@ export function buildViewerScript(params: BuildViewerScriptParams): string {
     }
     attachArgs.push('root: document');
     if (hasStateData) attachArgs.push('stateData: stateData');
+    if (hasTimeline) attachArgs.push('timeline: timeline');
 
     return `
 (function () {

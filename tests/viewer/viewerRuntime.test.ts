@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { generateHtml, generateViewerUpdate } from '../../src';
@@ -2011,5 +2013,354 @@ describe('search debounce', () => {
         expect(result.before).toEqual({ count: '1 / 3', dimmed: 0, hit: 'Alpha' });
         expect(result.onEnter).toEqual({ count: '1 / 1', dimmed: 2, hit: 'Gamma' });
         expect(result.settled).toEqual({ count: '', dimmed: 0, hit: null });
+    });
+});
+
+describe('execution playback runtime', () => {
+    let playbackPage: Page;
+
+    const retryDefinition: AslDefinition = {
+        StartAt: 'Submit',
+        States: {
+            Submit: {
+                Type: 'Task',
+                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:submit',
+                Retry: [{ ErrorEquals: ['States.Timeout'], MaxAttempts: 3 }],
+                Next: 'Done',
+            },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    beforeAll(async () => {
+        playbackPage = await browser.newPage();
+        await playbackPage.setViewport({ width: 1280, height: 800 });
+        const history = readFileSync(
+            join(__dirname, '..', 'fixtures', 'execution-retry-success.json'),
+            'utf-8',
+        );
+        const { html } = generateHtml({ aslDefinition: retryDefinition, history });
+        await playbackPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await playbackPage.close();
+    });
+
+    /** The playback status class on a state, or `''` when it carries none. */
+    const statusOf = (stateId: string): Promise<string> =>
+        playbackPage.evaluate((id) => {
+            const svg = document.querySelector('[data-sfn="content"] svg');
+            const node = svg!.querySelector(`[data-state-id="${id}"]`);
+            return (
+                Array.from(node!.classList).find((name) => name.indexOf('sfn-exec-') === 0) ?? ''
+            );
+        }, stateId);
+
+    const readout = (): Promise<string | null> =>
+        playbackPage.$eval('[data-sfn="playback-entry"]', (element) => element.textContent);
+
+    it('ships the bar and the timeline blob only for a document built from a history', async () => {
+        expect(await playbackPage.$('[data-sfn="playback"]')).not.toBeNull();
+        const entryCount = await playbackPage.evaluate(
+            () => JSON.parse(document.getElementById('sfn-timeline-data')!.textContent!).entries.length,
+        );
+        // Three attempts of Submit plus Done.
+        expect(entryCount).toBe(4);
+
+        // The inlined controller bundle carries the bar's selector strings, so the
+        // absence of the bar itself is checked against the markup it would emit.
+        const { html } = generateHtml({ aslDefinition: retryDefinition });
+        expect(html).not.toContain('id="sfn-playback"');
+        expect(html).not.toContain('id="sfn-timeline-data"');
+    });
+
+    it('paints the status each state held at the playhead, not its final outcome', async () => {
+        await playbackPage.click('[data-sfn-playback="next"]');
+
+        // Submit's first attempt is running; Done has not been reached.
+        expect(await statusOf('Submit')).toBe('sfn-exec-active');
+        expect(await statusOf('Done')).toBe('sfn-exec-pending');
+        expect(await readout()).toBe('Submit');
+    });
+
+    it('steps by timeline entry, so each retry attempt is its own stop', async () => {
+        await playbackPage.click('[data-sfn-playback="next"]');
+        expect(await readout()).toBe('Submit · attempt 2');
+
+        await playbackPage.click('[data-sfn-playback="next"]');
+        expect(await readout()).toBe('Submit · attempt 3');
+
+        await playbackPage.click('[data-sfn-playback="prev"]');
+        expect(await readout()).toBe('Submit · attempt 2');
+    });
+
+    it('restores the served overlay at the end of the run', async () => {
+        await playbackPage.keyboard.press('End');
+
+        const leftover = await playbackPage.evaluate(
+            () => document.querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(leftover).toBe(0);
+        // The static overlay's own colours are what the document was served with.
+        expect(await statusOf('Submit')).toBe('');
+    });
+
+    it('lights an edge only once the run it leads into has begun', async () => {
+        await playbackPage.keyboard.press('Home');
+        const beforeDone = await playbackPage.evaluate(
+            () => document.querySelectorAll('.sfn-exec-taken').length,
+        );
+        expect(beforeDone).toBe(0);
+
+        // Four steps reach Done, whose entry transitioned from Submit.
+        for (let step = 0; step < 4; step++) {
+            await playbackPage.click('[data-sfn-playback="next"]');
+        }
+        const taken = await playbackPage.evaluate(() =>
+            Array.from(document.querySelectorAll('.sfn-exec-taken')).map((edge) =>
+                edge.getAttribute('data-edge-id'),
+            ),
+        );
+        expect(taken.some((id) => id?.indexOf('Submit->Done#') === 0)).toBe(true);
+    });
+
+    it('toggles play with Space and does not scroll the stage', async () => {
+        // Space belongs to whatever has focus, so this is the nothing-focused case.
+        await playbackPage.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.keyboard.press('Space');
+        const playingLabel = await playbackPage.$eval(
+            '[data-sfn="playback-play"]',
+            (element) => element.getAttribute('aria-label'),
+        );
+        expect(playingLabel).toBe('Pause');
+
+        await playbackPage.keyboard.press('Space');
+        const pausedLabel = await playbackPage.$eval(
+            '[data-sfn="playback-play"]',
+            (element) => element.getAttribute('aria-label'),
+        );
+        expect(pausedLabel).toBe('Play');
+    });
+
+    it('runs the instant speed to the end instead of stalling on a non-finite step', async () => {
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.click('[data-sfn-speed="Infinity"]');
+        await playbackPage.click('[data-sfn-playback="toggle"]');
+        await playbackPage.waitForFunction(
+            () =>
+                document.querySelector('[data-sfn="playback-play"]')!.getAttribute('aria-label') ===
+                'Play',
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const readings = await playbackPage.evaluate(() => ({
+            clock: document.querySelector('[data-sfn="playback-time"]')!.textContent,
+            painted: document.querySelectorAll('[class*="sfn-exec-"]').length,
+            scrub: (document.querySelector('[data-sfn="playback-scrub"]') as HTMLInputElement).value,
+        }));
+        expect(readings.clock).not.toContain('NaN');
+        expect(readings.scrub).not.toBe('NaN');
+        // Reaching the end leaves the served overlay, same as playing out at 1x.
+        expect(readings.painted).toBe(0);
+        await playbackPage.click('[data-sfn-speed="1"]');
+    });
+
+    it('clears the paint when stepping past the last entry, not only when playing out', async () => {
+        await playbackPage.keyboard.press('Home');
+        for (let step = 0; step < 8; step++) {
+            await playbackPage.click('[data-sfn-playback="next"]');
+        }
+        const painted = await playbackPage.evaluate(
+            () => document.querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(painted).toBe(0);
+    });
+
+    it('leaves Space to a focused speed button', async () => {
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.focus('[data-sfn-speed="4"]');
+        await playbackPage.keyboard.press('Space');
+
+        const state = await playbackPage.evaluate(() => ({
+            play: document.querySelector('[data-sfn="playback-play"]')!.getAttribute('aria-label'),
+            pressed: document
+                .querySelector('[data-sfn-speed="4"]')!
+                .getAttribute('aria-pressed'),
+        }));
+        // The button took the key; playback did not start behind it.
+        expect(state).toEqual({ play: 'Play', pressed: 'true' });
+        await playbackPage.click('[data-sfn-speed="1"]');
+    });
+
+    it('keeps the right-hand controls clear of an open detail panel', async () => {
+        const before = await playbackPage.$eval(
+            '[data-sfn="playback"]',
+            (element) => element.getBoundingClientRect().right,
+        );
+        await playbackPage.click('[data-state-id="Done"]');
+        const withPanel = await playbackPage.$eval(
+            '[data-sfn="playback"]',
+            (element) => element.getBoundingClientRect().right,
+        );
+        expect(withPanel).toBeLessThan(before - 300);
+        await playbackPage.click('[data-sfn="panel-close"]');
+    });
+
+    it('leaves Space to the search box while it has focus', async () => {
+        await playbackPage.keyboard.press('Home');
+        await playbackPage.focus('#sfn-search');
+        await playbackPage.keyboard.press('Space');
+
+        const label = await playbackPage.$eval(
+            '[data-sfn="playback-play"]',
+            (element) => element.getAttribute('aria-label'),
+        );
+        expect(label).toBe('Play');
+        await playbackPage.$eval('#sfn-search', (element) => {
+            (element as HTMLInputElement).value = '';
+            element.blur();
+        });
+    });
+});
+
+describe('execution playback across a setContent update', () => {
+    let updatePage: Page;
+
+    const definitionWithHistory: AslDefinition = {
+        StartAt: 'Only',
+        States: { Only: { Type: 'Pass', End: true } },
+    };
+
+    beforeAll(async () => {
+        updatePage = await browser.newPage();
+        await updatePage.setViewport({ width: 1280, height: 800 });
+        const history = readFileSync(
+            join(__dirname, '..', 'fixtures', 'execution-retry-success.json'),
+            'utf-8',
+        );
+        const { html } = generateHtml({
+            aslDefinition: {
+                StartAt: 'Submit',
+                States: {
+                    Submit: { Type: 'Task', Resource: 'arn:submit', Next: 'Done' },
+                    Done: { Type: 'Succeed' },
+                },
+            } as AslDefinition,
+            history,
+        });
+        await updatePage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await updatePage.close();
+    });
+
+    it('retires the controls when the host swaps in a different diagram', async () => {
+        const update: ViewerUpdate = generateViewerUpdate({ aslDefinition: definitionWithHistory });
+        await updatePage.evaluate((detail) => {
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        // The timeline described the diagram that was just replaced. The bar's own
+        // display rule is an author declaration, so `hidden` alone would not hide it.
+        const barState = await updatePage.$eval('[data-sfn="playback"]', (element) => ({
+            display: getComputedStyle(element).display,
+            hidden: (element as HTMLElement).hidden,
+        }));
+        expect(barState).toEqual({ display: 'none', hidden: true });
+
+        // Neither route back in may repaint: the new diagram's nodes are not in this
+        // timeline, so a replay would grey the whole thing out.
+        await updatePage.evaluate(() => {
+            (document.querySelector('[data-sfn-playback="toggle"]') as HTMLElement).click();
+        });
+        await updatePage.keyboard.press('ArrowRight');
+        const painted = await updatePage.evaluate(
+            () => document.querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(painted).toBe(0);
+    });
+});
+
+describe('execution playback with a container and a name containing #', () => {
+    let hashPage: Page;
+
+    beforeAll(async () => {
+        hashPage = await browser.newPage();
+        await hashPage.setViewport({ width: 1280, height: 800 });
+        const at = (ms: number): Date => new Date(Date.parse('2024-01-01T00:00:00.000Z') + ms);
+        const { html } = generateHtml({
+            aslDefinition: {
+                StartAt: 'Fanout',
+                States: {
+                    Fanout: {
+                        Type: 'Parallel',
+                        Branches: [
+                            {
+                                StartAt: 'Pay#1',
+                                States: {
+                                    'Pay#1': { Type: 'Pass', Next: 'Settle' },
+                                    Settle: { Type: 'Pass', End: true },
+                                },
+                            },
+                        ],
+                        Next: 'Done',
+                    },
+                    Done: { Type: 'Succeed' },
+                },
+            } as AslDefinition,
+            history: {
+                events: [
+                    { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: at(0) },
+                    { id: 2, previousEventId: 1, type: 'ParallelStateEntered', timestamp: at(10), stateEnteredEventDetails: { name: 'Fanout' } },
+                    { id: 3, previousEventId: 2, type: 'ParallelStateStarted', timestamp: at(20) },
+                    { id: 4, previousEventId: 3, type: 'PassStateEntered', timestamp: at(30), stateEnteredEventDetails: { name: 'Pay#1' } },
+                    { id: 5, previousEventId: 4, type: 'PassStateExited', timestamp: at(40), stateExitedEventDetails: { name: 'Pay#1' } },
+                    { id: 6, previousEventId: 5, type: 'PassStateEntered', timestamp: at(50), stateEnteredEventDetails: { name: 'Settle' } },
+                    { id: 7, previousEventId: 6, type: 'PassStateExited', timestamp: at(60), stateExitedEventDetails: { name: 'Settle' } },
+                    { id: 8, previousEventId: 7, type: 'ParallelStateExited', timestamp: at(70), stateExitedEventDetails: { name: 'Fanout' } },
+                    { id: 9, previousEventId: 8, type: 'SucceedStateEntered', timestamp: at(80), stateEnteredEventDetails: { name: 'Done' } },
+                    { id: 10, previousEventId: 9, type: 'SucceedStateExited', timestamp: at(90), stateExitedEventDetails: { name: 'Done' } },
+                    { id: 11, previousEventId: 10, type: 'ExecutionSucceeded', timestamp: at(100) },
+                ],
+            },
+        });
+        await hashPage.setContent(html, { waitUntil: 'load' });
+    }, 60_000);
+
+    afterAll(async () => {
+        await hashPage.close();
+    });
+
+    it('lights an edge whose source state name contains a #', async () => {
+        // Edge ids are `${from}->${to}#${type}#${ordinal}`, and a state name may itself
+        // contain a # - splitting on the first one would never match the pair (#79).
+        for (let step = 0; step < 3; step++) {
+            await hashPage.click('[data-sfn-playback="next"]');
+        }
+        const taken = await hashPage.evaluate(() =>
+            Array.from(document.querySelectorAll('.sfn-exec-taken')).map((edge) =>
+                edge.getAttribute('data-edge-id'),
+            ),
+        );
+        expect(taken.some((id) => id?.indexOf('Pay#1->Settle#') === 0)).toBe(true);
+    });
+
+    it('clears both views when a collapse toggle happened mid-replay', async () => {
+        await hashPage.keyboard.press('Home');
+        await hashPage.click('[data-sfn-playback="next"]');
+        await hashPage.click('[data-sfn-collapse-toggle]');
+        await hashPage.keyboard.press('End');
+
+        // Including the view left behind, which no longer gets painted.
+        const painted = await hashPage.evaluate(
+            () =>
+                document
+                    .querySelector('[data-sfn="content"]')!
+                    .querySelectorAll('[class*="sfn-exec-"]').length,
+        );
+        expect(painted).toBe(0);
     });
 });

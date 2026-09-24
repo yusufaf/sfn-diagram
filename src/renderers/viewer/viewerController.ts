@@ -1,10 +1,11 @@
-import type { AslState } from '../../types';
+import type { AslState, ExecutionTimeline } from '../../types';
 import { createCollapseToggle, type CollapseToggle, type ViewerRelayout } from './controller/collapse';
 import { createListenerRegistry, hook, type ViewerData } from './controller/dom';
 import { attachKeyboardHandlers } from './controller/keyboard';
 import { createMinimap } from './controller/minimap';
 import { createDetailPanel } from './controller/panel';
 import { attachPanZoom } from './controller/panZoom';
+import { createPlayback } from './controller/playback';
 import { createSearch } from './controller/search';
 import { createViewport } from './controller/viewport';
 import type { ViewerEdge } from './edgeData';
@@ -50,6 +51,12 @@ export interface AttachViewerParams {
      * panel; omit it to run the viewer without one (pan/zoom/search/minimap still work).
      */
     stateData?: Record<string, AslState>;
+    /**
+     * The execution timeline to replay, from an execution overlay's
+     * `metadata.timeline`. Drives the playback bar; omit it and playback stays inert
+     * (the controls are only rendered alongside a timeline anyway).
+     */
+    timeline?: ExecutionTimeline;
 }
 
 /** Parameters for {@link ViewerHandle.setContent}. */
@@ -143,7 +150,17 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         panel.selectFromTarget(activateParams);
     };
 
-    attachKeyboardHandlers({ activate, registry, root, stage, viewport, panel });
+    const playback = createPlayback({
+        content,
+        ownerDoc,
+        registry,
+        root,
+        stage,
+        timeline: params.timeline,
+        viewport,
+    });
+
+    attachKeyboardHandlers({ activate, playback, registry, root, stage, viewport, panel });
     const panZoom = attachPanZoom({ activate, ownerDoc, registry, root, stage, viewport });
     const search = createSearch({ content, ownerDoc, registry, root, viewport });
     const minimap = createMinimap({
@@ -188,6 +205,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         data.stateData = nextStateData;
         data.edgeData = nextEdgeData;
 
+        // The replayed classes sat on the elements about to be replaced, and the
+        // timeline describes the diagram being swapped out - not the one coming in.
+        playback.retire();
         panel.clearEdgeSelection();
         content.innerHTML = contentHtml;
         // The tab stops and accessible names sat on the elements just replaced.
