@@ -104,6 +104,22 @@ const CONTAINER_START_EVENT_TYPES: ReadonlyMap<string, HistoryEventType> = new M
     ['ParallelStateStarted', 'ParallelStateEntered'],
 ]);
 
+/**
+ * Task-level events that begin an attempt. A `Retry` re-schedules the same state
+ * without re-entering it, so after the previous attempt failed one of these is where
+ * the next one starts. Enumerated rather than matched on a `Scheduled` / `Started`
+ * suffix, which would also catch the container and iteration lifecycle events.
+ */
+const ATTEMPT_START_EVENT_TYPES = new Set<string>([
+    'ActivityScheduled',
+    'ActivityStarted',
+    'LambdaFunctionScheduled',
+    'LambdaFunctionStarted',
+    'TaskScheduled',
+    'TaskStarted',
+    'TaskSubmitted',
+]);
+
 /** Task-level events that mark the active state's latest attempt as successful. */
 const SUCCESS_EVENT_TYPES = new Set<string>([
     'ActivitySucceeded',
@@ -168,6 +184,8 @@ interface OpenFrame {
     /** Runs started directly inside this container that began a branch or an iteration. */
     childStarts: number;
     enteredMs?: number;
+    /** Id of the `*StateEntered` event that opened this frame, for correlating its events. */
+    enteredEventId?: number;
     /** The `*StateEntered` event type that opened this frame, e.g. `ParallelStateEntered`. */
     enteredType: string;
     error?: string;
@@ -262,6 +280,11 @@ function mergeStatus(
 interface ExecutionWalk {
     /** The aggregated per-state model. */
     overlay: ExecutionOverlay;
+    /**
+     * The resolver the walk built, so a caller re-keying by node id need not build a
+     * second one. Absent only when no definition was supplied to resolve against.
+     */
+    resolver?: IdResolver;
     /** The same run as an ordered list of individual state runs. */
     timeline: ExecutionTimeline;
 }
@@ -307,8 +330,13 @@ function walkExecutionHistory(params: {
     let startMs: number | undefined;
     const eventMs = (event: HistoryEvent): number => {
         const millis = toMillis(event.timestamp);
-        if (millis !== undefined) lastKnownMs = millis;
-        if (startMs === undefined) startMs = lastKnownMs;
+        if (millis !== undefined) {
+            lastKnownMs = millis;
+            // The first *known* timestamp, not the first event: an `ExecutionStarted`
+            // with no timestamp would otherwise anchor the run at the epoch and stretch
+            // a scrubber's span over fifty years.
+            if (startMs === undefined) startMs = millis;
+        }
         return lastKnownMs;
     };
 
@@ -340,6 +368,36 @@ function walkExecutionHistory(params: {
             if (predicate(openStack[i])) return i;
         }
         return -1;
+    };
+
+    /**
+     * The open frame an event belongs to, by walking `previousEventId` back to the
+     * `*StateEntered` that opened it.
+     *
+     * The innermost open frame is not it. Under a Parallel or a concurrent Map every
+     * branch or iteration in flight has a frame on the stack at once, and their events
+     * interleave — so a sibling's `TaskSucceeded` would otherwise be credited to
+     * whichever state happened to be entered last. The history's own causal chain says
+     * which state an event belongs to; the stack top is only a fallback for a history
+     * that does not carry one.
+     */
+    const frameForEvent = (event: HistoryEvent): OpenFrame | undefined => {
+        let cursorId = event.previousEventId;
+        const seen = new Set<number>();
+        while (cursorId !== undefined && !seen.has(cursorId)) {
+            seen.add(cursorId);
+            const owner = openStack.find((frame) => frame.enteredEventId === cursorId);
+            if (owner) return owner;
+            const prev = eventById.get(cursorId);
+            if (!prev?.type) return undefined;
+            // Reaching another state's boundary means the chain left this run entirely.
+            if (prev.type.endsWith('StateEntered') || prev.type.endsWith('StateExited')) {
+                return undefined;
+            }
+            if (EDGE_WALK_BOUNDARY_TYPES.has(prev.type)) return undefined;
+            cursorId = prev.previousEventId;
+        }
+        return undefined;
     };
 
     /** The innermost open container frame — the scope anything entered now belongs to. */
@@ -417,6 +475,7 @@ function walkExecutionHistory(params: {
             const scope = parent ? (childScopes?.get(parent.nodeId)?.get(name) ?? '') : '';
             const frame: OpenFrame = {
                 childStarts: 0,
+                enteredEventId: event.id,
                 enteredMs: toMillis(event.timestamp),
                 enteredType: type,
                 failures: 0,
@@ -464,8 +523,15 @@ function walkExecutionHistory(params: {
         if (type.endsWith('StateExited')) {
             const name = exitedName(event);
             if (!name) continue;
-            // Pop the most recent matching open frame.
-            const frameIndex = findFrameIndex((candidate) => candidate.name === name);
+            // Pop the frame this exit belongs to. Two concurrent runs of one state - a
+            // Map with `MaxConcurrency > 1`, or a name live in two branches - both sit
+            // on the stack under the same name, so matching by name alone would close
+            // whichever was entered last and stamp its window on the wrong run.
+            const owner = frameForEvent(event);
+            const frameIndex =
+                owner?.name === name
+                    ? openStack.indexOf(owner)
+                    : findFrameIndex((candidate) => candidate.name === name);
             const frame = frameIndex >= 0 ? openStack.splice(frameIndex, 1)[0] : undefined;
             const result = ensure(name);
 
@@ -553,17 +619,15 @@ function walkExecutionHistory(params: {
             continue;
         }
 
-        // --- Task-level failure / success attributed to the active leaf state ---
-        const activeFrame = openStack[openStack.length - 1];
+        // --- Task-level failure / success attributed to the state the event belongs to ---
+        const activeFrame = frameForEvent(event) ?? openStack[openStack.length - 1];
 
-        // A `Retry` re-schedules the same state without re-entering it, so the first
-        // activity after the previous attempt failed is where the next attempt begins.
         // Without this an attempt would appear to start at the moment it ended, and the
         // backoff before it would belong to no attempt at all.
         if (
-            activeFrame?.openEntryIndex === undefined &&
             activeFrame !== undefined &&
-            (type.endsWith('Scheduled') || type.endsWith('Started'))
+            activeFrame.openEntryIndex === undefined &&
+            ATTEMPT_START_EVENT_TYPES.has(type)
         ) {
             openEntry(activeFrame, nowMs, activeFrame.failures + 1);
         }
@@ -628,6 +692,7 @@ function walkExecutionHistory(params: {
 
     return {
         overlay: { executionStatus, startState, states: results, takenEdges },
+        resolver,
         timeline: {
             endMs: lastKnownMs,
             entries,
@@ -888,12 +953,14 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         nodes,
         summaryStateNames = Object.keys(definition.States),
     } = params;
-    const { overlay, timeline } = computeExecutionWalk(definition, history);
+    const walk = computeExecutionWalk(definition, history);
+    const { overlay, timeline } = walk;
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
     // once rather than looking up `overlay.states[node.id]`, which silently misses
-    // every nested state whose name repeats - see byNodeId.
-    const resolver = buildIdResolver({ definition });
+    // every nested state whose name repeats - see byNodeId. The walk already indexed
+    // the definition to scope its own ids, so reuse that rather than indexing twice.
+    const resolver = walk.resolver ?? buildIdResolver({ definition });
     const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
 
     // Node colours: known states by status; everything else "not reached".
@@ -1053,10 +1120,11 @@ export function generateMermaidExecution(
 ): MermaidExecutionOutput {
     const { aslDefinition, history, layout, theme } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
-    const { overlay, timeline } = computeExecutionWalk(aslObj, history);
+    const walk = computeExecutionWalk(aslObj, history);
+    const { overlay, timeline } = walk;
 
     const { nodes, edges } = parseAsl({ definition: aslObj });
-    const resolver = buildIdResolver({ definition: aslObj });
+    const resolver = walk.resolver ?? buildIdResolver({ definition: aslObj });
     const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
 
     const executionClasses: Record<string, ExecutionStateStatus> = {};

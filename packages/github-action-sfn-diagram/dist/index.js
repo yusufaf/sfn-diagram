@@ -68881,6 +68881,15 @@ var CONTAINER_START_EVENT_TYPES = /* @__PURE__ */ new Map([
   ["MapStateStarted", "MapStateEntered"],
   ["ParallelStateStarted", "ParallelStateEntered"]
 ]);
+var ATTEMPT_START_EVENT_TYPES = /* @__PURE__ */ new Set([
+  "ActivityScheduled",
+  "ActivityStarted",
+  "LambdaFunctionScheduled",
+  "LambdaFunctionStarted",
+  "TaskScheduled",
+  "TaskStarted",
+  "TaskSubmitted"
+]);
 var SUCCESS_EVENT_TYPES = /* @__PURE__ */ new Set([
   "ActivitySucceeded",
   "LambdaFunctionSucceeded",
@@ -68967,8 +68976,10 @@ function walkExecutionHistory(params) {
   let startMs;
   const eventMs = (event) => {
     const millis = toMillis(event.timestamp);
-    if (millis !== void 0) lastKnownMs = millis;
-    if (startMs === void 0) startMs = lastKnownMs;
+    if (millis !== void 0) {
+      lastKnownMs = millis;
+      if (startMs === void 0) startMs = millis;
+    }
     return lastKnownMs;
   };
   const findFromState = (event) => {
@@ -68994,6 +69005,20 @@ function walkExecutionHistory(params) {
   const findFrameIndex = (predicate) => {
     for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (predicate(openStack[i5])) return i5;
     return -1;
+  };
+  const frameForEvent = (event) => {
+    let cursorId = event.previousEventId;
+    const seen = /* @__PURE__ */ new Set();
+    while (cursorId !== void 0 && !seen.has(cursorId)) {
+      seen.add(cursorId);
+      const owner = openStack.find((frame) => frame.enteredEventId === cursorId);
+      if (owner) return owner;
+      const prev = eventById.get(cursorId);
+      if (!prev?.type) return void 0;
+      if (prev.type.endsWith("StateEntered") || prev.type.endsWith("StateExited")) return;
+      if (EDGE_WALK_BOUNDARY_TYPES.has(prev.type)) return void 0;
+      cursorId = prev.previousEventId;
+    }
   };
   const openContainer = () => {
     const index = findFrameIndex((frame) => CONTAINER_ENTERED_TYPES.has(frame.enteredType));
@@ -69045,6 +69070,7 @@ function walkExecutionHistory(params) {
       const scope = parent ? childScopes?.get(parent.nodeId)?.get(name) ?? "" : "";
       const frame = {
         childStarts: 0,
+        enteredEventId: event.id,
         enteredMs: toMillis(event.timestamp),
         enteredType: type,
         failures: 0,
@@ -69077,7 +69103,8 @@ function walkExecutionHistory(params) {
     if (type.endsWith("StateExited")) {
       const name = exitedName(event);
       if (!name) continue;
-      const frameIndex = findFrameIndex((candidate) => candidate.name === name);
+      const owner = frameForEvent(event);
+      const frameIndex = owner?.name === name ? openStack.indexOf(owner) : findFrameIndex((candidate) => candidate.name === name);
       const frame = frameIndex >= 0 ? openStack.splice(frameIndex, 1)[0] : void 0;
       const result = ensure2(name);
       const exitMs = toMillis(event.timestamp);
@@ -69124,8 +69151,8 @@ function walkExecutionHistory(params) {
       }
       continue;
     }
-    const activeFrame = openStack[openStack.length - 1];
-    if (activeFrame?.openEntryIndex === void 0 && activeFrame !== void 0 && (type.endsWith("Scheduled") || type.endsWith("Started"))) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
+    const activeFrame = frameForEvent(event) ?? openStack[openStack.length - 1];
+    if (activeFrame !== void 0 && activeFrame.openEntryIndex === void 0 && ATTEMPT_START_EVENT_TYPES.has(type)) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
     if (FAILURE_EVENT_TYPES.has(type)) {
       if (activeFrame) {
         if (activeFrame.openEntryIndex === void 0) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
@@ -69164,6 +69191,7 @@ function walkExecutionHistory(params) {
       states: results,
       takenEdges
     },
+    resolver,
     timeline: {
       endMs: lastKnownMs,
       entries,
@@ -69209,9 +69237,10 @@ function byNodeId(byStateName, idsForName) {
 function generateMermaidExecution(params) {
   const { aslDefinition, history, layout, theme } = params;
   const aslObj = parseAslSource({ source: aslDefinition });
-  const { overlay, timeline } = computeExecutionWalk(aslObj, history);
+  const walk = computeExecutionWalk(aslObj, history);
+  const { overlay, timeline } = walk;
   const { nodes: nodes5, edges } = parseAsl({ definition: aslObj });
-  const resolver = buildIdResolver({ definition: aslObj });
+  const resolver = walk.resolver ?? buildIdResolver({ definition: aslObj });
   const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
   const executionClasses = {};
   const nodeAnnotations = {};

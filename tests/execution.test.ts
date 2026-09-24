@@ -612,6 +612,188 @@ describe('buildExecutionTimeline', () => {
         ]);
     });
 
+    it('does not mistake a concurrent iteration starting for a retry of the failed leaf', () => {
+        // With MaxConcurrency > 1 the next iteration starts while the failed leaf's
+        // frame is still open. Only a task-level scheduling event begins an attempt, so
+        // `MapIterationStarted` must not open a second attempt of that leaf.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                stateEnteredEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapStateStarted' } as HistoryEvent,
+            { id: 4, previousEventId: 3, type: 'MapIterationStarted' } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+            { id: 6, previousEventId: 5, type: 'TaskScheduled' } as HistoryEvent,
+            {
+                id: 7,
+                previousEventId: 6,
+                type: 'TaskFailed',
+                taskFailedEventDetails: { error: 'Boom' },
+            } as HistoryEvent,
+            { id: 8, previousEventId: 3, type: 'MapIterationStarted' } as HistoryEvent,
+            { id: 9, previousEventId: 8, type: 'MapStateFailed' } as HistoryEvent,
+            { id: 10, previousEventId: 9, type: 'ExecutionFailed' } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({ definition: loadAsl('map'), events });
+
+        expect(summarizeEntries(timeline)).toEqual([
+            'ProcessItems#1 failed',
+            'ProcessItem#1 failed',
+        ]);
+    });
+
+    it('credits an interleaved event to the branch it belongs to, not the last entered', () => {
+        // Branch2 fails before Branch1 succeeds, so the success arrives while Branch2's
+        // frame is the innermost one. Following the event's own causal chain keeps it
+        // off Branch2, which would otherwise gain a second, never-closed run.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                stateEnteredEventDetails: { name: 'ParallelExecution' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'ParallelStateStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Branch1' },
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                stateEnteredEventDetails: { name: 'Branch2' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'TaskFailed',
+                taskFailedEventDetails: { error: 'Boom' },
+            } as HistoryEvent,
+            { id: 7, previousEventId: 4, type: 'TaskSucceeded' } as HistoryEvent,
+            {
+                id: 8,
+                previousEventId: 7,
+                type: 'TaskStateExited',
+                stateExitedEventDetails: { name: 'Branch1' },
+            } as HistoryEvent,
+            { id: 9, previousEventId: 6, type: 'ParallelStateFailed' } as HistoryEvent,
+            { id: 10, previousEventId: 9, type: 'ExecutionFailed' } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({ definition: loadAsl('parallel'), events });
+
+        expect(summarizeEntries(timeline)).toEqual([
+            'ParallelExecution#1 failed',
+            'Branch1#1 succeeded',
+            'Branch2#1 failed',
+        ]);
+    });
+
+    it('closes the concurrent run a state exit belongs to, not the innermost by name', () => {
+        // Two iterations of `ProcessItem` overlap; each exit must close its own run, or
+        // the two entries swap windows and a failure lands on the wrong iteration.
+        const at = (ms: number): Date => new Date(Date.parse('2024-01-01T00:00:00.000Z') + ms);
+        const events: HistoryEvent[] = [
+            {
+                id: 1,
+                previousEventId: 0,
+                type: 'ExecutionStarted',
+                timestamp: at(0),
+            } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                timestamp: at(10),
+                stateEnteredEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapStateStarted', timestamp: at(20) } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'MapIterationStarted',
+                timestamp: at(30),
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'TaskStateEntered',
+                timestamp: at(50),
+                stateEnteredEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 3,
+                type: 'MapIterationStarted',
+                timestamp: at(60),
+            } as HistoryEvent,
+            {
+                id: 7,
+                previousEventId: 6,
+                type: 'TaskStateEntered',
+                timestamp: at(70),
+                stateEnteredEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+            { id: 8, previousEventId: 5, type: 'TaskSucceeded', timestamp: at(120) } as HistoryEvent,
+            {
+                id: 9,
+                previousEventId: 8,
+                type: 'TaskStateExited',
+                timestamp: at(130),
+                stateExitedEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+            { id: 10, previousEventId: 7, type: 'TaskSucceeded', timestamp: at(150) } as HistoryEvent,
+            {
+                id: 11,
+                previousEventId: 10,
+                type: 'TaskStateExited',
+                timestamp: at(160),
+                stateExitedEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({ definition: loadAsl('map'), events });
+        const iterations = timeline.entries.filter((entry) => entry.stateName === 'ProcessItem');
+
+        expect(iterations.map((entry) => [entry.enteredMs - timeline.startMs, entry.exitedMs! - timeline.startMs])).toEqual([
+            [50, 130],
+            [70, 160],
+        ]);
+    });
+
+    it('anchors the run at the first known timestamp, not the epoch', () => {
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'PassStateEntered',
+                timestamp: new Date('2024-01-01T00:00:00.000Z'),
+                stateEnteredEventDetails: { name: 'Only' },
+            } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({ events });
+
+        // An untimestamped first event must not stretch the span back to 1970.
+        expect(timeline.startMs).toBe(Date.parse('2024-01-01T00:00:00.000Z'));
+        expect(timeline.entries[0].enteredMs).toBe(timeline.startMs);
+    });
+
     it('leaves the entry a still-running execution is inside open', () => {
         const events: HistoryEvent[] = [
             { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
