@@ -45,6 +45,18 @@ const FAILURE_EVENT_TYPES = new Set<string>([
     'TaskTimedOut',
 ]);
 
+/**
+ * Container-level failure events, mapped to the entered-event type of the frame each
+ * one belongs to. A Parallel branch or Map iteration that fails emits its own leaf
+ * failure and then one of these, but the leaf never emits a `StateExited` — so the
+ * container failure is the only event that can close those leaves.
+ */
+const CONTAINER_FAILURE_EVENT_TYPES = new Map<string, string>([
+    ['MapRunFailed', 'MapStateEntered'],
+    ['MapStateFailed', 'MapStateEntered'],
+    ['ParallelFailed', 'ParallelStateEntered'],
+]);
+
 /** Task-level events that mark the active state's latest attempt as successful. */
 const SUCCESS_EVENT_TYPES = new Set<string>([
     'ActivitySucceeded',
@@ -99,6 +111,7 @@ function extractError(event: HistoryEvent): string | undefined {
         event.taskTimedOutEventDetails?.error ??
         event.lambdaFunctionTimedOutEventDetails?.error ??
         event.evaluationFailedEventDetails?.error ??
+        event.mapRunFailedEventDetails?.error ??
         undefined
     );
 }
@@ -106,6 +119,8 @@ function extractError(event: HistoryEvent): string | undefined {
 /** Per-open-entry bookkeeping, pushed on enter and folded into the result on exit. */
 interface OpenFrame {
     enteredMs?: number;
+    /** The `*StateEntered` event type that opened this frame, e.g. `ParallelStateEntered`. */
+    enteredType: string;
     error?: string;
     failures: number;
     lastOutcome?: 'failure' | 'success';
@@ -185,6 +200,15 @@ export function parseExecutionHistory(params: {
         return results[name];
     };
 
+    /** Fold a frame that never exited into its result as a failed run. */
+    const closeAsFailed = (frame: OpenFrame, fallbackError?: string): void => {
+        const result = ensure(frame.name);
+        result.status = mergeStatus(result.status, 'failed');
+        result.attempts += Math.max(frame.failures, 1);
+        const error = frame.error ?? fallbackError;
+        if (error && !result.error) result.error = error;
+    };
+
     for (const event of events) {
         const type = event.type ?? '';
 
@@ -194,7 +218,12 @@ export function parseExecutionHistory(params: {
             if (!name) continue;
             if (!startState) startState = name;
             ensure(name);
-            openStack.push({ failures: 0, name, enteredMs: toMillis(event.timestamp) });
+            openStack.push({
+                enteredMs: toMillis(event.timestamp),
+                enteredType: type,
+                failures: 0,
+                name,
+            });
 
             // `from === name` is a genuine self-transition (e.g. a Choice polling
             // itself), not a Task retry re-entry: findFromState only resolves a name
@@ -249,6 +278,40 @@ export function parseExecutionHistory(params: {
             continue;
         }
 
+        // --- Container failure: close the leaves it took down with it ---
+        // A Parallel branch or Map iteration that fails is abandoned mid-flight: the
+        // leaf emits its own failure but never a `StateExited`, so without this its
+        // frame would stay open and the state would be reported `running` long after
+        // the container was caught and the execution moved on.
+        const containerEnteredType = CONTAINER_FAILURE_EVENT_TYPES.get(type);
+        if (containerEnteredType) {
+            let containerIndex = -1;
+            for (let i = openStack.length - 1; i >= 0; i--) {
+                if (openStack[i].enteredType === containerEnteredType) {
+                    containerIndex = i;
+                    break;
+                }
+            }
+            if (containerIndex >= 0) {
+                const eventError = extractError(event);
+                const leaves = openStack.splice(containerIndex + 1);
+                for (const leaf of leaves) {
+                    closeAsFailed(leaf, eventError);
+                }
+                // `ParallelFailed` carries no error details of its own, so fall back to
+                // the innermost failed leaf's error — that is the failure that took the
+                // container down.
+                const leafError = leaves[leaves.length - 1]?.error;
+                // The container itself stays open: it exits normally when a Catch
+                // handles the error, and that exit reads `lastOutcome` as `caught`.
+                const container = openStack[containerIndex];
+                container.failures += 1;
+                container.lastOutcome = 'failure';
+                container.error = container.error ?? eventError ?? leafError;
+            }
+            continue;
+        }
+
         // --- Task-level failure / success attributed to the active leaf state ---
         const activeFrame = openStack[openStack.length - 1];
         if (FAILURE_EVENT_TYPES.has(type)) {
@@ -279,10 +342,7 @@ export function parseExecutionHistory(params: {
             // Add this entry's attempts (failed tries, at least one) to any prior
             // completed iterations of the same state.
             for (const frame of openStack) {
-                const result = ensure(frame.name);
-                result.status = mergeStatus(result.status, 'failed');
-                result.attempts += Math.max(frame.failures, 1);
-                if (execError && !result.error) result.error = execError;
+                closeAsFailed(frame, execError);
             }
             openStack.length = 0;
         }

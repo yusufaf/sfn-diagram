@@ -101,6 +101,67 @@ describe('parseExecutionHistory', () => {
         expect(overlay.states.Success.status).toBe('succeeded');
     });
 
+    it('fails the abandoned leaf when a Parallel branch failure is caught', () => {
+        const overlay = parseExecutionHistory({
+            events: loadEvents('execution-parallel-caught'),
+        });
+
+        expect(overlay.executionStatus).toBe('succeeded');
+        // The branch that blew up never emits a StateExited - the Parallel's own
+        // failure is what closes it.
+        expect(overlay.states.Branch2.status).toBe('failed');
+        expect(overlay.states.Branch2.error).toBe('Lambda.Unknown');
+        expect(overlay.states.Branch2.attempts).toBe(1);
+        expect(overlay.states.Branch1.status).toBe('succeeded');
+        // The container exits via its Catch, so it is caught rather than failed.
+        expect(overlay.states.ParallelExecution.status).toBe('caught');
+        expect(overlay.states.ParallelExecution.error).toBe('Lambda.Unknown');
+        expect(overlay.states.HandleError.status).toBe('succeeded');
+        expect(overlay.states.FinalState.status).toBe('succeeded');
+    });
+
+    it('fails the iteration leaf a Map run failure abandons', () => {
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                timestamp: new Date('2024-01-01T00:00:00.000Z'),
+                stateEnteredEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapRunStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'TaskStateEntered',
+                timestamp: new Date('2024-01-01T00:00:00.100Z'),
+                stateEnteredEventDetails: { name: 'ProcessItem' },
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'MapRunFailed',
+                mapRunFailedEventDetails: { error: 'States.TaskFailed' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'MapStateExited',
+                timestamp: new Date('2024-01-01T00:00:00.200Z'),
+                stateExitedEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 7, previousEventId: 6, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const overlay = parseExecutionHistory({ events });
+
+        // MapRunFailed carries the error, so the leaf inherits it.
+        expect(overlay.states.ProcessItem.status).toBe('failed');
+        expect(overlay.states.ProcessItem.error).toBe('States.TaskFailed');
+        expect(overlay.states.ProcessItems.status).toBe('caught');
+    });
+
     it('aggregates a state entered multiple times (Map iterations)', () => {
         // Two iterations of the same inner state: one succeeds, one fails terminally.
         const events: HistoryEvent[] = [
@@ -183,6 +244,20 @@ describe('generateExecution (SVG overlay)', () => {
             expect.arrayContaining(['LowValue', 'DefaultPath']),
         );
         expect(result.metadata.executionStatus).toBe('succeeded');
+    });
+
+    it('never leaves a caught branch painted as still running', () => {
+        const result = generateExecution({
+            aslDefinition: loadAsl('parallel-catch'),
+            history: loadHistoryJson('execution-parallel-caught'),
+        });
+
+        expect(result.metadata.executionStatus).toBe('succeeded');
+        expect(result.metadata.running).toEqual([]);
+        expect(result.metadata.failed).toContain('Branch2');
+        expect(result.metadata.caught).toContain('ParallelExecution');
+        // The running blue must be gone from a finished run.
+        expect(result.svg).not.toContain('#bbdefb');
     });
 
     it('draws a genuine self-transition at full opacity, not dimmed as untaken', () => {

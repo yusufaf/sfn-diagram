@@ -1,0 +1,45 @@
+{
+  "Comment": "Parallel whose own Catch handles a branch failure",
+  "StartAt": "ParallelExecution",
+  "States": {
+    "ParallelExecution": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "Branch1",
+          "States": {
+            "Branch1": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Branch1",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Branch2",
+          "States": {
+            "Branch2": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Branch2",
+              "End": true
+            }
+          }
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "HandleError"
+        }
+      ],
+      "Next": "FinalState"
+    },
+    "HandleError": {
+      "Type": "Pass",
+      "Next": "FinalState"
+    },
+    "FinalState": {
+      "Type": "Succeed"
+    }
+  }
+}

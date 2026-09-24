@@ -68862,6 +68862,11 @@ var FAILURE_EVENT_TYPES = /* @__PURE__ */ new Set([
   "TaskSubmitFailed",
   "TaskTimedOut"
 ]);
+var CONTAINER_FAILURE_EVENT_TYPES = /* @__PURE__ */ new Map([
+  ["MapRunFailed", "MapStateEntered"],
+  ["MapStateFailed", "MapStateEntered"],
+  ["ParallelFailed", "ParallelStateEntered"]
+]);
 var SUCCESS_EVENT_TYPES = /* @__PURE__ */ new Set([
   "ActivitySucceeded",
   "LambdaFunctionSucceeded",
@@ -68892,7 +68897,7 @@ function exitedName(event) {
   return event.stateExitedEventDetails?.name;
 }
 function extractError(event) {
-  return event.taskFailedEventDetails?.error ?? event.lambdaFunctionFailedEventDetails?.error ?? event.activityFailedEventDetails?.error ?? event.executionFailedEventDetails?.error ?? event.taskTimedOutEventDetails?.error ?? event.lambdaFunctionTimedOutEventDetails?.error ?? event.evaluationFailedEventDetails?.error ?? void 0;
+  return event.taskFailedEventDetails?.error ?? event.lambdaFunctionFailedEventDetails?.error ?? event.activityFailedEventDetails?.error ?? event.executionFailedEventDetails?.error ?? event.taskTimedOutEventDetails?.error ?? event.lambdaFunctionTimedOutEventDetails?.error ?? event.evaluationFailedEventDetails?.error ?? event.mapRunFailedEventDetails?.error ?? void 0;
 }
 function mergeStatus(current, incoming) {
   const rank = {
@@ -68935,6 +68940,13 @@ function parseExecutionHistory(params) {
     };
     return results[name];
   };
+  const closeAsFailed = (frame, fallbackError) => {
+    const result = ensure2(frame.name);
+    result.status = mergeStatus(result.status, "failed");
+    result.attempts += Math.max(frame.failures, 1);
+    const error2 = frame.error ?? fallbackError;
+    if (error2 && !result.error) result.error = error2;
+  };
   for (const event of events) {
     const type = event.type ?? "";
     if (type.endsWith("StateEntered")) {
@@ -68943,9 +68955,10 @@ function parseExecutionHistory(params) {
       if (!startState) startState = name;
       ensure2(name);
       openStack.push({
+        enteredMs: toMillis(event.timestamp),
+        enteredType: type,
         failures: 0,
-        name,
-        enteredMs: toMillis(event.timestamp)
+        name
       });
       const from = findFromState(event);
       if (from) {
@@ -68984,6 +68997,25 @@ function parseExecutionHistory(params) {
       if (frame?.error && !result.error) result.error = frame.error;
       continue;
     }
+    const containerEnteredType = CONTAINER_FAILURE_EVENT_TYPES.get(type);
+    if (containerEnteredType) {
+      let containerIndex = -1;
+      for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (openStack[i5].enteredType === containerEnteredType) {
+        containerIndex = i5;
+        break;
+      }
+      if (containerIndex >= 0) {
+        const eventError = extractError(event);
+        const leaves = openStack.splice(containerIndex + 1);
+        for (const leaf of leaves) closeAsFailed(leaf, eventError);
+        const leafError = leaves[leaves.length - 1]?.error;
+        const container = openStack[containerIndex];
+        container.failures += 1;
+        container.lastOutcome = "failure";
+        container.error = container.error ?? eventError ?? leafError;
+      }
+      continue;
+    }
     const activeFrame = openStack[openStack.length - 1];
     if (FAILURE_EVENT_TYPES.has(type)) {
       if (activeFrame) {
@@ -69001,12 +69033,7 @@ function parseExecutionHistory(params) {
     else if (type === "ExecutionFailed" || type === "ExecutionAborted" || type === "ExecutionTimedOut") {
       executionStatus = type === "ExecutionFailed" ? "failed" : type === "ExecutionAborted" ? "aborted" : "timedOut";
       const execError = extractError(event);
-      for (const frame of openStack) {
-        const result = ensure2(frame.name);
-        result.status = mergeStatus(result.status, "failed");
-        result.attempts += Math.max(frame.failures, 1);
-        if (execError && !result.error) result.error = execError;
-      }
+      for (const frame of openStack) closeAsFailed(frame, execError);
       openStack.length = 0;
     }
   }
