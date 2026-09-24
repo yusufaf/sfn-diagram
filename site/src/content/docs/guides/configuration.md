@@ -221,6 +221,27 @@ Big, branchy state machines are hard to read as a static image. A few options he
   reached keeps its diff colour, and a changed state that ran says so in its
   annotation (`modified · 1.2s`).
 
+  An execution overlay shows where a run ended up. To see the order it got there in,
+  `metadata.timeline` replays the run as an ordered list of state runs — and
+  `buildExecutionTimeline()` computes the same thing from a history alone. Every
+  `Retry` attempt, Map iteration and pass through a Parallel branch is its own entry,
+  in the order the execution entered them, carrying the node id the diagram stamps as
+  `data-state-id`:
+
+  ```typescript
+  import { buildExecutionTimeline } from 'sfn-diagram';
+
+  const { entries } = buildExecutionTimeline({ definition: asl, events });
+  for (const entry of entries) {
+    // ProcessOrder attempt 2 failed
+    console.log(entry.stateName, entry.attempt, entry.status);
+  }
+  ```
+
+  A Parallel or Map entry also carries the branches or iterations its run started. A
+  Distributed Map runs its iterations as child executions, whose events are not in the
+  parent history, so its count is `0`.
+
   Overlays collapse too — in the viewer, and with `collapse` on `generateExecution()`
   / `--execution --collapse`. A collapsed container's placeholder takes the status
   rolled up from the states it hides: any failure makes it red, otherwise anything

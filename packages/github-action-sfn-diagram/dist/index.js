@@ -68913,6 +68913,29 @@ function exitedName(event) {
 function extractError(event) {
   return event.taskFailedEventDetails?.error ?? event.lambdaFunctionFailedEventDetails?.error ?? event.activityFailedEventDetails?.error ?? event.executionFailedEventDetails?.error ?? event.taskTimedOutEventDetails?.error ?? event.lambdaFunctionTimedOutEventDetails?.error ?? event.evaluationFailedEventDetails?.error ?? event.mapRunFailedEventDetails?.error ?? void 0;
 }
+var CONTAINER_ENTERED_TYPES = /* @__PURE__ */ new Set(["MapStateEntered", "ParallelStateEntered"]);
+function buildChildScopes(params) {
+  const { definition, resolver } = params;
+  const childScopes = /* @__PURE__ */ new Map();
+  const visit = (current, scope) => {
+    for (const [stateName, state2] of Object.entries(current.States)) {
+      const containerId = resolver.resolve(scope, stateName);
+      const record = (child, childScope) => {
+        const scopesByName = childScopes.get(containerId) ?? /* @__PURE__ */ new Map();
+        for (const childName of Object.keys(child.States)) if (!scopesByName.has(childName)) scopesByName.set(childName, childScope);
+        childScopes.set(containerId, scopesByName);
+        visit(child, childScope);
+      };
+      if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => record(branch, resolver.branchScope(scope, stateName, index)));
+      if (state2.Type === "Map") {
+        const processor = getMapProcessor(state2);
+        if (processor) record(processor, resolver.processorScope(scope, stateName));
+      }
+    }
+  };
+  visit(definition, "");
+  return childScopes;
+}
 function mergeStatus(current, incoming) {
   const rank = {
     failed: 4,
@@ -68924,16 +68947,30 @@ function mergeStatus(current, incoming) {
   if (!current) return incoming;
   return rank[incoming] > rank[current] ? incoming : current;
 }
-function parseExecutionHistory(params) {
-  const { events } = params;
+function walkExecutionHistory(params) {
+  const { definition, events } = params;
   const eventById = /* @__PURE__ */ new Map();
   for (const event of events) if (event.id !== void 0) eventById.set(event.id, event);
   const results = {};
   const openStack = [];
   const takenSet = /* @__PURE__ */ new Set();
   const takenEdges = [];
+  const entries = [];
   let executionStatus = "running";
   let startState;
+  const resolver = definition ? buildIdResolver({ definition }) : void 0;
+  const childScopes = definition && resolver ? buildChildScopes({
+    definition,
+    resolver
+  }) : void 0;
+  let lastKnownMs = 0;
+  let startMs;
+  const eventMs = (event) => {
+    const millis = toMillis(event.timestamp);
+    if (millis !== void 0) lastKnownMs = millis;
+    if (startMs === void 0) startMs = lastKnownMs;
+    return lastKnownMs;
+  };
   const findFromState = (event) => {
     let cursorId = event.previousEventId;
     const seen = /* @__PURE__ */ new Set();
@@ -68958,26 +68995,64 @@ function parseExecutionHistory(params) {
     for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (predicate(openStack[i5])) return i5;
     return -1;
   };
-  const closeAsFailed = (frame, fallbackError) => {
+  const openContainer = () => {
+    const index = findFrameIndex((frame) => CONTAINER_ENTERED_TYPES.has(frame.enteredType));
+    return index >= 0 ? openStack[index] : void 0;
+  };
+  const stampChildCount = (frame, entry) => {
+    if (frame.enteredType === "ParallelStateEntered") entry.branchCount = frame.childStarts;
+    if (frame.enteredType === "MapStateEntered") entry.iterationCount = frame.childStarts;
+  };
+  const openEntry = (frame, ms, attempt, fromNodeId) => {
+    frame.childStarts = 0;
+    frame.lastEntryIndex = entries.length;
+    frame.openEntryIndex = entries.length;
+    entries.push({
+      attempt,
+      enteredMs: ms,
+      ...fromNodeId !== void 0 ? { fromNodeId } : {},
+      nodeId: frame.nodeId,
+      stateName: frame.name,
+      status: "running"
+    });
+  };
+  const closeEntry = (frame, ms, status, error2) => {
+    if (frame.openEntryIndex === void 0) return;
+    const entry = entries[frame.openEntryIndex];
+    entry.exitedMs = ms;
+    entry.status = status;
+    if (error2 !== void 0 && entry.error === void 0) entry.error = error2;
+    stampChildCount(frame, entry);
+    frame.openEntryIndex = void 0;
+  };
+  const closeAsFailed = (frame, ms, fallbackError) => {
     const result = ensure2(frame.name);
     result.status = mergeStatus(result.status, "failed");
     result.attempts += Math.max(frame.failures, 1);
     const error2 = frame.error ?? fallbackError;
     if (error2 && !result.error) result.error = error2;
+    closeEntry(frame, ms, "failed", error2);
   };
   for (const event of events) {
     const type = event.type ?? "";
+    const nowMs = eventMs(event);
     if (type.endsWith("StateEntered")) {
       const name = enteredName(event);
       if (!name) continue;
       if (!startState) startState = name;
       ensure2(name);
-      openStack.push({
+      const parent = openContainer();
+      const scope = parent ? childScopes?.get(parent.nodeId)?.get(name) ?? "" : "";
+      const frame = {
+        childStarts: 0,
         enteredMs: toMillis(event.timestamp),
         enteredType: type,
         failures: 0,
-        name
-      });
+        lastEntryIndex: -1,
+        name,
+        nodeId: resolver ? resolver.resolve(scope, name) : name
+      };
+      openStack.push(frame);
       const from = findFromState(event);
       if (from) {
         const key = `${from}->${name}`;
@@ -68989,10 +69064,13 @@ function parseExecutionHistory(params) {
           });
         }
       }
+      openEntry(frame, nowMs, 1, from !== void 0 && resolver ? resolver.resolve(scope, from) : from);
+      if (parent && from === void 0) parent.childStarts += 1;
       if (type === "FailStateEntered") {
         const result = ensure2(name);
         result.status = "failed";
         result.attempts = Math.max(result.attempts, 1);
+        closeEntry(frame, nowMs, "failed");
       }
       continue;
     }
@@ -69009,6 +69087,10 @@ function parseExecutionHistory(params) {
       result.attempts += Math.max(failures + (wasCaught ? 0 : 1), 1);
       result.status = mergeStatus(result.status, wasCaught ? "caught" : "succeeded");
       if (frame?.error && !result.error) result.error = frame.error;
+      if (frame) {
+        if (frame.openEntryIndex !== void 0) closeEntry(frame, exitMs ?? nowMs, "succeeded");
+        else if (frame.lastEntryIndex >= 0 && wasCaught) entries[frame.lastEntryIndex].status = "caught";
+      }
       continue;
     }
     const containerFailure = CONTAINER_FAILURE_EVENT_TYPES.get(type);
@@ -69017,7 +69099,7 @@ function parseExecutionHistory(params) {
       if (containerIndex >= 0) {
         const eventError = extractError(event);
         const leaves = openStack.splice(containerIndex + 1);
-        for (const leaf of leaves) closeAsFailed(leaf, eventError);
+        for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError);
         const leafError = leaves.find((leaf) => leaf.lastOutcome === "failure")?.error;
         const container = openStack[containerIndex];
         if (!container.failureCounted) {
@@ -69027,6 +69109,7 @@ function parseExecutionHistory(params) {
         container.lastOutcome = "failure";
         container.error = container.error ?? eventError ?? leafError;
         if (containerFailure.terminal) container.failureClosed = true;
+        closeEntry(container, nowMs, "failed", eventError ?? leafError);
       }
       continue;
     }
@@ -69034,29 +69117,37 @@ function parseExecutionHistory(params) {
     if (startedEnteredType) {
       const containerIndex = findFrameIndex((frame) => frame.enteredType === startedEnteredType);
       if (containerIndex >= 0) {
-        openStack[containerIndex].failureClosed = false;
-        openStack[containerIndex].failureCounted = false;
+        const container = openStack[containerIndex];
+        container.failureClosed = false;
+        container.failureCounted = false;
+        if (container.openEntryIndex === void 0) openEntry(container, nowMs, container.failures + 1);
       }
       continue;
     }
     const activeFrame = openStack[openStack.length - 1];
+    if (activeFrame?.openEntryIndex === void 0 && activeFrame !== void 0 && (type.endsWith("Scheduled") || type.endsWith("Started"))) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
     if (FAILURE_EVENT_TYPES.has(type)) {
       if (activeFrame) {
+        if (activeFrame.openEntryIndex === void 0) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
         activeFrame.failures += 1;
         activeFrame.lastOutcome = "failure";
         activeFrame.error = extractError(event) ?? activeFrame.error;
+        closeEntry(activeFrame, nowMs, "failed", extractError(event));
       }
       continue;
     }
     if (SUCCESS_EVENT_TYPES.has(type)) {
-      if (activeFrame) activeFrame.lastOutcome = "success";
+      if (activeFrame) {
+        activeFrame.lastOutcome = "success";
+        if (activeFrame.openEntryIndex === void 0) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
+      }
       continue;
     }
     if (type === "ExecutionSucceeded") executionStatus = "succeeded";
     else if (type === "ExecutionFailed" || type === "ExecutionAborted" || type === "ExecutionTimedOut") {
       executionStatus = type === "ExecutionFailed" ? "failed" : type === "ExecutionAborted" ? "aborted" : "timedOut";
       const execError = extractError(event);
-      for (const frame of openStack) closeAsFailed(frame, execError);
+      for (const frame of openStack) closeAsFailed(frame, nowMs, execError);
       openStack.length = 0;
     }
   }
@@ -69064,12 +69155,21 @@ function parseExecutionHistory(params) {
     const result = ensure2(frame.name);
     result.status = mergeStatus(result.status, "running");
     result.attempts += Math.max(frame.failures, 1);
+    if (frame.openEntryIndex !== void 0) stampChildCount(frame, entries[frame.openEntryIndex]);
   }
   return {
-    executionStatus,
-    startState,
-    states: results,
-    takenEdges
+    overlay: {
+      executionStatus,
+      startState,
+      states: results,
+      takenEdges
+    },
+    timeline: {
+      endMs: lastKnownMs,
+      entries,
+      startMs: startMs ?? 0,
+      status: executionStatus
+    }
   };
 }
 function formatDuration(durationMs) {
@@ -69095,8 +69195,11 @@ function summarize(overlay, allStateNames) {
   for (const name of allStateNames) if (!overlay.states[name]) summary.notReached.push(name);
   return summary;
 }
-function computeOverlay(history) {
-  return parseExecutionHistory({ events: normalizeEvents(history) });
+function computeExecutionWalk(definition, history) {
+  return walkExecutionHistory({
+    definition,
+    events: normalizeEvents(history)
+  });
 }
 function byNodeId(byStateName, idsForName) {
   const result = {};
@@ -69106,7 +69209,7 @@ function byNodeId(byStateName, idsForName) {
 function generateMermaidExecution(params) {
   const { aslDefinition, history, layout, theme } = params;
   const aslObj = parseAslSource({ source: aslDefinition });
-  const overlay = computeOverlay(history);
+  const { overlay, timeline } = computeExecutionWalk(aslObj, history);
   const { nodes: nodes5, edges } = parseAsl({ definition: aslObj });
   const resolver = buildIdResolver({ definition: aslObj });
   const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
@@ -69135,7 +69238,8 @@ function generateMermaidExecution(params) {
       ...summarize(overlay, Object.keys(aslObj.States)),
       edgeCount: metadata.edgeCount,
       executionStatus: overlay.executionStatus,
-      stateCount: metadata.stateCount
+      stateCount: metadata.stateCount,
+      timeline
     }
   };
 }

@@ -441,11 +441,14 @@ export type {
     ExecutionStateStatus,
     ExecutionStatus,
     ExecutionSummary,
+    ExecutionTimeline,
     GenerateExecutionHtmlParams,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
     MermaidExecutionOutput,
     TakenEdge,
+    TimelineEntry,
+    TimelineEntryStatus,
     // Union types for configuration options
     DiagramFormat,
     ThemeOption,
@@ -473,4 +476,10 @@ export {
 } from './html';
 export { lintAsl } from './lint';
 export type { LintAslParams } from './lint';
-export { generateExecution, generateMermaidExecution, parseExecutionHistory } from './execution';
+export {
+    buildExecutionTimeline,
+    generateExecution,
+    generateMermaidExecution,
+    parseExecutionHistory,
+} from './execution';
+export type { BuildExecutionTimelineParams } from './execution';

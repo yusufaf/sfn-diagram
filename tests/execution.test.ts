@@ -3,6 +3,7 @@ import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import {
+    buildExecutionTimeline,
     generateExecution,
     generateExecutionHtml,
     generateExecutionHtmlAsync,
@@ -10,7 +11,7 @@ import {
     parseExecutionHistory,
 } from '../src/index';
 import { parseAsl } from '../src/AslParser';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, ExecutionTimeline } from '../src/types';
 
 const loadAsl = (name: string): AslDefinition =>
     JSON.parse(readFileSync(join(__dirname, 'fixtures', `${name}.asl.json`), 'utf-8'));
@@ -392,6 +393,247 @@ describe('parseExecutionHistory', () => {
     });
 });
 
+describe('buildExecutionTimeline', () => {
+    /** `nodeId#attempt status` per entry, the shape most assertions here care about. */
+    const summarizeEntries = (timeline: ExecutionTimeline): string[] =>
+        timeline.entries.map((entry) => `${entry.nodeId}#${entry.attempt} ${entry.status}`);
+
+    it('lists every run in entry order with its window and predecessor', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('simple'),
+            events: loadEvents('execution-success'),
+        });
+
+        expect(timeline.status).toBe('succeeded');
+        expect(summarizeEntries(timeline)).toEqual([
+            'Start#1 succeeded',
+            'Process#1 succeeded',
+            'End#1 succeeded',
+        ]);
+        expect(timeline.entries.map((entry) => entry.fromNodeId)).toEqual([
+            undefined,
+            'Start',
+            'Process',
+        ]);
+
+        const [, process] = timeline.entries;
+        expect(process.exitedMs! - process.enteredMs).toBe(1250);
+        expect(timeline.startMs).toBe(Date.parse('2024-01-01T00:00:00.000Z'));
+        expect(timeline.endMs).toBe(Date.parse('2024-01-01T00:00:01.520Z'));
+    });
+
+    it('gives each retry attempt its own entry rather than summing them', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('simple'),
+            events: loadEvents('execution-retry-success'),
+        });
+
+        expect(summarizeEntries(timeline)).toEqual([
+            'Submit#1 failed',
+            'Submit#2 failed',
+            'Submit#3 succeeded',
+            'Done#1 succeeded',
+        ]);
+        // Each attempt runs from its own scheduling to its own outcome, so the backoff
+        // between attempts belongs to the attempt that waited it out.
+        const [first, second, third] = timeline.entries;
+        expect(first.exitedMs).toBe(Date.parse('2024-01-01T00:00:00.300Z'));
+        expect(second.enteredMs).toBe(Date.parse('2024-01-01T00:00:02.300Z'));
+        expect(second.exitedMs).toBe(Date.parse('2024-01-01T00:00:02.500Z'));
+        expect(third.enteredMs).toBe(Date.parse('2024-01-01T00:00:06.500Z'));
+        expect(first.error).toBe('States.Timeout');
+        // Only the retried state is re-entered; the overlay's summed view still reports
+        // the three attempts as one result.
+        expect(parseExecutionHistory({ events: loadEvents('execution-retry-success') }).states.Submit
+            .attempts).toBe(3);
+    });
+
+    it('marks the attempt a Catch handled as caught, not failed', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('error-handling'),
+            events: loadEvents('execution-caught'),
+        });
+
+        const [risky] = timeline.entries;
+        expect(risky.stateName).toBe('RiskyTask');
+        expect(risky.status).toBe('caught');
+        expect(risky.error).toBe('States.TaskFailed');
+        // The run ended when it errored, not when the Catch routed on.
+        expect(risky.exitedMs).toBe(Date.parse('2024-01-01T00:00:00.400Z'));
+    });
+
+    it('gives a Parallel its own entry with the branches it started', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('parallel-catch'),
+            events: loadEvents('execution-parallel-caught'),
+        });
+
+        expect(summarizeEntries(timeline)).toEqual([
+            'ParallelExecution#1 caught',
+            'Branch1#1 succeeded',
+            'Branch2#1 failed',
+            'HandleError#1 succeeded',
+            'FinalState#1 succeeded',
+        ]);
+        const [container, branch1] = timeline.entries;
+        expect(container.branchCount).toBe(2);
+        expect(container.iterationCount).toBeUndefined();
+        // A branch's first state has no predecessor inside the container.
+        expect(branch1.fromNodeId).toBeUndefined();
+    });
+
+    it('gives each Map iteration its own entries and counts them on the container', () => {
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('map'),
+            events: loadEvents('execution-map-mixed'),
+        });
+
+        expect(summarizeEntries(timeline)).toEqual([
+            'SplitInput#1 succeeded',
+            'ProcessItems#1 failed',
+            'ProcessItem#1 succeeded',
+            'ValidateItem#1 succeeded',
+            'ProcessItem#1 failed',
+        ]);
+        // Two iterations of the same state, one per outcome - separate entries, both a
+        // first attempt, rather than one state summed to `failed`.
+        expect(timeline.entries[1].iterationCount).toBe(2);
+        expect(timeline.entries[4].error).toBe('States.TaskFailed');
+    });
+
+    it('reports no iterations for a Distributed Map, whose children are other executions', () => {
+        // A DISTRIBUTED ItemProcessor runs each iteration as its own execution, so the
+        // parent history carries the run's outcome and nothing finer.
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'MapStateEntered',
+                stateEnteredEventDetails: { name: 'ProcessItems' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'MapRunStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'MapRunFailed',
+                mapRunFailedEventDetails: { error: 'States.ExceedToleratedFailureThreshold' },
+            } as HistoryEvent,
+            { id: 5, previousEventId: 4, type: 'MapStateFailed' } as HistoryEvent,
+            { id: 6, previousEventId: 5, type: 'ExecutionFailed' } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({
+            definition: loadAsl('distributed-map'),
+            events,
+        });
+
+        const [entry] = timeline.entries;
+        expect(entry.stateName).toBe('ProcessItems');
+        expect(entry.status).toBe('failed');
+        expect(entry.error).toBe('States.ExceedToleratedFailureThreshold');
+        expect(entry.iterationCount).toBe(0);
+    });
+
+    it('resolves a name reused across scopes to the node that ran', () => {
+        // `Validate` exists at the root and inside the Parallel; scoped ids keep them
+        // apart, and the container open around the event says which one was entered.
+        const definition = {
+            StartAt: 'Fanout',
+            States: {
+                Fanout: {
+                    Type: 'Parallel',
+                    Next: 'Validate',
+                    Branches: [
+                        {
+                            StartAt: 'Validate',
+                            States: { Validate: { Type: 'Pass', End: true } },
+                        },
+                    ],
+                },
+                Validate: { Type: 'Pass', End: true },
+            },
+        } as unknown as AslDefinition;
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'ParallelStateEntered',
+                stateEnteredEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'ParallelStateStarted' } as HistoryEvent,
+            {
+                id: 4,
+                previousEventId: 3,
+                type: 'PassStateEntered',
+                stateEnteredEventDetails: { name: 'Validate' },
+            } as HistoryEvent,
+            {
+                id: 5,
+                previousEventId: 4,
+                type: 'PassStateExited',
+                stateExitedEventDetails: { name: 'Validate' },
+            } as HistoryEvent,
+            {
+                id: 6,
+                previousEventId: 5,
+                type: 'ParallelStateExited',
+                stateExitedEventDetails: { name: 'Fanout' },
+            } as HistoryEvent,
+            {
+                id: 7,
+                previousEventId: 6,
+                type: 'PassStateEntered',
+                stateEnteredEventDetails: { name: 'Validate' },
+            } as HistoryEvent,
+            {
+                id: 8,
+                previousEventId: 7,
+                type: 'PassStateExited',
+                stateExitedEventDetails: { name: 'Validate' },
+            } as HistoryEvent,
+            { id: 9, previousEventId: 8, type: 'ExecutionSucceeded' } as HistoryEvent,
+        ];
+
+        const scoped = buildExecutionTimeline({ definition, events });
+        expect(scoped.entries.map((entry) => entry.nodeId)).toEqual([
+            'Fanout',
+            'Fanout__branch0__Validate',
+            'Validate',
+        ]);
+
+        // With no definition to resolve against, the state's own name stands in.
+        const unscoped = buildExecutionTimeline({ events });
+        expect(unscoped.entries.map((entry) => entry.nodeId)).toEqual([
+            'Fanout',
+            'Validate',
+            'Validate',
+        ]);
+    });
+
+    it('leaves the entry a still-running execution is inside open', () => {
+        const events: HistoryEvent[] = [
+            { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
+            {
+                id: 2,
+                previousEventId: 1,
+                type: 'TaskStateEntered',
+                timestamp: new Date('2024-01-01T00:00:00.000Z'),
+                stateEnteredEventDetails: { name: 'Process' },
+            } as HistoryEvent,
+            { id: 3, previousEventId: 2, type: 'TaskStarted' } as HistoryEvent,
+        ];
+
+        const timeline = buildExecutionTimeline({ events });
+
+        expect(timeline.status).toBe('running');
+        expect(timeline.entries).toHaveLength(1);
+        expect(timeline.entries[0].status).toBe('running');
+        expect(timeline.entries[0].exitedMs).toBeUndefined();
+    });
+});
+
 describe('generateExecution (SVG overlay)', () => {
     it('colours states by status and dims untaken edges', () => {
         const result = generateExecution({
@@ -427,6 +669,21 @@ describe('generateExecution (SVG overlay)', () => {
         expect(result.metadata.caught).toContain('ParallelExecution');
         // The running blue must be gone from a finished run.
         expect(result.svg).not.toContain('#bbdefb');
+    });
+
+    it('reports the ordered timeline alongside the status summary', () => {
+        const result = generateExecution({
+            aslDefinition: loadAsl('parallel-catch'),
+            history: loadHistoryJson('execution-parallel-caught'),
+        });
+
+        // Node ids match what the SVG stamps, so a consumer can address the diagram
+        // straight from the timeline.
+        for (const entry of result.metadata.timeline.entries) {
+            expect(result.svg).toContain(`data-state-id="${entry.nodeId}"`);
+        }
+        expect(result.metadata.timeline.status).toBe('succeeded');
+        expect(result.metadata.timeline.entries[0].branchCount).toBe(2);
     });
 
     it('draws a genuine self-transition at full opacity, not dimmed as untaken', () => {
@@ -653,5 +910,10 @@ describe('generateMermaidExecution', () => {
         // Annotation on the retried state.
         expect(result.code).toContain('×3');
         expect(result.metadata.executionStatus).toBe('succeeded');
+        // The Mermaid output cannot show a retry loop, so the three attempts the
+        // annotation sums are only readable from the timeline.
+        expect(
+            result.metadata.timeline.entries.filter((entry) => entry.stateName === 'Submit')
+        ).toHaveLength(3);
     });
 });

@@ -10,15 +10,25 @@ import type {
     ExecutionStateStatus,
     ExecutionStatus,
     ExecutionSummary,
+    ExecutionTimeline,
     GenerateExecutionParams,
     GenerateMermaidExecutionParams,
     GraphEdge,
     MermaidExecutionOutput,
     NodeStyle,
     StateNode,
+    TimelineEntry,
+    TimelineEntryStatus,
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
-import { buildIdResolver, computeCollapsePlan, EXECUTION_COLORS, styleCollapsedView } from './graph';
+import {
+    buildIdResolver,
+    computeCollapsePlan,
+    EXECUTION_COLORS,
+    getMapProcessor,
+    styleCollapsedView,
+} from './graph';
+import type { IdResolver, ScopePath } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { MermaidRenderer } from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
@@ -155,6 +165,8 @@ function extractError(event: HistoryEvent): string | undefined {
 
 /** Per-open-entry bookkeeping, pushed on enter and folded into the result on exit. */
 interface OpenFrame {
+    /** Runs started directly inside this container that began a branch or an iteration. */
+    childStarts: number;
     enteredMs?: number;
     /** The `*StateEntered` event type that opened this frame, e.g. `ParallelStateEntered`. */
     enteredType: string;
@@ -169,8 +181,65 @@ interface OpenFrame {
     /** Set once this attempt's failure has been counted, so two events cannot count it twice. */
     failureCounted?: boolean;
     failures: number;
+    /** Index in `entries` of this frame's most recent run, open or closed. */
+    lastEntryIndex: number;
     lastOutcome?: 'failure' | 'success';
     name: string;
+    /** Graph node id this frame's state renders as. */
+    nodeId: string;
+    /** Index in `entries` of this frame's open run, or undefined between attempts. */
+    openEntryIndex?: number;
+}
+
+/** The entered-event types that open a container frame (a Parallel or a Map). */
+const CONTAINER_ENTERED_TYPES = new Set<string>(['MapStateEntered', 'ParallelStateEntered']);
+
+/**
+ * For each container node id, the scope its children live in, keyed by child state name.
+ *
+ * An execution history names the state that was entered but not the branch or iterator
+ * it belongs to, so a name that repeats across scopes cannot be resolved from the event
+ * alone. Walking the definition once gives the missing half: the innermost container
+ * still open at that moment says which scope a child name was entered in, and the
+ * resolver turns that pair into the node id the renderer stamps as `data-state-id`.
+ *
+ * A name declared in more than one branch of the same container keeps the first
+ * branch's scope — the history genuinely cannot say which one ran, the same limitation
+ * {@link byNodeId} documents for the overlay.
+ */
+function buildChildScopes(params: {
+    definition: AslDefinition;
+    resolver: IdResolver;
+}): Map<string, Map<string, ScopePath>> {
+    const { definition, resolver } = params;
+    const childScopes = new Map<string, Map<string, ScopePath>>();
+
+    const visit = (current: AslDefinition, scope: ScopePath): void => {
+        for (const [stateName, state] of Object.entries(current.States)) {
+            const containerId = resolver.resolve(scope, stateName);
+            const record = (child: AslDefinition, childScope: ScopePath): void => {
+                const scopesByName = childScopes.get(containerId) ?? new Map<string, ScopePath>();
+                for (const childName of Object.keys(child.States)) {
+                    if (!scopesByName.has(childName)) scopesByName.set(childName, childScope);
+                }
+                childScopes.set(containerId, scopesByName);
+                visit(child, childScope);
+            };
+
+            if (state.Type === 'Parallel' && Array.isArray(state.Branches)) {
+                state.Branches.forEach((branch, index) =>
+                    record(branch, resolver.branchScope(scope, stateName, index))
+                );
+            }
+            if (state.Type === 'Map') {
+                const processor = getMapProcessor(state);
+                if (processor) record(processor, resolver.processorScope(scope, stateName));
+            }
+        }
+    };
+    visit(definition, '');
+
+    return childScopes;
 }
 
 /** Merge a per-entry outcome into the aggregated status (failed > caught > succeeded). */
@@ -189,29 +258,28 @@ function mergeStatus(
     return rank[incoming] > rank[current] ? incoming : current;
 }
 
+/** What one pass over a history yields: both derived models, from the one frame walk. */
+interface ExecutionWalk {
+    /** The aggregated per-state model. */
+    overlay: ExecutionOverlay;
+    /** The same run as an ordered list of individual state runs. */
+    timeline: ExecutionTimeline;
+}
+
 /**
- * Reduce a Step Functions execution's event history into a render-agnostic
- * {@link ExecutionOverlay}: per-state status, attempts, duration, and the set of
- * transitions the run actually followed.
+ * Walk a history once, building both the aggregated {@link ExecutionOverlay} and the
+ * ordered {@link ExecutionTimeline} from the same frame stack.
  *
- * Pure and deterministic — any surface (SVG, Mermaid, React, Action) can consume it
- * without rendering. States entered multiple times (Map iterations) are aggregated:
- * status escalates to the worst outcome, durations sum, and attempts total.
- *
- * @param params.events - Ordered execution history events (from GetExecutionHistory)
- * @returns The computed execution overlay model
- *
- * @example
- * ```typescript
- * import { parseExecutionHistory } from 'sfn-diagram';
- * const overlay = parseExecutionHistory({ events });
- * console.log(overlay.states['ProcessOrder'].status); // 'succeeded'
- * ```
+ * One walk rather than two: the two models differ only in how they fold the same
+ * events — the overlay sums a state's runs into one result, the timeline keeps each
+ * run — so deriving them separately would mean two copies of the frame bookkeeping
+ * that has to agree on what a retry, a caught failure and an abandoned leaf mean.
  */
-export function parseExecutionHistory(params: {
+function walkExecutionHistory(params: {
+    definition?: AslDefinition;
     events: HistoryEvent[];
-}): ExecutionOverlay {
-    const { events } = params;
+}): ExecutionWalk {
+    const { definition, events } = params;
     const eventById = new Map<number, HistoryEvent>();
     for (const event of events) {
         if (event.id !== undefined) eventById.set(event.id, event);
@@ -221,8 +289,28 @@ export function parseExecutionHistory(params: {
     const openStack: OpenFrame[] = [];
     const takenSet = new Set<string>();
     const takenEdges: ExecutionOverlay['takenEdges'] = [];
+    const entries: TimelineEntry[] = [];
     let executionStatus: ExecutionStatus = 'running';
     let startState: string | undefined;
+
+    // Node ids need the definition: a history names a state but not the branch or
+    // iterator it ran in. Without one the state name stands in as the id, which is
+    // exactly what it is for any definition whose names do not repeat across scopes.
+    const resolver = definition ? buildIdResolver({ definition }) : undefined;
+    const childScopes =
+        definition && resolver ? buildChildScopes({ definition, resolver }) : undefined;
+
+    // Timestamps are optional on a HistoryEvent, so an entry with no timestamp of its
+    // own inherits the last one seen. The timeline then stays monotonic and a scrubber
+    // never has to handle a gap.
+    let lastKnownMs = 0;
+    let startMs: number | undefined;
+    const eventMs = (event: HistoryEvent): number => {
+        const millis = toMillis(event.timestamp);
+        if (millis !== undefined) lastKnownMs = millis;
+        if (startMs === undefined) startMs = lastKnownMs;
+        return lastKnownMs;
+    };
 
     /** Walk previousEventId back to the nearest completed predecessor state. */
     const findFromState = (event: HistoryEvent): string | undefined => {
@@ -254,17 +342,67 @@ export function parseExecutionHistory(params: {
         return -1;
     };
 
+    /** The innermost open container frame — the scope anything entered now belongs to. */
+    const openContainer = (): OpenFrame | undefined => {
+        const index = findFrameIndex((frame) => CONTAINER_ENTERED_TYPES.has(frame.enteredType));
+        return index >= 0 ? openStack[index] : undefined;
+    };
+
+    /** Stamp a container entry with the branches or iterations its run started. */
+    const stampChildCount = (frame: OpenFrame, entry: TimelineEntry): void => {
+        if (frame.enteredType === 'ParallelStateEntered') entry.branchCount = frame.childStarts;
+        if (frame.enteredType === 'MapStateEntered') entry.iterationCount = frame.childStarts;
+    };
+
+    /** Begin a run of this frame's state, at `attempt`, and record it as the open entry. */
+    const openEntry = (
+        frame: OpenFrame,
+        ms: number,
+        attempt: number,
+        fromNodeId?: string
+    ): void => {
+        frame.childStarts = 0;
+        frame.lastEntryIndex = entries.length;
+        frame.openEntryIndex = entries.length;
+        entries.push({
+            attempt,
+            enteredMs: ms,
+            ...(fromNodeId !== undefined ? { fromNodeId } : {}),
+            nodeId: frame.nodeId,
+            stateName: frame.name,
+            status: 'running',
+        });
+    };
+
+    /** End this frame's open run, if it has one. */
+    const closeEntry = (
+        frame: OpenFrame,
+        ms: number,
+        status: TimelineEntryStatus,
+        error?: string
+    ): void => {
+        if (frame.openEntryIndex === undefined) return;
+        const entry = entries[frame.openEntryIndex];
+        entry.exitedMs = ms;
+        entry.status = status;
+        if (error !== undefined && entry.error === undefined) entry.error = error;
+        stampChildCount(frame, entry);
+        frame.openEntryIndex = undefined;
+    };
+
     /** Fold a frame that never exited into its result as a failed run. */
-    const closeAsFailed = (frame: OpenFrame, fallbackError?: string): void => {
+    const closeAsFailed = (frame: OpenFrame, ms: number, fallbackError?: string): void => {
         const result = ensure(frame.name);
         result.status = mergeStatus(result.status, 'failed');
         result.attempts += Math.max(frame.failures, 1);
         const error = frame.error ?? fallbackError;
         if (error && !result.error) result.error = error;
+        closeEntry(frame, ms, 'failed', error);
     };
 
     for (const event of events) {
         const type = event.type ?? '';
+        const nowMs = eventMs(event);
 
         // --- State entered ---
         if (type.endsWith('StateEntered')) {
@@ -272,12 +410,21 @@ export function parseExecutionHistory(params: {
             if (!name) continue;
             if (!startState) startState = name;
             ensure(name);
-            openStack.push({
+
+            // Resolved against the container still open around it, so a name that
+            // repeats across branches maps to the node that actually ran.
+            const parent = openContainer();
+            const scope = parent ? (childScopes?.get(parent.nodeId)?.get(name) ?? '') : '';
+            const frame: OpenFrame = {
+                childStarts: 0,
                 enteredMs: toMillis(event.timestamp),
                 enteredType: type,
                 failures: 0,
+                lastEntryIndex: -1,
                 name,
-            });
+                nodeId: resolver ? resolver.resolve(scope, name) : name,
+            };
+            openStack.push(frame);
 
             // `from === name` is a genuine self-transition (e.g. a Choice polling
             // itself), not a Task retry re-entry: findFromState only resolves a name
@@ -292,12 +439,23 @@ export function parseExecutionHistory(params: {
                     takenEdges.push({ from, to: name });
                 }
             }
+            openEntry(
+                frame,
+                nowMs,
+                1,
+                from !== undefined && resolver ? resolver.resolve(scope, from) : from
+            );
+            // No predecessor inside the container means this run began a branch or an
+            // iteration — the only count of them the history offers, since neither
+            // `ParallelStateStarted` nor `MapRunStarted` carries one.
+            if (parent && from === undefined) parent.childStarts += 1;
 
             // Fail states are terminal and never emit a StateExited.
             if (type === 'FailStateEntered') {
                 const result = ensure(name);
                 result.status = 'failed';
                 result.attempts = Math.max(result.attempts, 1);
+                closeEntry(frame, nowMs, 'failed');
             }
             continue;
         }
@@ -323,6 +481,16 @@ export function parseExecutionHistory(params: {
             result.attempts += Math.max(failures + (wasCaught ? 0 : 1), 1);
             result.status = mergeStatus(result.status, wasCaught ? 'caught' : 'succeeded');
             if (frame?.error && !result.error) result.error = frame.error;
+            if (frame) {
+                if (frame.openEntryIndex !== undefined) {
+                    closeEntry(frame, exitMs ?? nowMs, 'succeeded');
+                } else if (frame.lastEntryIndex >= 0 && wasCaught) {
+                    // The attempt was already closed as `failed` when it errored; the
+                    // exit is what reveals a Catch handled it. Its `exitedMs` stays at
+                    // the failure, which is when that run of the state actually ended.
+                    entries[frame.lastEntryIndex].status = 'caught';
+                }
+            }
             continue;
         }
 
@@ -346,7 +514,7 @@ export function parseExecutionHistory(params: {
                 // report it `running` long after the execution finished.
                 const leaves = openStack.splice(containerIndex + 1);
                 for (const leaf of leaves) {
-                    closeAsFailed(leaf, eventError);
+                    closeAsFailed(leaf, nowMs, eventError);
                 }
                 // `ParallelStateFailed` carries no error details of its own, so fall back
                 // to the error of the leaf that actually failed - that is the failure
@@ -362,6 +530,7 @@ export function parseExecutionHistory(params: {
                 container.lastOutcome = 'failure';
                 container.error = container.error ?? eventError ?? leafError;
                 if (containerFailure.terminal) container.failureClosed = true;
+                closeEntry(container, nowMs, 'failed', eventError ?? leafError);
             }
             continue;
         }
@@ -373,24 +542,54 @@ export function parseExecutionHistory(params: {
                 (frame) => frame.enteredType === startedEnteredType
             );
             if (containerIndex >= 0) {
-                openStack[containerIndex].failureClosed = false;
-                openStack[containerIndex].failureCounted = false;
+                const container = openStack[containerIndex];
+                container.failureClosed = false;
+                container.failureCounted = false;
+                // A retry of the container is a new run of it, with its own branches.
+                if (container.openEntryIndex === undefined) {
+                    openEntry(container, nowMs, container.failures + 1);
+                }
             }
             continue;
         }
 
         // --- Task-level failure / success attributed to the active leaf state ---
         const activeFrame = openStack[openStack.length - 1];
+
+        // A `Retry` re-schedules the same state without re-entering it, so the first
+        // activity after the previous attempt failed is where the next attempt begins.
+        // Without this an attempt would appear to start at the moment it ended, and the
+        // backoff before it would belong to no attempt at all.
+        if (
+            activeFrame?.openEntryIndex === undefined &&
+            activeFrame !== undefined &&
+            (type.endsWith('Scheduled') || type.endsWith('Started'))
+        ) {
+            openEntry(activeFrame, nowMs, activeFrame.failures + 1);
+        }
+
         if (FAILURE_EVENT_TYPES.has(type)) {
             if (activeFrame) {
+                // Each attempt is its own entry: a Retry emits no further StateEntered,
+                // so an attempt's own failure is the only marker of where it ended, and
+                // the previous one's is the only marker of where it began.
+                if (activeFrame.openEntryIndex === undefined) {
+                    openEntry(activeFrame, nowMs, activeFrame.failures + 1);
+                }
                 activeFrame.failures += 1;
                 activeFrame.lastOutcome = 'failure';
                 activeFrame.error = extractError(event) ?? activeFrame.error;
+                closeEntry(activeFrame, nowMs, 'failed', extractError(event));
             }
             continue;
         }
         if (SUCCESS_EVENT_TYPES.has(type)) {
-            if (activeFrame) activeFrame.lastOutcome = 'success';
+            if (activeFrame) {
+                activeFrame.lastOutcome = 'success';
+                if (activeFrame.openEntryIndex === undefined) {
+                    openEntry(activeFrame, nowMs, activeFrame.failures + 1);
+                }
+            }
             continue;
         }
 
@@ -409,7 +608,7 @@ export function parseExecutionHistory(params: {
             // Add this entry's attempts (failed tries, at least one) to any prior
             // completed iterations of the same state.
             for (const frame of openStack) {
-                closeAsFailed(frame, execError);
+                closeAsFailed(frame, nowMs, execError);
             }
             openStack.length = 0;
         }
@@ -420,9 +619,100 @@ export function parseExecutionHistory(params: {
         const result = ensure(frame.name);
         result.status = mergeStatus(result.status, 'running');
         result.attempts += Math.max(frame.failures, 1);
+        // Their entries stay open - no `exitedMs`, still `running` - but a container
+        // has already started whatever branches or iterations it is waiting on.
+        if (frame.openEntryIndex !== undefined) {
+            stampChildCount(frame, entries[frame.openEntryIndex]);
+        }
     }
 
-    return { executionStatus, startState, states: results, takenEdges };
+    return {
+        overlay: { executionStatus, startState, states: results, takenEdges },
+        timeline: {
+            endMs: lastKnownMs,
+            entries,
+            startMs: startMs ?? 0,
+            status: executionStatus,
+        },
+    };
+}
+
+/**
+ * Reduce a Step Functions execution's event history into a render-agnostic
+ * {@link ExecutionOverlay}: per-state status, attempts, duration, and the set of
+ * transitions the run actually followed.
+ *
+ * Pure and deterministic — any surface (SVG, Mermaid, React, Action) can consume it
+ * without rendering. States entered multiple times (Map iterations) are aggregated:
+ * status escalates to the worst outcome, durations sum, and attempts total. For the
+ * un-aggregated, ordered form use {@link buildExecutionTimeline}.
+ *
+ * @param params - Object parameters
+ * @param params.events - Ordered execution history events (from GetExecutionHistory)
+ * @returns The computed execution overlay model
+ *
+ * @example
+ * ```typescript
+ * import { parseExecutionHistory } from 'sfn-diagram';
+ * const overlay = parseExecutionHistory({ events });
+ * console.log(overlay.states['ProcessOrder'].status); // 'succeeded'
+ * ```
+ */
+export function parseExecutionHistory(params: { events: HistoryEvent[] }): ExecutionOverlay {
+    return walkExecutionHistory({ events: params.events }).overlay;
+}
+
+/** Parameters for {@link buildExecutionTimeline}. */
+export interface BuildExecutionTimelineParams {
+    /**
+     * The ASL the execution ran, used to resolve each entry's `nodeId` to the id the
+     * renderer stamps as `data-state-id`. Omit it and the state's own name is used,
+     * which is the same id for every definition whose state names are unique.
+     */
+    definition?: AslDefinition;
+    /** Ordered execution history events (from GetExecutionHistory). */
+    events: HistoryEvent[];
+}
+
+/**
+ * Replay an execution history as an ordered list of state runs: what ran, in what
+ * order, for how long, and how each run ended.
+ *
+ * Where {@link parseExecutionHistory} folds a state's runs into one result, this keeps
+ * them apart — every `Retry` attempt, every Map iteration and every pass through a
+ * Parallel branch is its own {@link TimelineEntry}, in the order the execution entered
+ * them. That is what a scrubber, a Gantt view or a "what ran when" report needs.
+ *
+ * Pure and deterministic; it reads the history and nothing else.
+ *
+ * @param params - Object parameters
+ * @param params.definition - The ASL the execution ran, for scoped node ids
+ * @param params.events - Ordered execution history events
+ * @returns The ordered timeline, with the run's overall window and status
+ *
+ * @example
+ * ```typescript
+ * import { buildExecutionTimeline } from 'sfn-diagram';
+ * const timeline = buildExecutionTimeline({ definition: asl, events });
+ * for (const entry of timeline.entries) {
+ *     console.log(entry.stateName, entry.attempt, entry.status);
+ * }
+ * ```
+ *
+ * @remarks
+ * A container entry's `branchCount` / `iterationCount` counts what the history shows
+ * starting inside it. A Distributed Map runs its iterations as child executions, whose
+ * events are not in this history at all, so its count is 0 — the parent history has
+ * nothing finer than the run's own outcome to offer.
+ *
+ * An entry is `running` only if it never closed: on a finished execution that means
+ * the state the run was still inside when it ended.
+ */
+export function buildExecutionTimeline(
+    params: BuildExecutionTimelineParams
+): ExecutionTimeline {
+    const { definition, events } = params;
+    return walkExecutionHistory({ definition, events }).timeline;
 }
 
 /** Format a duration for a node annotation, e.g. 45 -> "45ms", 1200 -> "1.2s". */
@@ -464,9 +754,15 @@ function summarize(
     return summary;
 }
 
-/** Resolve execution input into the overlay model once for both renderers. */
-function computeOverlay(history: ExecutionHistoryInput): ExecutionOverlay {
-    return parseExecutionHistory({ events: normalizeEvents(history) });
+/**
+ * Resolve execution input into both derived models once, for every renderer. One walk
+ * covers the overlay the styling is built from and the timeline the output reports.
+ */
+function computeExecutionWalk(
+    definition: AslDefinition,
+    history: ExecutionHistoryInput
+): ExecutionWalk {
+    return walkExecutionHistory({ definition, events: normalizeEvents(history) });
 }
 
 /**
@@ -592,7 +888,7 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         nodes,
         summaryStateNames = Object.keys(definition.States),
     } = params;
-    const overlay = computeOverlay(history);
+    const { overlay, timeline } = computeExecutionWalk(definition, history);
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key
     // once rather than looking up `overlay.states[node.id]`, which silently misses
@@ -669,6 +965,7 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         summary: {
             ...summarize(overlay, summaryStateNames),
             executionStatus: overlay.executionStatus,
+            timeline,
         },
     };
 }
@@ -756,7 +1053,7 @@ export function generateMermaidExecution(
 ): MermaidExecutionOutput {
     const { aslDefinition, history, layout, theme } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
-    const overlay = computeOverlay(history);
+    const { overlay, timeline } = computeExecutionWalk(aslObj, history);
 
     const { nodes, edges } = parseAsl({ definition: aslObj });
     const resolver = buildIdResolver({ definition: aslObj });
@@ -790,6 +1087,7 @@ export function generateMermaidExecution(
             edgeCount: metadata.edgeCount,
             executionStatus: overlay.executionStatus,
             stateCount: metadata.stateCount,
+            timeline,
         },
     };
 }
