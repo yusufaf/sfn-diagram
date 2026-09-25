@@ -55483,9 +55483,9 @@ var require_dist_cjs15 = __commonJS({
   }
 });
 
-// ../../node_modules/.pnpm/@aws-sdk+client-sfn@3.1134.0/node_modules/@aws-sdk/client-sfn/dist-cjs/index.js
+// ../../node_modules/.pnpm/@aws-sdk+client-sfn@3.1135.0/node_modules/@aws-sdk/client-sfn/dist-cjs/index.js
 var require_dist_cjs16 = __commonJS({
-  "../../node_modules/.pnpm/@aws-sdk+client-sfn@3.1134.0/node_modules/@aws-sdk/client-sfn/dist-cjs/index.js"(exports2) {
+  "../../node_modules/.pnpm/@aws-sdk+client-sfn@3.1135.0/node_modules/@aws-sdk/client-sfn/dist-cjs/index.js"(exports2) {
     var { awsEndpointFunctions: awsEndpointFunctions2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion$1, createDefaultUserAgentProvider: createDefaultUserAgentProvider2, NODE_APP_ID_CONFIG_OPTIONS: NODE_APP_ID_CONFIG_OPTIONS2, getAwsRegionExtensionConfiguration: getAwsRegionExtensionConfiguration2, resolveAwsRegionExtensionConfiguration: resolveAwsRegionExtensionConfiguration2, resolveUserAgentConfig: resolveUserAgentConfig2, resolveHostHeaderConfig: resolveHostHeaderConfig2, getUserAgentPlugin: getUserAgentPlugin2, getHostHeaderPlugin: getHostHeaderPlugin2, getLoggerPlugin: getLoggerPlugin2, getRecursionDetectionPlugin: getRecursionDetectionPlugin2, getLongPollPlugin: getLongPollPlugin2 } = (init_client3(), __toCommonJS(client_exports2));
     var { getHttpAuthSchemeEndpointRuleSetPlugin: getHttpAuthSchemeEndpointRuleSetPlugin2, DefaultIdentityProviderConfig: DefaultIdentityProviderConfig2, getHttpSigningPlugin: getHttpSigningPlugin2, createPaginator: createPaginator2 } = (init_dist_es(), __toCommonJS(dist_es_exports));
     var { normalizeProvider: normalizeProvider3, getSmithyContext: getSmithyContext2, ServiceException: ServiceException2, NoOpLogger: NoOpLogger2, emitWarningIfUnsupportedVersion: emitWarningIfUnsupportedVersion3, loadConfigsForDefaultMode: loadConfigsForDefaultMode2, getDefaultExtensionConfiguration: getDefaultExtensionConfiguration2, resolveDefaultRuntimeConfig: resolveDefaultRuntimeConfig2, Client: Client2, makeBuilder: makeBuilder2, createAggregatedClient: createAggregatedClient2 } = (init_client2(), __toCommonJS(client_exports));
@@ -55554,7 +55554,7 @@ var require_dist_cjs16 = __commonJS({
       Region: { type: "builtInParams", name: "region" },
       UseDualStack: { type: "builtInParams", name: "useDualstackEndpoint" }
     };
-    var version = "3.1133.0";
+    var version = "3.1134.0";
     var packageInfo = {
       version
     };
