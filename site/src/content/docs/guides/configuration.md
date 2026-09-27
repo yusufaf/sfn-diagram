@@ -215,10 +215,28 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   `path` is the node id followed by the dotted path within the state —
   `'ProcessOrder'`, `'ProcessOrder.Parameters'`, `'ProcessOrder.Retry[0].MaxAttempts'`
-  — and for a payload it is `'<stateId>.input'`, `'.output'` or `'.cause'`, or
-  `'execution.cause'` for the failure cause of the execution itself. `stateId` is the
-  same id the renderer stamps as `data-state-id`, so a hook can key off the state a
-  value belongs to.
+  — and for a run's text it is `'<stateId>.'` plus `input`, `output`, `cause` or
+  `error`. It is for matching, not identity: paths are concatenated, so a key that
+  itself contains a dot — `'Payload.$'`, which ASL uses constantly — looks the same as
+  one more level of nesting.
+
+  `stateId` is the entry a value is inlined **under**, which is not always the state it
+  describes. A Parallel or Map container's own ASL contains its children whole, so a
+  nested state's ASL is offered twice: once under its own id, and again inside its
+  container's entry. A container failure's `cause` goes the other way — one cause is
+  written onto every branch it abandoned, and is offered once per branch. So a hook
+  that has to catch every copy should key on `path` or on the value; `stateId` alone
+  will miss one.
+
+  A run's input, output and cause are only reached when `includeExecutionPayloads` is
+  on. Its **error name** is inlined on every execution document either way, so it is
+  always offered — a `Fail` state's `Error` or a Lambda's exception class is text the
+  history carried, not something the diagram draws.
+
+  Payloads are handed to the hook whole, before the 4096-character cap, so a hook that
+  parses one to scrub a field gets valid JSON rather than a string cut off mid-token.
+  The cap then trims whatever the hook returned, which is what keeps a substitution
+  inside the document's size budget.
 
   Nothing is redacted by default: without the hook the raw ASL is inlined whole, as it
   always has been. The hook is available on `generateHtml()`, `generateHtmlAsync()`,

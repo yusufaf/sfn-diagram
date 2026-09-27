@@ -305,7 +305,23 @@ describe('generateHtml redaction', () => {
         for (const payload of payloads) expect(payload.text).toBe(REDACTED);
     });
 
-    it('still reports the original length of a payload that was capped and then redacted', () => {
+    it('caps an un-redacted payload and reports what it was cut from', () => {
+        const { html } = generateHtml({
+            aslDefinition: retryDefinition,
+            history: historyWithPayloads() as never,
+            includeExecutionPayloads: true,
+        });
+
+        const outputs = timelineBlob(html).entries.map(
+            (entry) => entry.output as { text: string; truncatedFrom?: number } | undefined,
+        );
+        const truncated = outputs.find((payload) => payload?.truncatedFrom !== undefined);
+
+        expect(truncated!.text).toHaveLength(4096);
+        expect(truncated!.truncatedFrom).toBe(6014);
+    });
+
+    it('drops the truncation notice from a payload the hook replaced outright', () => {
         const { html } = generateHtml({
             aslDefinition: retryDefinition,
             history: historyWithPayloads() as never,
@@ -313,29 +329,52 @@ describe('generateHtml redaction', () => {
             redact: ({ kind, value }) => (kind === 'payload' ? undefined : value),
         });
 
-        const truncated = timelineBlob(html)
+        const outputs = timelineBlob(html)
             .entries.map((entry) => entry.output as { text: string; truncatedFrom?: number } | undefined)
-            .find((payload) => payload?.truncatedFrom !== undefined);
+            .filter(Boolean);
 
-        expect(truncated).toBeDefined();
-        expect(truncated!.text).toBe(REDACTED);
-        // The cap is a size budget and the hook a disclosure decision; a redacted
-        // payload must not also claim to be a complete one.
-        expect(truncated!.truncatedFrom).toBe(6014);
+        expect(outputs.length).toBeGreaterThan(0);
+        for (const payload of outputs) {
+            // `truncatedFrom` describes the text that was actually inlined. Ten
+            // characters "truncated from 6014" reads as a preview of the original,
+            // which is the opposite of what a redacted payload means.
+            expect(payload!.text).toBe(REDACTED);
+            expect(payload!.truncatedFrom).toBeUndefined();
+        }
     });
 
-    it('leaves the payloads alone when includeExecutionPayloads was never turned on', () => {
-        let payloadCalls = 0;
+    it('hands the hook the whole payload, before the cap, so it can parse it', () => {
+        let parsedKeys: string[] = [];
+        generateHtml({
+            aslDefinition: retryDefinition,
+            history: historyWithPayloads() as never,
+            includeExecutionPayloads: true,
+            redact: ({ kind, path, value }) => {
+                if (kind !== 'payload' || !path.endsWith('.output')) return value;
+                // A payload cut off mid-token would throw here.
+                const parsed = JSON.parse(value as string) as Record<string, unknown>;
+                parsedKeys = Object.keys(parsed);
+                return JSON.stringify({ ...parsed, receipt: REDACTED });
+            },
+        });
+
+        expect(parsedKeys).toEqual(['receipt']);
+    });
+
+    it('captures no input, output or cause when includeExecutionPayloads was never turned on', () => {
+        const fields: string[] = [];
         const { html } = generateHtml({
             aslDefinition: retryDefinition,
             history: historyWithPayloads() as never,
-            redact: ({ kind, value }) => {
-                if (kind === 'payload') payloadCalls += 1;
+            redact: ({ kind, path, value }) => {
+                if (kind === 'payload') fields.push(path.slice(path.lastIndexOf('.') + 1));
                 return value;
             },
         });
 
-        expect(payloadCalls).toBe(0);
+        // Error names are inlined either way, so they are still offered; the payloads
+        // proper were never captured, so there is nothing to offer.
+        expect(new Set(fields)).toEqual(new Set(['error']));
         expect(html).not.toContain(SECRET);
     });
 });
@@ -364,5 +403,186 @@ describe('buildExecutionTimeline redaction', () => {
             redact: ({ value }) => (typeof value === 'string' && value.includes(SECRET) ? undefined : value),
         });
         expect(JSON.stringify(timeline)).not.toContain(SECRET);
+    });
+});
+describe('redaction of an execution run\'s other text', () => {
+    /** A Parallel whose two branches are still open when the container fails. */
+    const parallelDefinition: AslDefinition = {
+        StartAt: 'Fan',
+        States: {
+            Fan: {
+                Type: 'Parallel',
+                Branches: [
+                    { StartAt: 'Left', States: { Left: { Type: 'Task', Resource: 'arn:l', End: true } } },
+                    { StartAt: 'Right', States: { Right: { Type: 'Task', Resource: 'arn:r', End: true } } },
+                ],
+                Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Recover' }],
+                Next: 'Done',
+            },
+            Recover: { Type: 'Pass', Next: 'Done' },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    /** Both leaves are abandoned by the container's failure, so both take its cause. */
+    const abandonedLeafHistory = (): unknown[] => [
+        { id: 1, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00Z' },
+        {
+            id: 2,
+            type: 'ParallelStateEntered',
+            timestamp: '2024-01-01T00:00:01Z',
+            stateEnteredEventDetails: { name: 'Fan' },
+        },
+        { id: 3, type: 'ParallelStateStarted', timestamp: '2024-01-01T00:00:01Z' },
+        {
+            id: 4,
+            type: 'TaskStateEntered',
+            timestamp: '2024-01-01T00:00:02Z',
+            stateEnteredEventDetails: { name: 'Left' },
+        },
+        {
+            id: 5,
+            type: 'TaskStateEntered',
+            timestamp: '2024-01-01T00:00:02Z',
+            stateEnteredEventDetails: { name: 'Right' },
+        },
+        {
+            id: 6,
+            type: 'ParallelStateFailed',
+            timestamp: '2024-01-01T00:00:03Z',
+            executionFailedEventDetails: { cause: `branch blew up: ${SECRET}`, error: `Boom.${SECRET}` },
+        },
+        {
+            id: 7,
+            type: 'ParallelStateExited',
+            timestamp: '2024-01-01T00:00:04Z',
+            stateExitedEventDetails: { name: 'Fan' },
+        },
+    ];
+
+    it('offers one shared cause once per entry it lands in, under that entry\'s id', () => {
+        const offered: Array<{ path: string; stateId?: string }> = [];
+        const timeline = buildExecutionTimeline({
+            definition: parallelDefinition,
+            events: abandonedLeafHistory() as never,
+            includePayloads: true,
+            redact: ({ kind, path, stateId, value }) => {
+                if (kind === 'payload') offered.push({ path, stateId });
+                return value;
+            },
+        });
+
+        // The container's cause is written onto both abandoned leaves and onto the
+        // container itself, so a hook keyed on stateId has to see all three - not one
+        // offer under the container's id standing in for every copy.
+        const causeTargets = offered.filter((call) => call.path.endsWith('.cause')).map((c) => c.stateId);
+        expect(new Set(causeTargets)).toEqual(new Set(['Fan', 'Left', 'Right']));
+
+        const withCause = timeline.entries.filter((entry) => entry.cause !== undefined);
+        expect(withCause.length).toBe(3);
+    });
+
+    it('lets a per-state hook redact the copy shown under that state', () => {
+        const timeline = buildExecutionTimeline({
+            definition: parallelDefinition,
+            events: abandonedLeafHistory() as never,
+            includePayloads: true,
+            redact: ({ kind, stateId, value }) =>
+                kind === 'payload' && stateId === 'Right' ? undefined : value,
+        });
+
+        const byNode = new Map(timeline.entries.map((entry) => [entry.nodeId, entry]));
+        expect(byNode.get('Right')!.cause!.text).toBe(REDACTED);
+        expect(byNode.get('Left')!.cause!.text).toContain(SECRET);
+    });
+
+    it('redacts the error name too, with no includeExecutionPayloads needed', () => {
+        const plain = generateHtml({
+            aslDefinition: parallelDefinition,
+            history: { events: abandonedLeafHistory() } as never,
+        });
+        // The error name rides on every execution document, opt-in or not.
+        expect(plain.html).toContain(`Boom.${SECRET}`);
+
+        const { html } = generateHtml({
+            aslDefinition: parallelDefinition,
+            history: { events: abandonedLeafHistory() } as never,
+            redact: ({ kind, value }) => (kind === 'payload' ? undefined : value),
+        });
+        expect(html).not.toContain(SECRET);
+
+        const errors = timelineBlob(html)
+            .entries.map((entry) => entry.error)
+            .filter(Boolean);
+        expect(errors.length).toBeGreaterThan(0);
+        for (const error of errors) expect(error).toBe(REDACTED);
+    });
+
+    it('paths an error by its state and field', () => {
+        const paths: string[] = [];
+        buildExecutionTimeline({
+            definition: parallelDefinition,
+            events: abandonedLeafHistory() as never,
+            redact: ({ path, value }) => {
+                paths.push(path);
+                return value;
+            },
+        });
+
+        expect(paths).toContain('Fan.error');
+        // Without includePayloads nothing else is offered - errors are the exception.
+        expect(paths.every((path) => path.endsWith('.error'))).toBe(true);
+    });
+});
+
+describe('values the walk must not damage', () => {
+    it('leaves an absent optional field absent rather than calling it redacted', () => {
+        const redacted = redactStateData({
+            redact: ({ value }) => value,
+            stateData: { Fetch: { Type: 'Pass', Comment: undefined } as unknown as AslState },
+        });
+
+        expect(redacted.Fetch.Comment).toBeUndefined();
+        expect(JSON.stringify(redacted)).not.toContain(REDACTED);
+    });
+
+    it('treats a non-plain object as a leaf instead of rebuilding it as {}', () => {
+        const stamped = new Date('2024-01-01T00:00:00Z');
+        const redacted = redactStateData({
+            redact: ({ value }) => value,
+            stateData: { Fetch: { Type: 'Pass', Comment: stamped } as unknown as AslState },
+        });
+
+        expect(redacted.Fetch.Comment).toBe(stamped);
+        expect(JSON.parse(JSON.stringify(redacted)).Fetch.Comment).toBe('2024-01-01T00:00:00.000Z');
+    });
+
+    it('keeps a __proto__ key as a key, and redacts it like any other', () => {
+        // JSON.parse makes __proto__ an own enumerable property, where a plain
+        // `next[key] = …` would hand it to the prototype setter and lose it.
+        const parsed = JSON.parse(`{"Type":"Pass","__proto__":{"token":"${SECRET}"}}`) as AslState;
+        const redacted = redactStateData({
+            redact: ({ path, value }) => (path.endsWith('.__proto__') ? undefined : value),
+            stateData: { Fetch: parsed },
+        });
+
+        expect(Object.keys(redacted.Fetch)).toEqual(['Type', '__proto__']);
+        expect(JSON.parse(JSON.stringify(redacted)).Fetch.__proto__).toBe(REDACTED);
+        expect(JSON.stringify(redacted)).not.toContain(SECRET);
+    });
+
+    it('offers a nested state\'s ASL again inside its container, under the container\'s id', () => {
+        // collectStateData stores a container's own ASL, children and all, as well as
+        // each child under its own scoped id - so a stateId-keyed hook that only knows
+        // about the child leaves a verbatim copy in the container's entry.
+        const perState = generateHtml({
+            aslDefinition: definition,
+            redact: ({ stateId, value }) => (stateId?.endsWith('Inner') ? undefined : value),
+        });
+        expect(perState.html).toContain(SECRET);
+
+        // Keyed on the path instead, both copies go.
+        const byPath = generateHtml({ aslDefinition: definition, redact: dropParameters });
+        expect(byPath.html).not.toContain(SECRET);
     });
 });

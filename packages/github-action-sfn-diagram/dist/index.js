@@ -68626,7 +68626,10 @@ var MermaidRenderer = class {
 };
 var REDACTED = "[redacted]";
 function resolve$1(answer, value) {
-  if (answer === void 0) return {
+  if (answer === void 0) return value === void 0 ? {
+    kept: true,
+    value
+  } : {
     kept: false,
     value: REDACTED
   };
@@ -68954,17 +68957,17 @@ function createPayloadCapture(params) {
   let spent = 0;
   return ({ field, raw, stateId }) => {
     if (raw === void 0 || spent >= 262144) return void 0;
-    const capped = raw.length <= 4096 ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
-    spent += capped.length;
-    const text = redactPayloadText({
+    const redacted = redactPayloadText({
       field,
       redact,
       stateId,
-      text: capped
+      text: raw
     });
-    return capped.length === raw.length ? { text } : {
+    const text = redacted.length <= 4096 ? redacted : redacted.slice(0, EXECUTION_PAYLOAD_CAP);
+    spent += text.length;
+    return text.length === redacted.length ? { text } : {
       text,
-      truncatedFrom: raw.length
+      truncatedFrom: redacted.length
     };
   };
 }
@@ -69094,7 +69097,12 @@ function walkExecutionHistory(params) {
     const entry = entries[frame.openEntryIndex];
     entry.exitedMs = ms;
     entry.status = status;
-    if (error2 !== void 0 && entry.error === void 0) entry.error = error2;
+    if (error2 !== void 0 && entry.error === void 0) entry.error = redactPayloadText({
+      field: "error",
+      redact,
+      stateId: frame.nodeId,
+      text: error2
+    });
     if (payloads?.cause !== void 0) entry.cause = payloads.cause;
     if (payloads?.output !== void 0) entry.output = payloads.output;
     stampChildCount(frame, entry);
@@ -69184,13 +69192,14 @@ function walkExecutionHistory(params) {
       const containerIndex = findFrameIndex((frame) => frame.enteredType === containerFailure.enteredType && !frame.failureClosed);
       if (containerIndex >= 0) {
         const eventError = extractError(event);
-        const eventCause = includePayloads ? capturePayload({
+        const rawCause = extractCause(event);
+        const causeFor = (frame) => includePayloads ? capturePayload({
           field: "cause",
-          raw: extractCause(event),
-          stateId: openStack[containerIndex].nodeId
+          raw: rawCause,
+          stateId: frame.nodeId
         }) : void 0;
         const leaves = openStack.splice(containerIndex + 1);
-        for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError, eventCause);
+        for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError, leaf.payloadCause ? void 0 : causeFor(leaf));
         const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === "failure");
         const leafError = failingLeaf?.error;
         const container = openStack[containerIndex];
@@ -69201,7 +69210,7 @@ function walkExecutionHistory(params) {
         container.lastOutcome = "failure";
         container.error = container.error ?? eventError ?? leafError;
         if (containerFailure.terminal) container.failureClosed = true;
-        closeEntry(container, nowMs, "failed", eventError ?? leafError, { cause: eventCause ?? failingLeaf?.payloadCause });
+        closeEntry(container, nowMs, "failed", eventError ?? leafError, { cause: causeFor(container) ?? failingLeaf?.payloadCause });
       }
       continue;
     }
@@ -69245,11 +69254,12 @@ function walkExecutionHistory(params) {
     else if (type === "ExecutionFailed" || type === "ExecutionAborted" || type === "ExecutionTimedOut") {
       executionStatus = type === "ExecutionFailed" ? "failed" : type === "ExecutionAborted" ? "aborted" : "timedOut";
       const execError = extractError(event);
-      const execCause = includePayloads ? capturePayload({
+      const rawExecCause = extractCause(event);
+      for (const frame of openStack) closeAsFailed(frame, nowMs, execError, frame.payloadCause || !includePayloads ? void 0 : capturePayload({
         field: "cause",
-        raw: extractCause(event)
-      }) : void 0;
-      for (const frame of openStack) closeAsFailed(frame, nowMs, execError, execCause);
+        raw: rawExecCause,
+        stateId: frame.nodeId
+      }));
       openStack.length = 0;
     }
   }

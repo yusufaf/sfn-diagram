@@ -32,8 +32,8 @@ export interface RedactStateDataParams {
 
 /** Parameters for {@link redactPayloadText}. */
 export interface RedactPayloadTextParams {
-    /** Which of a run's payloads this is. */
-    field: 'cause' | 'input' | 'output';
+    /** Which of a run's texts this is. */
+    field: 'cause' | 'error' | 'input' | 'output';
     /** The caller's hook. Omit it and `text` is returned unchanged. */
     redact?: RedactCallback;
     /** Node id of the state the run belongs to; omitted for an execution-level cause. */
@@ -42,9 +42,28 @@ export interface RedactPayloadTextParams {
     text: string;
 }
 
-/** True for an object literal, the only thing worth recursing into. */
+/**
+ * True for a plain object, the only thing worth recursing into.
+ *
+ * A `Date`, `Map` or class instance is a leaf: `Object.entries` yields nothing for
+ * one, so walking it would quietly rebuild it as `{}`. ASL parsed from JSON has none
+ * of these, but a definition built in code can.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value) as unknown;
+    return prototype === Object.prototype || prototype === null;
+}
+
+/**
+ * Assign a walked value under `key`, whatever `key` is.
+ *
+ * `next[key] = value` would trip the `__proto__` setter, which `JSON.parse` can put on
+ * an object as an own enumerable key - the value would be swallowed into the
+ * prototype chain and vanish from the output instead of being redacted.
+ */
+function define(target: Record<string, unknown>, key: string, value: unknown): void {
+    Object.defineProperty(target, key, { configurable: true, enumerable: true, value, writable: true });
 }
 
 /**
@@ -54,7 +73,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * that was passed in means "keep it", which is also the signal to keep walking into it.
  */
 function resolve(answer: unknown, value: unknown): { kept: boolean; value: unknown } {
-    if (answer === undefined) return { kept: false, value: REDACTED };
+    // A value that was already undefined cannot have been redacted - a hook returning
+    // it is returning what it was given. Without this the no-op hook `({ value }) =>
+    // value` would stamp '[redacted]' on every absent optional field of a definition
+    // built in code, claiming something was withheld where nothing existed.
+    if (answer === undefined) {
+        return value === undefined ? { kept: true, value } : { kept: false, value: REDACTED };
+    }
     return { kept: answer === value, value: answer };
 }
 
@@ -93,7 +118,7 @@ function walkState(params: WalkStateParams): unknown {
     if (isRecord(value)) {
         const next: Record<string, unknown> = {};
         for (const [key, item] of Object.entries(value)) {
-            next[key] = walkState({ path: `${path}.${key}`, redact, stateId, value: item });
+            define(next, key, walkState({ path: `${path}.${key}`, redact, stateId, value: item }));
         }
         return next;
     }
@@ -125,6 +150,17 @@ function walkState(params: WalkStateParams): unknown {
  * instead; returning that same value keeps it and descends into it. So a hook that
  * rebuilds an object it meant to keep stops the walk there - return the argument
  * itself to carry on.
+ *
+ * `stateId` is the entry a value is inlined *under*, which is not always the state it
+ * describes. A Parallel or Map container's own ASL contains its children whole, so
+ * every nested state's ASL is offered twice: once under its own scoped id, and once
+ * more inside its container's entry, under the container's id and a path running
+ * through `Branches` or `ItemProcessor`. A hook that must catch every copy has to key
+ * on `path` or on the value, not on `stateId` alone.
+ *
+ * `path` is for matching, not identity: it is built by concatenation, so a key that
+ * itself contains a dot or a bracket - `"Payload.$"`, which ASL uses constantly -
+ * produces a path indistinguishable from one more level of nesting.
  */
 export function redactStateData(params: RedactStateDataParams): Record<string, AslState> {
     const { redact, stateData } = params;
@@ -143,11 +179,12 @@ export function redactStateData(params: RedactStateDataParams): Record<string, A
 }
 
 /**
- * Run a caller's redaction hook over one execution payload.
+ * Run a caller's redaction hook over one execution payload or error name.
  *
  * Offered as the single string it is, not parsed: a payload is opaque text that only
  * sometimes happens to be JSON, and a hook that wants to scrub inside it can parse
- * and re-serialize it itself.
+ * and re-serialize it itself. It is handed the text in full, before the capture cap
+ * trims it, so that parse has something valid to work on.
  *
  * @param params - Redaction parameters
  * @param params.field - Which of a run's payloads this is
