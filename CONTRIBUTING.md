@@ -49,12 +49,20 @@ pnpm run dev
 | `pnpm run test:coverage` | Run the `unit` project with coverage |
 | `pnpm turbo run typecheck` | Typecheck the root package and every workspace package |
 
-The packages under `packages/` have their own suites; run them with
-`pnpm --filter <package> test` (or `pnpm turbo run test` for all of them).
+The packages under `packages/` have their own suites; run one with
+`pnpm --filter <package> test`, or all three with
+`pnpm --filter './packages/*' test`. Note that `pnpm turbo run test` is wider than
+that — `.` and `site` are workspace members too, so it also runs the root's full
+three-project Vitest run and the docs site's suite.
 
-If you touch anything under `src/renderers/viewer/`, run
-`pnpm run build:viewer-script` — the bundled output is committed, and `pnpm test`
-fails if it is stale.
+Run `pnpm run build:viewer-script` after touching anything the viewer bundles. That
+is `src/renderers/viewer/`, but **also** the modules the in-browser relayout bundle
+inlines: `src/config/`, `src/constants/`, `src/graph/`, `src/layout/`, `src/styles/`,
+`src/types/`, `src/renderers/SvgRenderer.ts`, `src/renderers/svgBuilder.ts` and three
+files under `src/utils/`. `RELAYOUT_ALLOWED_PREFIXES` in
+`scripts/build-viewer-script.mjs` is the authoritative list. The bundled output is
+committed, so editing (say) `src/layout/DagreLayout.ts` and skipping the rebuild makes
+`pnpm test` fail in its first step with a stale-bundle error rather than a test failure.
 
 ### Making Changes
 
@@ -310,12 +318,18 @@ describe('generateSvg', () => {
    history. Never edit either by hand, and never create a release tag or publish.
 3. **Run All Checks**: Ensure tests, type checking, and linting pass
 4. **Commit Message Format**: Use conventional commits format:
-   - `feat:` - New feature
-   - `fix:` - Bug fix
-   - `docs:` - Documentation changes
-   - `refactor:` - Code refactoring
+   - `feat:` - New feature (semver MINOR)
+   - `fix:` - Bug fix (semver PATCH)
+   - `perf:` - Performance improvement (semver PATCH)
+   - `docs:` - Documentation only
+   - `refactor:` - Code change that is neither a fix nor a feature
    - `test:` - Adding/updating tests
+   - `build:` - Build system or dependency changes
+   - `ci:` - CI/CD config changes
    - `chore:` - Maintenance tasks
+
+   Append `!` (or a `BREAKING CHANGE:` footer) for a breaking change, which release-please
+   turns into a MAJOR bump.
 
 5. **Create Pull Request**:
    - Provide clear description of changes
@@ -375,7 +389,8 @@ sfn-diagram/
 │   ├── styles/                 # Node and edge styling
 │   ├── types/                  # TypeScript type definitions
 │   ├── utils/                  # Icon embedding, text measurement, JSONata helpers
-│   └── dagre.d.ts              # Type augmentation for @dagrejs/dagre
+│   ├── dagre.d.ts              # Type augmentation for @dagrejs/dagre
+│   └── dom-globals.d.ts        # DOM globals for the browser-side viewer code
 ├── tests/                      # Vitest suites (see Test Organization above)
 ├── packages/
 │   ├── github-action-sfn-diagram/  # GitHub Action (private; bundled dist/ is committed)
@@ -386,6 +401,7 @@ sfn-diagram/
 ├── examples/                   # Example ASL definitions
 ├── docs/images/                # Generated README and gallery images (committed)
 ├── custom-elements.json        # Custom-elements manifest (generated, committed)
+├── jsr.json                    # JSR publish config (no-slow-types applies to src/)
 ├── Dockerfile                  # CLI container image
 ├── dist/                       # Library build output (generated, not committed)
 ├── pnpm-workspace.yaml         # Workspace package globs
@@ -413,9 +429,12 @@ them:
 - `custom-elements.json` — the custom-elements manifest consumed by editors and the
   docs site. Regenerate it with `pnpm run build:manifest`.
 - `src/renderers/viewer/viewerScript.generated.ts` and `viewerRelayout.generated.ts` —
-  the bundled viewer script, inlined into generated HTML. Regenerate with
-  `pnpm run build:viewer-script`; `pnpm test` checks it is current.
-- `docs/images/` — rendered README and gallery images.
+  the bundled viewer code, inlined into generated HTML. Regenerate with
+  `pnpm run build:viewer-script`; `pnpm test` checks both are current. The second one
+  bundles the layout/render pipeline, so its inputs reach well outside the viewer
+  directory — see the note under [Available Commands](#available-commands).
+- `docs/images/` — rendered README and gallery images. Regenerate with
+  `pnpm run docs:images` and `pnpm run gallery:images`.
 
 So: nothing generated is committed unless it is on that list, and anything on it must
 be regenerated and committed in the same change.
