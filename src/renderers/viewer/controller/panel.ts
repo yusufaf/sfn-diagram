@@ -151,6 +151,26 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
             panel.setAttribute('role', 'dialog');
             panel.setAttribute('tabindex', '-1');
 
+            /**
+             * Open and close the panel for real, ahead of anything CSS does about it.
+             *
+             * `inert` rather than the stylesheet's `visibility: hidden`: closing fades
+             * the panel out, and visibility only flips once that fade has finished, so
+             * for those few frames a closed panel would still hold its close button and
+             * run summaries in the tab order. `inert` takes effect on the same tick and
+             * blurs whatever was focused inside, exactly as the old `display: none` did.
+             */
+            const setPanelOpen = (open: boolean): void => {
+                panel.classList.toggle('sfn-open', open);
+                if (open) {
+                    panel.removeAttribute('inert');
+                } else {
+                    panel.setAttribute('inert', '');
+                }
+            };
+
+            setPanelOpen(panel.classList.contains('sfn-open'));
+
             const focusPanel = (): void => {
                 panel.focus({ preventScroll: true });
             };
@@ -328,19 +348,19 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                 panelBody.appendChild(list);
                 panelBody.appendChild(pre);
                 if (extra) panelBody.appendChild(extra);
-                panel.classList.add('sfn-open');
+                setPanelOpen(true);
                 // At full width the side panel just shrank the stage, which changes
                 // how much of the diagram the minimap's viewport rect should cover.
                 viewport.refreshViewportOverlays();
             };
 
             closePanel = () => {
-                // Read before removing sfn-open: that class drives `display: none` in
-                // CSS, and a browser force-blurs a focused element the instant it (or an
-                // ancestor) leaves layout - by the next line, activeElement would already
-                // have moved to <body>, not the panel.
+                // Read before closing: the panel goes inert on the next line, and a
+                // browser force-blurs a focused element the instant it (or an ancestor)
+                // becomes inert - by then, activeElement would already have moved to
+                // <body>, not the panel.
                 const activeElement = ownerDoc?.activeElement ?? null;
-                panel.classList.remove('sfn-open');
+                setPanelOpen(false);
                 // The minimap may have been hidden underneath a bottom sheet, its
                 // viewport rect left stale by every pan made meanwhile.
                 viewport.refreshViewportOverlays();
