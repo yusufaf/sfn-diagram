@@ -1,5 +1,7 @@
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import { generateHtml, generateViewerUpdate } from '../../src';
@@ -2714,5 +2716,164 @@ describe('motion tokens and reduced motion', () => {
 
         await motionPage.keyboard.press('m');
         expect(await minimapStyle()).toEqual({ display: 'block', visibility: 'visible' });
+    });
+});
+describe('deep links via location.hash', () => {
+    let hashDir: string;
+    let hashFile: string;
+    let linkPage: Page;
+
+    /** The viewer needs a real origin: replaceState refuses one that is opaque. */
+    const load = async (target: Page, fragment = ''): Promise<void> => {
+        await target.goto(pathToFileURL(hashFile).href + fragment, { waitUntil: 'load' });
+    };
+
+    const currentHash = (): Promise<string> => linkPage.evaluate(() => location.hash);
+    const panelTitle = (): Promise<string | null> =>
+        linkPage.$eval('#sfn-panel-title', (element) => element.textContent);
+    const panelOpen = (): Promise<boolean> =>
+        linkPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'));
+
+    /** Select without moving the mouse, which would pan the stage. */
+    const clickState = (stateId: string): Promise<void> =>
+        linkPage.evaluate((id) => {
+            const group = document.querySelector(`[data-state-id="${id}"]`) as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        }, stateId);
+
+    beforeAll(async () => {
+        hashDir = mkdtempSync(join(tmpdir(), 'sfn-hash-'));
+        hashFile = join(hashDir, 'diagram.html');
+        writeFileSync(hashFile, generateHtml({ aslDefinition: definition }).html, 'utf-8');
+
+        linkPage = await browser.newPage();
+        await linkPage.setViewport({ width: 1280, height: 800 });
+        await load(linkPage);
+    }, 60_000);
+
+    afterAll(async () => {
+        await linkPage.close();
+        rmSync(hashDir, { force: true, recursive: true });
+    });
+
+    it('writes the selected state into the fragment', async () => {
+        await clickState('Beta');
+        expect(await currentHash()).toBe('#sfn=state:Beta');
+    });
+
+    it('clears the fragment again when the panel closes', async () => {
+        await linkPage.evaluate(() => {
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
+        });
+        expect(await currentHash()).toBe('');
+    });
+
+    it('leaves the back stack alone, so Back is not six clicks deep', async () => {
+        const before = await linkPage.evaluate(() => history.length);
+        await clickState('Alpha');
+        await clickState('Beta');
+        await clickState('Gamma');
+        expect(await linkPage.evaluate(() => history.length)).toBe(before);
+        expect(await currentHash()).toBe('#sfn=state:Gamma');
+    });
+
+    it('opens the panel for whatever the document was loaded with', async () => {
+        const deepLinked = await browser.newPage();
+        await deepLinked.setViewport({ width: 1280, height: 800 });
+        await load(deepLinked, '#sfn=state:Beta');
+
+        expect(
+            await deepLinked.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+        expect(await deepLinked.$eval('#sfn-panel-title', (element) => element.textContent)).toBe('Beta');
+        await deepLinked.close();
+    });
+
+    it('follows a fragment changed in the address bar, and closes when it is emptied', async () => {
+        await linkPage.evaluate(() => {
+            location.hash = '#sfn=state:Alpha';
+        });
+        await linkPage.waitForFunction(
+            () => document.querySelector('#sfn-panel-title')!.textContent === 'Alpha',
+            { polling: 20, timeout: 5_000 },
+        );
+        expect(await panelTitle()).toBe('Alpha');
+
+        await linkPage.evaluate(() => {
+            location.hash = '';
+        });
+        await linkPage.waitForFunction(
+            () => !document.querySelector('#sfn-panel')!.classList.contains('sfn-open'),
+            { polling: 20, timeout: 5_000 },
+        );
+        expect(await panelOpen()).toBe(false);
+    });
+
+    it('ignores a link into a state the diagram no longer has', async () => {
+        const stale = await browser.newPage();
+        await stale.setViewport({ width: 1280, height: 800 });
+        await stale.goto(pathToFileURL(hashFile).href + '#sfn=state:Renamed', { waitUntil: 'load' });
+
+        expect(await stale.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+        await stale.close();
+    });
+
+    it('leaves a fragment that is not ours untouched', async () => {
+        const other = await browser.newPage();
+        await other.setViewport({ width: 1280, height: 800 });
+        await other.goto(pathToFileURL(hashFile).href + '#some-anchor', { waitUntil: 'load' });
+
+        expect(await other.evaluate(() => location.hash)).toBe('#some-anchor');
+        expect(await other.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            false,
+        );
+
+        // ...and closing a panel opened by hand does not clear it either.
+        await other.evaluate(() => {
+            const group = document.querySelector('[data-state-id="Beta"]') as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        });
+        expect(await other.evaluate(() => location.hash)).toBe('#sfn=state:Beta');
+        await other.close();
+    });
+
+    it('deep-links an edge as well as a state', async () => {
+        const edgeId = await linkPage.$eval('[data-edge-id]', (element) =>
+            element.getAttribute('data-edge-id'),
+        );
+        await linkPage.evaluate((id) => {
+            location.hash = `#sfn=edge:${encodeURIComponent(id!)}`;
+        }, edgeId);
+
+        await linkPage.waitForFunction(
+            (id) => document.querySelector('#sfn-panel-title')!.textContent === id,
+            { polling: 20, timeout: 5_000 },
+            edgeId,
+        );
+        expect(await panelTitle()).toBe(edgeId);
+    });
+
+    it('never touches the fragment from an embedded element, which shares its host page', async () => {
+        const embedded = await browser.newPage();
+        await embedded.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        // Two viewers on one page is exactly why an element must not claim the hash.
+        await embedded.goto(pathToFileURL(hashFile).href, { waitUntil: 'load' });
+        await embedded.evaluate((documentHtml) => {
+            document.body.innerHTML = '';
+            const host = document.createElement('div');
+            host.innerHTML = documentHtml;
+            document.body.appendChild(host);
+        }, html);
+
+        const claimed = await embedded.evaluate(() => location.hash);
+        expect(claimed).toBe('');
+        await embedded.close();
     });
 });

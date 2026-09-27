@@ -3,6 +3,7 @@ import { createCollapseToggle, type CollapseToggle, type ViewerRelayout } from '
 import { createListenerRegistry, hook, type ViewerData } from './controller/dom';
 import { attachKeyboardHandlers } from './controller/keyboard';
 import { createMinimap } from './controller/minimap';
+import { attachHashLinks } from './controller/hash';
 import { createDetailPanel } from './controller/panel';
 import { attachPanZoom } from './controller/panZoom';
 import { createPlayback } from './controller/playback';
@@ -243,7 +244,12 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         else viewport.fit();
     };
 
+    // After the first fit, so a deep link's panel opens against a diagram that has
+    // already been sized - and last, so every other module is listening by the time a
+    // selection is restored from the fragment.
+    const hashLinks = attachHashLinks({ ownerDoc, panel, registry, root });
     viewport.fit();
+    hashLinks.applyHash();
 
     return {
         destroy(): void {
