@@ -13,7 +13,13 @@ import {
 import { getTheme } from '../config/themes';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
-import type { StateNode, GraphEdge, DiagramOptions, ResolvedTheme, LayoutDirection } from '../types';
+import type {
+    StateNode,
+    GraphEdge,
+    DiagramOptions,
+    ResolvedTheme,
+    LayoutDirection,
+} from '../types';
 
 /** Self-loop arc geometry. Each additional loop on a node nests one step further out. */
 const LOOP_BASE_REACH = 40;
@@ -89,13 +95,20 @@ interface InsetFromSideParams {
 /** Nudge a top/bottom side point inward, toward the node's centre, by `amount`. */
 function insetFromSide(params: InsetFromSideParams): { x: number; y: number } {
     const { amount, point, side } = params;
-    return side === 'top' ? { x: point.x, y: point.y + amount } : { x: point.x, y: point.y - amount };
+    return side === 'top'
+        ? { x: point.x, y: point.y + amount }
+        : { x: point.x, y: point.y - amount };
 }
 
 export interface LayoutResult {
     // With points for routing; loopIndex is set only for self-loops, so the renderer
     // can stagger nested loops' labels apart without inverting layout geometry.
-    edges: Array<GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> }>;
+    edges: Array<
+        GraphEdge & {
+            loopIndex?: number;
+            points?: Array<{ x: number; y: number }>;
+        }
+    >;
     nodes: StateNode[]; // With x, y, width, height populated
     graph: {
         height: number;
@@ -127,12 +140,14 @@ export class DagreLayout {
         const graph = new dagre.graphlib.Graph({ multigraph: true });
 
         // Configure graph layout
+        // `??`, not `||`: zero is a meaningful request for each of these, and `||`
+        // silently substituted the default for it.
         graph.setGraph({
-            marginx: this.options.padding || 20,
-            marginy: this.options.padding || 20,
-            nodesep: this.options.nodeSeparation || 50,
+            marginx: this.options.padding ?? 20,
+            marginy: this.options.padding ?? 20,
+            nodesep: this.options.nodeSeparation ?? 50,
             rankdir: this.options.layout || 'TB',
-            ranksep: this.options.rankSeparation || 50,
+            ranksep: this.options.rankSeparation ?? 50,
         });
 
         // Set default edge labels
@@ -144,7 +159,9 @@ export class DagreLayout {
         // child states (the targets of the container's visual-only child edges) so that
         // predecessors are ranked above the container's contents.
         const containerIds = new Set(
-            nodes.filter((node) => isOpenContainer(node)).map((node) => node.id),
+            nodes
+                .filter((node) => isOpenContainer(node))
+                .map((node) => node.id),
         );
         const containerChildren = new Map<string, Set<string>>(
             nodes
@@ -191,7 +208,9 @@ export class DagreLayout {
                 if (!edge.visualOnly) {
                     return true;
                 }
-                return !containerIds.has(edge.from) && !containerIds.has(edge.to);
+                return (
+                    !containerIds.has(edge.from) && !containerIds.has(edge.to)
+                );
             })
             .forEach((edge) => {
                 const toIsContainer = containerIds.has(edge.to);
@@ -201,7 +220,8 @@ export class DagreLayout {
                     // Rank the source above the container's entry states. Adding the literal
                     // source->container edge would make dagre create a dimensionless phantom
                     // node and emit NaN routing points, so redirect onto the entry children.
-                    for (const child of entryChildrenByContainer.get(edge.to) ?? []) {
+                    for (const child of entryChildrenByContainer.get(edge.to) ??
+                        []) {
                         graph.setEdge(
                             edge.from,
                             child,
@@ -274,7 +294,8 @@ export class DagreLayout {
             const fromNode = positionedNodesById.get(edge.from);
             const toNode = positionedNodesById.get(edge.to);
             const touchesContainer = Boolean(
-                (fromNode && isOpenContainer(fromNode)) || (toNode && isOpenContainer(toNode)),
+                (fromNode && isOpenContainer(fromNode)) ||
+                (toNode && isOpenContainer(toNode)),
             );
 
             // Visual-only edges, any edge touching a container, and self-loops (never
@@ -283,7 +304,9 @@ export class DagreLayout {
             if (edge.visualOnly || touchesContainer || isSelfLoop) {
                 return {
                     ...edge,
-                    ...(isSelfLoop ? { loopIndex: loopIndexById.get(edge.id) ?? 0 } : {}),
+                    ...(isSelfLoop
+                        ? { loopIndex: loopIndexById.get(edge.id) ?? 0 }
+                        : {}),
                     points: this.calculateVisualEdgePoints({
                         edge,
                         loopIndex: loopIndexById.get(edge.id) ?? 0,
@@ -327,7 +350,9 @@ export class DagreLayout {
         positionedNodeIndex: Map<string, StateNode>;
     }): StateNode[] {
         const { containers, positionedNodeIndex } = params;
-        const containerById = new Map(containers.map((container) => [container.id, container]));
+        const containerById = new Map(
+            containers.map((container) => [container.id, container]),
+        );
         const resolved = new Map<string, StateNode>();
         // Tracks whether a resolved container's box reflects real descendant geometry
         // (false for an empty container's default box) - see the skip below.
@@ -391,7 +416,10 @@ export class DagreLayout {
                 // is forcing the box narrow.
                 const width = Math.max(
                     400,
-                    Math.min(CONTAINER_MAX_HEADER_WIDTH, this.getContainerHeaderWidth(container)),
+                    Math.min(
+                        CONTAINER_MAX_HEADER_WIDTH,
+                        this.getContainerHeaderWidth(container),
+                    ),
                 );
                 const result = { ...container, height: 200, width, x: 0, y: 0 };
                 resolved.set(container.id, result);
@@ -464,9 +492,8 @@ export class DagreLayout {
      * thought it had already made room for.
      */
     private getContainerHeaderWidth(container: StateNode): number {
-        const { canFitSubLabel, nameFontSize, subFontSize } = getContainerHeaderFontSizes(
-            this.theme.fontSize,
-        );
+        const { canFitSubLabel, nameFontSize, subFontSize } =
+            getContainerHeaderFontSizes(this.theme.fontSize);
 
         const nameWidth = estimateTextWidth(container.label, nameFontSize);
         const subLabelWidth = canFitSubLabel
@@ -484,7 +511,11 @@ export class DagreLayout {
         const controlAllowance = this.options.collapseControls
             ? (COLLAPSE_CONTROL_SIZE + COLLAPSE_CONTROL_GAP) * 2
             : 0;
-        return Math.max(nameWidth, subLabelWidth) + CONTAINER_HEADER_PADDING_X * 2 + controlAllowance;
+        return (
+            Math.max(nameWidth, subLabelWidth) +
+            CONTAINER_HEADER_PADDING_X * 2 +
+            controlAllowance
+        );
     }
 
     /**
@@ -556,7 +587,11 @@ export class DagreLayout {
             // insetFromSide accepts.
             const from =
                 entrySide === 'top' || entrySide === 'bottom'
-                    ? insetFromSide({ amount: CONTAINER_HEADER_HEIGHT, point: rawFrom, side: entrySide })
+                    ? insetFromSide({
+                          amount: CONTAINER_HEADER_HEIGHT,
+                          point: rawFrom,
+                          side: entrySide,
+                      })
                     : rawFrom;
 
             return [from, sidePoint({ node: toNode, side: entrySide })];
@@ -567,7 +602,10 @@ export class DagreLayout {
         // its own exit side and arrive on the target's entry side - whichever end
         // is actually the container, this is the same rule ordinary ranked edges
         // follow implicitly via dagre's rankdir.
-        return [sidePoint({ node: fromNode, side: exitSide }), sidePoint({ node: toNode, side: entrySide })];
+        return [
+            sidePoint({ node: fromNode, side: exitSide }),
+            sidePoint({ node: toNode, side: entrySide }),
+        ];
     }
 
     /**
@@ -582,7 +620,8 @@ export class DagreLayout {
         // The base height fits a name plus one stacked line. Anything further - a Wait
         // state's duration alongside its assigned variables, or an execution overlay's
         // annotation - would otherwise be drawn past the node's bottom border.
-        const stackedHeight = this.extraStackedLines(node) * STACKED_LINE_HEIGHT;
+        const stackedHeight =
+            this.extraStackedLines(node) * STACKED_LINE_HEIGHT;
 
         // Adjust dimensions based on shape
         switch (node.style?.shape) {
@@ -600,7 +639,10 @@ export class DagreLayout {
             }
             case 'diamond':
                 // Diamonds need extra space for rotation
-                return { height: baseHeight * 1.2 + stackedHeight, width: baseWidth * 1.2 };
+                return {
+                    height: baseHeight * 1.2 + stackedHeight,
+                    width: baseWidth * 1.2,
+                };
             default:
                 return { height: baseHeight + stackedHeight, width: baseWidth };
         }
@@ -624,7 +666,10 @@ export class DagreLayout {
                 ? 1
                 : 0) +
             (this.options.nodeAnnotations?.[node.id] ? 1 : 0) +
-            (this.options.showVariables !== false && node.assignedVariables?.length ? 1 : 0);
+            (this.options.showVariables !== false &&
+            node.assignedVariables?.length
+                ? 1
+                : 0);
 
         const iconOnTop =
             this.options.showIcons === true &&

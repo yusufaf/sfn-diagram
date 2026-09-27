@@ -96,7 +96,10 @@ interface RenderNodeParams {
 }
 
 interface RenderEdgeParams {
-    edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
+    edge: GraphEdge & {
+        loopIndex?: number;
+        points?: Array<{ x: number; y: number }>;
+    };
     group: SvgElement;
     /**
      * Group to put this edge's invisible hit area in, when `edgeHitAreas` is on. Kept
@@ -116,7 +119,10 @@ interface CalculateBoundsParams {
 }
 
 interface EdgeLabelCenterParams {
-    edge: GraphEdge & { loopIndex?: number; points?: Array<{ x: number; y: number }> };
+    edge: GraphEdge & {
+        loopIndex?: number;
+        points?: Array<{ x: number; y: number }>;
+    };
     nodes: StateNode[];
     /** Widest self-loop label per node id — see {@link SvgRenderer.selfLoopLabelCenter}. */
     selfLoopLabelWidths: Map<string, number>;
@@ -148,7 +154,9 @@ interface RenderIconParams {
 export class SvgRenderer {
     private options: DiagramOptions;
     private theme: ResolvedTheme;
-    private pathGenerator: (points: Array<{ x: number; y: number }>) => string | null;
+    private pathGenerator: (
+        points: Array<{ x: number; y: number }>,
+    ) => string | null;
     // Non-self-loop edge label midpoints, keyed by edge id - calculateBounds and
     // renderEdge both need the same edge's midpoint; see edgeLabelCenter. Cleared at
     // the top of render() even though every call site constructs a fresh renderer per
@@ -180,7 +188,9 @@ export class SvgRenderer {
     render(layout: LayoutResult): SvgOutput {
         this.edgeMidpointCache.clear();
         this.markerContainerLabels.clear();
-        const nodesByIdForMarkers = new Map(layout.nodes.map((node) => [node.id, node]));
+        const nodesByIdForMarkers = new Map(
+            layout.nodes.map((node) => [node.id, node]),
+        );
         for (const node of layout.nodes) {
             for (const childId of node.children ?? []) {
                 const child = nodesByIdForMarkers.get(childId);
@@ -193,7 +203,9 @@ export class SvgRenderer {
         // Nested self-loop labels stagger along a shared axis, so every loop on a node
         // has to step by the same amount - see selfLoopLabelCenter. Measured once here
         // so bounds and rendering agree on where each label lands.
-        const selfLoopLabelWidths = this.calculateSelfLoopLabelWidths(layout.edges);
+        const selfLoopLabelWidths = this.calculateSelfLoopLabelWidths(
+            layout.edges,
+        );
 
         // Calculate actual bounds including edge curves
         const bounds = this.calculateBounds({ layout, selfLoopLabelWidths });
@@ -310,8 +322,12 @@ export class SvgRenderer {
             : undefined;
 
         // Separate container nodes from regular nodes
-        const containerNodes = layout.nodes.filter((node) => isOpenContainer(node));
-        const regularNodes = layout.nodes.filter((node) => !isOpenContainer(node));
+        const containerNodes = layout.nodes.filter((node) =>
+            isOpenContainer(node),
+        );
+        const regularNodes = layout.nodes.filter(
+            (node) => !isOpenContainer(node),
+        );
 
         // Index nodes by id once so the edge loop below is O(E) instead of O(E*V)
         const nodesById = new Map(layout.nodes.map((node) => [node.id, node]));
@@ -335,12 +351,20 @@ export class SvgRenderer {
 
         // Render container nodes (bounding boxes)
         containerNodes.forEach((node) => {
-            this.renderContainer({ controlsGroup: collapseControlsGroup, group: containersGroup, node });
+            this.renderContainer({
+                controlsGroup: collapseControlsGroup,
+                group: containersGroup,
+                node,
+            });
         });
 
         // Render regular nodes on top
         regularNodes.forEach((node) => {
-            this.renderNode({ controlsGroup: collapseControlsGroup, group: nodesGroup, node });
+            this.renderNode({
+                controlsGroup: collapseControlsGroup,
+                group: nodesGroup,
+                node,
+            });
         });
 
         return {
@@ -362,7 +386,10 @@ export class SvgRenderer {
      * tech that doesn't compute SVG accessible names.
      */
     private accessibleTitle(): string {
-        return this.options.diagramTitle ?? 'AWS Step Functions state machine diagram';
+        return (
+            this.options.diagramTitle ??
+            'AWS Step Functions state machine diagram'
+        );
     }
 
     /**
@@ -382,7 +409,10 @@ export class SvgRenderer {
      * for a synthetic branch/iterator end marker, which has nothing meaningful to
      * announce - hide it from assistive tech instead.
      */
-    private appendAccessibleTitle(params: { group: SvgElement; node: StateNode }): void {
+    private appendAccessibleTitle(params: {
+        group: SvgElement;
+        node: StateNode;
+    }): void {
         const { group, node } = params;
         if (isMarkerNode(node)) {
             group.attr('aria-hidden', 'true');
@@ -436,7 +466,10 @@ export class SvgRenderer {
         layout.edges.forEach((edge) => {
             if (edge.points) {
                 edge.points.forEach((point) => {
-                    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+                    if (
+                        !Number.isFinite(point.x) ||
+                        !Number.isFinite(point.y)
+                    ) {
                         return;
                     }
                     minX = Math.min(minX, point.x);
@@ -453,7 +486,9 @@ export class SvgRenderer {
                     nodes: layout.nodes,
                     selfLoopLabelWidths,
                 });
-                const labelDimensions = this.calculateLabelDimensions(edge.label);
+                const labelDimensions = this.calculateLabelDimensions(
+                    edge.label,
+                );
                 const labelMinX = midpoint.x - labelDimensions.width / 2;
                 const labelMaxX = midpoint.x + labelDimensions.width / 2;
                 const labelMinY = midpoint.y - labelDimensions.height / 2;
@@ -466,8 +501,8 @@ export class SvgRenderer {
             }
         });
 
-        // Add padding
-        const padding = this.options.padding || 20;
+        // Add padding. `??` rather than `||` so an explicit 0 means no padding.
+        const padding = this.options.padding ?? 20;
         minX -= padding;
         minY -= padding;
         maxX += padding;
@@ -502,7 +537,9 @@ export class SvgRenderer {
         // The header band sits at the top for TB/LR/RL, matching where
         // DagreLayout.calculateContainerBounds leaves the extra headerHeight room;
         // under BT that room - and the band - moves to the bottom instead.
-        const isBottomHeader = isBottomHeaderLayout(this.options.layout || 'TB');
+        const isBottomHeader = isBottomHeaderLayout(
+            this.options.layout || 'TB',
+        );
 
         const {
             fill = node.style?.fill || '#fce4ec',
@@ -539,7 +576,9 @@ export class SvgRenderer {
         // top band that's its own top edge; for a bottom band (BT) the band's
         // near-children strip is instead its top few pixels, so the clear zone is
         // the band's last CONTAINER_HEADER_TEXT_HEIGHT px, ending at the box edge.
-        const headerTop = isBottomHeader ? height / 2 - CONTAINER_HEADER_TEXT_HEIGHT : -height / 2;
+        const headerTop = isBottomHeader
+            ? height / 2 - CONTAINER_HEADER_TEXT_HEIGHT
+            : -height / 2;
         const textMiddle = headerTop + CONTAINER_HEADER_TEXT_HEIGHT / 2;
         // getContainerHeaderFontSizes shrinks subFontSize into whatever room is left
         // rather than dropping it: a large custom theme.fontSize would otherwise
@@ -550,15 +589,15 @@ export class SvgRenderer {
         // nameFontSize leaves less room than MIN_SUB_LABEL_FONT_SIZE, honouring that
         // floor would push the sub-label past that touching point and into the name —
         // so canFitSubLabel drops the sub-label there instead.
-        const { canFitSubLabel, nameFontSize, subFontSize } = getContainerHeaderFontSizes(
-            this.theme.fontSize
-        );
+        const { canFitSubLabel, nameFontSize, subFontSize } =
+            getContainerHeaderFontSizes(this.theme.fontSize);
         // Under collapseControls the control takes the right end of the band, and the
         // same room is kept on the left so the centred text stays centred.
         const controlAllowance = this.options.collapseControls
             ? (COLLAPSE_CONTROL_SIZE + COLLAPSE_CONTROL_GAP) * 2
             : 0;
-        const headerAvailableWidth = width - CONTAINER_HEADER_PADDING_X * 2 - controlAllowance;
+        const headerAvailableWidth =
+            width - CONTAINER_HEADER_PADDING_X * 2 - controlAllowance;
 
         // The layout already grew the box to fit the header's widest line up to
         // CONTAINER_MAX_HEADER_WIDTH (see DagreLayout.calculateContainerBounds), so
@@ -599,13 +638,18 @@ export class SvgRenderer {
         const clampToText = (y: number, fontSize: number): number =>
             Math.min(
                 Math.max(y, headerTop + fontSize / 2),
-                headerTop + CONTAINER_HEADER_TEXT_HEIGHT - fontSize / 2
+                headerTop + CONTAINER_HEADER_TEXT_HEIGHT - fontSize / 2,
             );
 
         containerGroup
             .append('text')
             .attr('x', 0)
-            .attr('y', subLabel ? clampToText(textMiddle - lineGap / 2, nameFontSize) : textMiddle)
+            .attr(
+                'y',
+                subLabel
+                    ? clampToText(textMiddle - lineGap / 2, nameFontSize)
+                    : textMiddle,
+            )
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'middle')
             .attr('fill', this.theme.textColor)
@@ -633,7 +677,11 @@ export class SvgRenderer {
                 group: controlsGroup,
                 node,
                 stroke,
-                x: (node.x ?? 0) + width / 2 - CONTAINER_HEADER_PADDING_X - COLLAPSE_CONTROL_SIZE / 2,
+                x:
+                    (node.x ?? 0) +
+                    width / 2 -
+                    CONTAINER_HEADER_PADDING_X -
+                    COLLAPSE_CONTROL_SIZE / 2,
                 y: (node.y ?? 0) + textMiddle,
             });
         }
@@ -708,7 +756,9 @@ export class SvgRenderer {
      * `renderNode`, and left off containers entirely - an overlay's status colour
      * stretched across a translucent bounding box washes the box out.
      */
-    private resolveNodeColors(node: StateNode): Partial<Pick<NodeStyle, 'fill' | 'stroke'>> {
+    private resolveNodeColors(
+        node: StateNode,
+    ): Partial<Pick<NodeStyle, 'fill' | 'stroke'>> {
         // `node.type` is free-form (it also carries synthetic types like BranchEnd
         // and ItemReader), and a caller-supplied theme need not define nodeColors at
         // all - either miss leaves the key out, so `node.style` keeps its say.
@@ -770,8 +820,14 @@ export class SvgRenderer {
                 group: controlsGroup,
                 node,
                 stroke: style.stroke ?? this.theme.textColor,
-                x: (node.x ?? 0) + (node.width || DEFAULT_NODE_WIDTH) / 2 - inset,
-                y: (node.y ?? 0) - (node.height || DEFAULT_NODE_HEIGHT) / 2 + inset,
+                x:
+                    (node.x ?? 0) +
+                    (node.width || DEFAULT_NODE_WIDTH) / 2 -
+                    inset,
+                y:
+                    (node.y ?? 0) -
+                    (node.height || DEFAULT_NODE_HEIGHT) / 2 +
+                    inset,
             });
         }
 
@@ -791,7 +847,12 @@ export class SvgRenderer {
         }
 
         // Calculate label position based on icon
-        const labelX = this.calculateLabelX({ hasIcon, iconPosition, iconSize, node });
+        const labelX = this.calculateLabelX({
+            hasIcon,
+            iconPosition,
+            iconSize,
+            node,
+        });
 
         // Optionally add state type — skipped for a collapsed container, which uses
         // the richer sub-label below (reusing the same slot/offset) instead.
@@ -819,13 +880,15 @@ export class SvgRenderer {
         const secondLineShown = secondLineText !== '';
         const annotation = this.options.nodeAnnotations?.[node.id];
         const variablesShown =
-            this.options.showVariables !== false && !!node.assignedVariables?.length;
+            this.options.showVariables !== false &&
+            !!node.assignedVariables?.length;
 
         // Offsets of the lines stacked beneath the name, in the order they are drawn.
         const annotationOffset = secondLineShown
             ? SUB_LABEL_OFFSET + STACKED_LINE_HEIGHT
             : STACKED_LINE_HEIGHT + 2;
-        const variablesOffset = annotationOffset + (annotation ? STACKED_LINE_HEIGHT : 0);
+        const variablesOffset =
+            annotationOffset + (annotation ? STACKED_LINE_HEIGHT : 0);
         const lastStackedOffset = variablesShown
             ? variablesOffset
             : annotation
@@ -1042,7 +1105,8 @@ export class SvgRenderer {
         // extraStackedLines). Moving the whole stack up by half of that growth keeps it
         // centred, so a placeholder's `2 states` sub-label plus an execution summary
         // no longer runs past the bottom border.
-        if (!hasIcon || iconPosition !== 'top') return -Math.max(0, stackBelow - SUB_LABEL_OFFSET) / 2;
+        if (!hasIcon || iconPosition !== 'top')
+            return -Math.max(0, stackBelow - SUB_LABEL_OFFSET) / 2;
 
         // Icon ends at: -height/2 + padding + iconSize. The space from the gap below
         // it to the bottom edge is centred at iconLabelShift / 2 whatever the height.
@@ -1053,7 +1117,8 @@ export class SvgRenderer {
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
-        const { edge, group, hitAreaGroup, nodes, selfLoopLabelWidths } = params;
+        const { edge, group, hitAreaGroup, nodes, selfLoopLabelWidths } =
+            params;
         if (!edge.points || edge.points.length < 2) {
             return;
         }
@@ -1066,21 +1131,23 @@ export class SvgRenderer {
         // shared d3 path generator built once in the constructor.
         const pathData = isSelfLoop
             ? this.buildSelfLoopPath(edge.points)
-            : this.pathGenerator(edge.points) ?? '';
+            : (this.pathGenerator(edge.points) ?? '');
 
         // Per-edge override (used by the execution overlay to emphasize the taken path
         // and dim untaken transitions). Two key shapes are accepted: the qualified
         // `edge.id`, and the legacy bare `${from}->${to}`, which broad-matches every
         // edge of that pair. The qualified key is merged on top, field by field, so a
         // caller can set a pair-wide width and still restyle one branch's stroke.
-        const broadOverride = this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
+        const broadOverride =
+            this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
         const exactOverride = this.options.edgeOverrides?.[edge.id];
         const override =
             broadOverride || exactOverride
                 ? { ...broadOverride, ...exactOverride }
                 : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
-        const strokeWidth = override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
+        const strokeWidth =
+            override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
         const edgeTitle = this.edgeAccessibleTitle(edge);
 
         // Invisible widened copy of the same path. A 1.5px stroke is a punishing click
@@ -1133,7 +1200,11 @@ export class SvgRenderer {
 
         // Add edge label if present
         if (edge.label) {
-            const midpoint = this.edgeLabelCenter({ edge, nodes, selfLoopLabelWidths });
+            const midpoint = this.edgeLabelCenter({
+                edge,
+                nodes,
+                selfLoopLabelWidths,
+            });
             const labelDimensions = this.calculateLabelDimensions(edge.label);
 
             const labelRect = group
@@ -1196,11 +1267,19 @@ export class SvgRenderer {
      * non-self-loop midpoint is cached by edge id (`edgeMidpointCache`, cleared at
      * the top of `render()`) so sampling the drawn path only happens once per edge.
      */
-    private edgeLabelCenter(params: EdgeLabelCenterParams): { x: number; y: number } {
+    private edgeLabelCenter(params: EdgeLabelCenterParams): {
+        x: number;
+        y: number;
+    } {
         const { edge, nodes, selfLoopLabelWidths } = params;
         const points = edge.points ?? [];
         if (edge.from === edge.to && edge.label && points.length >= 3) {
-            return this.selfLoopLabelCenter({ edge, nodes, points, selfLoopLabelWidths });
+            return this.selfLoopLabelCenter({
+                edge,
+                nodes,
+                points,
+                selfLoopLabelWidths,
+            });
         }
         const cached = this.edgeMidpointCache.get(edge.id);
         if (cached) {
@@ -1224,7 +1303,9 @@ export class SvgRenderer {
      * @returns Widest measured label width per looping node id; nodes with no labelled
      *   self-loop are absent
      */
-    private calculateSelfLoopLabelWidths(edges: LayoutResult['edges']): Map<string, number> {
+    private calculateSelfLoopLabelWidths(
+        edges: LayoutResult['edges'],
+    ): Map<string, number> {
         const widths = new Map<string, number>();
         for (const edge of edges) {
             if (edge.from !== edge.to || !edge.label) {
@@ -1269,13 +1350,13 @@ export class SvgRenderer {
         const { edge, nodes, points, selfLoopLabelWidths } = params;
         const [entry, apex, exit] = points;
         const gap = 8;
-        const { width: labelWidth, height: labelHeight } = this.calculateLabelDimensions(
-            edge.label ?? '',
-        );
+        const { width: labelWidth, height: labelHeight } =
+            this.calculateLabelDimensions(edge.label ?? '');
         const loopIndex = edge.loopIndex ?? 0;
         // Falls back to this edge's own width for callers that render an edge without a
         // measured sibling set - a single loop staggers by zero either way.
-        const widthStep = (selfLoopLabelWidths.get(edge.from) ?? labelWidth) + gap;
+        const widthStep =
+            (selfLoopLabelWidths.get(edge.from) ?? labelWidth) + gap;
 
         // Point actually on the drawn curve at t=0.5. Both Bezier control points are
         // `apex` (see buildSelfLoopPath), so B(0.5) = 0.125*entry + 0.75*apex + 0.125*exit.
@@ -1286,14 +1367,26 @@ export class SvgRenderer {
 
         // The loop bulges along whichever axis has the larger apex offset - horizontal
         // for the default right-hand loop (TB/BT), vertical for the top loop (LR/RL).
-        const bulgesHorizontally = Math.abs(apex.x - entry.x) >= Math.abs(apex.y - entry.y);
+        const bulgesHorizontally =
+            Math.abs(apex.x - entry.x) >= Math.abs(apex.y - entry.y);
 
         const primary = bulgesHorizontally
-            ? { x: peak.x + gap + labelWidth / 2, y: peak.y + loopIndex * (labelHeight + gap) }
-            : { x: peak.x + loopIndex * widthStep, y: peak.y - gap - labelHeight / 2 };
+            ? {
+                  x: peak.x + gap + labelWidth / 2,
+                  y: peak.y + loopIndex * (labelHeight + gap),
+              }
+            : {
+                  x: peak.x + loopIndex * widthStep,
+                  y: peak.y - gap - labelHeight / 2,
+              };
 
         const otherNodes = nodes.filter((node) => node.id !== edge.from);
-        if (!this.rectOverlapsAnyNode({ height: labelHeight, width: labelWidth, ...primary }, otherNodes)) {
+        if (
+            !this.rectOverlapsAnyNode(
+                { height: labelHeight, width: labelWidth, ...primary },
+                otherNodes,
+            )
+        ) {
             return primary;
         }
 
@@ -1302,10 +1395,15 @@ export class SvgRenderer {
             // Stack below the node itself instead of reaching to the right, staggering
             // outward per loopIndex the same way the primary placement does.
             const centerX = loopingNode?.x ?? peak.x;
-            const bottomY = (loopingNode?.y ?? peak.y) + (loopingNode?.height || 0) / 2;
+            const bottomY =
+                (loopingNode?.y ?? peak.y) + (loopingNode?.height || 0) / 2;
             return {
                 x: centerX,
-                y: bottomY + gap + labelHeight / 2 + loopIndex * (labelHeight + gap),
+                y:
+                    bottomY +
+                    gap +
+                    labelHeight / 2 +
+                    loopIndex * (labelHeight + gap),
             };
         }
         // Vertical loop: fall back to the side instead of reaching further upward.
@@ -1329,7 +1427,12 @@ export class SvgRenderer {
             const nodeRight = (node.x || 0) + (node.width || 0) / 2;
             const nodeTop = (node.y || 0) - (node.height || 0) / 2;
             const nodeBottom = (node.y || 0) + (node.height || 0) / 2;
-            return left < nodeRight && right > nodeLeft && top < nodeBottom && bottom > nodeTop;
+            return (
+                left < nodeRight &&
+                right > nodeLeft &&
+                top < nodeBottom &&
+                bottom > nodeTop
+            );
         });
     }
 

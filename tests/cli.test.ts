@@ -43,7 +43,9 @@ describe('parseArgs', () => {
     });
 
     it('accepts --output as an alias for -o', () => {
-        expect(parseArgs(['in.json', '--output', 'out.svg']).output).toBe('out.svg');
+        expect(parseArgs(['in.json', '--output', 'out.svg']).output).toBe(
+            'out.svg',
+        );
     });
 
     it('sets showHelp for -h and --help', () => {
@@ -61,7 +63,9 @@ describe('parseArgs', () => {
     });
 
     it('rejects an invalid --format with exit code 2', () => {
-        expect(() => parseArgs(['in.json', '--format', 'gif'])).toThrowError(CliError);
+        expect(() => parseArgs(['in.json', '--format', 'gif'])).toThrowError(
+            CliError,
+        );
         try {
             parseArgs(['in.json', '--format', 'gif']);
         } catch (error) {
@@ -69,24 +73,37 @@ describe('parseArgs', () => {
         }
     });
 
-    it('rejects an invalid --theme', () => {
-        expect(() => parseArgs(['in.json', '--theme', 'neon'])).toThrowError(/Invalid --theme/);
+    it('carries an unrecognised --theme through as a file path', () => {
+        // `--theme` accepts light, dark, or a path, so the parser can no longer tell a
+        // typo from a filename; `run()` reports it when the read fails.
+        expect(parseArgs(['in.json', '--theme', 'neon'])).toMatchObject({
+            theme: 'light',
+            themeFile: 'neon',
+        });
     });
 
     it('rejects an invalid --layout', () => {
-        expect(() => parseArgs(['in.json', '--layout', 'ZZ'])).toThrowError(/Invalid --layout/);
+        expect(() => parseArgs(['in.json', '--layout', 'ZZ'])).toThrowError(
+            /Invalid --layout/,
+        );
     });
 
     it('rejects an unknown flag', () => {
-        expect(() => parseArgs(['in.json', '--nope'])).toThrowError(/Unknown flag/);
+        expect(() => parseArgs(['in.json', '--nope'])).toThrowError(
+            /Unknown flag/,
+        );
     });
 
     it('rejects a second positional argument', () => {
-        expect(() => parseArgs(['a.json', 'b.json'])).toThrowError(/Unexpected positional/);
+        expect(() => parseArgs(['a.json', 'b.json'])).toThrowError(
+            /Unexpected positional/,
+        );
     });
 
     it('errors when a flag is missing its value', () => {
-        expect(() => parseArgs(['in.json', '--format'])).toThrowError(/requires a value/);
+        expect(() => parseArgs(['in.json', '--format'])).toThrowError(
+            /requires a value/,
+        );
     });
 
     it('parses --check', () => {
@@ -95,10 +112,12 @@ describe('parseArgs', () => {
     });
 
     it('parses --diff and --execution', () => {
-        expect(parseArgs(['head.json', '--diff', 'base.json']).diff).toBe('base.json');
-        expect(parseArgs(['head.json', '--execution', 'history.json']).execution).toBe(
-            'history.json'
+        expect(parseArgs(['head.json', '--diff', 'base.json']).diff).toBe(
+            'base.json',
         );
+        expect(
+            parseArgs(['head.json', '--execution', 'history.json']).execution,
+        ).toBe('history.json');
     });
 
     it('parses the icon flags', () => {
@@ -130,23 +149,27 @@ describe('parseArgs', () => {
     });
 
     it('parses --hide-variables', () => {
-        expect(parseArgs(['in.json', '--hide-variables']).hideVariables).toBe(true);
+        expect(parseArgs(['in.json', '--hide-variables']).hideVariables).toBe(
+            true,
+        );
     });
 
     it('rejects an invalid --icon-position', () => {
-        expect(() => parseArgs(['in.json', '--icon-position', 'below'])).toThrowError(
-            /Invalid --icon-position/
-        );
+        expect(() =>
+            parseArgs(['in.json', '--icon-position', 'below']),
+        ).toThrowError(/Invalid --icon-position/);
     });
 
     it('rejects a non-numeric --icon-size', () => {
         expect(() => parseArgs(['in.json', '--icon-size', 'big'])).toThrowError(
-            /Invalid --icon-size/
+            /Invalid --icon-size/,
         );
     });
 
     it('rejects a non-positive --icon-size', () => {
-        expect(() => parseArgs(['in.json', '--icon-size', '0'])).toThrowError(/Invalid --icon-size/);
+        expect(() => parseArgs(['in.json', '--icon-size', '0'])).toThrowError(
+            /Invalid --icon-size/,
+        );
     });
 
     it('parses --collapse as a bare flag (collapse all)', () => {
@@ -154,17 +177,16 @@ describe('parseArgs', () => {
     });
 
     it('parses --collapse=Name1,Name2 as a name list', () => {
-        expect(parseArgs(['in.json', '--collapse=Name1,Name2']).collapse).toEqual([
-            'Name1',
-            'Name2',
-        ]);
+        expect(
+            parseArgs(['in.json', '--collapse=Name1,Name2']).collapse,
+        ).toEqual(['Name1', 'Name2']);
     });
 
     it('keeps a backslash-escaped comma inside a --collapse state name', () => {
-        expect(parseArgs(['in.json', '--collapse=Fetch\\, then merge,Other']).collapse).toEqual([
-            'Fetch, then merge',
-            'Other',
-        ]);
+        expect(
+            parseArgs(['in.json', '--collapse=Fetch\\, then merge,Other'])
+                .collapse,
+        ).toEqual(['Fetch, then merge', 'Other']);
     });
 
     it('never swallows the input path as a --collapse value', () => {
@@ -210,7 +232,7 @@ describe('parseArgs', () => {
 
     it('rejects a value on a boolean flag with a clear message', () => {
         expect(() => parseArgs(['in.json', '--hide-catch=true'])).toThrowError(
-            /does not take a value/
+            /does not take a value/,
         );
     });
 });
@@ -225,14 +247,18 @@ describe('run', () => {
     beforeEach(() => {
         stdoutData = '';
         stderrData = '';
-        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-            stdoutData += chunk.toString();
-            return true;
-        });
-        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-            stderrData += chunk.toString();
-            return true;
-        });
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
         tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-'));
     });
 
@@ -264,13 +290,25 @@ describe('run', () => {
 
     it('writes Mermaid to a file with -o', async () => {
         const outPath = join(tempDir, 'out.mmd');
-        const code = await run([simpleFixture, '--format', 'mermaid', '-o', outPath]);
+        const code = await run([
+            simpleFixture,
+            '--format',
+            'mermaid',
+            '-o',
+            outPath,
+        ]);
         expect(code).toBe(0);
         expect(readFileSync(outPath, 'utf-8')).toContain('stateDiagram-v2');
     });
 
     it('honors --theme and --layout for SVG', async () => {
-        const code = await run([simpleFixture, '--theme', 'dark', '--layout', 'LR']);
+        const code = await run([
+            simpleFixture,
+            '--theme',
+            'dark',
+            '--layout',
+            'LR',
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('<svg');
     });
@@ -308,7 +346,9 @@ describe('run', () => {
         );
         const code = await run([inputPath, '--check']);
         expect(code).toBe(0);
-        expect(stderrData).toContain('warning /States/Orphan  State "Orphan" is unreachable from StartAt "A"  [unreachable-state]');
+        expect(stderrData).toContain(
+            'warning /States/Orphan  State "Orphan" is unreachable from StartAt "A"  [unreachable-state]',
+        );
         expect(stderrData).toContain('0 errors, 1 warning\n');
     });
 
@@ -323,7 +363,9 @@ describe('run', () => {
         );
         const code = await run([inputPath, '--check']);
         expect(code).toBe(1);
-        expect(stderrData).toContain('error   /States/A/Next  State "A" sets both "End: true" and "Next"  [end-with-next]');
+        expect(stderrData).toContain(
+            'error   /States/A/Next  State "A" sets both "End: true" and "Next"  [end-with-next]',
+        );
         expect(stderrData).toContain('1 error, 0 warnings\n');
         expect(stdoutData).toBe('');
     });
@@ -337,7 +379,11 @@ describe('run', () => {
     });
 
     it('--check refuses --diff, --execution and --output', async () => {
-        for (const extra of [['--diff', simpleFixture], ['--execution', simpleFixture], ['-o', 'x.svg']]) {
+        for (const extra of [
+            ['--diff', simpleFixture],
+            ['--execution', simpleFixture],
+            ['-o', 'x.svg'],
+        ]) {
             stderrData = '';
             const code = await run([simpleFixture, '--check', ...extra]);
             expect(code).toBe(1);
@@ -394,7 +440,12 @@ describe('run', () => {
         expect(withCatch).toContain('class H failState');
 
         stdoutData = '';
-        const withoutCode = await run([inputPath, '--format', 'mermaid', '--hide-catch']);
+        const withoutCode = await run([
+            inputPath,
+            '--format',
+            'mermaid',
+            '--hide-catch',
+        ]);
         expect(withoutCode).toBe(0);
         expect(stdoutData).not.toContain('class H failState');
         expect(stdoutData).not.toBe(withCatch);
@@ -409,7 +460,13 @@ describe('run', () => {
 
     it('writes HTML to a file with -o', async () => {
         const outPath = join(tempDir, 'out.html');
-        const code = await run([simpleFixture, '--format', 'html', '-o', outPath]);
+        const code = await run([
+            simpleFixture,
+            '--format',
+            'html',
+            '-o',
+            outPath,
+        ]);
         expect(code).toBe(0);
         const written = readFileSync(outPath, 'utf-8');
         expect(written).toContain('<!DOCTYPE html>');
@@ -423,8 +480,26 @@ describe('run', () => {
                 FanOut: {
                     Type: 'Parallel',
                     Branches: [
-                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
-                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                        {
+                            StartAt: 'Branch1',
+                            States: {
+                                Branch1: {
+                                    Type: 'Task',
+                                    Resource: 'arn:b1',
+                                    End: true,
+                                },
+                            },
+                        },
+                        {
+                            StartAt: 'Branch2',
+                            States: {
+                                Branch2: {
+                                    Type: 'Task',
+                                    Resource: 'arn:b2',
+                                    End: true,
+                                },
+                            },
+                        },
                     ],
                     Next: 'Done',
                 },
@@ -452,8 +527,26 @@ describe('run', () => {
                 FanOut: {
                     Type: 'Parallel',
                     Branches: [
-                        { StartAt: 'Branch1', States: { Branch1: { Type: 'Task', Resource: 'arn:b1', End: true } } },
-                        { StartAt: 'Branch2', States: { Branch2: { Type: 'Task', Resource: 'arn:b2', End: true } } },
+                        {
+                            StartAt: 'Branch1',
+                            States: {
+                                Branch1: {
+                                    Type: 'Task',
+                                    Resource: 'arn:b1',
+                                    End: true,
+                                },
+                            },
+                        },
+                        {
+                            StartAt: 'Branch2',
+                            States: {
+                                Branch2: {
+                                    Type: 'Task',
+                                    Resource: 'arn:b2',
+                                    End: true,
+                                },
+                            },
+                        },
                     ],
                     Next: 'Done',
                 },
@@ -463,7 +556,12 @@ describe('run', () => {
         const inputPath = join(tempDir, 'parallel.asl.json');
         writeFileSync(inputPath, asl);
 
-        const code = await run([inputPath, '--format', 'mermaid', '--collapse']);
+        const code = await run([
+            inputPath,
+            '--format',
+            'mermaid',
+            '--collapse',
+        ]);
 
         expect(code).toBe(0);
         expect(stdoutData).not.toContain('Branch1');
@@ -483,21 +581,28 @@ describe('stdin handling', () => {
     beforeEach(() => {
         stdoutData = '';
         stderrData = '';
-        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-            stdoutData += chunk.toString();
-            return true;
-        });
-        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-            stderrData += chunk.toString();
-            return true;
-        });
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
         originalIsTTY = process.stdin.isTTY;
     });
 
     afterEach(() => {
         stdout.mockRestore();
         stderr.mockRestore();
-        Object.defineProperty(process, 'stdin', { value: originalStdin, configurable: true });
+        Object.defineProperty(process, 'stdin', {
+            value: originalStdin,
+            configurable: true,
+        });
         Object.defineProperty(process.stdin, 'isTTY', {
             value: originalIsTTY,
             configurable: true,
@@ -505,7 +610,10 @@ describe('stdin handling', () => {
     });
 
     it('prints help and exits 2 on a bare invocation with a TTY, without reading stdin', async () => {
-        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdin, 'isTTY', {
+            value: true,
+            configurable: true,
+        });
 
         const code = await run([]);
 
@@ -532,7 +640,10 @@ describe('stdin handling', () => {
             value: Readable.from([Buffer.from(asl)]),
             configurable: true,
         });
-        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdin, 'isTTY', {
+            value: true,
+            configurable: true,
+        });
 
         const code = await run(['-']);
 
@@ -549,7 +660,11 @@ describe('diff, execution and icon flags', () => {
     let tempDir: string;
 
     const variablesFixture = join(__dirname, 'fixtures', 'variables.asl.json');
-    const executionFixture = join(__dirname, 'fixtures', 'execution-success.json');
+    const executionFixture = join(
+        __dirname,
+        'fixtures',
+        'execution-success.json',
+    );
 
     const baseAsl = JSON.stringify({
         StartAt: 'StepA',
@@ -572,7 +687,8 @@ describe('diff, execution and icon flags', () => {
         States: {
             ProcessData: {
                 Type: 'Task',
-                Resource: 'arn:aws:lambda:us-east-1:123456789012:function:ProcessData',
+                Resource:
+                    'arn:aws:lambda:us-east-1:123456789012:function:ProcessData',
                 End: true,
             },
         },
@@ -587,14 +703,18 @@ describe('diff, execution and icon flags', () => {
     beforeEach(() => {
         stdoutData = '';
         stderrData = '';
-        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-            stdoutData += chunk.toString();
-            return true;
-        });
-        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-            stderrData += chunk.toString();
-            return true;
-        });
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
         tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-flags-'));
     });
 
@@ -605,7 +725,11 @@ describe('diff, execution and icon flags', () => {
     });
 
     it('--diff renders an SVG with per-state diff colors', async () => {
-        const code = await run([write('head.json', headAsl), '--diff', write('base.json', baseAsl)]);
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('<svg');
         // added green, modified yellow, removed red
@@ -615,7 +739,11 @@ describe('diff, execution and icon flags', () => {
     });
 
     it('--diff prints a change summary to stderr', async () => {
-        const code = await run([write('head.json', headAsl), '--diff', write('base.json', baseAsl)]);
+        const code = await run([
+            write('head.json', headAsl),
+            '--diff',
+            write('base.json', baseAsl),
+        ]);
         expect(code).toBe(0);
         expect(stderrData).toContain('Added');
         expect(stderrData).toContain('NewStep');
@@ -663,7 +791,11 @@ describe('diff, execution and icon flags', () => {
     });
 
     it('--execution renders an SVG overlay', async () => {
-        const code = await run([simpleFixture, '--execution', executionFixture]);
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('<svg');
         // succeeded states are green
@@ -749,7 +881,11 @@ describe('diff, execution and icon flags', () => {
     });
 
     it('--execution prints a status summary to stderr', async () => {
-        const code = await run([simpleFixture, '--execution', executionFixture]);
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionFixture,
+        ]);
         expect(code).toBe(0);
         expect(stderrData).toContain('succeeded');
         expect(stderrData).toContain('Process');
@@ -769,7 +905,11 @@ describe('diff, execution and icon flags', () => {
     });
 
     it('returns exit code 1 when the --execution history is missing', async () => {
-        const code = await run([simpleFixture, '--execution', join(tempDir, 'nope.json')]);
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            join(tempDir, 'nope.json'),
+        ]);
         expect(code).toBe(1);
         expect(stderrData).toContain('Failed to read --execution history');
     });
@@ -783,7 +923,9 @@ describe('diff, execution and icon flags', () => {
             executionFixture,
         ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('--diff and --execution cannot be combined');
+        expect(stderrData).toContain(
+            '--diff and --execution cannot be combined',
+        );
     });
 
     it('rejects --diff with a format that has no diff renderer', async () => {
@@ -797,7 +939,9 @@ describe('diff, execution and icon flags', () => {
             join(tempDir, 'out.png'),
         ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('--diff supports --format svg, mermaid or html');
+        expect(stderrData).toContain(
+            '--diff supports --format svg, mermaid or html',
+        );
     });
 
     it('rejects --execution with a format that has no overlay renderer', async () => {
@@ -811,7 +955,9 @@ describe('diff, execution and icon flags', () => {
             join(tempDir, 'out.png'),
         ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('--execution supports --format svg, mermaid or html');
+        expect(stderrData).toContain(
+            '--execution supports --format svg, mermaid or html',
+        );
     });
 
     it('--show-icons renders AWS service icons', async () => {
@@ -830,7 +976,12 @@ describe('diff, execution and icon flags', () => {
 
     it('--icon-size changes the rendered icon dimensions', async () => {
         const inputPath = write('lambda.asl.json', lambdaAsl);
-        const code = await run([inputPath, '--show-icons', '--icon-size', '40']);
+        const code = await run([
+            inputPath,
+            '--show-icons',
+            '--icon-size',
+            '40',
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('width="40"');
         expect(stdoutData).toContain('height="40"');
@@ -884,14 +1035,18 @@ describe('CFN template input', () => {
     beforeEach(() => {
         stdoutData = '';
         stderrData = '';
-        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-            stdoutData += chunk.toString();
-            return true;
-        });
-        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-            stderrData += chunk.toString();
-            return true;
-        });
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
         tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-cfn-'));
     });
 
@@ -902,7 +1057,12 @@ describe('CFN template input', () => {
     });
 
     it('parses --resolve-cfn and --resource', () => {
-        const args = parseArgs(['t.json', '--resolve-cfn', '--resource', 'MyMachine']);
+        const args = parseArgs([
+            't.json',
+            '--resolve-cfn',
+            '--resource',
+            'MyMachine',
+        ]);
         expect(args.resolveCfn).toBe(true);
         expect(args.resource).toBe('MyMachine');
     });
@@ -925,7 +1085,12 @@ describe('CFN template input', () => {
             '        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}',
         ].join('\n');
         const inputPath = writeTemplate('template.yaml', yamlTemplate);
-        const code = await run([inputPath, '--resolve-cfn', '--format', 'mermaid']);
+        const code = await run([
+            inputPath,
+            '--resolve-cfn',
+            '--format',
+            'mermaid',
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('Go');
     });
@@ -936,13 +1101,15 @@ describe('CFN template input', () => {
                 A: {
                     Type: 'AWS::StepFunctions::StateMachine',
                     Properties: {
-                        DefinitionString: '{"StartAt":"A","States":{"A":{"Type":"Succeed"}}}',
+                        DefinitionString:
+                            '{"StartAt":"A","States":{"A":{"Type":"Succeed"}}}',
                     },
                 },
                 B: {
                     Type: 'AWS::StepFunctions::StateMachine',
                     Properties: {
-                        DefinitionString: '{"StartAt":"B","States":{"B":{"Type":"Succeed"}}}',
+                        DefinitionString:
+                            '{"StartAt":"B","States":{"B":{"Type":"Succeed"}}}',
                     },
                 },
             },
@@ -959,19 +1126,27 @@ describe('CFN template input', () => {
                 A: {
                     Type: 'AWS::StepFunctions::StateMachine',
                     Properties: {
-                        DefinitionString: '{"StartAt":"Alpha","States":{"Alpha":{"Type":"Succeed"}}}',
+                        DefinitionString:
+                            '{"StartAt":"Alpha","States":{"Alpha":{"Type":"Succeed"}}}',
                     },
                 },
                 B: {
                     Type: 'AWS::StepFunctions::StateMachine',
                     Properties: {
-                        DefinitionString: '{"StartAt":"Beta","States":{"Beta":{"Type":"Succeed"}}}',
+                        DefinitionString:
+                            '{"StartAt":"Beta","States":{"Beta":{"Type":"Succeed"}}}',
                     },
                 },
             },
         });
         const inputPath = writeTemplate('multi.json', multi);
-        const code = await run([inputPath, '--format', 'mermaid', '--resource', 'B']);
+        const code = await run([
+            inputPath,
+            '--format',
+            'mermaid',
+            '--resource',
+            'B',
+        ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('Beta');
         expect(stdoutData).not.toContain('Alpha');
@@ -994,15 +1169,22 @@ describe('standalone binary build info', () => {
     beforeEach(() => {
         stdoutData = '';
         stderrData = '';
-        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-            stdoutData += chunk.toString();
-            return true;
-        });
-        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
-            stderrData += chunk.toString();
-            return true;
-        });
-        buildGlobal.__SFN_DIAGRAM_BUILD__ = { standalone: true, version: '9.9.9' };
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        buildGlobal.__SFN_DIAGRAM_BUILD__ = {
+            standalone: true,
+            version: '9.9.9',
+        };
     });
 
     afterEach(() => {
@@ -1018,7 +1200,13 @@ describe('standalone binary build info', () => {
     });
 
     it('refuses --format png with a pointer to the npm package', async () => {
-        const code = await run([simpleFixture, '--format', 'png', '-o', 'out.png']);
+        const code = await run([
+            simpleFixture,
+            '--format',
+            'png',
+            '-o',
+            'out.png',
+        ]);
         expect(code).toBe(1);
         expect(stderrData).toContain('not available in the standalone binary');
         expect(stderrData).toContain('@resvg/resvg-js');
@@ -1028,5 +1216,799 @@ describe('standalone binary build info', () => {
         const code = await run([simpleFixture]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('<svg');
+    });
+});
+
+const choiceFixture = join(__dirname, 'fixtures', 'choice.asl.json');
+const errorHandlingFixture = join(
+    __dirname,
+    'fixtures',
+    'error-handling.asl.json',
+);
+const executionHistoryFixture = join(
+    __dirname,
+    'fixtures',
+    'execution-success.json',
+);
+
+/** The root `<svg>`'s own `width`, ignoring the background rect's. */
+function svgWidth(svg: string): number {
+    const match = /<svg[^>]*\swidth="([\d.]+)"/.exec(svg);
+    if (!match) throw new Error('no <svg width> found');
+    return Number(match[1]);
+}
+
+/** The root `<svg>`'s own `height`. */
+function svgHeight(svg: string): number {
+    const match = /<svg[^>]*\sheight="([\d.]+)"/.exec(svg);
+    if (!match) throw new Error('no <svg height> found');
+    return Number(match[1]);
+}
+
+/**
+ * Tag name of the shape element drawn for the Choice state — `rect` under the
+ * `aws-standard` preset, `path` (a diamond) under `enhanced`. Throws rather than
+ * returning a miss, so a structural change surfaces as a failure instead of an
+ * assertion that quietly holds for the wrong reason.
+ */
+function choiceNodeShape(svg: string): string {
+    const match =
+        /data-state-type="Choice"[^>]*>(?:<title>[^<]*<\/title>)?<(\w+)/.exec(
+            svg,
+        );
+    if (!match) throw new Error('no Choice node shape found');
+    return match[1];
+}
+
+describe('parseArgs: DiagramOptions flags', () => {
+    it('leaves every new option unset by default', () => {
+        expect(parseArgs(['in.json'])).toMatchObject({
+            backgroundColor: null,
+            catchLabelStyle: null,
+            diagramDescription: null,
+            diagramTitle: null,
+            edgeStyle: null,
+            hideComments: false,
+            nodeHeight: null,
+            nodeSeparation: null,
+            nodeWidth: null,
+            padding: null,
+            rankSeparation: null,
+            showStateTypes: false,
+            stylePreset: null,
+            themeFile: null,
+        });
+    });
+
+    it('parses the enum flags', () => {
+        expect(
+            parseArgs([
+                'in.json',
+                '--edge-style',
+                'straight',
+                '--style-preset',
+                'enhanced',
+                '--catch-label-style',
+                'catch-number',
+            ]),
+        ).toMatchObject({
+            catchLabelStyle: 'catch-number',
+            edgeStyle: 'straight',
+            stylePreset: 'enhanced',
+        });
+    });
+
+    it.each([
+        ['--edge-style', 'wiggly'],
+        ['--style-preset', 'fancy'],
+        ['--catch-label-style', 'numbers'],
+    ])('rejects an invalid %s with exit code 2', (flag, value) => {
+        try {
+            parseArgs(['in.json', flag, value]);
+            expect.unreachable(`${flag} ${value} should not parse`);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliError);
+            expect((error as CliError).exitCode).toBe(2);
+            expect((error as CliError).message).toContain(
+                `Invalid ${flag}: ${value}`,
+            );
+        }
+    });
+
+    it('parses the pixel flags as numbers', () => {
+        expect(
+            parseArgs([
+                'in.json',
+                '--node-width',
+                '200',
+                '--node-height',
+                '90',
+                '--node-separation',
+                '120',
+                '--rank-separation',
+                '140',
+                '--padding',
+                '64',
+            ]),
+        ).toMatchObject({
+            nodeHeight: 90,
+            nodeSeparation: 120,
+            nodeWidth: 200,
+            padding: 64,
+            rankSeparation: 140,
+        });
+    });
+
+    const pixelFlags = [
+        '--node-width',
+        '--node-height',
+        '--node-separation',
+        '--rank-separation',
+        '--padding',
+    ];
+
+    it.each(pixelFlags)('rejects a non-numeric %s', (flag) => {
+        expect(() => parseArgs(['in.json', `${flag}=wide`])).toThrowError(
+            `Invalid ${flag}: wide`,
+        );
+    });
+
+    it.each(pixelFlags)('rejects a negative %s', (flag) => {
+        expect(() => parseArgs(['in.json', `${flag}=-5`])).toThrowError(
+            /Expected a/,
+        );
+    });
+
+    // Parsing only. `run: DiagramOptions flags` asserts that a parsed 0 actually
+    // reaches the renderer, which it did not before: the consumers used `||`, so an
+    // explicit 0 was silently replaced by the default.
+    it('accepts 0 for the separations and padding but not for node dimensions', () => {
+        expect(
+            parseArgs(['in.json', '--node-separation', '0']).nodeSeparation,
+        ).toBe(0);
+        expect(
+            parseArgs(['in.json', '--rank-separation', '0']).rankSeparation,
+        ).toBe(0);
+        expect(parseArgs(['in.json', '--padding', '0']).padding).toBe(0);
+
+        expect(() => parseArgs(['in.json', '--node-width', '0'])).toThrowError(
+            /Expected a positive number of pixels/,
+        );
+        expect(() => parseArgs(['in.json', '--node-height', '0'])).toThrowError(
+            /Expected a positive number of pixels/,
+        );
+    });
+
+    it.each([
+        '--background-color',
+        '--diagram-description',
+        '--diagram-title',
+        '--theme',
+    ])('rejects a blank %s', (flag) => {
+        try {
+            parseArgs(['in.json', `${flag}=`]);
+            expect.unreachable(`${flag}= should not parse`);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliError);
+            expect((error as CliError).exitCode).toBe(2);
+            expect((error as CliError).message).toBe(
+                `Invalid ${flag}: expected a non-empty value`,
+            );
+        }
+    });
+
+    it('keeps the pre-existing --icon-size wording after the shared validator', () => {
+        expect(() => parseArgs(['in.json', '--icon-size', 'big'])).toThrowError(
+            'Invalid --icon-size: big. Expected a positive number of pixels',
+        );
+    });
+
+    it('parses the text and colour flags verbatim', () => {
+        expect(
+            parseArgs([
+                'in.json',
+                '--diagram-title',
+                'Order pipeline',
+                '--diagram-description',
+                'Two states, one transition',
+                '--background-color',
+                '#ff0000',
+            ]),
+        ).toMatchObject({
+            backgroundColor: '#ff0000',
+            diagramDescription: 'Two states, one transition',
+            diagramTitle: 'Order pipeline',
+        });
+    });
+
+    it('sets the boolean flags', () => {
+        expect(parseArgs(['in.json', '--hide-comments']).hideComments).toBe(
+            true,
+        );
+        expect(
+            parseArgs(['in.json', '--show-state-types']).showStateTypes,
+        ).toBe(true);
+    });
+
+    it('keeps --theme light|dark on the enum, with no theme file', () => {
+        expect(parseArgs(['in.json', '--theme', 'light'])).toMatchObject({
+            theme: 'light',
+            themeFile: null,
+        });
+        expect(parseArgs(['in.json', '--theme', 'dark'])).toMatchObject({
+            theme: 'dark',
+            themeFile: null,
+        });
+    });
+
+    it('treats any other --theme value as a path, without touching the filesystem', () => {
+        // parseArgs does no IO, so a path that does not exist still parses; the read,
+        // and its failure, belong to run().
+        expect(
+            parseArgs(['in.json', '--theme', './nope/brand.json']),
+        ).toMatchObject({
+            themeFile: './nope/brand.json',
+        });
+    });
+});
+
+describe('run: DiagramOptions flags', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-options-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    /** Every `d=` attribute in the rendered SVG. */
+    const pathData = (svg: string): string[] =>
+        [...svg.matchAll(/\sd="([^"]+)"/g)].map((match) => match[1]);
+
+    it('--edge-style straight drops the cubic curve commands the default emits', async () => {
+        expect(await run([choiceFixture])).toBe(0);
+        const curved = pathData(stdoutData).filter((data) =>
+            data.includes('C'),
+        );
+        expect(curved.length).toBeGreaterThan(0);
+
+        stdoutData = '';
+        expect(await run([choiceFixture, '--edge-style', 'straight'])).toBe(0);
+        expect(
+            pathData(stdoutData).filter((data) => data.includes('C')),
+        ).toEqual([]);
+    });
+
+    it('--style-preset enhanced draws a Choice state as a diamond instead of a rect', async () => {
+        expect(await run([choiceFixture])).toBe(0);
+        expect(choiceNodeShape(stdoutData)).toBe('rect');
+
+        stdoutData = '';
+        expect(await run([choiceFixture, '--style-preset', 'enhanced'])).toBe(
+            0,
+        );
+        expect(choiceNodeShape(stdoutData)).toBe('path');
+    });
+
+    it('--catch-label-style catch-number labels Catch edges by ordinal', async () => {
+        expect(await run([errorHandlingFixture])).toBe(0);
+        expect(stdoutData).toContain('States.TaskFailed');
+        expect(stdoutData).not.toContain('Catch #1');
+
+        stdoutData = '';
+        expect(
+            await run([
+                errorHandlingFixture,
+                '--catch-label-style',
+                'catch-number',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('Catch #1');
+        expect(stdoutData).not.toContain('States.TaskFailed');
+    });
+
+    it('--show-state-types labels each node with its state type', async () => {
+        expect(await run([simpleFixture])).toBe(0);
+        expect(stdoutData).not.toContain('>Pass<');
+
+        stdoutData = '';
+        expect(await run([simpleFixture, '--show-state-types'])).toBe(0);
+        expect(stdoutData).toContain('>Pass<');
+    });
+
+    it('--hide-comments falls back to the state name as the node label', async () => {
+        const inputPath = join(tempDir, 'commented.asl.json');
+        writeFileSync(
+            inputPath,
+            JSON.stringify({
+                StartAt: 'First',
+                States: {
+                    First: {
+                        Comment: 'Explains itself',
+                        Next: 'Second',
+                        Type: 'Pass',
+                    },
+                    Second: { End: true, Type: 'Pass' },
+                },
+            }),
+        );
+
+        expect(await run([inputPath])).toBe(0);
+        expect(stdoutData).toContain('Explains itself');
+
+        stdoutData = '';
+        expect(await run([inputPath, '--hide-comments'])).toBe(0);
+        expect(stdoutData).not.toContain('Explains itself');
+        expect(stdoutData).toContain('First');
+    });
+
+    it('--node-width and --node-height resize the nodes', async () => {
+        expect(await run([simpleFixture, '-o', join(tempDir, 'a.svg')])).toBe(
+            0,
+        );
+        const base = readFileSync(join(tempDir, 'a.svg'), 'utf-8');
+
+        expect(
+            await run([
+                simpleFixture,
+                '--node-width',
+                '240',
+                '--node-height',
+                '120',
+                '-o',
+                join(tempDir, 'b.svg'),
+            ]),
+        ).toBe(0);
+        const resized = readFileSync(join(tempDir, 'b.svg'), 'utf-8');
+
+        expect(svgWidth(resized)).toBeGreaterThan(svgWidth(base));
+        expect(svgHeight(resized)).toBeGreaterThan(svgHeight(base));
+    });
+
+    it('--node-separation and --rank-separation spread the graph out', async () => {
+        expect(await run([choiceFixture, '-o', join(tempDir, 'a.svg')])).toBe(
+            0,
+        );
+        const base = readFileSync(join(tempDir, 'a.svg'), 'utf-8');
+
+        expect(
+            await run([
+                choiceFixture,
+                '--node-separation',
+                '150',
+                '-o',
+                join(tempDir, 'b.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgWidth(readFileSync(join(tempDir, 'b.svg'), 'utf-8')),
+        ).toBeGreaterThan(svgWidth(base));
+
+        expect(
+            await run([
+                choiceFixture,
+                '--rank-separation',
+                '150',
+                '-o',
+                join(tempDir, 'c.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgHeight(readFileSync(join(tempDir, 'c.svg'), 'utf-8')),
+        ).toBeGreaterThan(svgHeight(base));
+    });
+
+    it('--padding grows the canvas by twice the extra padding on each axis', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--padding',
+                '20',
+                '-o',
+                join(tempDir, 'a.svg'),
+            ]),
+        ).toBe(0);
+        const base = readFileSync(join(tempDir, 'a.svg'), 'utf-8');
+
+        expect(
+            await run([
+                simpleFixture,
+                '--padding',
+                '70',
+                '-o',
+                join(tempDir, 'b.svg'),
+            ]),
+        ).toBe(0);
+        const padded = readFileSync(join(tempDir, 'b.svg'), 'utf-8');
+
+        expect(svgWidth(padded)).toBe(svgWidth(base) + 100);
+        expect(svgHeight(padded)).toBe(svgHeight(base) + 100);
+    });
+
+    it('--padding 0, --node-separation 0 and --rank-separation 0 reach the renderer', async () => {
+        // The consumers used `||`, so an explicit 0 rendered at the default and the
+        // flags were inert. Each of these must shrink the canvas below the default.
+        expect(
+            await run([choiceFixture, '-o', join(tempDir, 'base.svg')]),
+        ).toBe(0);
+        const base = readFileSync(join(tempDir, 'base.svg'), 'utf-8');
+
+        expect(
+            await run([
+                choiceFixture,
+                '--padding',
+                '0',
+                '-o',
+                join(tempDir, 'p.svg'),
+            ]),
+        ).toBe(0);
+        const noPadding = readFileSync(join(tempDir, 'p.svg'), 'utf-8');
+        expect(svgWidth(noPadding)).toBe(svgWidth(base) - 40);
+        expect(svgHeight(noPadding)).toBe(svgHeight(base) - 40);
+
+        expect(
+            await run([
+                choiceFixture,
+                '--node-separation',
+                '0',
+                '-o',
+                join(tempDir, 'n.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgWidth(readFileSync(join(tempDir, 'n.svg'), 'utf-8')),
+        ).toBeLessThan(svgWidth(base));
+
+        expect(
+            await run([
+                choiceFixture,
+                '--rank-separation',
+                '0',
+                '-o',
+                join(tempDir, 'r.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgHeight(readFileSync(join(tempDir, 'r.svg'), 'utf-8')),
+        ).toBeLessThan(svgHeight(base));
+    });
+
+    it('--theme and --layout reach the Mermaid diff path', async () => {
+        const themePath = join(tempDir, 'diff-theme.json');
+        writeFileSync(
+            themePath,
+            JSON.stringify({ nodeColors: { Pass: { fill: '#abcabc' } } }),
+        );
+
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'mermaid',
+                '--diff',
+                simpleFixture,
+                '--layout',
+                'LR',
+                '--theme',
+                themePath,
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('direction LR');
+        expect(stdoutData).toContain('#abcabc');
+    });
+
+    it('--diagram-title and --diagram-description set the accessible text', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--diagram-title',
+                'Order pipeline',
+                '--diagram-description',
+                'Two states, one transition',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('<title>Order pipeline</title>');
+        expect(stdoutData).toContain('aria-label="Order pipeline"');
+        expect(stdoutData).toContain('<desc>Two states, one transition</desc>');
+    });
+
+    it('--catch-label-style reaches the Mermaid renderer too', async () => {
+        expect(await run([errorHandlingFixture, '--format', 'mermaid'])).toBe(
+            0,
+        );
+        expect(stdoutData).toContain('Error: States.TaskFailed');
+
+        stdoutData = '';
+        expect(
+            await run([
+                errorHandlingFixture,
+                '--format',
+                'mermaid',
+                '--catch-label-style',
+                'catch-number',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('stateDiagram-v2');
+        // Mermaid escapes `#` as the HTML entity, so the label reads `Catch #35;1`.
+        expect(stdoutData).toContain('Catch #35;1');
+        expect(stdoutData).not.toContain('States.TaskFailed');
+    });
+
+    it('--hide-comments reaches the Mermaid renderer too', async () => {
+        const inputPath = join(tempDir, 'commented.asl.json');
+        writeFileSync(
+            inputPath,
+            JSON.stringify({
+                StartAt: 'First',
+                States: {
+                    First: {
+                        Comment: 'Explains itself',
+                        Next: 'Second',
+                        Type: 'Pass',
+                    },
+                    Second: { End: true, Type: 'Pass' },
+                },
+            }),
+        );
+
+        expect(await run([inputPath, '--format', 'mermaid'])).toBe(0);
+        expect(stdoutData).toContain('First: Explains itself');
+
+        stdoutData = '';
+        expect(
+            await run([inputPath, '--format', 'mermaid', '--hide-comments']),
+        ).toBe(0);
+        expect(stdoutData).not.toContain('Explains itself');
+    });
+
+    it('--background-color reaches PNG export when the theme is transparent', async () => {
+        const themePath = join(tempDir, 'transparent.json');
+        writeFileSync(
+            themePath,
+            JSON.stringify({ background: 'transparent', base: 'light' }),
+        );
+
+        const plainPath = join(tempDir, 'plain.png');
+        const redPath = join(tempDir, 'red.png');
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'png',
+                '--theme',
+                themePath,
+                '-o',
+                plainPath,
+            ]),
+        ).toBe(0);
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'png',
+                '--theme',
+                themePath,
+                '--background-color',
+                '#ff0000',
+                '-o',
+                redPath,
+            ]),
+        ).toBe(0);
+
+        expect(readFileSync(redPath).equals(readFileSync(plainPath))).toBe(
+            false,
+        );
+    });
+
+    describe('--theme with a custom theme file', () => {
+        it('applies the file, overriding the built-in theme', async () => {
+            const themePath = join(tempDir, 'brand.json');
+            writeFileSync(
+                themePath,
+                JSON.stringify({
+                    background: '#123456',
+                    base: 'light',
+                    textColor: '#abcdef',
+                }),
+            );
+
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(0);
+            expect(stdoutData).toContain('#123456');
+            expect(stdoutData).toContain('#abcdef');
+        });
+
+        it('honours a relative path', async () => {
+            const themePath = join(tempDir, 'relative.json');
+            writeFileSync(themePath, JSON.stringify({ background: '#654321' }));
+            const cwd = process.cwd();
+            try {
+                process.chdir(tempDir);
+                expect(
+                    await run([simpleFixture, '--theme', './relative.json']),
+                ).toBe(0);
+            } finally {
+                process.chdir(cwd);
+            }
+            expect(stdoutData).toContain('#654321');
+        });
+
+        it('exits 2 when the file is missing', async () => {
+            expect(
+                await run([
+                    simpleFixture,
+                    '--theme',
+                    join(tempDir, 'absent.json'),
+                ]),
+            ).toBe(2);
+            expect(stderrData).toContain('Cannot read theme file');
+            expect(stdoutData).toBe('');
+        });
+
+        it('exits 2 on malformed JSON', async () => {
+            const themePath = join(tempDir, 'broken.json');
+            writeFileSync(themePath, '{ "background": ');
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(2);
+            expect(stderrData).toContain('Cannot read theme file');
+        });
+
+        it('exits 2 when the JSON is not an object', async () => {
+            const themePath = join(tempDir, 'array.json');
+            writeFileSync(themePath, '["light"]');
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(2);
+            expect(stderrData).toContain('Cannot read theme file');
+        });
+
+        it('fails before the Mermaid, diff and execution paths run', async () => {
+            // Resolution sits ahead of the format branching, so a bad theme file is
+            // reported once rather than per output path. This says nothing about where
+            // the resolved theme lands — the test below is the one that proves Mermaid
+            // receives it.
+            const themePath = join(tempDir, 'bad.json');
+            writeFileSync(themePath, 'not json');
+
+            expect(
+                await run([
+                    simpleFixture,
+                    '--format',
+                    'mermaid',
+                    '--theme',
+                    themePath,
+                ]),
+            ).toBe(2);
+            expect(
+                await run([
+                    simpleFixture,
+                    '--diff',
+                    simpleFixture,
+                    '--theme',
+                    themePath,
+                ]),
+            ).toBe(2);
+            expect(
+                await run([
+                    simpleFixture,
+                    '--execution',
+                    executionHistoryFixture,
+                    '--theme',
+                    themePath,
+                ]),
+            ).toBe(2);
+        });
+
+        it('applies the file on the Mermaid path', async () => {
+            const themePath = join(tempDir, 'mermaid-theme.json');
+            writeFileSync(
+                themePath,
+                JSON.stringify({ nodeColors: { Pass: { fill: '#abcabc' } } }),
+            );
+            expect(
+                await run([
+                    simpleFixture,
+                    '--format',
+                    'mermaid',
+                    '--theme',
+                    themePath,
+                ]),
+            ).toBe(0);
+            expect(stdoutData).toContain('#abcabc');
+        });
+    });
+});
+
+describe('flag surface documentation', () => {
+    const cliSource = readFileSync(
+        join(__dirname, '..', 'src', 'cli.ts'),
+        'utf-8',
+    );
+
+    const helpText = (() => {
+        const match = /const HELP_TEXT = `([\s\S]*?)\n`;/.exec(cliSource);
+        if (!match) throw new Error('HELP_TEXT not found in src/cli.ts');
+        return match[1];
+    })();
+
+    const specKeys = (() => {
+        const match = /const OPTION_SPEC = \{([\s\S]*?)\n\} as const;/.exec(
+            cliSource,
+        );
+        if (!match) throw new Error('OPTION_SPEC not found in src/cli.ts');
+        return [...match[1].matchAll(/^\s*'?([a-z][a-z-]*)'?:\s*\{/gm)].map(
+            (entry) => entry[1],
+        );
+    })();
+
+    const cliGuide = readFileSync(
+        join(
+            __dirname,
+            '..',
+            'site',
+            'src',
+            'content',
+            'docs',
+            'guides',
+            'cli.mdx',
+        ),
+        'utf-8',
+    );
+
+    it('found the flag list it is about to check', () => {
+        // Guards the regexes above: renaming OPTION_SPEC or HELP_TEXT would otherwise
+        // leave this whole describe asserting nothing at all.
+        expect(specKeys.length).toBeGreaterThan(25);
+        expect(specKeys).toContain('format');
+        expect(specKeys).toContain('edge-style');
+        expect(specKeys).toContain('theme');
+        expect(helpText).toContain('Options:');
+    });
+
+    it.each(specKeys)('--%s appears in --help', (flag) => {
+        expect(helpText).toContain(`--${flag}`);
+    });
+
+    it.each(specKeys)('--%s appears in the CLI guide', (flag) => {
+        expect(cliGuide).toContain(`--${flag}`);
+    });
+
+    it('documents no flag the parser would reject', () => {
+        const documented = new Set(
+            [...cliGuide.matchAll(/`--([a-z][a-z-]*)/g)].map(
+                (entry) => entry[1],
+            ),
+        );
+        // `comment gitlab` has its own parser and its own help text.
+        const subcommandFlags = new Set([
+            'asl-glob',
+            'aws-region',
+            'comment-tag',
+            'execution-mode',
+            'output-dir',
+            'state-machine-arn',
+        ]);
+        const unknown = [...documented].filter(
+            (flag) => !specKeys.includes(flag) && !subcommandFlags.has(flag),
+        );
+        expect(unknown).toEqual([]);
     });
 });

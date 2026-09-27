@@ -11,12 +11,16 @@ import { lintAsl } from './lint';
 import { exportPng } from './png';
 import type {
     AslDefinition,
+    CatchLabelStyle,
+    CustomTheme,
     DiagramFormat,
     DiffStateSummary,
-    ExecutionSummary,
-    LintDiagnostic,
+    EdgePathStyle,
     ExecutionStateStatus,
+    ExecutionSummary,
     LayoutDirection,
+    LintDiagnostic,
+    StylePreset,
     ThemeOption,
 } from './types';
 
@@ -24,24 +28,45 @@ import type {
 export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
+    backgroundColor: string | null;
+    catchLabelStyle: CatchLabelStyle | null;
     check: boolean;
     collapse: string[] | boolean | null;
+    diagramDescription: string | null;
+    diagramTitle: string | null;
     diff: string | null;
+    edgeStyle: EdgePathStyle | null;
     execution: string | null;
     format: DiagramFormat;
     hideCatch: boolean;
+    hideComments: boolean;
     hideVariables: boolean;
     iconPosition: IconPosition | null;
     iconSize: number | null;
     input: string | null;
     layout: LayoutDirection;
+    nodeHeight: number | null;
+    nodeSeparation: number | null;
+    nodeWidth: number | null;
     output: string | null;
+    padding: number | null;
+    rankSeparation: number | null;
     resolveCfn: boolean;
     resource: string | null;
     showHelp: boolean;
     showIcons: boolean;
+    showStateTypes: boolean;
     showVersion: boolean;
+    stylePreset: StylePreset | null;
     theme: ThemeOption;
+    /**
+     * Path to a custom theme JSON file, set when `--theme` was given anything other than
+     * `light` or `dark`. When non-null it supersedes {@link CliArgs.theme} entirely, and
+     * `theme` keeps its default — `run()` reads the file and resolves the two into one
+     * value. Splitting it this way keeps `parseArgs` free of filesystem access, the same
+     * way `diff` and `execution` carry a path rather than its contents.
+     */
+    themeFile: string | null;
 }
 
 const HELP_TEXT = `sfn-diagram — generate diagrams from AWS Step Functions ASL definitions
@@ -55,7 +80,8 @@ Usage:
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
   -o, --output <path>              Output file path (required for png; stdout otherwise)
-  --theme <light|dark>             Color theme for SVG/PNG (default: light)
+  --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
+                                   path to a custom theme JSON file (default: light)
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
@@ -66,6 +92,26 @@ Options:
   --show-icons                     Draw AWS service icons on Task states
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
+  --edge-style <straight|curved|orthogonal>
+                                   Edge path style (default: curved)
+  --style-preset <aws-standard|enhanced>
+                                   Node shapes: AWS parity, or a distinct shape per
+                                   state type (default: aws-standard)
+  --catch-label-style <error-type|catch-number>
+                                   Label on Catch edges: the error name, or "Catch #N"
+                                   (default: error-type)
+  --show-state-types               Draw each state's type as a label on the node
+  --hide-comments                  Don't use a state's Comment as its node label
+  --node-width <pixels>            Width of each state node (default: 120)
+  --node-height <pixels>           Height of each state node (default: 60)
+  --node-separation <pixels>       Separation between nodes in a rank (default: 50)
+  --rank-separation <pixels>       Separation between ranks (default: 50)
+  --padding <pixels>               Padding around the diagram (default: 20)
+  --diagram-title <text>           Accessible name; the SVG's <title> and aria-label
+  --diagram-description <text>     Accessible description; the SVG's <desc>
+  --background-color <color>       PNG background (default: transparent). Only shows
+                                   through when the theme's own background is
+                                   transparent; light and dark paint over it.
   --diff <baseline>                Compare the input (head) against a baseline definition;
                                    added/modified/removed states are highlighted
   --execution <history.json>       Overlay a GetExecutionHistory result on the diagram
@@ -89,6 +135,9 @@ Notes:
   --collapse applies to --format svg, mermaid and html, and to --diff (except
   --diff --format mermaid). It has no effect on --execution overlays, which build
   their graph separately — the same limitation --hide-catch has there.
+
+  --diff --format mermaid also ignores --hide-comments and --catch-label-style: it
+  re-parses the merged definition without them. --theme and --layout do apply.
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
@@ -155,25 +204,47 @@ Example .gitlab-ci.yml:
 
 /** `node:util.parseArgs` option spec backing {@link parseArgs}. */
 const OPTION_SPEC = {
+    'background-color': { type: 'string' },
+    'catch-label-style': { type: 'string' },
     check: { type: 'boolean' },
     collapse: { type: 'string' },
+    'diagram-description': { type: 'string' },
+    'diagram-title': { type: 'string' },
     diff: { type: 'string' },
+    'edge-style': { type: 'string' },
     execution: { type: 'string' },
     format: { type: 'string' },
     help: { short: 'h', type: 'boolean' },
     'hide-catch': { type: 'boolean' },
+    'hide-comments': { type: 'boolean' },
     'hide-variables': { type: 'boolean' },
     'icon-position': { type: 'string' },
     'icon-size': { type: 'string' },
     layout: { type: 'string' },
+    'node-height': { type: 'string' },
+    'node-separation': { type: 'string' },
+    'node-width': { type: 'string' },
     output: { short: 'o', type: 'string' },
+    padding: { type: 'string' },
+    'rank-separation': { type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
     'show-icons': { type: 'boolean' },
+    'show-state-types': { type: 'boolean' },
+    'style-preset': { type: 'string' },
     theme: { type: 'string' },
     version: { short: 'v', type: 'boolean' },
 } as const;
 
+const VALID_CATCH_LABEL_STYLES: readonly CatchLabelStyle[] = [
+    'error-type',
+    'catch-number',
+];
+const VALID_EDGE_STYLES: readonly EdgePathStyle[] = [
+    'straight',
+    'curved',
+    'orthogonal',
+];
 const VALID_FORMATS: readonly DiagramFormat[] = [
     'svg',
     'mermaid',
@@ -182,7 +253,16 @@ const VALID_FORMATS: readonly DiagramFormat[] = [
 ];
 const VALID_ICON_POSITIONS: readonly IconPosition[] = ['left', 'top', 'right'];
 const VALID_LAYOUTS: readonly LayoutDirection[] = ['TB', 'LR', 'RL', 'BT'];
-const VALID_THEMES = ['light', 'dark'] as const;
+const VALID_STYLE_PRESETS: readonly StylePreset[] = [
+    'aws-standard',
+    'enhanced',
+];
+
+/**
+ * The built-in theme names `--theme` accepts before falling back to reading its value
+ * as a path to a custom theme JSON file.
+ */
+const BUILT_IN_THEMES: readonly ['light', 'dark'] = ['light', 'dark'];
 
 interface ExpectEnumParams<Value extends string> {
     allowed: readonly Value[];
@@ -202,6 +282,87 @@ function expectEnum<Value extends string>(
         );
     }
     return value as Value;
+}
+
+interface ExpectPixelsParams {
+    /** Whether 0 is an acceptable value (true for separations and padding). */
+    allowZero: boolean;
+    flag: string;
+    value: string;
+}
+
+/**
+ * Validate a flag's value as a number of pixels, or throw a `CliError`.
+ *
+ * A dimension has to be positive to draw anything, while a separation or a padding of
+ * zero is a meaningful request, so which side of that line a flag falls on is the
+ * caller's to state.
+ *
+ * @param params - Validation parameters
+ * @param params.allowZero - Whether `0` is acceptable: true for separations and padding,
+ *   false for a dimension that has to be drawable
+ * @param params.flag - Flag name, used in the error message (e.g. `--node-width`)
+ * @param params.value - Raw flag value as it arrived on the command line
+ *
+ * @returns The value as a number.
+ *
+ * @throws {CliError} With exit code 2 if the value is blank, not a finite number,
+ *   negative, or zero when `allowZero` is false.
+ *
+ * @example
+ * ```typescript
+ * expectPixels({ allowZero: false, flag: '--node-width', value: '240' }); // 240
+ * expectPixels({ allowZero: true, flag: '--padding', value: '0' }); // 0
+ * expectPixels({ allowZero: false, flag: '--node-width', value: '0' }); // throws
+ * ```
+ */
+function expectPixels(params: ExpectPixelsParams): number {
+    const { allowZero, flag, value } = params;
+    // Number('') and Number(' ') are both 0, so a blank value would otherwise pass
+    // wherever zero is allowed.
+    const parsed = value.trim() === '' ? Number.NaN : Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || (!allowZero && parsed <= 0)) {
+        throw new CliError(
+            `Invalid ${flag}: ${value}. Expected a ${allowZero ? 'non-negative' : 'positive'} number of pixels`,
+            2,
+        );
+    }
+    return parsed;
+}
+
+interface ExpectNonBlankParams {
+    flag: string;
+    value: string;
+}
+
+/**
+ * Return a flag's value unchanged, or throw a `CliError` when it is blank.
+ *
+ * An empty value almost always means an unset shell variable (`--diagram-title
+ * "$TITLE"`), and the alternatives are both worse than failing: an empty
+ * `diagramTitle` replaces the accessible name with nothing, and an empty `--theme`
+ * resolves to the working directory.
+ *
+ * @param params - Validation parameters
+ * @param params.flag - Flag name, used in the error message (e.g. `--diagram-title`)
+ * @param params.value - Raw flag value as it arrived on the command line
+ *
+ * @returns The value as given.
+ *
+ * @throws {CliError} With exit code 2 when the value is empty or only whitespace.
+ *
+ * @example
+ * ```typescript
+ * expectNonBlank({ flag: '--diagram-title', value: 'Order pipeline' }); // 'Order pipeline'
+ * expectNonBlank({ flag: '--diagram-title', value: '' }); // throws
+ * ```
+ */
+function expectNonBlank(params: ExpectNonBlankParams): string {
+    const { flag, value } = params;
+    if (value.trim() === '') {
+        throw new CliError(`Invalid ${flag}: expected a non-empty value`, 2);
+    }
+    return value;
 }
 
 /**
@@ -262,19 +423,56 @@ export function parseArgs(argv: string[]): CliArgs {
     }
 
     const collapseValue = values.collapse as string | undefined;
-    const iconSizeValue = values['icon-size'] as string | undefined;
-    let iconSize: number | null = null;
-    if (iconSizeValue !== undefined) {
-        iconSize = Number(iconSizeValue);
-        if (!Number.isFinite(iconSize) || iconSize <= 0) {
-            throw new CliError(
-                `Invalid --icon-size: ${iconSizeValue}. Expected a positive number of pixels`,
-                2,
-            );
-        }
-    }
+
+    /**
+     * Read one pixel-valued flag, or `null` when it was not given. The flag name in the
+     * error message is derived from the spec key, so the two cannot drift apart.
+     */
+    const readPixels = (
+        key:
+            | 'icon-size'
+            | 'node-height'
+            | 'node-separation'
+            | 'node-width'
+            | 'padding'
+            | 'rank-separation',
+        allowZero: boolean,
+    ): number | null => {
+        const raw = values[key] as string | undefined;
+        return raw === undefined
+            ? null
+            : expectPixels({ allowZero, flag: `--${key}`, value: raw });
+    };
+
+    // `--theme` takes a built-in name or a path to a custom theme JSON file. The path is
+    // carried through as-is and read in `run()`, the way `--diff` and `--execution` are,
+    // so `parseArgs` stays free of filesystem access.
+    const themeValue =
+        values.theme === undefined
+            ? undefined
+            : expectNonBlank({
+                  flag: '--theme',
+                  value: values.theme as string,
+              });
+    const isBuiltInTheme = (value: string): value is 'dark' | 'light' =>
+        (BUILT_IN_THEMES as readonly string[]).includes(value);
 
     return {
+        backgroundColor:
+            values['background-color'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--background-color',
+                      value: values['background-color'] as string,
+                  }),
+        catchLabelStyle:
+            values['catch-label-style'] === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_CATCH_LABEL_STYLES,
+                      flag: '--catch-label-style',
+                      value: values['catch-label-style'] as string,
+                  }),
         check: values.check === true,
         collapse:
             collapseValue === undefined
@@ -282,7 +480,29 @@ export function parseArgs(argv: string[]): CliArgs {
                 : collapseValue === BARE_COLLAPSE_SENTINEL
                   ? true
                   : parseCollapseNames(collapseValue),
+        diagramDescription:
+            values['diagram-description'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--diagram-description',
+                      value: values['diagram-description'] as string,
+                  }),
+        diagramTitle:
+            values['diagram-title'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--diagram-title',
+                      value: values['diagram-title'] as string,
+                  }),
         diff: (values.diff as string | undefined) ?? null,
+        edgeStyle:
+            values['edge-style'] === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_EDGE_STYLES,
+                      flag: '--edge-style',
+                      value: values['edge-style'] as string,
+                  }),
         execution: (values.execution as string | undefined) ?? null,
         format:
             values.format === undefined
@@ -293,6 +513,7 @@ export function parseArgs(argv: string[]): CliArgs {
                       value: values.format as string,
                   }),
         hideCatch: values['hide-catch'] === true,
+        hideComments: values['hide-comments'] === true,
         hideVariables: values['hide-variables'] === true,
         iconPosition:
             values['icon-position'] === undefined
@@ -302,7 +523,7 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--icon-position',
                       value: values['icon-position'] as string,
                   }),
-        iconSize,
+        iconSize: readPixels('icon-size', false),
         input: positionals[0] ?? null,
         layout:
             values.layout === undefined
@@ -312,20 +533,34 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--layout',
                       value: values.layout as string,
                   }),
+        nodeHeight: readPixels('node-height', false),
+        nodeSeparation: readPixels('node-separation', true),
+        nodeWidth: readPixels('node-width', false),
         output: (values.output as string | undefined) ?? null,
+        padding: readPixels('padding', true),
+        rankSeparation: readPixels('rank-separation', true),
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
         showHelp: values.help === true,
         showIcons: values['show-icons'] === true,
+        showStateTypes: values['show-state-types'] === true,
         showVersion: values.version === true,
-        theme:
-            values.theme === undefined
-                ? 'light'
+        stylePreset:
+            values['style-preset'] === undefined
+                ? null
                 : expectEnum({
-                      allowed: VALID_THEMES,
-                      flag: '--theme',
-                      value: values.theme as string,
+                      allowed: VALID_STYLE_PRESETS,
+                      flag: '--style-preset',
+                      value: values['style-preset'] as string,
                   }),
+        theme:
+            themeValue !== undefined && isBuiltInTheme(themeValue)
+                ? themeValue
+                : 'light',
+        themeFile:
+            themeValue !== undefined && !isBuiltInTheme(themeValue)
+                ? themeValue
+                : null,
     };
 }
 
@@ -378,8 +613,7 @@ async function readStdin(): Promise<string> {
  * version comes from package.json at runtime and PNG export is available.
  */
 declare const __SFN_DIAGRAM_BUILD__:
-    | { standalone: boolean; version: string }
-    | undefined;
+    { standalone: boolean; version: string } | undefined;
 
 function readBuildInfo(): { standalone: boolean; version: string } | undefined {
     return typeof __SFN_DIAGRAM_BUILD__ === 'undefined'
@@ -484,9 +718,12 @@ function writeLintReport(diagnostics: LintDiagnostic[]): void {
         ({ code, message, path, severity }) =>
             `${severity.padEnd(7)} ${path || '/'}  ${message}  [${code}]`,
     );
-    const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error').length;
+    const errors = diagnostics.filter(
+        (diagnostic) => diagnostic.severity === 'error',
+    ).length;
     const warnings = diagnostics.length - errors;
-    const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`;
+    const plural = (count: number, noun: string): string =>
+        `${count} ${noun}${count === 1 ? '' : 's'}`;
     lines.push(
         diagnostics.length === 0
             ? 'No problems found'
@@ -694,7 +931,10 @@ export async function run(argv: string[]): Promise<number> {
         );
         return 1;
     }
-    if (args.check && (args.diff !== null || args.execution !== null || args.output !== null)) {
+    if (
+        args.check &&
+        (args.diff !== null || args.execution !== null || args.output !== null)
+    ) {
         process.stderr.write(
             '--check lints the input only; it cannot be combined with --diff, --execution or --output\n',
         );
@@ -795,26 +1035,81 @@ export async function run(argv: string[]): Promise<number> {
     if (args.check) {
         const diagnostics = lintAsl({ definition: definitionSource });
         writeLintReport(diagnostics);
-        return diagnostics.some((diagnostic) => diagnostic.severity === 'error') ? 1 : 0;
+        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+            ? 1
+            : 0;
+    }
+
+    // Resolved after `--check`, which lints rather than drawing and so needs no theme.
+    let theme: ThemeOption = args.theme;
+    if (args.themeFile !== null) {
+        try {
+            const parsed: unknown = JSON.parse(
+                readFileSync(resolve(args.themeFile), 'utf-8'),
+            );
+            if (
+                typeof parsed !== 'object' ||
+                parsed === null ||
+                Array.isArray(parsed)
+            ) {
+                throw new Error(
+                    'Expected a JSON object describing a custom theme',
+                );
+            }
+            theme = parsed as CustomTheme;
+        } catch (error) {
+            const reason =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Error: Cannot read theme file ${args.themeFile}: ${reason}\n` +
+                    `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.\n`,
+            );
+            return 2;
+        }
     }
 
     const sharedOptions = {
         catchHandling: args.hideCatch ? ('hide' as const) : ('show' as const),
-        ...(args.hideVariables ? { showVariables: false } : {}),
+        ...(args.catchLabelStyle !== null
+            ? { catchLabelStyle: args.catchLabelStyle }
+            : {}),
         ...(args.collapse !== null ? { collapse: args.collapse } : {}),
+        ...(args.hideComments ? { includeComments: false } : {}),
+        ...(args.hideVariables ? { showVariables: false } : {}),
     };
     const svgOptions = {
         ...sharedOptions,
         layout: args.layout,
-        theme: args.theme,
+        theme,
+        ...(args.backgroundColor !== null
+            ? { backgroundColor: args.backgroundColor }
+            : {}),
+        ...(args.diagramDescription !== null
+            ? { diagramDescription: args.diagramDescription }
+            : {}),
+        ...(args.diagramTitle !== null
+            ? { diagramTitle: args.diagramTitle }
+            : {}),
         // Clickable edges are only wanted where a viewer is wired up. `--format svg`
         // must stay byte-identical, and generateHtmlAsync forces this on regardless.
         ...(args.format === 'html' ? { edgeHitAreas: true } : {}),
-        ...(args.showIcons ? { showIcons: true } : {}),
+        ...(args.edgeStyle !== null ? { edgeStyle: args.edgeStyle } : {}),
         ...(args.iconPosition !== null
             ? { iconPosition: args.iconPosition }
             : {}),
         ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
+        ...(args.nodeHeight !== null ? { nodeHeight: args.nodeHeight } : {}),
+        ...(args.nodeSeparation !== null
+            ? { nodeSeparation: args.nodeSeparation }
+            : {}),
+        ...(args.nodeWidth !== null ? { nodeWidth: args.nodeWidth } : {}),
+        ...(args.padding !== null ? { padding: args.padding } : {}),
+        ...(args.rankSeparation !== null
+            ? { rankSeparation: args.rankSeparation }
+            : {}),
+        ...(args.showIcons ? { showIcons: true } : {}),
+        ...(args.showStateTypes ? { showStateTypes: true } : {}),
+        ...(args.stylePreset !== null ? { stylePreset: args.stylePreset } : {}),
     };
 
     try {
@@ -823,6 +1118,8 @@ export async function run(argv: string[]): Promise<number> {
                 const result = generateMermaidDiff({
                     after: definitionSource,
                     before: baselineDefinition,
+                    layout: args.layout,
+                    theme,
                 });
                 writeDiffSummary(result.metadata);
                 writeOutput(result.code, args.output);
@@ -837,7 +1134,8 @@ export async function run(argv: string[]): Promise<number> {
                     diff: { before: baselineDefinition },
                     ...svgOptions,
                 });
-                if (result.metadata.diff) writeDiffSummary(result.metadata.diff);
+                if (result.metadata.diff)
+                    writeDiffSummary(result.metadata.diff);
                 writeOutput(result.html, args.output);
                 return 0;
             }
@@ -858,7 +1156,7 @@ export async function run(argv: string[]): Promise<number> {
                     aslDefinition: definitionSource,
                     history: historySource,
                     layout: args.layout,
-                    theme: args.theme,
+                    theme,
                 });
                 writeExecutionSummary(result.metadata);
                 writeOutput(result.code, args.output);
@@ -871,7 +1169,8 @@ export async function run(argv: string[]): Promise<number> {
                     history: historySource,
                     ...svgOptions,
                 });
-                if (result.metadata.execution) writeExecutionSummary(result.metadata.execution);
+                if (result.metadata.execution)
+                    writeExecutionSummary(result.metadata.execution);
                 writeOutput(result.html, args.output);
                 return 0;
             }
@@ -891,7 +1190,7 @@ export async function run(argv: string[]): Promise<number> {
                 aslDefinition: definitionSource,
                 ...sharedOptions,
                 layout: args.layout,
-                theme: args.theme,
+                theme,
             });
             writeOutput(result.code, args.output);
             return 0;
