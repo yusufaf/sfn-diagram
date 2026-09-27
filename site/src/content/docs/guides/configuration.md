@@ -169,14 +169,28 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   | Interaction | |
   | --- | --- |
-  | Pan | drag the background |
-  | Zoom | mouse wheel, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
+  | Pan | drag the background, or move one finger on a touch screen |
+  | Zoom | mouse wheel, pinch with two fingers, or the `-` / `+` / **Fit** / **Reset** toolbar buttons |
   | Search states | type in the toolbar box — non-matches dim, the view pans to the first hit. `/` focuses it, `Enter` cycles hits (`Shift+Enter` backwards), `Esc` clears |
   | Inspect a state | click any node — a side panel shows its `Type`, `Resource`, `Next`, `Retry`, `Catch` and `Assign`, plus the raw ASL. Click the background or press `Esc` to close |
   | Inspect an edge | click any transition (or its label) — the same panel shows the edge's id, its endpoints, its kind (`normal`/`error`/`choice`/`default`/`retry`) and, for a Choice branch, the condition that produced it. The edge and both endpoints highlight while it's open |
   | Expand/Collapse | when the diagram has a Parallel or Map state, each container header carries a **−** control that collapses just that container to a placeholder (and a **+** on the placeholder to expand it again), and the toolbar's **Collapse**/**Expand** button collapses or expands every container at once. The diagram is re-laid out in place, so nothing is pre-rendered per combination |
   | Minimap | a scaled overview in the bottom-right corner, with a rectangle showing what's in view. Click or drag inside it to jump. **Map** or `m` toggles it — shown by default past 25 states, hidden below |
   | Keyboard | `Tab` reaches every state and transition; `Enter`/`Space` opens the detail panel and moves focus into it; `Esc` closes it and returns focus to what opened it. `/` focuses search, `m` toggles the minimap |
+
+  Pinch zooms about the midpoint between the two fingers, and that midpoint's own
+  movement pans at the same time, so one gesture does both. Lifting one finger hands
+  back to a one-finger pan without the diagram jumping; a third finger is ignored
+  rather than re-anchoring the gesture. Scale stays between 0.05x and 8x, and at either
+  bound the pinch keeps panning instead of drifting.
+
+  A two-finger gesture never counts as a tap, so pinching on top of a state does not
+  open its detail panel.
+
+  Touch gestures need the stage to claim them from the browser (`touch-action: none`),
+  which an embedded `<sfn-diagram>` only does once you have pressed on it — otherwise a
+  diagram filling a phone screen would trap the page's own scroll. The standalone
+  document is the page, so it claims them from the start.
 
   Every node carries a `data-state-id` attribute, in the raw SVG too, so you can
   target states from your own scripts or styles. Edges carry `data-edge-id` the same
