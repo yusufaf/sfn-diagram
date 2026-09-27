@@ -1359,6 +1359,9 @@ describe('parseArgs: DiagramOptions flags', () => {
         );
     });
 
+    // Parsing only. `run: DiagramOptions flags` asserts that a parsed 0 actually
+    // reaches the renderer, which it did not before: the consumers used `||`, so an
+    // explicit 0 was silently replaced by the default.
     it('accepts 0 for the separations and padding but not for node dimensions', () => {
         expect(
             parseArgs(['in.json', '--node-separation', '0']).nodeSeparation,
@@ -1374,6 +1377,24 @@ describe('parseArgs: DiagramOptions flags', () => {
         expect(() => parseArgs(['in.json', '--node-height', '0'])).toThrowError(
             /Expected a positive number of pixels/,
         );
+    });
+
+    it.each([
+        '--background-color',
+        '--diagram-description',
+        '--diagram-title',
+        '--theme',
+    ])('rejects a blank %s', (flag) => {
+        try {
+            parseArgs(['in.json', `${flag}=`]);
+            expect.unreachable(`${flag}= should not parse`);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliError);
+            expect((error as CliError).exitCode).toBe(2);
+            expect((error as CliError).message).toBe(
+                `Invalid ${flag}: expected a non-empty value`,
+            );
+        }
     });
 
     it('keeps the pre-existing --icon-size wording after the shared validator', () => {
@@ -1624,6 +1645,78 @@ describe('run: DiagramOptions flags', () => {
 
         expect(svgWidth(padded)).toBe(svgWidth(base) + 100);
         expect(svgHeight(padded)).toBe(svgHeight(base) + 100);
+    });
+
+    it('--padding 0, --node-separation 0 and --rank-separation 0 reach the renderer', async () => {
+        // The consumers used `||`, so an explicit 0 rendered at the default and the
+        // flags were inert. Each of these must shrink the canvas below the default.
+        expect(
+            await run([choiceFixture, '-o', join(tempDir, 'base.svg')]),
+        ).toBe(0);
+        const base = readFileSync(join(tempDir, 'base.svg'), 'utf-8');
+
+        expect(
+            await run([
+                choiceFixture,
+                '--padding',
+                '0',
+                '-o',
+                join(tempDir, 'p.svg'),
+            ]),
+        ).toBe(0);
+        const noPadding = readFileSync(join(tempDir, 'p.svg'), 'utf-8');
+        expect(svgWidth(noPadding)).toBe(svgWidth(base) - 40);
+        expect(svgHeight(noPadding)).toBe(svgHeight(base) - 40);
+
+        expect(
+            await run([
+                choiceFixture,
+                '--node-separation',
+                '0',
+                '-o',
+                join(tempDir, 'n.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgWidth(readFileSync(join(tempDir, 'n.svg'), 'utf-8')),
+        ).toBeLessThan(svgWidth(base));
+
+        expect(
+            await run([
+                choiceFixture,
+                '--rank-separation',
+                '0',
+                '-o',
+                join(tempDir, 'r.svg'),
+            ]),
+        ).toBe(0);
+        expect(
+            svgHeight(readFileSync(join(tempDir, 'r.svg'), 'utf-8')),
+        ).toBeLessThan(svgHeight(base));
+    });
+
+    it('--theme and --layout reach the Mermaid diff path', async () => {
+        const themePath = join(tempDir, 'diff-theme.json');
+        writeFileSync(
+            themePath,
+            JSON.stringify({ nodeColors: { Pass: { fill: '#abcabc' } } }),
+        );
+
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'mermaid',
+                '--diff',
+                simpleFixture,
+                '--layout',
+                'LR',
+                '--theme',
+                themePath,
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('direction LR');
+        expect(stdoutData).toContain('#abcabc');
     });
 
     it('--diagram-title and --diagram-description set the accessible text', async () => {

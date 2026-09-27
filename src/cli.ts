@@ -136,6 +136,9 @@ Notes:
   --diff --format mermaid). It has no effect on --execution overlays, which build
   their graph separately — the same limitation --hide-catch has there.
 
+  --diff --format mermaid also ignores --hide-comments and --catch-label-style: it
+  re-parses the merged definition without them. --theme and --layout do apply.
+
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
   sfn-diagram state.asl.json --format mermaid > diagram.mmd
@@ -327,6 +330,41 @@ function expectPixels(params: ExpectPixelsParams): number {
     return parsed;
 }
 
+interface ExpectNonBlankParams {
+    flag: string;
+    value: string;
+}
+
+/**
+ * Return a flag's value unchanged, or throw a `CliError` when it is blank.
+ *
+ * An empty value almost always means an unset shell variable (`--diagram-title
+ * "$TITLE"`), and the alternatives are both worse than failing: an empty
+ * `diagramTitle` replaces the accessible name with nothing, and an empty `--theme`
+ * resolves to the working directory.
+ *
+ * @param params - Validation parameters
+ * @param params.flag - Flag name, used in the error message (e.g. `--diagram-title`)
+ * @param params.value - Raw flag value as it arrived on the command line
+ *
+ * @returns The value as given.
+ *
+ * @throws {CliError} With exit code 2 when the value is empty or only whitespace.
+ *
+ * @example
+ * ```typescript
+ * expectNonBlank({ flag: '--diagram-title', value: 'Order pipeline' }); // 'Order pipeline'
+ * expectNonBlank({ flag: '--diagram-title', value: '' }); // throws
+ * ```
+ */
+function expectNonBlank(params: ExpectNonBlankParams): string {
+    const { flag, value } = params;
+    if (value.trim() === '') {
+        throw new CliError(`Invalid ${flag}: expected a non-empty value`, 2);
+    }
+    return value;
+}
+
 /**
  * Split a `--collapse=Name1,Name2` value into trimmed, non-empty state names.
  *
@@ -409,13 +447,24 @@ export function parseArgs(argv: string[]): CliArgs {
     // `--theme` takes a built-in name or a path to a custom theme JSON file. The path is
     // carried through as-is and read in `run()`, the way `--diff` and `--execution` are,
     // so `parseArgs` stays free of filesystem access.
-    const themeValue = values.theme as string | undefined;
+    const themeValue =
+        values.theme === undefined
+            ? undefined
+            : expectNonBlank({
+                  flag: '--theme',
+                  value: values.theme as string,
+              });
     const isBuiltInTheme = (value: string): value is 'dark' | 'light' =>
         (BUILT_IN_THEMES as readonly string[]).includes(value);
 
     return {
         backgroundColor:
-            (values['background-color'] as string | undefined) ?? null,
+            values['background-color'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--background-color',
+                      value: values['background-color'] as string,
+                  }),
         catchLabelStyle:
             values['catch-label-style'] === undefined
                 ? null
@@ -432,8 +481,19 @@ export function parseArgs(argv: string[]): CliArgs {
                   ? true
                   : parseCollapseNames(collapseValue),
         diagramDescription:
-            (values['diagram-description'] as string | undefined) ?? null,
-        diagramTitle: (values['diagram-title'] as string | undefined) ?? null,
+            values['diagram-description'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--diagram-description',
+                      value: values['diagram-description'] as string,
+                  }),
+        diagramTitle:
+            values['diagram-title'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--diagram-title',
+                      value: values['diagram-title'] as string,
+                  }),
         diff: (values.diff as string | undefined) ?? null,
         edgeStyle:
             values['edge-style'] === undefined
@@ -1058,6 +1118,8 @@ export async function run(argv: string[]): Promise<number> {
                 const result = generateMermaidDiff({
                     after: definitionSource,
                     before: baselineDefinition,
+                    layout: args.layout,
+                    theme,
                 });
                 writeDiffSummary(result.metadata);
                 writeOutput(result.code, args.output);
