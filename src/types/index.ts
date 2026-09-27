@@ -959,6 +959,18 @@ export interface ViewerUpdate {
     /** Whether `contentHtml` embeds a second, collapsed view behind a toggle. */
     hasCollapsedView: boolean;
 
+    /**
+     * Mermaid source for the same diagram, for the viewer toolbar's copy button. Pass
+     * it to `ViewerHandle.setContent` alongside `contentHtml`, or the button would go
+     * on handing out the Mermaid of the diagram that was just replaced.
+     *
+     * `generateViewerUpdate` always sets it. Optional only so that adding it could not
+     * break anyone who *builds* a `ViewerUpdate` themselves - an adapter or a test
+     * double - since release-please ships this as a MINOR and a type-level break there
+     * would look like an ordinary upgrade.
+     */
+    mermaid?: string;
+
     /** Metadata about the rendered diagram (the expanded view's, when both are shipped). */
     metadata: SvgOutput['metadata'];
 

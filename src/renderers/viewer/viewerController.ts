@@ -3,6 +3,7 @@ import { createCollapseToggle, type CollapseToggle, type ViewerRelayout } from '
 import { createListenerRegistry, hook, type ViewerData } from './controller/dom';
 import { attachKeyboardHandlers } from './controller/keyboard';
 import { createMinimap } from './controller/minimap';
+import { attachExportActions } from './controller/exportActions';
 import { attachHashLinks } from './controller/hash';
 import { createDetailPanel } from './controller/panel';
 import { attachPanZoom } from './controller/panZoom';
@@ -35,6 +36,12 @@ export interface AttachViewerParams {
      * leave edges inert.
      */
     edgeData?: Record<string, ViewerEdge>;
+    /**
+     * Mermaid source for the same diagram, for the toolbar's copy button. The
+     * controller cannot render any itself - `MermaidRenderer` is outside the bundle's
+     * reach - so a document that wants the button embeds this alongside the SVG.
+     */
+    mermaid?: string;
     /**
      * The in-browser relayout for per-container collapse: the embedded model plus
      * the bundle's `renderCollapsedView`. Omit it to leave the collapse controls (if
@@ -73,6 +80,8 @@ export interface SetViewerContentParams {
     relayoutModel?: RelayoutModel;
     /** Viewer-facing detail for each edge in the new content, keyed by `data-edge-id`. */
     edgeData?: Record<string, ViewerEdge>;
+    /** Mermaid source for the new content. Omit it to retire the copy button. */
+    mermaid?: string;
     /** Raw ASL for each state in the new content, keyed by state name. */
     stateData?: Record<string, AslState>;
 }
@@ -115,6 +124,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
     const { root } = params;
     const data: ViewerData = {
         edgeData: params.edgeData,
+        mermaid: params.mermaid,
         stateData: params.stateData,
         timeline: params.timeline,
     };
@@ -196,6 +206,7 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         const {
             contentHtml,
             edgeData: nextEdgeData,
+            mermaid: nextMermaid,
             relayoutModel,
             stateData: nextStateData,
         } = setContentParams;
@@ -209,6 +220,9 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
 
         data.stateData = nextStateData;
         data.edgeData = nextEdgeData;
+        // Undefined when the host sent none, which retires the copy button rather than
+        // handing out the Mermaid of the diagram that was just replaced.
+        data.mermaid = nextMermaid;
         // Same reason playback retires: the timeline describes the diagram being swapped
         // out. Left in place, the panel would attribute the old run - and, with payloads,
         // the old inputs and outputs - to whatever now carries that node id.
@@ -243,6 +257,8 @@ export function attachViewer(params: AttachViewerParams): ViewerHandle {
         if (viewport.adjusted) viewport.apply();
         else viewport.fit();
     };
+
+    attachExportActions({ data, ownerDoc, registry, root, viewport });
 
     // After the first fit, so a deep link's panel opens against a diagram that has
     // already been sized - and last, so every other module is listening by the time a

@@ -84,11 +84,11 @@ describe('generateHtml', () => {
 
             const result = generateHtml({ aslDefinition: hostile, includeComments: false });
 
-            // Exactly two script elements: the state blob and the viewer controller.
-            // (A lone End state has no transitions, so no edge blob is emitted.) The
-            // hostile comment survives only as escaped text inside the blob, so it
-            // never reaches an executable position.
-            expect(result.html.match(/<script/g)).toHaveLength(2);
+            // Exactly three script elements: the state blob, the Mermaid blob and the
+            // viewer controller. (A lone End state has no transitions, so no edge blob
+            // is emitted.) The hostile comment survives only as escaped text inside a
+            // blob, so it never reaches an executable position.
+            expect(result.html.match(/<script/g)).toHaveLength(3);
             expect(result.html).not.toContain('<script>alert');
 
             const match = result.html.match(
@@ -96,6 +96,14 @@ describe('generateHtml', () => {
             );
             // Escaping is lossless — the panel still shows the real comment.
             expect(JSON.parse(match![1]).Sneaky.Comment).toBe('</script><script>alert(1)</script>');
+
+            // The Mermaid blob is a bare JSON string rather than an object, and goes
+            // through the same escaping - a state name or comment reaching it must not
+            // be able to close the element either.
+            const mermaidMatch = result.html.match(
+                /<script type="application\/json" id="sfn-mermaid-data">([\s\S]*?)<\/script>/,
+            );
+            expect(typeof JSON.parse(mermaidMatch![1])).toBe('string');
         });
 
         it('embeds the edge data blob keyed by the rendered data-edge-id', () => {

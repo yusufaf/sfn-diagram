@@ -188,6 +188,35 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 
+  ### Getting the diagram back out
+
+  The toolbar has two export actions, so a document opened away from whatever produced
+  it is not a dead end:
+
+  - **SVG** downloads the view currently on screen as `diagram.svg`. What is saved is
+    the diagram, not your session: search dimming, a selected edge's highlight and
+    playback's status colours are stripped from the copy.
+  - **Mermaid** copies the diagram as Mermaid source. On a page served over `file://`
+    there is no `navigator.clipboard` — that needs a secure context — so it falls back
+    to a staged selection, and the button says `Copied`, `Failed` or `Unavailable`
+    either way.
+
+  The Mermaid cannot be rendered in the browser: the viewer bundle may only contain
+  `src/renderers/viewer/**`, and `MermaidRenderer` is outside it. So the code is
+  rendered at generate time and embedded as a fourth JSON blob
+  (`#sfn-mermaid-data`) next to the state, edge and timeline blobs — always, with no
+  opt-in, since it is state names and transitions the SVG beside it already draws.
+
+  It describes the diagram you are looking at, overlay included: Mermaid has class
+  definitions for both a diff and an execution (the same ones `generateMermaidDiff` and
+  `generateMermaidExecution` emit), so a copy taken from an overlay document carries
+  the colours rather than silently dropping them. On a diff that means the merged
+  definition, removed states included.
+
+  A host patching a live viewer through `ViewerHandle.setContent` should pass the new
+  `mermaid` from its `ViewerUpdate` along with `contentHtml` — without it the copy
+  button retires rather than handing out the diagram that was just replaced.
+
   ### Deep links
 
   Selecting a state or edge in the standalone HTML viewer writes it into the URL, so a

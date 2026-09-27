@@ -19,6 +19,13 @@ export function hook(root: ParentNode, name: string): HTMLElement | null {
 export interface ViewerData {
     /** Viewer-facing detail for each edge, keyed by `data-edge-id`. */
     edgeData?: Record<string, ViewerEdge>;
+    /**
+     * Mermaid source for the diagram on screen, rendered at generate time. The
+     * controller bundle cannot render it - `MermaidRenderer` is outside
+     * `src/renderers/viewer`, which the bundle may not reach past - so the toolbar's
+     * copy button hands out this instead.
+     */
+    mermaid?: string;
     /** Raw ASL for each state, keyed by state name. */
     stateData?: Record<string, AslState>;
     /**

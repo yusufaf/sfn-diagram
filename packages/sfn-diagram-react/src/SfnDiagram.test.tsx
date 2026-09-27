@@ -464,7 +464,12 @@ describe('SfnDiagram', () => {
         it('sandboxes the iframe and gives it a non-empty title', () => {
             const { container } = render(<SfnDiagram definition={HELLO_WORLD} format="html" />)
             const iframe = container.querySelector('iframe')
-            expect(iframe?.getAttribute('sandbox')).toBe('allow-scripts')
+            // allow-downloads so the viewer toolbar's SVG button works - Chromium
+            // blocks an anchor-initiated download in a sandboxed frame without it,
+            // silently. Still no allow-same-origin: the srcDoc content stays on an
+            // opaque origin and cannot reach the host page.
+            expect(iframe?.getAttribute('sandbox')).toBe('allow-downloads allow-scripts')
+            expect(iframe?.getAttribute('sandbox')).not.toContain('allow-same-origin')
             expect(iframe?.getAttribute('title')).toBeTruthy()
         })
 

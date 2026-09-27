@@ -335,7 +335,7 @@ export function computeStateDiff(beforeAsl: AslDefinition, afterAsl: AslDefiniti
 }
 
 /** Map each changed state to its diff status for per-node highlighting. */
-function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
+export function buildStatusMap(diff: StateDiff): Record<string, DiffStatus> {
     const statusByState: Record<string, DiffStatus> = {};
     for (const name of diff.added) statusByState[name] = 'added';
     for (const name of diff.modified) statusByState[name] = 'modified';

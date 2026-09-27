@@ -27,6 +27,14 @@ export interface BuildViewerBodyParams {
      */
     collapsedSvg?: string;
     /**
+     * Whether to render the toolbar's "copy as Mermaid" button. Only meaningful when
+     * Mermaid source was embedded for it to hand out - the controller cannot render
+     * any, since `MermaidRenderer` sits outside the bundle's reach.
+     */
+    copyMermaid?: boolean;
+    /** Whether to render the toolbar's "download SVG" button. The SVG is always on the page. */
+    exportSvg?: boolean;
+    /**
      * Emit the standalone HTML document's original `id="sfn-x"` attributes alongside
      * `data-sfn="x"`. The document keeps them for its own Puppeteer runtime suite and
      * for anyone who scripted against them; the custom element omits them, since more
@@ -158,6 +166,8 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
     const {
         collapsedMinimapCollapsed = params.minimapCollapsed,
         collapsedSvg,
+        copyMermaid = false,
+        exportSvg = false,
         legacyIds = false,
         minimapCollapsed,
         panel,
@@ -179,6 +189,22 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         : '';
 
     const contentInner = buildViewerContent({ collapsedMinimapCollapsed, collapsedSvg, minimapCollapsed, svg });
+
+    // The SVG is on the page either way, so the download needs nothing embedded; the
+    // copy button only appears alongside the Mermaid blob that feeds it.
+    const exportMarkup =
+        exportSvg || copyMermaid
+            ? `
+  <span class="sfn-divider"></span>` +
+              (exportSvg
+                  ? `
+  <button data-sfn="export-svg" title="Download this diagram as an SVG file">SVG</button>`
+                  : '') +
+              (copyMermaid
+                  ? `
+  <button data-sfn="copy-mermaid" title="Copy this diagram as Mermaid source">Mermaid</button>`
+                  : '')
+            : '';
 
     const collapseToggleMarkup = hasCollapse
         ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers" aria-expanded="true">Collapse</button>'
@@ -215,7 +241,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <input${id('search')} data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
   <span${id('search-count')} data-sfn="search-count" role="status" aria-live="polite"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}${exportMarkup}
 </div>
 ${panelMarkup}${playbackMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
@@ -281,6 +307,13 @@ export interface WrapSvgInInteractiveHtmlParams {
      */
     svg: string;
     /**
+     * Mermaid source for the same diagram, rendered at generate time. When provided,
+     * the document embeds it as a JSON blob and the toolbar gains a copy button - the
+     * only way the viewer can hand out Mermaid, since the controller bundle may not
+     * reach `MermaidRenderer`.
+     */
+    mermaid?: string;
+    /**
      * The execution timeline to replay, from an execution overlay's
      * `metadata.timeline`. When provided, the document embeds it as JSON and gains the
      * playback bar; omit it for a document with no playback controls at all.
@@ -325,6 +358,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         collapsedNodeCount,
         collapsedSvg,
         edgeData,
+        mermaid,
         nodeCount,
         nonce,
         relayoutModel,
@@ -354,6 +388,12 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         ? `<script${nonceAttr} type="application/json" id="sfn-relayout-model">${serializeForScriptBlock({ value: relayoutModel })}</script>\n`
         : '';
 
+    const hasMermaid = mermaid !== undefined && mermaid.length > 0;
+    const mermaidScript = hasMermaid
+        ? `<script${nonceAttr} type="application/json" id="sfn-mermaid-data">${serializeForScriptBlock({ value: mermaid })}</script>
+`
+        : '';
+
     const hasTimeline = timeline !== undefined && timeline.entries.length > 0;
     const timelineScript = hasTimeline
         ? `<script${nonceAttr} type="application/json" id="sfn-timeline-data">${serializeForScriptBlock({ value: timeline })}</script>\n`
@@ -362,6 +402,8 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
     const body = buildViewerBody({
         collapsedMinimapCollapsed,
         collapsedSvg,
+        copyMermaid: hasMermaid,
+        exportSvg: true,
         legacyIds: true,
         minimapCollapsed,
         panel: hasStateData || hasEdgeData,
@@ -380,7 +422,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
 </head>
 <body>
 ${body}
-${stateDataScript}${edgeDataScript}${relayoutModelScript}${timelineScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasRelayout, hasStateData, hasTimeline })}</script>
+${stateDataScript}${edgeDataScript}${mermaidScript}${relayoutModelScript}${timelineScript}<script${nonceAttr}>${buildViewerScript({ hasEdgeData, hasMermaid, hasRelayout, hasStateData, hasTimeline })}</script>
 </body>
 </html>`;
 }

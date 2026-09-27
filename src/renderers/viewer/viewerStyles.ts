@@ -291,9 +291,18 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="panel"].sfn-open ~ [data-sfn="stage"] { right: 360px; }
   [data-sfn="stage"].sfn-dragging { cursor: grabbing; }
   [data-sfn="content"] { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+  /* Scrolls rather than wraps once the buttons outgrow the viewer - a narrow VS Code
+     preview, or a half-width window. The stage clips anything past its edge
+     (overflow: hidden on the root), so without this the last buttons would simply be
+     gone; wrapping instead would grow the bar downward into the playback controls
+     pinned below it. Tab still reaches a button that is scrolled out of sight, because
+     focusing one scrolls its container to it. */
   [data-sfn="toolbar"] { position: absolute; top: 12px; left: 12px; z-index: 2; display: flex; gap: 4px; align-items: center;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 8px; padding: 4px 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    box-shadow: 0 1px 4px rgba(0,0,0,.12); box-sizing: border-box; max-width: calc(100% - 24px);
+    overflow-x: auto; scrollbar-width: thin; }
+  /* Without this they would shrink to illegibility before the bar ever scrolled. */
+  [data-sfn="toolbar"] > * { flex: 0 0 auto; }
   [data-sfn="toolbar"] button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
     padding: 4px 8px; cursor: pointer; font-size: 14px; }
   [data-sfn="toolbar"] button:hover { background: ${palette.surfaceHover}; }
