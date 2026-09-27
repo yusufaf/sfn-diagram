@@ -2604,10 +2604,10 @@ describe('motion tokens and reduced motion', () => {
             { name: 'prefers-reduced-motion', value: 'no-preference' },
         ]);
 
-        // visibility is the stepped one, delayed rather than interpolated.
+        // Opacity alone, and no delay: the panel fades in and closes at once.
         const { delays, durations } = await panelMotion();
-        expect(durations).toBe('0.18s, 0s');
-        expect(delays).toBe('0s, 0.18s');
+        expect(durations).toBe('0.18s');
+        expect(delays).toBe('0s');
 
         const nodeDuration = await motionPage.$eval(
             '[data-state-id="Beta"]',
@@ -2651,11 +2651,14 @@ describe('motion tokens and reduced motion', () => {
         await motionPage.evaluate(() => {
             (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
         });
-        // inert lands on the same tick as the class, where the stylesheet's own
-        // visibility: hidden waits out the fade first.
-        expect(await motionPage.$eval('#sfn-panel', (element) => element.hasAttribute('inert'))).toBe(
-            true,
-        );
+        // Both the attribute and the paint go on the same tick: an inert panel that
+        // is still on screen is one a click falls straight through.
+        expect(
+            await motionPage.$eval('#sfn-panel', (element) => ({
+                inert: element.hasAttribute('inert'),
+                visibility: getComputedStyle(element).visibility,
+            })),
+        ).toEqual({ inert: true, visibility: 'hidden' });
 
         await motionPage.focus('#sfn-search');
         await motionPage.keyboard.press('Tab');
@@ -2663,6 +2666,33 @@ describe('motion tokens and reduced motion', () => {
             document.querySelector('#sfn-panel')!.contains(document.activeElement),
         );
         expect(focusedInPanel).toBe(false);
+    });
+
+    it('skips the closed panel\'s subtree so it costs nothing to keep in layout', async () => {
+        await openPanelFor('Beta');
+        await motionPage.evaluate(() => {
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
+        });
+
+        // The panel keeps its own box - that is what the opening fade runs on - but the
+        // ASL block it last rendered is skipped rather than re-laid-out on every resize.
+        const closed = await motionPage.$eval('#sfn-panel', (element) => ({
+            contentVisibility: getComputedStyle(element).contentVisibility,
+            jsonRendered: element.querySelector('#sfn-panel-json')!.checkVisibility(),
+            panelWidth: element.getBoundingClientRect().width,
+        }));
+        expect(closed.contentVisibility).toBe('hidden');
+        expect(closed.jsonRendered).toBe(false);
+        // 360px plus its 1px border - still a box, which is what the fade runs on.
+        expect(closed.panelWidth).toBe(361);
+
+        // ...and comes back the moment it reopens.
+        await openPanelFor('Beta');
+        const reopened = await motionPage.$eval('#sfn-panel', (element) => ({
+            contentVisibility: getComputedStyle(element).contentVisibility,
+            jsonRendered: element.querySelector('#sfn-panel-json')!.checkVisibility(),
+        }));
+        expect(reopened).toEqual({ contentVisibility: 'visible', jsonRendered: true });
     });
 
     it('collapses the minimap without taking it out of layout', async () => {
@@ -2680,12 +2710,6 @@ describe('motion tokens and reduced motion', () => {
         // may reveal it rather than hide it; drive it to collapsed either way.
         if (!collapsed) await motionPage.keyboard.press('m');
 
-        // Hiding waits out the fade, so this settles a frame or two later; revealing
-        // is immediate, which is the asymmetry the delay above buys.
-        await motionPage.waitForFunction(
-            () => getComputedStyle(document.querySelector('#sfn-minimap')!).visibility === 'hidden',
-            { polling: 20, timeout: 5_000 },
-        );
         expect(await minimapStyle()).toEqual({ display: 'block', visibility: 'hidden' });
 
         await motionPage.keyboard.press('m');

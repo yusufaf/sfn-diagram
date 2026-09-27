@@ -71,22 +71,35 @@ describe('buildViewerStyles', () => {
 
         it('hides the closed panel with visibility, so the opening transition has a start value', () => {
             const css = buildViewerStyles({});
-            expect(css).toContain('visibility: hidden; opacity: 0; pointer-events: none;');
             expect(css).toContain(
-                '[data-sfn="panel"].sfn-open { visibility: visible; opacity: 1; pointer-events: auto;',
+                'visibility: hidden; content-visibility: hidden; opacity: 0;\n    pointer-events: none;',
             );
-            // Stepped, so it is delayed out and immediate in - never interpolated.
-            expect(css).toContain('visibility 0s linear var(--sfn-motion-base); }');
+            expect(css).toContain(
+                '[data-sfn="panel"].sfn-open { visibility: visible; content-visibility: visible; opacity: 1;',
+            );
             // display: none would give the transition nothing to interpolate from.
             expect(css).not.toContain('[data-sfn="panel"].sfn-open { display: flex; }');
+        });
+
+        it('fades the panel in only, so a closed one is never still painted', () => {
+            const css = buildViewerStyles({});
+            const panelRule = css.slice(
+                css.indexOf('[data-sfn="panel"] { position: absolute'),
+                css.indexOf('[data-sfn="panel-head"]'),
+            );
+            // A delayed hide would leave an inert, click-through panel on screen.
+            expect(panelRule).not.toContain('visibility 0s linear');
+            expect(panelRule).toContain(
+                'transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease);',
+            );
         });
 
         it('collapses the minimap the same way, leaving display: none to the compact sheet', () => {
             const css = buildViewerStyles({});
             expect(css).toContain(
-                '[data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none;',
+                '[data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none; }',
             );
-            expect(css).toContain('visibility 0s linear var(--sfn-motion-fast); }');
+            expect(css).not.toContain('visibility 0s linear var(--sfn-motion-fast)');
             expect(css).not.toContain('[data-sfn="minimap"].sfn-minimap-collapsed { display: none; }');
         });
 

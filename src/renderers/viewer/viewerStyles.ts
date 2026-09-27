@@ -329,25 +329,26 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
 ${playbackRules(palette)}
   /* The closed panel keeps its box and is hidden with visibility rather than display:
      display is not an interpolable property, so a none -> flex toggle gives the opening
-     transition no start value to run from. visibility keeps it out of the accessibility
-     tree all the same, and pointer-events stops the 360px column swallowing clicks
-     meant for the stage underneath it. The tab order is handled in JS (see
-     controller/panel.ts): the panel is inert while closed, which is immediate, where
-     visibility only catches up once the fade has run.
-     Opacity only - nothing here moves or resizes. Opening the panel is followed on the
-     same tick by geometry reads (the stage's own 'right', and the minimap viewport rect
-     refreshViewportOverlays derives from clientWidth), which a mid-flight transform or
-     width would silently make wrong. */
+     transition no start value to run from.
+     The fade runs on the way in only. Closing is instantaneous, deliberately: a closed
+     panel that is still painted is a 360px lie. It is already inert and
+     pointer-events: none by then, so a click on it falls through to whatever is behind
+     - re-opening the panel for a different state, or starting a pan - and
+     visibleStageArea() has already stopped subtracting a bottom sheet that is still
+     covering 60% of the stage. Nothing here moves or resizes either: opening is
+     followed on the same tick by geometry reads (the stage's own 'right', and the
+     minimap viewport rect refreshViewportOverlays derives from clientWidth), which a
+     mid-flight transform or width would silently make wrong.
+     content-visibility keeps the cost of all that honest: the closed panel still holds
+     its last state's ASL and every run/payload block, and without this each one would
+     be re-laid-out on every viewer resize for the life of the page, where the old
+     display: none dropped the subtree entirely. */
   [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: flex;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
-    box-shadow: -2px 0 8px rgba(0,0,0,.12); visibility: hidden; opacity: 0; pointer-events: none;
-    transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease),
-      visibility 0s linear var(--sfn-motion-base); }
-  /* visibility is stepped, not interpolated, so it is delayed rather than transitioned:
-     the browser applies the *destination* rule's timing, so closing waits out the fade
-     (the delay above) while opening flips in the same frame (no delay here). */
-  [data-sfn="panel"].sfn-open { visibility: visible; opacity: 1; pointer-events: auto;
-    transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease), visibility 0s; }
+    box-shadow: -2px 0 8px rgba(0,0,0,.12); visibility: hidden; content-visibility: hidden; opacity: 0;
+    pointer-events: none; transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease); }
+  [data-sfn="panel"].sfn-open { visibility: visible; content-visibility: visible; opacity: 1;
+    pointer-events: auto; }
   [data-sfn="panel-head"] { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
     border-bottom: 1px solid ${palette.border}; }
   [data-sfn="panel-title"] { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; flex: 1; }
@@ -378,14 +379,13 @@ ${playbackRules(palette)}
   [data-sfn="minimap"] { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 6px;
     box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden;
-    transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease), visibility 0s; }
-  /* Collapsed the same way the panel is closed, delay and all. The compact bottom sheet
-     still hides it with display: none - that one is a layout decision, not a state
-     change, and the minimap code reads an empty client rect as "no box to measure
-     against". */
-  [data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none;
-    transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease),
-      visibility 0s linear var(--sfn-motion-fast); }
+    transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease); }
+  /* Collapsed the same way the panel is closed: it fades in, and goes at once. A
+     minimap still painted after its collapse is one a click passes straight through,
+     panning the stage instead of jumping the viewport. The compact bottom sheet still
+     hides it with display: none - that one is a layout decision, not a state change,
+     and the minimap code reads an empty client rect as "no box to measure against". */
+  [data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none; }
   [data-sfn="minimap-thumb"] { position: absolute; inset: 0; cursor: pointer; }
   [data-sfn="minimap-thumb"] svg { display: block; }
   [data-sfn="minimap-viewport"] { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }
