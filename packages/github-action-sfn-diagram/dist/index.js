@@ -68624,6 +68624,29 @@ var MermaidRenderer = class {
     return nodes5.find((node) => !targetNodes.has(node.id))?.id || nodes5[0]?.id || null;
   }
 };
+var REDACTED = "[redacted]";
+function resolve$1(answer, value) {
+  if (answer === void 0) return {
+    kept: false,
+    value: REDACTED
+  };
+  return {
+    kept: answer === value,
+    value: answer
+  };
+}
+function redactPayloadText(params) {
+  const { field, redact, stateId, text } = params;
+  if (!redact) return text;
+  const { kept, value } = resolve$1(redact({
+    kind: "payload",
+    path: `${stateId ?? "execution"}.${field}`,
+    stateId,
+    value: text
+  }), text);
+  if (kept) return text;
+  return typeof value === "string" ? value : REDACTED;
+}
 function buildDiagramGraph(params) {
   const { definition, options } = params;
   const parsed = parseAsl({
@@ -68926,13 +68949,20 @@ function extractCause(event) {
   return event.taskFailedEventDetails?.cause ?? event.lambdaFunctionFailedEventDetails?.cause ?? event.activityFailedEventDetails?.cause ?? event.executionFailedEventDetails?.cause ?? event.taskTimedOutEventDetails?.cause ?? event.lambdaFunctionTimedOutEventDetails?.cause ?? event.evaluationFailedEventDetails?.cause ?? event.mapRunFailedEventDetails?.cause ?? void 0;
 }
 var EXECUTION_PAYLOAD_CAP = 4096;
-function createPayloadCapture() {
+function createPayloadCapture(params) {
+  const { redact } = params;
   let spent = 0;
-  return (raw) => {
+  return ({ field, raw, stateId }) => {
     if (raw === void 0 || spent >= 262144) return void 0;
-    const text = raw.length <= 4096 ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
-    spent += text.length;
-    return text.length === raw.length ? { text } : {
+    const capped = raw.length <= 4096 ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
+    spent += capped.length;
+    const text = redactPayloadText({
+      field,
+      redact,
+      stateId,
+      text: capped
+    });
+    return capped.length === raw.length ? { text } : {
       text,
       truncatedFrom: raw.length
     };
@@ -68973,7 +69003,7 @@ function mergeStatus(current, incoming) {
   return rank[incoming] > rank[current] ? incoming : current;
 }
 function walkExecutionHistory(params) {
-  const { definition, events, includePayloads = false } = params;
+  const { definition, events, includePayloads = false, redact } = params;
   const eventById = /* @__PURE__ */ new Map();
   for (const event of events) if (event.id !== void 0) eventById.set(event.id, event);
   const results = {};
@@ -68983,7 +69013,7 @@ function walkExecutionHistory(params) {
   const entries = [];
   let executionStatus = "running";
   let startState;
-  const capturePayload = createPayloadCapture();
+  const capturePayload = createPayloadCapture({ redact });
   const resolver = definition ? buildIdResolver({ definition }) : void 0;
   const childScopes = definition && resolver ? buildChildScopes({
     definition,
@@ -69097,7 +69127,11 @@ function walkExecutionHistory(params) {
         lastEntryIndex: -1,
         name,
         nodeId: resolver ? resolver.resolve(scope, name) : name,
-        ...includePayloads ? { payloadInput: capturePayload(event.stateEnteredEventDetails?.input) } : {}
+        ...includePayloads ? { payloadInput: capturePayload({
+          field: "input",
+          raw: event.stateEnteredEventDetails?.input,
+          stateId: resolver ? resolver.resolve(scope, name) : name
+        }) } : {}
       };
       openStack.push(frame);
       const from = findFromState(event);
@@ -69136,7 +69170,11 @@ function walkExecutionHistory(params) {
       result.status = mergeStatus(result.status, wasCaught ? "caught" : "succeeded");
       if (frame?.error && !result.error) result.error = frame.error;
       if (frame) {
-        if (frame.openEntryIndex !== void 0) closeEntry(frame, exitMs ?? nowMs, "succeeded", void 0, { output: includePayloads ? capturePayload(event.stateExitedEventDetails?.output) : void 0 });
+        if (frame.openEntryIndex !== void 0) closeEntry(frame, exitMs ?? nowMs, "succeeded", void 0, { output: includePayloads ? capturePayload({
+          field: "output",
+          raw: event.stateExitedEventDetails?.output,
+          stateId: frame.nodeId
+        }) : void 0 });
         else if (frame.lastEntryIndex >= 0 && wasCaught) entries[frame.lastEntryIndex].status = "caught";
       }
       continue;
@@ -69146,7 +69184,11 @@ function walkExecutionHistory(params) {
       const containerIndex = findFrameIndex((frame) => frame.enteredType === containerFailure.enteredType && !frame.failureClosed);
       if (containerIndex >= 0) {
         const eventError = extractError(event);
-        const eventCause = includePayloads ? capturePayload(extractCause(event)) : void 0;
+        const eventCause = includePayloads ? capturePayload({
+          field: "cause",
+          raw: extractCause(event),
+          stateId: openStack[containerIndex].nodeId
+        }) : void 0;
         const leaves = openStack.splice(containerIndex + 1);
         for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError, eventCause);
         const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === "failure");
@@ -69182,7 +69224,11 @@ function walkExecutionHistory(params) {
         activeFrame.failures += 1;
         activeFrame.lastOutcome = "failure";
         activeFrame.error = extractError(event) ?? activeFrame.error;
-        const cause = includePayloads ? capturePayload(extractCause(event)) : void 0;
+        const cause = includePayloads ? capturePayload({
+          field: "cause",
+          raw: extractCause(event),
+          stateId: activeFrame.nodeId
+        }) : void 0;
         activeFrame.payloadCause = cause ?? activeFrame.payloadCause;
         closeEntry(activeFrame, nowMs, "failed", extractError(event), { cause });
       }
@@ -69199,7 +69245,10 @@ function walkExecutionHistory(params) {
     else if (type === "ExecutionFailed" || type === "ExecutionAborted" || type === "ExecutionTimedOut") {
       executionStatus = type === "ExecutionFailed" ? "failed" : type === "ExecutionAborted" ? "aborted" : "timedOut";
       const execError = extractError(event);
-      const execCause = includePayloads ? capturePayload(extractCause(event)) : void 0;
+      const execCause = includePayloads ? capturePayload({
+        field: "cause",
+        raw: extractCause(event)
+      }) : void 0;
       for (const frame of openStack) closeAsFailed(frame, nowMs, execError, execCause);
       openStack.length = 0;
     }
@@ -69249,11 +69298,12 @@ function summarize(overlay, allStateNames) {
   for (const name of allStateNames) if (!overlay.states[name]) summary.notReached.push(name);
   return summary;
 }
-function computeExecutionWalk(definition, history, includePayloads) {
+function computeExecutionWalk(definition, history, includePayloads, redact) {
   return walkExecutionHistory({
     definition,
     events: normalizeEvents(history),
-    includePayloads
+    includePayloads,
+    redact
   });
 }
 function byNodeId(byStateName, idsForName) {

@@ -188,6 +188,48 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 
+  ### Redacting what travels with the document
+
+  A generated document inlines two things the picture itself does not show: the raw ASL
+  of every state, so the detail panel can print it, and — when
+  `includeExecutionPayloads` is on — each run's input, output and failure cause. On a
+  real state machine that ASL routinely carries ARNs, resource identifiers and
+  `Parameters` a team would rather not hand to whoever the file reaches.
+
+  `redact` governs both, and is the only thing that does:
+
+  ```typescript
+  const { html } = generateHtml({
+    aslDefinition: asl,
+    redact: ({ kind, path, value }) =>
+      kind === 'payload' || path.endsWith('.Parameters') ? undefined : value,
+  });
+  ```
+
+  The hook is called once per state with the whole state, then once per field at every
+  depth, and once per payload. Return `value` to keep it — which is also what lets the
+  walk descend into it — any other value to inline that instead, or `undefined` to
+  redact, which inlines `'[redacted]'` (exported as `REDACTED`) in its place. A
+  placeholder rather than a deletion, deliberately: a missing `Parameters` key reads
+  the same as a state that never had one.
+
+  `path` is the node id followed by the dotted path within the state —
+  `'ProcessOrder'`, `'ProcessOrder.Parameters'`, `'ProcessOrder.Retry[0].MaxAttempts'`
+  — and for a payload it is `'<stateId>.input'`, `'.output'` or `'.cause'`, or
+  `'execution.cause'` for the failure cause of the execution itself. `stateId` is the
+  same id the renderer stamps as `data-state-id`, so a hook can key off the state a
+  value belongs to.
+
+  Nothing is redacted by default: without the hook the raw ASL is inlined whole, as it
+  always has been. The hook is available on `generateHtml()`, `generateHtmlAsync()`,
+  `generateExecutionHtml()`, `generateExecutionHtmlAsync()`, `generateViewerUpdate()`
+  and `buildExecutionTimeline()`.
+
+  It governs the inlined data only. State names, choice conditions and variable
+  annotations are drawn into the SVG as text, so they are not offered to the hook —
+  redacting those would change the diagram rather than the data travelling beside it.
+  Being a function, it also has no CLI equivalent; the CLI inlines the ASL as before.
+
   `--diff` and `--execution` also accept `--format html`, which is where the viewer
   earns its keep: a large diff or execution overlay is far easier to read when you
   can search and inspect it.
@@ -281,7 +323,8 @@ Big, branchy state machines are hard to read as a static image. A few options he
   They are off by default on purpose. A history's payloads are the most sensitive thing
   it carries — request bodies, tokens, ARNs, whatever a Task was handed — and the
   default document is something people paste into an issue or a chat. Turning this on
-  means those payloads travel with the file.
+  means those payloads travel with the file — `redact` is what scrubs them when you
+  need the runs but not everything they carried.
 
   Each payload is cut to 4096 characters (`EXECUTION_PAYLOAD_CAP`) with a visible
   `Truncated to 4096 of 6014 characters` notice, and capture stops altogether once

@@ -9,6 +9,7 @@
  * `diff` / `history` overlay from that single pass.
  */
 import { parseAslSource } from './AslParser';
+import { redactStateData } from './redact';
 import { mergeOptions, mergeRecordOptions } from './config';
 import { computeDiffStyling, computeStateDiff, summarizeDiff } from './diff';
 import { computeExecutionStyling } from './execution';
@@ -40,6 +41,7 @@ import type {
     GraphEdge,
     HtmlOutput,
     NodeStyle,
+    RedactCallback,
     StateNode,
     SvgOutput,
     ViewerUpdate,
@@ -154,6 +156,8 @@ function buildHtmlViews(params: {
     options: MergedDiagramOptions;
     /** Whether the document can ship the in-browser relayout instead of a second view. */
     relayout: boolean;
+    /** The caller's redaction hook, for the payloads the reported timeline carries. */
+    redact?: RedactCallback;
 }): {
     collapsedSvgOutput?: SvgOutput;
     edges: GraphEdge[];
@@ -161,7 +165,8 @@ function buildHtmlViews(params: {
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, options, relayout } = params;
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, options, redact, relayout } =
+        params;
     const resolvedCollapse = options.collapse ?? true;
 
     // Both views feed the interactive viewer, so both get clickable edges.
@@ -184,6 +189,7 @@ function buildHtmlViews(params: {
                       history,
                       includeExecutionPayloads,
                       nodes,
+                      redact,
                       // Report against the definition the caller passed: a diff's
                       // merged definition also holds removed states, which are not
                       // "unreached" states of the machine that actually ran.
@@ -266,6 +272,7 @@ function buildHtmlViewParts(params: {
     history?: ExecutionHistoryInput;
     includeExecutionPayloads?: boolean;
     options: MergedDiagramOptions;
+    redact?: RedactCallback;
     relayout: boolean;
 }): {
     collapsedSvg?: string;
@@ -296,6 +303,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
     includeExecutionPayloads?: boolean;
     nonce?: string;
     options: MergedDiagramOptions;
+    redact?: RedactCallback;
 } {
     const {
         aslDefinition,
@@ -303,6 +311,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
         history,
         includeExecutionPayloads,
         nonce,
+        redact,
         ...options
     } = params;
     const afterObj = parseAslSource({ source: aslDefinition });
@@ -317,6 +326,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
         includeExecutionPayloads,
         nonce,
         options: mergeOptions(options),
+        redact,
     };
 }
 
@@ -328,9 +338,16 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
 function collectHtmlStateData(params: {
     aslObj: AslDefinition;
     diff?: StateDiff;
+    redact?: RedactCallback;
 }): Record<string, AslState> {
-    const { aslObj, diff } = params;
-    return { ...collectStateData({ definition: aslObj }), ...diff?.removedStates };
+    const { aslObj, diff, redact } = params;
+    // Redaction is applied to the merged record, not to `collectStateData`'s half of
+    // it: a removed state's real ASL comes from the diff's `before` side and would
+    // otherwise be the one path into the document that the hook never sees.
+    return redactStateData({
+        redact,
+        stateData: { ...collectStateData({ definition: aslObj }), ...diff?.removedStates },
+    });
 }
 
 /** Assemble {@link HtmlOutput.metadata}, adding an overlay's summary only when it ran. */
@@ -397,7 +414,7 @@ function buildHtmlMetadata(params: {
  * summary beside its own duration.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options } =
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
@@ -408,6 +425,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             history,
             includeExecutionPayloads,
             options,
+            redact,
             relayout: true,
         });
 
@@ -420,7 +438,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             relayoutModel,
-            stateData: collectHtmlStateData({ aslObj, diff }),
+            stateData: collectHtmlStateData({ aslObj, diff, redact }),
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
             timeline: execution?.timeline,
@@ -455,7 +473,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * ```
  */
 export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
-    const { aslDefinition, relayout = false, ...options } = params;
+    const { aslDefinition, redact, relayout = false, ...options } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
@@ -479,7 +497,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
         hasCollapsedView: collapsedSvg !== undefined,
         metadata: svgOutput.metadata,
         ...(relayoutModel ? { relayoutModel } : {}),
-        stateData: collectStateData({ definition: aslObj }),
+        stateData: redactStateData({ redact, stateData: collectStateData({ definition: aslObj }) }),
     };
 }
 
@@ -507,7 +525,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options } =
+    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
@@ -518,6 +536,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             history,
             includeExecutionPayloads,
             options,
+            redact,
             relayout: true,
         });
 
@@ -543,7 +562,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             relayoutModel: embeddedModel,
-            stateData: collectHtmlStateData({ aslObj, diff }),
+            stateData: collectHtmlStateData({ aslObj, diff, redact }),
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
             timeline: execution?.timeline,

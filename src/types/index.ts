@@ -805,6 +805,56 @@ export interface HtmlDiffOverlay {
     before: AslDefinition | string;
 }
 
+/** What a {@link RedactCallback} is being asked about. */
+export interface RedactParams {
+    /**
+     * Which of the two inlined blobs the value came from: `'state'` for a state's raw
+     * ASL in `#sfn-state-data`, `'payload'` for a run's input, output or failure cause
+     * on `#sfn-timeline-data`.
+     */
+    kind: 'payload' | 'state';
+    /**
+     * Where the value sits. For a state, the node id followed by the dotted path
+     * within its ASL - `'ProcessOrder'` for the state itself, then
+     * `'ProcessOrder.Parameters'`, `'ProcessOrder.Retry[0].MaxAttempts'`. For a
+     * payload, `'<stateId>.input' | '.output' | '.cause'`, or `'execution.cause'` for
+     * the failure cause of the execution itself.
+     */
+    path: string;
+    /**
+     * The state the value belongs to, as the node id the renderer stamps as
+     * `data-state-id`. Absent only for an execution-level cause, which belongs to no
+     * single state.
+     */
+    stateId?: string;
+    /**
+     * The value as it would otherwise be inlined: any JSON value for a state, the
+     * payload text (already capped) for a payload.
+     */
+    value: unknown;
+}
+
+/**
+ * Decide what a generated document inlines for one value.
+ *
+ * Return `params.value` to keep it - which is also what lets the walk descend into it
+ * - any other value to inline that instead, or `undefined` to redact, which inlines
+ * `'[redacted]'` in its place. Runs at generate time, on the server, so it may do
+ * whatever a synchronous function can.
+ *
+ * Governs the two data blobs only. State names, choice conditions and variable
+ * annotations are drawn into the SVG itself, so they are not offered here: redacting
+ * them would change the diagram rather than the data travelling beside it.
+ *
+ * @example
+ * ```typescript
+ * // Drop every Parameters block, and every execution payload.
+ * const redact: RedactCallback = ({ kind, path, value }) =>
+ *     kind === 'payload' || path.endsWith('.Parameters') ? undefined : value;
+ * ```
+ */
+export type RedactCallback = (params: RedactParams) => unknown;
+
 /** Parameters for `generateHtml`. */
 export interface GenerateHtmlParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
@@ -843,6 +893,17 @@ export interface GenerateHtmlParams extends DiagramOptions {
      * default, byte-identical to output produced before nonce support existed.
      */
     nonce?: string;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and any execution payloads `includeExecutionPayloads` turned
+     * on. Called once per state, then once per field at every depth, and once per
+     * payload; return the value to keep it, another value to substitute, or
+     * `undefined` to inline `'[redacted]'`.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /** Parameters for `generateViewerUpdate`. */
@@ -858,6 +919,17 @@ export interface GenerateViewerUpdateParams extends DiagramOptions {
      * @default false
      */
     relayout?: boolean;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and any execution payloads `includeExecutionPayloads` turned
+     * on. Called once per state, then once per field at every depth, and once per
+     * payload; return the value to keep it, another value to substitute, or
+     * `undefined` to inline `'[redacted]'`.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /**
@@ -1247,6 +1319,17 @@ export interface GenerateExecutionHtmlParams extends GenerateExecutionParams {
      * error is thrown. Omit for a document with no nonce attributes at all.
      */
     nonce?: string;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and any execution payloads `includeExecutionPayloads` turned
+     * on. Called once per state, then once per field at every depth, and once per
+     * payload; return the value to keep it, another value to substitute, or
+     * `undefined` to inline `'[redacted]'`.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /** Self-contained interactive HTML execution overlay output. */

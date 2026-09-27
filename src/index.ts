@@ -424,6 +424,8 @@ export type {
     GenerateMermaidParams,
     GenerateHtmlParams,
     GenerateViewerUpdateParams,
+    RedactCallback,
+    RedactParams,
     ViewerUpdate,
     GenerateDiagramParams,
     GenerateDiffParams,
@@ -485,3 +487,5 @@ export {
     parseExecutionHistory,
 } from './execution';
 export type { BuildExecutionTimelineParams } from './execution';
+export { REDACTED, redactPayloadText, redactStateData } from './redact';
+export type { RedactPayloadTextParams, RedactStateDataParams } from './redact';
