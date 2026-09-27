@@ -6,8 +6,14 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
 
 ### Prerequisites
 
-- Node.js 18+ or 20+
-- pnpm (recommended) or npm
+- **Node.js >= 20** — the floor declared by `package.json#engines`. It covers core,
+  the CLI, and PNG export through the default `@resvg/resvg-js` rasterizer. Only the
+  opt-in `html-to-image` PNG engine raises the floor, to Node >= 22.12.0, because
+  `node-html-to-image` v6 requires it. See
+  [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).
+- **pnpm** — this is a pnpm workspace whose packages depend on each other through the
+  `workspace:*` protocol, so `npm install` at the root fails. The version is pinned in
+  `package.json#packageManager`; `corepack enable` makes your shell honour it.
 
 ### Installation
 
@@ -19,14 +25,12 @@ cd sfn-diagram
 
 2. Install dependencies:
 ```bash
-pnpm install
-# or
-npm install
+pnpm install --frozen-lockfile
 ```
 
 3. Run the development build:
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ## Development Workflow
@@ -35,35 +39,46 @@ npm run dev
 
 | Command | Description |
 |---------|-------------|
-| `npm run build` | Build library with tsdown (ESM + CJS) |
-| `npm run dev` | Watch mode for development |
-| `npm test` | Run test suite with Vitest |
-| `npm run typecheck` | TypeScript type checking (no emit) |
-| `npm run lint` | Lint code with ESLint |
-| `npm run examples` | Run visual output tests |
+| `pnpm run build` | Build the viewer script and manifest, then the library with tsdown (ESM + CJS) |
+| `pnpm run dev` | Watch mode for development |
+| `pnpm test` | Run the Vitest suites (`unit`, `element`, `perf`) |
+| `pnpm run typecheck` | TypeScript type checking (no emit) |
+| `pnpm run lint` | Lint with ESLint |
+| `pnpm run examples` | Run the visual output tests |
+| `pnpm run build:viewer-script` | Regenerate the bundled interactive viewer script |
+| `pnpm run test:coverage` | Run the `unit` project with coverage |
+| `pnpm turbo run typecheck` | Typecheck the root package and every workspace package |
+
+The packages under `packages/` have their own suites; run them with
+`pnpm --filter <package> test` (or `pnpm turbo run test` for all of them).
+
+If you touch anything under `src/renderers/viewer/`, run
+`pnpm run build:viewer-script` — the bundled output is committed, and `pnpm test`
+fails if it is stale.
 
 ### Making Changes
 
-1. Create a new branch for your feature or bugfix:
+1. Create a new branch, named `<type>/<short-description>` with the same type
+   keywords as the commit convention below:
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b feat/custom-node-shapes
 ```
 
 2. Make your changes following the code style guidelines below
 
 3. **Always run tests after making changes:**
 ```bash
-npm test
+pnpm test
 ```
 
 4. Ensure type checking passes:
 ```bash
-npm run typecheck
+pnpm run typecheck
 ```
 
 5. Verify the build succeeds:
 ```bash
-npm run build
+pnpm run build
 ```
 
 6. Commit your changes with a clear message:
@@ -237,16 +252,29 @@ JSDoc should include:
 - Update existing tests when modifying behavior
 - Ensure tests pass before committing:
 ```bash
-npm test
+pnpm test
 ```
 
 ### Test Organization
 
-Place tests in the `tests/` directory:
-- `tests/fixtures/` - ASL definition fixtures
-- `tests/unit/` - Unit tests for individual modules
-- `tests/integration/` - Integration tests for full workflows
-- `tests/visual-outputs.test.ts` - Visual output verification
+Tests live in `tests/`. There is no `unit/` vs `integration/` split — most suites sit
+flat at the top level, next to a few topic directories:
+
+- `tests/*.test.ts` — the bulk of the suites, one per module or feature
+  (`AslParser.test.ts`, `cli.test.ts`, `diff.test.ts`, `integration.test.ts`,
+  `visual-outputs.test.ts`, …)
+- `tests/fixtures/` — ASL definition fixtures and execution-history JSON
+  (`execution-*.json`)
+- `tests/__snapshots__/` — committed Vitest snapshots
+- `tests/cfn/`, `tests/ci/`, `tests/config/`, `tests/element/`, `tests/graph/`,
+  `tests/viewer/` — topic-scoped suites
+- `tests/performance/` — wall-clock performance assertions and a Vitest bench
+
+`vitest.config.ts` splits those into three projects: `element`
+(`tests/element/elementRuntime.test.ts` alone), `perf` (`tests/performance/**`) and
+`unit` (everything else, including the rest of `tests/element/`). The first two launch
+their own Chromium or measure wall-clock time, so they run as separate single-worker
+invocations; `pnpm test` runs all three in order.
 
 ### Writing Tests
 
@@ -274,8 +302,12 @@ describe('generateSvg', () => {
 
 ## Pull Request Process
 
-1. **Update Documentation**: Update README.md if you've added/changed features
-2. **Update Changelog**: Add entry to CHANGELOG.md under `[Unreleased]`
+1. **Update Documentation**: Update README.md and the docs under `site/` if you've
+   added or changed features
+2. **Leave the changelog and version alone**: `CHANGELOG.md` and the version in
+   `package.json` are written by
+   [release-please](https://github.com/googleapis/release-please) from the commit
+   history. Never edit either by hand, and never create a release tag or publish.
 3. **Run All Checks**: Ensure tests, type checking, and linting pass
 4. **Commit Message Format**: Use conventional commits format:
    - `feat:` - New feature
@@ -317,21 +349,50 @@ For feature requests, please include:
 ```
 sfn-diagram/
 ├── src/
-│   ├── index.ts              # Public API exports
-│   ├── AslParser.ts          # ASL parsing logic
-│   ├── config/               # Configuration and defaults
-│   ├── constants/            # Constant values
-│   ├── exporters/            # PNG export functionality
-│   ├── layout/               # Graph layout (Dagre)
-│   ├── renderers/            # SVG and Mermaid renderers
-│   ├── styles/               # Styling logic
-│   ├── types/                # TypeScript type definitions
-│   └── dagre.d.ts            # Type augmentation for dagre
-├── tests/                    # Test files
-├── dist/                     # Build output (generated)
-├── tsdown.config.ts          # Build configuration
-├── tsconfig.json             # TypeScript configuration
-└── vitest.config.ts          # Test configuration
+│   ├── index.ts                # Public API (generateDiagram, generateSvg, ...)
+│   ├── AslParser.ts            # ASL -> graph parsing and validation
+│   ├── pipeline.ts             # Shared parse -> layout -> render pipeline
+│   ├── cli.ts                  # CLI command surface
+│   ├── bin.ts                  # CLI entry point (the `sfn-diagram` binary)
+│   ├── aws.ts                  # `sfn-diagram/aws` entry (AWS SDK input)
+│   ├── cfn.ts                  # `sfn-diagram/cfn` entry (CloudFormation/SAM/CDK)
+│   ├── png.ts                  # `sfn-diagram/png` entry (Node-only)
+│   ├── html.ts                 # Self-contained HTML documents
+│   ├── diff.ts                 # Definition diffing
+│   ├── execution.ts            # Execution-history overlays
+│   ├── lint.ts                 # ASL lint rules
+│   ├── redact.ts               # Redaction hooks for inlined payloads
+│   ├── cfn/                    # Template parsing and state-machine extraction
+│   ├── ci/                     # `sfn-diagram/ci` entry (PR/MR comment reports)
+│   ├── config/                 # Themes, style presets and option defaults
+│   ├── constants/              # Shared constant values
+│   ├── element/                # The `<sfn-diagram>` custom element
+│   ├── exporters/              # PNG exporters (resvg, html-to-image)
+│   ├── graph/                  # Container collapse, catch handling, edge identity
+│   ├── layout/                 # Graph layout (Dagre)
+│   ├── renderers/              # SVG, Mermaid, HTML and interactive viewer
+│   ├── services/               # AWS service detection for Task states
+│   ├── styles/                 # Node and edge styling
+│   ├── types/                  # TypeScript type definitions
+│   ├── utils/                  # Icon embedding, text measurement, JSONata helpers
+│   └── dagre.d.ts              # Type augmentation for @dagrejs/dagre
+├── tests/                      # Vitest suites (see Test Organization above)
+├── packages/
+│   ├── github-action-sfn-diagram/  # GitHub Action (private; bundled dist/ is committed)
+│   ├── sfn-diagram-react/          # React wrapper, published to npm
+│   └── vscode-sfn-diagram/         # VS Code extension
+├── site/                       # Astro Starlight documentation site
+├── scripts/                    # Build, release and image-generation scripts
+├── examples/                   # Example ASL definitions
+├── docs/images/                # Generated README and gallery images (committed)
+├── custom-elements.json        # Custom-elements manifest (generated, committed)
+├── Dockerfile                  # CLI container image
+├── dist/                       # Library build output (generated, not committed)
+├── pnpm-workspace.yaml         # Workspace package globs
+├── turbo.json                  # Cross-package task graph
+├── tsdown.config.ts            # Build configuration
+├── tsconfig.json               # TypeScript configuration
+└── vitest.config.ts            # Test projects (unit, element, perf)
 ```
 
 ## Build System
@@ -342,7 +403,22 @@ The project uses **tsdown** for building:
 - Bundles dependencies appropriately
 - Platform-neutral output for Node.js
 
-Build artifacts are generated in `dist/` and should never be committed to source control.
+The library's own build output goes to `dist/` and is not committed. A few generated
+files **are** committed on purpose, though, because something outside the build needs
+them:
+
+- `packages/github-action-sfn-diagram/dist/` — GitHub runs an Action straight from the
+  repository, with no install step, so its bundle has to be in git. Rebuild it with
+  `pnpm run build:action-bundle` and commit the result.
+- `custom-elements.json` — the custom-elements manifest consumed by editors and the
+  docs site. Regenerate it with `pnpm run build:manifest`.
+- `src/renderers/viewer/viewerScript.generated.ts` and `viewerRelayout.generated.ts` —
+  the bundled viewer script, inlined into generated HTML. Regenerate with
+  `pnpm run build:viewer-script`; `pnpm test` checks it is current.
+- `docs/images/` — rendered README and gallery images.
+
+So: nothing generated is committed unless it is on that list, and anything on it must
+be regenerated and committed in the same change.
 
 ## Questions?
 
