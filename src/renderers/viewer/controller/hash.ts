@@ -110,18 +110,26 @@ export function attachHashLinks(params: AttachHashLinksParams): HashLinks {
     const view = ownerDoc?.defaultView ?? null;
     // Not `ownerDoc !== null`: an embedded element has one too. This is the same test
     // panZoom uses to decide whether the viewer owns the page's scroll gestures.
-    const owns = root instanceof Document && view !== null && panel.hasPanelData;
-    if (!owns) return { applyHash: () => {} };
+    const isDocument = root instanceof Document && view !== null && panel.hasPanelData;
+    // And the fragment has to be free. A document that arrived with someone else's
+    // fragment keeps it: claiming the hash on the reader's first click would overwrite
+    // it, and clearing it on close would then destroy it outright. Ours is fine - a
+    // deep link is exactly what we are here to honour.
+    const claimable =
+        isDocument && (view.location.hash === '' || parseSelectionHash(view.location.hash) !== null);
+    if (!claimable) return { applyHash: () => {} };
 
-    // A document with an opaque origin - srcdoc, a data: URL, about:blank - is not
-    // allowed to hand replaceState a URL, and throwing out of a selection listener
-    // would take the panel down with it. There is no address to share in that case
-    // anyway, so the first refusal turns deep links off rather than retrying per click.
-    let historyUsable = true;
+    // Set while a fragment is being applied to the panel, so the panel's own
+    // selection notification does not write back over the fragment that caused it.
+    // Without it a link into a state the diagram no longer has erases itself: select()
+    // closes the panel, the listener sees "nothing selected" and clears the URL, and
+    // the reader can no longer see or copy what they were sent - nor retry it after
+    // the diagram is regenerated.
+    let applying = false;
 
     /** Write `next` (or clear ours) without adding to the back stack. */
     const writeHash = (next: string | null): void => {
-        if (!historyUsable) return;
+        if (applying) return;
         const { location } = view;
         const target =
             next !== null
@@ -133,10 +141,20 @@ export function attachHashLinks(params: AttachHashLinksParams): HashLinks {
                   : location.pathname + location.search;
         if (target === null || location.hash === target) return;
 
+        // A document with an opaque origin - srcdoc, a data: URL, about:blank - is not
+        // allowed to hand replaceState a URL at all, and throwing out of a selection
+        // listener would take the panel down with it. Swallowed rather than latched
+        // off: the same call also throws on Safari's rate limit (about 100 in 30
+        // seconds), and a reader clicking quickly through a large diagram should not
+        // lose deep links for the rest of the page's life over it. An opaque origin
+        // has no address to share anyway, so retrying there costs one caught throw
+        // per click and nothing else. Probing `location.origin === 'null'` up front
+        // would be cheaper and wrong - Chromium reports that for `file://` too, which
+        // is where a standalone document usually lives.
         try {
             view.history.replaceState(view.history.state, '', target);
         } catch {
-            historyUsable = false;
+            // Deep links are a convenience; the panel is not.
         }
     };
 
@@ -144,12 +162,22 @@ export function attachHashLinks(params: AttachHashLinksParams): HashLinks {
         writeHash(selection ? formatSelectionHash(selection) : null);
     });
 
+    /** Apply `wanted` without the resulting selection writing back over the URL. */
+    const applySelection = (wanted: ViewerSelection): void => {
+        applying = true;
+        try {
+            // `select` closes when the id names nothing in the current content, which
+            // also takes care of a stale link into a diagram that has since been
+            // edited - and the fragment survives that, so it can be read and retried.
+            panel.select(wanted);
+        } finally {
+            applying = false;
+        }
+    };
+
     const applyHash = (): void => {
         const wanted = parseSelectionHash(view.location.hash);
-        if (!wanted) return;
-        // `select` closes when the id names nothing in the current content, which also
-        // takes care of a stale link into a diagram that has since been edited.
-        panel.select(wanted);
+        if (wanted) applySelection(wanted);
     };
 
     // replaceState never fires hashchange, so this only ever hears the reader: a link
@@ -157,7 +185,7 @@ export function attachHashLinks(params: AttachHashLinksParams): HashLinks {
     registry.on(view, 'hashchange', () => {
         const wanted = parseSelectionHash(view.location.hash);
         if (wanted) {
-            panel.select(wanted);
+            applySelection(wanted);
         } else if (view.location.hash === '' || view.location.hash === '#') {
             panel.closePanel();
         }

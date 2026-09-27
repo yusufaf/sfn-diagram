@@ -201,18 +201,23 @@ Big, branchy state machines are hard to read as a static image. A few options he
   Opening a document with one of those opens the panel on that state or edge; closing
   the panel clears the fragment again. The id is percent-encoded, which an edge needs —
   its id carries the `->` of the transition it describes. A link into a state the
-  diagram no longer has simply opens nothing.
+  diagram no longer has opens nothing, and the link itself is left in the address bar
+  so it can still be read, copied, and retried once the diagram is regenerated.
 
   The fragment is rewritten with `replaceState`, so clicking through six states does
   not bury the page you came from under six history entries: Back leaves the document,
   as it always did. Editing the fragment in the address bar works the other way round
   and moves the panel.
 
-  Only the standalone document takes part. `location.hash` belongs to the page, and an
-  embedded `<sfn-diagram>` is a component on someone else's — possibly one of several
-  sharing the one URL — so an embedded viewer never reads or writes it. A fragment that
-  is not `#sfn=…` is left alone, including when the panel closes, so a document that
-  uses the fragment for an anchor of its own keeps it.
+  Two things opt out of it entirely:
+
+  - **An embedded `<sfn-diagram>`.** `location.hash` belongs to the page, and an
+    embedded element is a component on someone else's — possibly one of several sharing
+    the one URL — so it never reads or writes the fragment.
+  - **A document that arrived with someone else's fragment.** If the URL already
+    carries something that is not `#sfn=…`, the viewer leaves the fragment alone for
+    the life of the page: claiming it on the first selection would overwrite it, and
+    clearing it on close would then destroy it outright.
 
   ### Redacting what travels with the document
 

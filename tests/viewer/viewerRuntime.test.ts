@@ -2811,7 +2811,7 @@ describe('deep links via location.hash', () => {
         expect(await panelOpen()).toBe(false);
     });
 
-    it('ignores a link into a state the diagram no longer has', async () => {
+    it('opens nothing for a link into a state the diagram no longer has, and keeps the link', async () => {
         const stale = await browser.newPage();
         await stale.setViewport({ width: 1280, height: 800 });
         await stale.goto(pathToFileURL(hashFile).href + '#sfn=state:Renamed', { waitUntil: 'load' });
@@ -2819,27 +2819,39 @@ describe('deep links via location.hash', () => {
         expect(await stale.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
             false,
         );
+        // Erasing it would leave the reader unable to see or copy what they were sent,
+        // and unable to retry it once the diagram is regenerated.
+        expect(await stale.evaluate(() => location.hash)).toBe('#sfn=state:Renamed');
         await stale.close();
     });
 
-    it('leaves a fragment that is not ours untouched', async () => {
+    it('abstains entirely from a document that arrived with someone else\'s fragment', async () => {
         const other = await browser.newPage();
         await other.setViewport({ width: 1280, height: 800 });
         await other.goto(pathToFileURL(hashFile).href + '#some-anchor', { waitUntil: 'load' });
 
-        expect(await other.evaluate(() => location.hash)).toBe('#some-anchor');
-        expect(await other.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
-            false,
-        );
+        const select = (): Promise<void> =>
+            other.evaluate(() => {
+                const group = document.querySelector('[data-state-id="Beta"]') as SVGElement;
+                const options = { bubbles: true, pointerId: 1 };
+                group.dispatchEvent(new PointerEvent('pointerdown', options));
+                group.dispatchEvent(new PointerEvent('pointerup', options));
+            });
 
-        // ...and closing a panel opened by hand does not clear it either.
+        expect(await other.evaluate(() => location.hash)).toBe('#some-anchor');
+
+        // Claiming the hash on the first click would overwrite the anchor, and
+        // clearing it on close would then destroy it outright - so neither happens.
+        await select();
+        expect(await other.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open'))).toBe(
+            true,
+        );
+        expect(await other.evaluate(() => location.hash)).toBe('#some-anchor');
+
         await other.evaluate(() => {
-            const group = document.querySelector('[data-state-id="Beta"]') as SVGElement;
-            const options = { bubbles: true, pointerId: 1 };
-            group.dispatchEvent(new PointerEvent('pointerdown', options));
-            group.dispatchEvent(new PointerEvent('pointerup', options));
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
         });
-        expect(await other.evaluate(() => location.hash)).toBe('#sfn=state:Beta');
+        expect(await other.evaluate(() => location.hash)).toBe('#some-anchor');
         await other.close();
     });
 
@@ -2859,21 +2871,7 @@ describe('deep links via location.hash', () => {
         expect(await panelTitle()).toBe(edgeId);
     });
 
-    it('never touches the fragment from an embedded element, which shares its host page', async () => {
-        const embedded = await browser.newPage();
-        await embedded.setViewport({ width: 1280, height: 800 });
-        const { html } = generateHtml({ aslDefinition: definition });
-        // Two viewers on one page is exactly why an element must not claim the hash.
-        await embedded.goto(pathToFileURL(hashFile).href, { waitUntil: 'load' });
-        await embedded.evaluate((documentHtml) => {
-            document.body.innerHTML = '';
-            const host = document.createElement('div');
-            host.innerHTML = documentHtml;
-            document.body.appendChild(host);
-        }, html);
-
-        const claimed = await embedded.evaluate(() => location.hash);
-        expect(claimed).toBe('');
-        await embedded.close();
-    });
+    // The embedded counterpart - that an interactive <sfn-diagram> never claims its
+    // host page's fragment - needs a real element bundle and a real origin, so it
+    // lives in tests/element/elementRuntime.test.ts.
 });
