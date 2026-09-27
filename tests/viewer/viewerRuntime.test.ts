@@ -3018,6 +3018,55 @@ describe('toolbar exports', () => {
         expect(await buttonLabel('[data-sfn="copy-mermaid"]')).toBe('Unavailable');
     });
 
+    it('keeps every toolbar button reachable when the bar outgrows a narrow viewer', async () => {
+        const narrow = await browser.newPage();
+        await narrow.setViewport({ width: 560, height: 800 });
+        // A Parallel diagram, so the collapse toggle is present too - the widest the
+        // toolbar ever gets.
+        const { html } = generateHtml({
+            aslDefinition: {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Type: 'Parallel',
+                        Branches: [
+                            { StartAt: 'Leaf', States: { Leaf: { Type: 'Pass', End: true } } },
+                        ],
+                        Next: 'Done',
+                    },
+                    Done: { Type: 'Succeed' },
+                },
+            } as AslDefinition,
+        });
+        await narrow.setContent(html, { waitUntil: 'load' });
+
+        const bar = await narrow.$eval('[data-sfn="toolbar"]', (element) => ({
+            clientWidth: element.clientWidth,
+            right: element.getBoundingClientRect().right,
+            scrollWidth: element.scrollWidth,
+        }));
+
+        // The bar really does outgrow the viewer here, so the rest is not vacuous...
+        expect(bar.scrollWidth).toBeGreaterThan(bar.clientWidth);
+        // ...but it stays inside it rather than running off the clipped edge...
+        expect(bar.right).toBeLessThanOrEqual(560);
+
+        // ...and the last button is reachable by scrolling to it, which is also what
+        // focusing it does for a keyboard user.
+        const reached = await narrow.evaluate(() => {
+            const button = document.querySelector('[data-sfn="copy-mermaid"]') as HTMLElement;
+            button.focus();
+            const bounds = document.querySelector('[data-sfn="toolbar"]')!.getBoundingClientRect();
+            const box = button.getBoundingClientRect();
+            return {
+                focused: document.activeElement === button,
+                inside: box.left >= bounds.left - 1 && box.right <= bounds.right + 1,
+            };
+        });
+        expect(reached).toEqual({ focused: true, inside: true });
+        await narrow.close();
+    });
+
     it('copies the new diagram when the swap did send its Mermaid', async () => {
         const update: ViewerUpdate = generateViewerUpdate({
             aslDefinition: { StartAt: 'Fresh', States: { Fresh: { Type: 'Succeed' } } } as AslDefinition,

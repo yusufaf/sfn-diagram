@@ -207,9 +207,11 @@ Big, branchy state machines are hard to read as a static image. A few options he
   (`#sfn-mermaid-data`) next to the state, edge and timeline blobs — always, with no
   opt-in, since it is state names and transitions the SVG beside it already draws.
 
-  It describes the drawn definition's structure. On a diff that means the merged
-  definition, removed states included; it carries no diff or execution styling, which
-  the Mermaid output has no vocabulary for here.
+  It describes the diagram you are looking at, overlay included: Mermaid has class
+  definitions for both a diff and an execution (the same ones `generateMermaidDiff` and
+  `generateMermaidExecution` emit), so a copy taken from an overlay document carries
+  the colours rather than silently dropping them. On a diff that means the merged
+  definition, removed states included.
 
   A host patching a live viewer through `ViewerHandle.setContent` should pass the new
   `mermaid` from its `ViewerUpdate` along with `contentHtml` — without it the copy

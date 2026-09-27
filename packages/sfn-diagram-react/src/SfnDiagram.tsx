@@ -114,7 +114,13 @@ export const SfnDiagram = forwardRef<SfnDiagramHandle, SfnDiagramProps>(function
         return (
             <iframe
                 className={className}
-                sandbox="allow-scripts"
+                // allow-downloads as well as allow-scripts: the viewer toolbar's
+                // "SVG" button downloads through a generated anchor, which Chromium
+                // blocks outright in a sandboxed frame without it - the click would
+                // do nothing at all, with no error for the handler to report.
+                // Deliberately no allow-same-origin: srcDoc content stays on an
+                // opaque origin and cannot reach the host page.
+                sandbox="allow-downloads allow-scripts"
                 srcDoc={result.html}
                 style={style}
                 title={title}

@@ -15,6 +15,7 @@ import { computeDiffStyling, computeStateDiff, summarizeDiff } from './diff';
 import { computeExecutionStyling } from './execution';
 import { computeCollapsePlan, styleCollapsedView } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
+import { buildStatusMap } from './diff';
 import { MermaidRenderer } from './renderers';
 import {
     buildEdgeData,
@@ -251,15 +252,25 @@ function buildHtmlViews(params: {
     // itself: the viewer bundle may only contain src/renderers/viewer/**, and
     // MermaidRenderer is outside it. Built from the same graph the expanded view was
     // drawn from - the view the document opens on - so the copy matches what is on
-    // screen rather than a second parse of the definition. Structure only: no diff or
-    // execution styling, which Mermaid has no vocabulary for here.
+    // screen rather than a second parse of the definition.
+    //
+    // Including the overlay. Mermaid has class definitions for both (the same ones
+    // generateMermaidDiff and generateMermaidExecution emit), and the styling is
+    // already computed above for the SVG, so a copy taken from a diff or an execution
+    // document describes what the reader is looking at rather than a bare structure
+    // that silently drops the colours they came for.
     const mermaid = new MermaidRenderer().render({
         asl: aslObj,
         customColors: options.customColors,
         edges,
+        ...(overlays.execution
+            ? { executionClasses: overlays.execution.statusByNodeId }
+            : {}),
         layout: options.layout,
+        nodeAnnotations: options.nodeAnnotations,
         nodes,
         showVariables: options.showVariables,
+        ...(diff ? { stateClasses: buildStatusMap(diff) } : {}),
         theme: options.theme,
     }).code;
 

@@ -139,16 +139,35 @@ export function attachExportActions(params: AttachExportActionsParams): void {
     const downloadButton = hook(root, 'export-svg');
     const copyButton = hook(root, 'copy-mermaid');
 
+    // One entry per button, not one per click: a standalone document is never
+    // destroyed, so pushing a fresh cleanup on every press would grow the registry for
+    // the life of the page - and let two restores race after a double click.
+    const timers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
+    registry.cleanups.push(() => {
+        for (const timer of timers.values()) clearTimeout(timer);
+        timers.clear();
+    });
+
     /** Say what happened on the button itself, then put its label back. */
     const flash = (button: HTMLElement, message: string): void => {
         const original = button.dataset.sfnLabel ?? button.textContent ?? '';
         button.dataset.sfnLabel = original;
         button.textContent = message;
-        const timer = setTimeout(() => {
-            button.textContent = button.dataset.sfnLabel ?? original;
-        }, FEEDBACK_MS);
-        registry.cleanups.push(() => clearTimeout(timer));
+
+        const pending = timers.get(button);
+        if (pending !== undefined) clearTimeout(pending);
+        timers.set(
+            button,
+            setTimeout(() => {
+                timers.delete(button);
+                button.textContent = button.dataset.sfnLabel ?? original;
+            }, FEEDBACK_MS),
+        );
     };
+
+    /** Revoke an object URL once the click that consumed it has been dispatched. */
+    let revokeTimer: ReturnType<typeof setTimeout> | undefined;
+    registry.cleanups.push(() => clearTimeout(revokeTimer));
 
     if (downloadButton) {
         on(downloadButton, 'click', () => {
@@ -170,8 +189,8 @@ export function attachExportActions(params: AttachExportActionsParams): void {
             link.remove();
             // Freed on the next turn rather than immediately: revoking synchronously
             // races the navigation the click just started, and Firefox drops it.
-            const timer = setTimeout(() => URL.revokeObjectURL(url), 0);
-            registry.cleanups.push(() => clearTimeout(timer));
+            clearTimeout(revokeTimer);
+            revokeTimer = setTimeout(() => URL.revokeObjectURL(url), 0);
         });
     }
 

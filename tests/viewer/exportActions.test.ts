@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { generateHtml, generateMermaid, generateViewerUpdate } from '../../src';
 import { buildViewerBody } from '../../src/renderers/viewer';
@@ -44,6 +46,34 @@ describe('embedded Mermaid source', () => {
         };
         const { html } = generateHtml({ aslDefinition: definition, diff: { before } });
         expect(mermaidBlob(html)).toContain('Dropped');
+    });
+
+    it('carries the diff overlay, not just the structure under it', () => {
+        const before: AslDefinition = {
+            StartAt: 'Alpha',
+            States: { Alpha: { Type: 'Task', Resource: 'arn:old', Next: 'Omega' }, Omega: { Type: 'Succeed' } },
+        };
+        const code = mermaidBlob(generateHtml({ aslDefinition: definition, diff: { before } }).html);
+
+        // Mermaid has class definitions for a diff, so a copy taken from a diff
+        // document should not silently drop the colours the reader came for.
+        expect(code).toContain('classDef');
+        expect(code).toContain('classDef diffModified');
+        expect(code).toContain('class Alpha diffModified');
+    });
+
+    it('carries the execution overlay too', () => {
+        const events = JSON.parse(
+            readFileSync(join(__dirname, '..', 'fixtures', 'execution-success.json'), 'utf-8'),
+        ).events as unknown[];
+        const { html } = generateHtml({
+            aslDefinition: JSON.parse(
+                readFileSync(join(__dirname, '..', 'fixtures', 'simple.asl.json'), 'utf-8'),
+            ) as AslDefinition,
+            history: { events } as never,
+        });
+
+        expect(mermaidBlob(html)).toContain('classDef');
     });
 
     it('carries it on a viewer update too, so a swap cannot strand the old diagram', () => {
