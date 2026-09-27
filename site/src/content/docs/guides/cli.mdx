@@ -20,19 +20,79 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 |---|---|
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
-| `--theme <light\|dark>` | Color theme for SVG/PNG/HTML (default: `light`) |
+| `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
 | `--hide-catch` | Drop error-handler (`Catch`) branches |
 | `--hide-variables` | Drop the `$var` annotations for ASL `Assign` blocks |
+| `--hide-comments` | Don't use a state's `Comment` as its node label |
+| `--collapse[=names]` | Collapse `Parallel`/`Map` containers into placeholders. Bare flag collapses every container; `--collapse=Name1,Name2` collapses only those. Write `\,` for a comma inside a state name |
 | `--show-icons` | Draw [AWS service icons](/guides/configuration/#aws-service-icons) on Task states |
 | `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
 | `--icon-size <pixels>` | Icon size in pixels (default: `24`) |
+| `--show-state-types` | Draw each state's type as a label on the node |
+| `--edge-style <straight\|curved\|orthogonal>` | Edge path style (default: `curved`). `orthogonal` currently renders the same as `straight` — see [#323](https://github.com/yusufaf/sfn-diagram/issues/323) |
+| `--style-preset <aws-standard\|enhanced>` | Node shapes: AWS parity, or a distinct shape per state type (default: `aws-standard`) |
+| `--catch-label-style <error-type\|catch-number>` | Label on `Catch` edges: the error name, or `Catch #N` (default: `error-type`) |
+| `--node-width <pixels>` | Width of each state node (default: `120`) |
+| `--node-height <pixels>` | Height of each state node (default: `60`) |
+| `--node-separation <pixels>` | Separation between nodes within a rank (default: `50`) |
+| `--rank-separation <pixels>` | Separation between ranks (default: `50`) |
+| `--padding <pixels>` | Padding around the diagram (default: `20`) |
+| `--diagram-title <text>` | Accessible name, rendered as the SVG's `<title>` and `aria-label` |
+| `--diagram-description <text>` | Accessible description, rendered as the SVG's `<desc>` |
+| `--background-color <color>` | PNG background (default: `transparent`) — see the [note below](#background-color-and-the-theme) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template |
 | `--resource <logicalId>` | State machine to extract when the template has several |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
+
+## Custom theme files
+
+`--theme` takes a built-in name (`light` or `dark`) or a path to a JSON file holding a
+[`CustomTheme`](/guides/configuration/#themes). Any value that isn't `light` or `dark` is
+read as a path:
+
+```bash
+sfn-diagram state.asl.json --theme ./brand.theme.json -o diagram.svg
+```
+
+```json title="brand.theme.json"
+{
+  "base": "light",
+  "background": "#fbfbfd",
+  "fontFamily": "Inter, system-ui, sans-serif",
+  "nodeColors": {
+    "Task": { "fill": "#eef2ff", "stroke": "#4338ca" },
+    "Choice": { "fill": "#fefce8", "stroke": "#a16207" }
+  }
+}
+```
+
+Every field is optional. `base` picks which built-in theme supplies the ones you leave
+out, so a file naming only `nodeColors.Task` is a one-colour tweak to the light theme
+rather than a theme built from nothing.
+
+A missing file, malformed JSON, or a top-level value that isn't an object is a usage
+error: the CLI writes `Error: Cannot read theme file <path>: <reason>` to stderr and
+exits `2`.
+
+## Background color and the theme
+
+`--background-color` is applied by the PNG rasterizer, beneath the rendered SVG. The
+built-in `light` and `dark` themes paint their own background across the full canvas, so
+that rectangle covers whatever the rasterizer put behind it and the flag has no visible
+effect. To use it, give the theme a transparent background:
+
+```bash
+sfn-diagram state.asl.json --format png --theme ./transparent.theme.json \
+  --background-color '#ffffff' -o diagram.png
+```
+
+```json title="transparent.theme.json"
+{ "base": "light", "background": "transparent" }
+```
 
 ## Diff and execution overlays from the CLI
 
