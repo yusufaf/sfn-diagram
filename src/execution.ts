@@ -16,12 +16,14 @@ import type {
     GraphEdge,
     MermaidExecutionOutput,
     NodeStyle,
+    RedactCallback,
     StateNode,
     TimelineEntry,
     TimelineEntryStatus,
     TimelinePayload,
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
+import { redactPayloadText } from './redact';
 import {
     buildIdResolver,
     computeCollapsePlan,
@@ -215,17 +217,40 @@ export const EXECUTION_PAYLOAD_CAP: number = 4096;
  */
 export const EXECUTION_PAYLOAD_TOTAL_CAP: number = 262_144;
 
+/** What {@link createPayloadCapture}'s returned function is asked to capture. */
+interface CapturePayloadParams {
+    /** Which of a run's payloads this is, for the redaction hook's `path`. */
+    field: 'cause' | 'input' | 'output';
+    /** The payload as the history carried it. */
+    raw: string | undefined;
+    /** Node id of the entry this payload will be inlined under. */
+    stateId?: string;
+}
+
 /**
  * A capture budget: cuts each payload to {@link EXECUTION_PAYLOAD_CAP} and stops
  * capturing altogether once {@link EXECUTION_PAYLOAD_TOTAL_CAP} is spent.
+ *
+ * Also the one place a caller's `redact` hook meets a payload. The hook runs *first*,
+ * on the whole text, and the cap then trims whatever it returned: a hook that parses
+ * the payload to scrub one field needs valid JSON rather than a string cut off
+ * mid-token, and capping its answer is what keeps a substitution inside the budget.
+ * `spent` and `truncatedFrom` both describe the text that actually lands in the
+ * document, so a payload redacted to a ten-character placeholder neither burns 4 KB of
+ * the budget nor claims to be a truncated view of something longer.
  */
-function createPayloadCapture(): (raw: string | undefined) => TimelinePayload | undefined {
+function createPayloadCapture(params: {
+    redact?: RedactCallback;
+}): (captured: CapturePayloadParams) => TimelinePayload | undefined {
+    const { redact } = params;
     let spent = 0;
-    return (raw) => {
+    return ({ field, raw, stateId }) => {
         if (raw === undefined || spent >= EXECUTION_PAYLOAD_TOTAL_CAP) return undefined;
-        const text = raw.length <= EXECUTION_PAYLOAD_CAP ? raw : raw.slice(0, EXECUTION_PAYLOAD_CAP);
+        const redacted = redactPayloadText({ field, redact, stateId, text: raw });
+        const text =
+            redacted.length <= EXECUTION_PAYLOAD_CAP ? redacted : redacted.slice(0, EXECUTION_PAYLOAD_CAP);
         spent += text.length;
-        return text.length === raw.length ? { text } : { text, truncatedFrom: raw.length };
+        return text.length === redacted.length ? { text } : { text, truncatedFrom: redacted.length };
     };
 }
 
@@ -356,8 +381,9 @@ function walkExecutionHistory(params: {
     definition?: AslDefinition;
     events: HistoryEvent[];
     includePayloads?: boolean;
+    redact?: RedactCallback;
 }): ExecutionWalk {
-    const { definition, events, includePayloads = false } = params;
+    const { definition, events, includePayloads = false, redact } = params;
     const eventById = new Map<number, HistoryEvent>();
     for (const event of events) {
         if (event.id !== undefined) eventById.set(event.id, event);
@@ -375,7 +401,7 @@ function walkExecutionHistory(params: {
     // iterator it ran in. Without one the state name stands in as the id, which is
     // exactly what it is for any definition whose names do not repeat across scopes.
     // One budget per walk, so a long run cannot outgrow the document it is embedded in.
-    const capturePayload = createPayloadCapture();
+    const capturePayload = createPayloadCapture({ redact });
 
     const resolver = definition ? buildIdResolver({ definition }) : undefined;
     const childScopes =
@@ -493,7 +519,14 @@ function walkExecutionHistory(params: {
         });
     };
 
-    /** End this frame's open run, if it has one. */
+    /**
+     * End this frame's open run, if it has one.
+     *
+     * The error name goes through the hook as well, and not behind `includePayloads`:
+     * it is inlined on every execution document, opt-in or not, and a `Fail` state's
+     * `Error` or a Lambda's exception class is text the history carried rather than
+     * anything the diagram draws.
+     */
     const closeEntry = (
         frame: OpenFrame,
         ms: number,
@@ -505,7 +538,14 @@ function walkExecutionHistory(params: {
         const entry = entries[frame.openEntryIndex];
         entry.exitedMs = ms;
         entry.status = status;
-        if (error !== undefined && entry.error === undefined) entry.error = error;
+        if (error !== undefined && entry.error === undefined) {
+            entry.error = redactPayloadText({
+                field: 'error',
+                redact,
+                stateId: frame.nodeId,
+                text: error,
+            });
+        }
         if (payloads?.cause !== undefined) entry.cause = payloads.cause;
         if (payloads?.output !== undefined) entry.output = payloads.output;
         stampChildCount(frame, entry);
@@ -554,7 +594,13 @@ function walkExecutionHistory(params: {
                 name,
                 nodeId: resolver ? resolver.resolve(scope, name) : name,
                 ...(includePayloads
-                    ? { payloadInput: capturePayload(event.stateEnteredEventDetails?.input) }
+                    ? {
+                          payloadInput: capturePayload({
+                              field: 'input',
+                              raw: event.stateEnteredEventDetails?.input,
+                              stateId: resolver ? resolver.resolve(scope, name) : name,
+                          }),
+                      }
                     : {}),
             };
             openStack.push(frame);
@@ -625,7 +671,11 @@ function walkExecutionHistory(params: {
                 if (frame.openEntryIndex !== undefined) {
                     closeEntry(frame, exitMs ?? nowMs, 'succeeded', undefined, {
                         output: includePayloads
-                            ? capturePayload(event.stateExitedEventDetails?.output)
+                            ? capturePayload({
+                                  field: 'output',
+                                  raw: event.stateExitedEventDetails?.output,
+                                  stateId: frame.nodeId,
+                              })
                             : undefined,
                     });
                 } else if (frame.lastEntryIndex >= 0 && wasCaught) {
@@ -650,7 +700,17 @@ function walkExecutionHistory(params: {
             );
             if (containerIndex >= 0) {
                 const eventError = extractError(event);
-                const eventCause = includePayloads ? capturePayload(extractCause(event)) : undefined;
+                // Captured per frame rather than once and shared: this one cause is
+                // written onto every leaf the container took down as well as onto the
+                // container, so offering it once would hand the hook a `stateId` that
+                // disagrees with the entries it actually lands in - and a per-state
+                // hook would miss every copy but one. The budget now counts each copy,
+                // which is what the document carries.
+                const rawCause = extractCause(event);
+                const causeFor = (frame: OpenFrame): TimelinePayload | undefined =>
+                    includePayloads
+                        ? capturePayload({ field: 'cause', raw: rawCause, stateId: frame.nodeId })
+                        : undefined;
                 // Every leaf still open under the container is closed, not just the one
                 // that errored: a failing Parallel branch aborts its siblings mid-run,
                 // and they emit nothing further. An aborted sibling reports `failed`
@@ -659,7 +719,9 @@ function walkExecutionHistory(params: {
                 // report it `running` long after the execution finished.
                 const leaves = openStack.splice(containerIndex + 1);
                 for (const leaf of leaves) {
-                    closeAsFailed(leaf, nowMs, eventError, eventCause);
+                    // closeAsFailed prefers the leaf's own cause, so one that has it
+                    // never pays for a copy of the container's.
+                    closeAsFailed(leaf, nowMs, eventError, leaf.payloadCause ? undefined : causeFor(leaf));
                 }
                 // `ParallelStateFailed` carries no error details of its own, so fall back
                 // to the error of the leaf that actually failed - that is the failure
@@ -677,7 +739,7 @@ function walkExecutionHistory(params: {
                 container.error = container.error ?? eventError ?? leafError;
                 if (containerFailure.terminal) container.failureClosed = true;
                 closeEntry(container, nowMs, 'failed', eventError ?? leafError, {
-                    cause: eventCause ?? failingLeaf?.payloadCause,
+                    cause: causeFor(container) ?? failingLeaf?.payloadCause,
                 });
             }
             continue;
@@ -725,7 +787,13 @@ function walkExecutionHistory(params: {
                 activeFrame.failures += 1;
                 activeFrame.lastOutcome = 'failure';
                 activeFrame.error = extractError(event) ?? activeFrame.error;
-                const cause = includePayloads ? capturePayload(extractCause(event)) : undefined;
+                const cause = includePayloads
+                    ? capturePayload({
+                          field: 'cause',
+                          raw: extractCause(event),
+                          stateId: activeFrame.nodeId,
+                      })
+                    : undefined;
                 activeFrame.payloadCause = cause ?? activeFrame.payloadCause;
                 closeEntry(activeFrame, nowMs, 'failed', extractError(event), { cause });
             }
@@ -755,9 +823,19 @@ function walkExecutionHistory(params: {
             // Any state still open when the execution ends failed to complete.
             // Add this entry's attempts (failed tries, at least one) to any prior
             // completed iterations of the same state.
-            const execCause = includePayloads ? capturePayload(extractCause(event)) : undefined;
+            // Spread over whichever states were still open, so - like a container's
+            // cause above - it is offered once per frame it is written onto rather
+            // than once for all of them.
+            const rawExecCause = extractCause(event);
             for (const frame of openStack) {
-                closeAsFailed(frame, nowMs, execError, execCause);
+                closeAsFailed(
+                    frame,
+                    nowMs,
+                    execError,
+                    frame.payloadCause || !includePayloads
+                        ? undefined
+                        : capturePayload({ field: 'cause', raw: rawExecCause, stateId: frame.nodeId })
+                );
             }
             openStack.length = 0;
         }
@@ -828,6 +906,12 @@ export interface BuildExecutionTimelineParams {
      * content a history carries, so nothing embeds them unless asked.
      */
     includePayloads?: boolean;
+    /**
+     * Decide what each captured payload carries. Called once per payload with the
+     * capped text; return it to keep it, another string to substitute, or `undefined`
+     * to record `'[redacted]'`. Only reached when `includePayloads` is on.
+     */
+    redact?: RedactCallback;
 }
 
 /**
@@ -867,8 +951,8 @@ export interface BuildExecutionTimelineParams {
 export function buildExecutionTimeline(
     params: BuildExecutionTimelineParams
 ): ExecutionTimeline {
-    const { definition, events, includePayloads } = params;
-    return walkExecutionHistory({ definition, events, includePayloads }).timeline;
+    const { definition, events, includePayloads, redact } = params;
+    return walkExecutionHistory({ definition, events, includePayloads, redact }).timeline;
 }
 
 /** Format a duration for a node annotation, e.g. 45 -> "45ms", 1200 -> "1.2s". */
@@ -917,9 +1001,15 @@ function summarize(
 function computeExecutionWalk(
     definition: AslDefinition,
     history: ExecutionHistoryInput,
-    includePayloads?: boolean
+    includePayloads?: boolean,
+    redact?: RedactCallback
 ): ExecutionWalk {
-    return walkExecutionHistory({ definition, events: normalizeEvents(history), includePayloads });
+    return walkExecutionHistory({
+        definition,
+        events: normalizeEvents(history),
+        includePayloads,
+        redact,
+    });
 }
 
 /**
@@ -1003,6 +1093,11 @@ export interface ComputeExecutionStylingParams {
     /** The graph's nodes, after catch handling. */
     nodes: StateNode[];
     /**
+     * Decide what each captured payload carries; see {@link RedactCallback}. Only
+     * reached when `includeExecutionPayloads` is on.
+     */
+    redact?: RedactCallback;
+    /**
      * Top-level state names the summary reports — every one the history never
      * mentions is listed as `notReached`. Defaults to `definition.States`' keys;
      * a caller rendering a merged diff definition passes the after-side's names so
@@ -1049,9 +1144,10 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
         history,
         includeExecutionPayloads,
         nodes,
+        redact,
         summaryStateNames = Object.keys(definition.States),
     } = params;
-    const walk = computeExecutionWalk(definition, history, includeExecutionPayloads);
+    const walk = computeExecutionWalk(definition, history, includeExecutionPayloads, redact);
     const { overlay, timeline } = walk;
 
     // The overlay is keyed by ASL state name; node ids are scoped by nesting. Re-key

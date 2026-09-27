@@ -188,6 +188,66 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 
+  ### Redacting what travels with the document
+
+  A generated document inlines two things the picture itself does not show: the raw ASL
+  of every state, so the detail panel can print it, and — when
+  `includeExecutionPayloads` is on — each run's input, output and failure cause. On a
+  real state machine that ASL routinely carries ARNs, resource identifiers and
+  `Parameters` a team would rather not hand to whoever the file reaches.
+
+  `redact` governs both, and is the only thing that does:
+
+  ```typescript
+  const { html } = generateHtml({
+    aslDefinition: asl,
+    redact: ({ kind, path, value }) =>
+      kind === 'payload' || path.endsWith('.Parameters') ? undefined : value,
+  });
+  ```
+
+  The hook is called once per state with the whole state, then once per field at every
+  depth, and once per payload. Return `value` to keep it — which is also what lets the
+  walk descend into it — any other value to inline that instead, or `undefined` to
+  redact, which inlines `'[redacted]'` (exported as `REDACTED`) in its place. A
+  placeholder rather than a deletion, deliberately: a missing `Parameters` key reads
+  the same as a state that never had one.
+
+  `path` is the node id followed by the dotted path within the state —
+  `'ProcessOrder'`, `'ProcessOrder.Parameters'`, `'ProcessOrder.Retry[0].MaxAttempts'`
+  — and for a run's text it is `'<stateId>.'` plus `input`, `output`, `cause` or
+  `error`. It is for matching, not identity: paths are concatenated, so a key that
+  itself contains a dot — `'Payload.$'`, which ASL uses constantly — looks the same as
+  one more level of nesting.
+
+  `stateId` is the entry a value is inlined **under**, which is not always the state it
+  describes. A Parallel or Map container's own ASL contains its children whole, so a
+  nested state's ASL is offered twice: once under its own id, and again inside its
+  container's entry. A container failure's `cause` goes the other way — one cause is
+  written onto every branch it abandoned, and is offered once per branch. So a hook
+  that has to catch every copy should key on `path` or on the value; `stateId` alone
+  will miss one.
+
+  A run's input, output and cause are only reached when `includeExecutionPayloads` is
+  on. Its **error name** is inlined on every execution document either way, so it is
+  always offered — a `Fail` state's `Error` or a Lambda's exception class is text the
+  history carried, not something the diagram draws.
+
+  Payloads are handed to the hook whole, before the 4096-character cap, so a hook that
+  parses one to scrub a field gets valid JSON rather than a string cut off mid-token.
+  The cap then trims whatever the hook returned, which is what keeps a substitution
+  inside the document's size budget.
+
+  Nothing is redacted by default: without the hook the raw ASL is inlined whole, as it
+  always has been. The hook is available on `generateHtml()`, `generateHtmlAsync()`,
+  `generateExecutionHtml()`, `generateExecutionHtmlAsync()`, `generateViewerUpdate()`
+  and `buildExecutionTimeline()`.
+
+  It governs the inlined data only. State names, choice conditions and variable
+  annotations are drawn into the SVG as text, so they are not offered to the hook —
+  redacting those would change the diagram rather than the data travelling beside it.
+  Being a function, it also has no CLI equivalent; the CLI inlines the ASL as before.
+
   `--diff` and `--execution` also accept `--format html`, which is where the viewer
   earns its keep: a large diff or execution overlay is far easier to read when you
   can search and inspect it.
@@ -281,7 +341,8 @@ Big, branchy state machines are hard to read as a static image. A few options he
   They are off by default on purpose. A history's payloads are the most sensitive thing
   it carries — request bodies, tokens, ARNs, whatever a Task was handed — and the
   default document is something people paste into an issue or a chat. Turning this on
-  means those payloads travel with the file.
+  means those payloads travel with the file — `redact` is what scrubs them when you
+  need the runs but not everything they carried.
 
   Each payload is cut to 4096 characters (`EXECUTION_PAYLOAD_CAP`) with a visible
   `Truncated to 4096 of 6014 characters` notice, and capture stops altogether once

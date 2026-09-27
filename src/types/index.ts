@@ -805,6 +805,64 @@ export interface HtmlDiffOverlay {
     before: AslDefinition | string;
 }
 
+/** What a {@link RedactCallback} is being asked about. */
+export interface RedactParams {
+    /**
+     * Which of the two inlined blobs the value came from: `'state'` for a state's raw
+     * ASL in `#sfn-state-data`, `'payload'` for a run's input, output, failure cause or
+     * error name on `#sfn-timeline-data`.
+     */
+    kind: 'payload' | 'state';
+    /**
+     * Where the value sits. For a state, the node id followed by the dotted path
+     * within its ASL - `'ProcessOrder'` for the state itself, then
+     * `'ProcessOrder.Parameters'`, `'ProcessOrder.Retry[0].MaxAttempts'`. For a
+     * payload, `'<stateId>.'` and one of `input`, `output`, `cause` or `error`.
+     *
+     * For matching, not identity: the path is built by concatenation, so a key that
+     * itself contains a dot or a bracket - `'Payload.$'`, which ASL uses constantly -
+     * produces a path indistinguishable from one more level of nesting.
+     */
+    path: string;
+    /**
+     * The entry the value is inlined *under*, as the node id the renderer stamps as
+     * `data-state-id`. Always present when the hook is called from a generator.
+     *
+     * Not always the state the value describes: a Parallel or Map container's own ASL
+     * contains its children whole, so a nested state's ASL is offered twice - once
+     * under its own scoped id, and again inside its container's entry under the
+     * container's id. A hook that must catch every copy keys on `path` or on the
+     * value, not on `stateId` alone.
+     */
+    stateId?: string;
+    /**
+     * The value as it would otherwise be inlined: any JSON value for a state, the
+     * payload text (already capped) for a payload.
+     */
+    value: unknown;
+}
+
+/**
+ * Decide what a generated document inlines for one value.
+ *
+ * Return `params.value` to keep it - which is also what lets the walk descend into it
+ * - any other value to inline that instead, or `undefined` to redact, which inlines
+ * `'[redacted]'` in its place. Runs at generate time, on the server, so it may do
+ * whatever a synchronous function can.
+ *
+ * Governs the two data blobs only. State names, choice conditions and variable
+ * annotations are drawn into the SVG itself, so they are not offered here: redacting
+ * them would change the diagram rather than the data travelling beside it.
+ *
+ * @example
+ * ```typescript
+ * // Drop every Parameters block, and every execution payload.
+ * const redact: RedactCallback = ({ kind, path, value }) =>
+ *     kind === 'payload' || path.endsWith('.Parameters') ? undefined : value;
+ * ```
+ */
+export type RedactCallback = (params: RedactParams) => unknown;
+
 /** Parameters for `generateHtml`. */
 export interface GenerateHtmlParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
@@ -843,6 +901,19 @@ export interface GenerateHtmlParams extends DiagramOptions {
      * default, byte-identical to output produced before nonce support existed.
      */
     nonce?: string;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and the text each execution run carries. Called once per
+     * state, then once per field at every depth, and once per payload; return the
+     * value to keep it, another value to substitute, or `undefined` to inline
+     * `'[redacted]'`. A run's input, output and cause are only reached when
+     * `includeExecutionPayloads` is on; its error name is inlined either way, so it is
+     * always offered.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /** Parameters for `generateViewerUpdate`. */
@@ -858,6 +929,19 @@ export interface GenerateViewerUpdateParams extends DiagramOptions {
      * @default false
      */
     relayout?: boolean;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and the text each execution run carries. Called once per
+     * state, then once per field at every depth, and once per payload; return the
+     * value to keep it, another value to substitute, or `undefined` to inline
+     * `'[redacted]'`. A run's input, output and cause are only reached when
+     * `includeExecutionPayloads` is on; its error name is inlined either way, so it is
+     * always offered.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /**
@@ -1247,6 +1331,19 @@ export interface GenerateExecutionHtmlParams extends GenerateExecutionParams {
      * error is thrown. Omit for a document with no nonce attributes at all.
      */
     nonce?: string;
+    /**
+     * Decide what the document inlines beyond the drawn diagram: the raw ASL in
+     * `#sfn-state-data`, and the text each execution run carries. Called once per
+     * state, then once per field at every depth, and once per payload; return the
+     * value to keep it, another value to substitute, or `undefined` to inline
+     * `'[redacted]'`. A run's input, output and cause are only reached when
+     * `includeExecutionPayloads` is on; its error name is inlined either way, so it is
+     * always offered.
+     *
+     * Without it nothing is redacted - the raw ASL is inlined whole, as it always has
+     * been. See {@link RedactCallback}.
+     */
+    redact?: RedactCallback;
 }
 
 /** Self-contained interactive HTML execution overlay output. */
