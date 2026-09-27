@@ -2,9 +2,15 @@ import { hook, type ListenerRegistry } from './dom';
 import { MAX_SCALE, MIN_SCALE, type Viewport } from './viewport';
 
 /**
- * Pointer and wheel handling on the stage: drag to pan, wheel to zoom, the toolbar
- * zoom buttons, and the "engaged" rule that decides when an embedded viewer may take
- * over the host page's scroll gestures.
+ * Pointer and wheel handling on the stage: drag to pan, pinch to zoom, wheel to zoom,
+ * the toolbar zoom buttons, and the "engaged" rule that decides when an embedded
+ * viewer may take over the host page's scroll gestures.
+ *
+ * Pointers are tracked by id rather than as one `lastX`/`lastY` pair, because the
+ * number of them down is what distinguishes the gestures: one pans, two pinch. The
+ * `touch-action: none` the stage takes once engaged (see `syncEngagedClass`) is what
+ * delivers the second finger here at all, instead of the browser handling it as a
+ * page zoom.
  */
 
 /** Parameters for {@link attachPanZoom}. */
@@ -128,15 +134,82 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         { passive: false },
     );
 
-    // Single-pointer pan only: with touch-action: none on the stage a second finger
-    // now reaches these handlers too, and following it would jitter the pan between
-    // the two. Whichever pointer went down first owns the drag until it lifts.
+    // Whichever pointer went down first owns the one-finger drag until it lifts.
     let dragPointerId: number | null = null;
+
+    // Every pointer currently down on the stage, in the order they arrived. One is a
+    // pan; two are a pinch; a third is tracked but does not join the gesture, since
+    // re-anchoring mid-pinch on a stray palm makes the diagram jump.
+    const activePointers = new Map<number, { x: number; y: number }>();
+
+    /**
+     * The live pinch, if two pointers are down: the pair driving it, and the span and
+     * midpoint they had on the previous move, which the next one is measured against.
+     */
+    let pinch: { centroidX: number; centroidY: number; distance: number; ids: [number, number] } | null =
+        null;
+
+    /** Midpoint and separation of the pinch pair, in stage coordinates. */
+    function pinchGeometry(ids: [number, number]): { centroidX: number; centroidY: number; distance: number } | null {
+        const first = activePointers.get(ids[0]);
+        const second = activePointers.get(ids[1]);
+        if (!first || !second) return null;
+        const rect = stage.getBoundingClientRect();
+        return {
+            centroidX: (first.x + second.x) / 2 - rect.left,
+            centroidY: (first.y + second.y) / 2 - rect.top,
+            distance: Math.hypot(first.x - second.x, first.y - second.y),
+        };
+    }
+
+    /** Promote the two oldest pointers to a pinch, or end one that lost a finger. */
+    function syncPinch(): void {
+        const ids = [...activePointers.keys()];
+        if (ids.length < 2) {
+            pinch = null;
+            return;
+        }
+        const pair: [number, number] = [ids[0], ids[1]];
+        // Already pinching with the same pair: leave its baseline alone, or every
+        // extra pointer arriving would reset the span and stall the zoom.
+        if (pinch && pinch.ids[0] === pair[0] && pinch.ids[1] === pair[1]) return;
+        const geometry = pinchGeometry(pair);
+        pinch = geometry ? { ...geometry, ids: pair } : null;
+    }
 
     on(stage, 'pointerdown', (event) => {
         const pointerEvent = event as PointerEvent;
         if (!isEngaged()) engagingPointerId = pointerEvent.pointerId;
         engage();
+
+        // A primary pointer is the first of its kind to go down, so anything still
+        // tracked when one arrives never ended - a pointerdown whose pointerup was
+        // lost. Dropping those here is what keeps the stale-pointer recovery the
+        // single-pointer path used to provide: without it a ghost would push every
+        // later press into the pinch branch below, and each one-finger drag would be
+        // read as a one-sided pinch against coordinates that never move again.
+        // A genuine second finger is never primary, so a real pinch is untouched.
+        if (pointerEvent.isPrimary) activePointers.clear();
+        activePointers.set(pointerEvent.pointerId, { x: pointerEvent.clientX, y: pointerEvent.clientY });
+
+        try {
+            stage.setPointerCapture(pointerEvent.pointerId);
+        } catch {
+            // Not an active pointer (a synthetic event): the gesture still runs on the
+            // plain pointermove/pointerup events that bubble up to the stage.
+        }
+
+        if (activePointers.size > 1) {
+            // A second finger turns the drag into a pinch, and a pinch is never a
+            // click however little the fingers move - so the click guard is spent
+            // here rather than left to chance. `travel` is also what gates the pan's
+            // own slop, and a gesture already under way should not have to re-earn it.
+            syncPinch();
+            travel = CLICK_SLOP + 1;
+            stage.classList.remove('sfn-dragging');
+            return;
+        }
+
         // A drag whose pointer still holds capture owns the stage. One that lost it
         // without a pointerup/pointercancel (a synthetic pointer id that capture
         // refused, for instance) is stale, and the new pointer takes over instead of
@@ -152,15 +225,46 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         // Remember what was pressed: setPointerCapture retargets every later pointer
         // event to the stage, so by pointerup e.target is no longer the node.
         downTarget = pointerEvent.target;
-        try {
-            stage.setPointerCapture(pointerEvent.pointerId);
-        } catch {
-            // Not an active pointer (a synthetic event): the drag still runs on the
-            // plain pointermove/pointerup events that bubble up to the stage.
-        }
     });
+
     on(stage, 'pointermove', (event) => {
         const pointerEvent = event as PointerEvent;
+        const tracked = activePointers.get(pointerEvent.pointerId);
+        if (tracked) {
+            tracked.x = pointerEvent.clientX;
+            tracked.y = pointerEvent.clientY;
+        }
+
+        if (pinch) {
+            // A third finger's movement changes nothing: the gesture belongs to the
+            // pair that started it.
+            if (pointerEvent.pointerId !== pinch.ids[0] && pointerEvent.pointerId !== pinch.ids[1]) return;
+            const geometry = pinchGeometry(pinch.ids);
+            if (!geometry) return;
+
+            // Spreading the fingers scales up, and the midpoint's own movement pans -
+            // both derived from the same pair, so one gesture does not fight the other.
+            // Clamp first, then use the ratio actually applied: at the zoom limit the
+            // maths has to fall back to a pure pan rather than drifting the diagram.
+            const desired =
+                pinch.distance > 0 ? viewport.scale * (geometry.distance / pinch.distance) : viewport.scale;
+            const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, desired));
+            const ratio = next / viewport.scale;
+
+            // Whatever content sat under the old midpoint stays under the new one.
+            viewport.translateX = geometry.centroidX - (pinch.centroidX - viewport.translateX) * ratio;
+            viewport.translateY = geometry.centroidY - (pinch.centroidY - viewport.translateY) * ratio;
+            viewport.scale = next;
+            viewport.adjusted = true;
+            viewport.apply();
+
+            travel += Math.abs(geometry.centroidX - pinch.centroidX) +
+                Math.abs(geometry.centroidY - pinch.centroidY) +
+                Math.abs(geometry.distance - pinch.distance);
+            pinch = { ...geometry, ids: pinch.ids };
+            return;
+        }
+
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         const dx = pointerEvent.clientX - lastX;
         const dy = pointerEvent.clientY - lastY;
@@ -177,6 +281,7 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         lastX = pointerEvent.clientX;
         lastY = pointerEvent.clientY;
     });
+
     function endDrag(pointerEvent: PointerEvent): void {
         dragging = false;
         dragPointerId = null;
@@ -185,9 +290,56 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
             stage.releasePointerCapture(pointerEvent.pointerId);
         }
     }
+
+    /**
+     * Drop a lifted or cancelled pointer and decide what is left of the gesture.
+     *
+     * @returns Whether a pinch was in progress, so the caller knows not to treat the
+     *   lift as a click - a two-finger gesture never is, however little it moved.
+     */
+    function releasePointer(pointerEvent: PointerEvent): boolean {
+        const wasPinching = pinch !== null;
+        activePointers.delete(pointerEvent.pointerId);
+        if (stage.hasPointerCapture(pointerEvent.pointerId)) {
+            stage.releasePointerCapture(pointerEvent.pointerId);
+        }
+
+        if (!wasPinching) return false;
+
+        const remaining = [...activePointers.entries()];
+        if (remaining.length >= 2) {
+            // A third finger was down; the pinch carries on with the oldest surviving
+            // pair, re-baselined so the change of pair is not read as a zoom.
+            pinch = null;
+            syncPinch();
+            return true;
+        }
+
+        pinch = null;
+        if (remaining.length === 1) {
+            // One finger left: hand back to panning, anchored where that finger
+            // actually is. Without the re-anchor the first move would be read as a
+            // drag all the way from wherever the pan last left off.
+            const [id, position] = remaining[0];
+            dragging = true;
+            dragPointerId = id;
+            lastX = position.x;
+            lastY = position.y;
+        } else {
+            dragging = false;
+            dragPointerId = null;
+            stage.classList.remove('sfn-dragging');
+        }
+        return true;
+    }
+
     on(stage, 'pointerup', (event) => {
         const pointerEvent = event as PointerEvent;
         if (pointerEvent.pointerId === engagingPointerId) engagingPointerId = null;
+        if (releasePointer(pointerEvent)) {
+            downTarget = null;
+            return;
+        }
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         endDrag(pointerEvent);
         if (travel <= CLICK_SLOP) activate({ moveFocus: false, target: downTarget });
@@ -201,6 +353,10 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
             engagingPointerId = null;
             pointerEngaged = false;
             syncEngagedClass(isEngaged());
+        }
+        if (releasePointer(pointerEvent)) {
+            downTarget = null;
+            return;
         }
         if (!dragging || pointerEvent.pointerId !== dragPointerId) return;
         endDrag(pointerEvent);

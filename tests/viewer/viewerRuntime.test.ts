@@ -3,7 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import puppeteer, { type Browser, type Page } from 'puppeteer';
+import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer';
 import { generateHtml, generateViewerUpdate } from '../../src';
 import type { ViewerUpdate } from '../../src';
 import type { AslDefinition } from '../../src/types';
@@ -37,6 +37,15 @@ let page: Page;
 /** Centre of a node group in viewport coordinates. */
 async function centerOf(stateId: string): Promise<{ x: number; y: number }> {
     return page.evaluate((id) => {
+        const element = document.querySelector(`[data-state-id="${id}"]`);
+        const rect = element!.getBoundingClientRect();
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }, stateId);
+}
+
+/** Centre of a node group in viewport coordinates, on any page. */
+async function centerOfOn(target: Page, stateId: string): Promise<{ x: number; y: number }> {
+    return target.evaluate((id) => {
         const element = document.querySelector(`[data-state-id="${id}"]`);
         const rect = element!.getBoundingClientRect();
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
@@ -3087,5 +3096,404 @@ describe('toolbar exports', () => {
         );
         expect(copied).toContain('Fresh');
         expect(copied).not.toContain('Alpha');
+    });
+});
+describe('pinch to zoom', () => {
+    let touchPage: Page;
+
+    let cdp: CDPSession;
+
+    /**
+     * Drive touches through CDP rather than Puppeteer's own touchscreen: that API
+     * models a single finger, and everything here is about what happens with two.
+     *
+     * One session for the whole gesture - Chromium tracks active touch points per
+     * session, so a fresh one per call is rejected with "Must send a TouchStart first".
+     */
+    const touch = async (
+        type: 'touchCancel' | 'touchEnd' | 'touchMove' | 'touchStart',
+        points: Array<{ id: number; x: number; y: number }>,
+    ): Promise<void> => {
+        await cdp.send('Input.dispatchTouchEvent', {
+            touchPoints: points.map((point) => ({ id: point.id, x: point.x, y: point.y })),
+            type,
+        });
+    };
+
+    /**
+     * Dispatch one synthetic PointerEvent on the stage.
+     *
+     * CDP drives real touches, which is what the pinch arithmetic below is measured
+     * with - but it cannot lift one finger of two: `touchEnd` with the remaining point
+     * releases every point, and a `touchMove` listing a subset is rejected outright
+     * (both measured). The multi-finger bookkeeping is therefore driven at the pointer
+     * layer the implementation actually listens on. `setPointerCapture` refuses a
+     * synthetic id, which `attachPanZoom` already tolerates by design.
+     */
+    const pointer = (type: string, id: number, x: number, y: number): Promise<void> =>
+        touchPage.evaluate(
+            (args) => {
+                document.querySelector('#sfn-stage')!.dispatchEvent(
+                    new PointerEvent(args.type, {
+                        bubbles: true,
+                        clientX: args.x,
+                        clientY: args.y,
+                        pointerId: args.id,
+                    }),
+                );
+            },
+            { id, type, x, y },
+        );
+
+    /**
+     * Let a dispatched move be consumed before the next one.
+     *
+     * Two touchMoves sent back to back are coalesced and the second is dropped, which
+     * reads in a test exactly like the handler ignoring it.
+     */
+    const settle = (): Promise<unknown> =>
+        touchPage.evaluate(
+            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+
+    /** The viewport transform, as the stage currently has it. */
+    const transform = (): Promise<{ scale: number; x: number; y: number }> =>
+        touchPage.$eval('#sfn-content', (element) => {
+            const match = /translate\(([-\d.]+)px, ?([-\d.]+)px\) scale\(([\d.]+)\)/.exec(
+                (element as HTMLElement).style.transform,
+            );
+            return match
+                ? { scale: Number(match[3]), x: Number(match[1]), y: Number(match[2]) }
+                : { scale: NaN, x: NaN, y: NaN };
+        });
+
+    beforeEach(async () => {
+        touchPage = await browser.newPage();
+        await touchPage.setViewport({ hasTouch: true, height: 800, isMobile: false, width: 1000 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await touchPage.setContent(html, { waitUntil: 'load' });
+        cdp = await touchPage.createCDPSession();
+    }, 60_000);
+
+    afterEach(async () => {
+        await touchPage.close();
+    });
+
+    it('zooms in as two fingers spread, about the point between them', async () => {
+        const before = await transform();
+
+        await touch('touchStart', [
+            { id: 1, x: 400, y: 400 },
+            { id: 2, x: 500, y: 400 },
+        ]);
+        // Same midpoint (450, 400), twice the span.
+        await touch('touchMove', [
+            { id: 1, x: 350, y: 400 },
+            { id: 2, x: 550, y: 400 },
+        ]);
+        await touch('touchEnd', []);
+
+        const after = await transform();
+        expect(after.scale / before.scale).toBeCloseTo(2, 1);
+        // The content under the midpoint did not move, which is what "about the point
+        // between them" means: solve the transform for it on both sides.
+        const contentBefore = (450 - before.x) / before.scale;
+        const contentAfter = (450 - after.x) / after.scale;
+        expect(contentAfter).toBeCloseTo(contentBefore, 0);
+    });
+
+    it('zooms out as they close', async () => {
+        const before = await transform();
+
+        await touch('touchStart', [
+            { id: 1, x: 350, y: 400 },
+            { id: 2, x: 550, y: 400 },
+        ]);
+        await touch('touchMove', [
+            { id: 1, x: 425, y: 400 },
+            { id: 2, x: 475, y: 400 },
+        ]);
+        await touch('touchEnd', []);
+
+        const after = await transform();
+        expect(after.scale / before.scale).toBeCloseTo(0.25, 1);
+    });
+
+    it('pans by the midpoint at the same time as it zooms', async () => {
+        await touch('touchStart', [
+            { id: 1, x: 400, y: 300 },
+            { id: 2, x: 500, y: 300 },
+        ]);
+        const before = await transform();
+
+        // Span unchanged, midpoint moved 100px right and 50px down: a pure pan.
+        await touch('touchMove', [
+            { id: 1, x: 500, y: 350 },
+            { id: 2, x: 600, y: 350 },
+        ]);
+        await touch('touchEnd', []);
+
+        const after = await transform();
+        expect(after.scale).toBeCloseTo(before.scale, 5);
+        expect(after.x - before.x).toBeCloseTo(100, 0);
+        expect(after.y - before.y).toBeCloseTo(50, 0);
+    });
+
+    it('never opens the detail panel, however little the fingers moved', async () => {
+        const centre = await centerOfOn(touchPage, 'Beta');
+
+        await touch('touchStart', [
+            { id: 1, x: centre.x, y: centre.y },
+            { id: 2, x: centre.x + 40, y: centre.y },
+        ]);
+        await touch('touchMove', [
+            { id: 1, x: centre.x, y: centre.y },
+            { id: 2, x: centre.x + 41, y: centre.y },
+        ]);
+        await touch('touchEnd', []);
+
+        // A two-finger gesture is not a click, even inside the click slop.
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(false);
+    });
+
+    it('still opens it for a plain one-finger tap', async () => {
+        const centre = await centerOfOn(touchPage, 'Beta');
+        await touch('touchStart', [{ id: 1, x: centre.x, y: centre.y }]);
+        await touch('touchEnd', []);
+
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+    });
+
+    it('measures the gesture against a diagram that was already panned and zoomed', async () => {
+        // Two toolbar zooms and a one-finger drag, so the pinch starts from something
+        // other than the fit transform it would otherwise be measured against.
+        await touchPage.evaluate(() => {
+            const zoomIn = document.querySelector('[data-sfn-zoom="in"]') as HTMLElement;
+            zoomIn.click();
+            zoomIn.click();
+        });
+        await touch('touchStart', [{ id: 1, x: 500, y: 400 }]);
+        await touch('touchMove', [{ id: 1, x: 560, y: 430 }]);
+        await touch('touchEnd', []);
+
+        const before = await transform();
+        // The fit transform for this diagram is scale 2.5 at x 300, so the starting
+        // point really is somewhere else by now - the ratio below is not measured
+        // against the identity.
+        expect(before.scale).toBeCloseTo(2.5 * 1.2 * 1.2, 2);
+        expect(before.x).not.toBeCloseTo(300, 0);
+
+        await touch('touchStart', [
+            { id: 1, x: 400, y: 400 },
+            { id: 2, x: 500, y: 400 },
+        ]);
+        await settle();
+        await touch('touchMove', [
+            { id: 1, x: 350, y: 400 },
+            { id: 2, x: 550, y: 400 },
+        ]);
+        await settle();
+        await touch('touchEnd', []);
+
+        const after = await transform();
+        // The ratio is relative to where the diagram already was, not to 1.
+        expect(after.scale / before.scale).toBeCloseTo(2, 1);
+        const contentBefore = (450 - before.x) / before.scale;
+        const contentAfter = (450 - after.x) / after.scale;
+        expect(contentAfter).toBeCloseTo(contentBefore, 0);
+    });
+
+    it('keeps following the original pair when a third finger joins', async () => {
+        const start = await transform();
+        await pointer('pointerdown', 1, 400, 400);
+        await pointer('pointerdown', 2, 600, 400);
+        await pointer('pointermove', 1, 350, 400);
+        await pointer('pointermove', 2, 650, 400);
+
+        const beforeThird = await transform();
+        // 200px apart, now 300px: the pinch is live before the third finger arrives.
+        expect(beforeThird.scale / start.scale).toBeCloseTo(1.5, 2);
+
+        // A third finger arriving must not re-baseline the span...
+        await pointer('pointerdown', 3, 800, 700);
+        expect(await transform()).toEqual(beforeThird);
+
+        // ...nor must moving it on its own do anything at all.
+        await pointer('pointermove', 3, 200, 200);
+        expect(await transform()).toEqual(beforeThird);
+
+        // The original pair still drives: 300px apart, now 400px, so 4/3.
+        await pointer('pointermove', 1, 300, 400);
+        await pointer('pointermove', 2, 700, 400);
+        const after = await transform();
+        expect(after.scale / beforeThird.scale).toBeCloseTo(4 / 3, 2);
+
+        await pointer('pointerup', 3, 200, 200);
+        await pointer('pointerup', 2, 700, 400);
+        await pointer('pointerup', 1, 300, 400);
+    });
+
+    it('hands back to a one-finger pan when a finger lifts, without jumping', async () => {
+        const start = await transform();
+        await pointer('pointerdown', 1, 400, 400);
+        await pointer('pointerdown', 2, 600, 400);
+        await pointer('pointermove', 1, 390, 400);
+        await pointer('pointermove', 2, 610, 400);
+
+        const pinched = await transform();
+        expect(pinched.scale / start.scale).toBeCloseTo(1.1, 2);
+
+        // Lift the second finger; the first stays where it already was.
+        await pointer('pointerup', 2, 610, 400);
+        expect(await transform()).toEqual(pinched);
+
+        // The very first move afterwards must pan by exactly its own delta. Without
+        // re-anchoring on the surviving finger it would be read as a drag all the way
+        // from wherever the pan last left off - here, a 340px jump back to where the
+        // one-finger pan was last anchored.
+        await pointer('pointermove', 1, 440, 430);
+        const panned = await transform();
+        expect(panned.scale).toBeCloseTo(pinched.scale, 5);
+        expect(panned.x - pinched.x).toBeCloseTo(50, 0);
+        expect(panned.y - pinched.y).toBeCloseTo(30, 0);
+
+        await pointer('pointerup', 1, 440, 430);
+    });
+
+    it('saturates at the zoom limits and keeps panning there rather than drifting', async () => {
+        // Spread far enough to blow well past MAX_SCALE (8): a 45x span increase on
+        // top of the 2.5 the diagram fits at.
+        await touch('touchStart', [
+            { id: 1, x: 490, y: 400 },
+            { id: 2, x: 510, y: 400 },
+        ]);
+        await settle();
+        await touch('touchMove', [
+            { id: 1, x: 50, y: 400 },
+            { id: 2, x: 950, y: 400 },
+        ]);
+        await settle();
+        const clampedIn = await transform();
+        // Saturated exactly at the bound - not merely somewhere below it.
+        expect(clampedIn.scale).toBe(8);
+
+        // Spreading further does not overshoot the bound, and the diagram still pans
+        // while it is held there.
+        //
+        // Not asserted as a *pure* pan: Chromium emits one touchmove per changed
+        // point, so a two-finger slide arrives as two events and the span wobbles
+        // between them. Unclamped that nets out exactly - (S-d)/S then S/(S-d) - but
+        // at the bound the first half is clamped and the second is not, so the scale
+        // comes back down. That is the right behaviour: it means pulling back from
+        // the limit starts zooming out immediately rather than through a dead zone.
+        await touch('touchMove', [
+            { id: 1, x: 40, y: 400 },
+            { id: 2, x: 990, y: 400 },
+        ]);
+        await settle();
+        const spreadFurther = await transform();
+        expect(spreadFurther.scale).toBe(8);
+        expect(spreadFurther.x).not.toBeCloseTo(clampedIn.x, 0);
+
+        // And pulling back in from the bound does reduce it, with no dead zone.
+        await touch('touchMove', [
+            { id: 1, x: 300, y: 400 },
+            { id: 2, x: 700, y: 400 },
+        ]);
+        await settle();
+        const pulledBack = await transform();
+        expect(pulledBack.scale).toBeLessThan(8);
+        expect(pulledBack.scale).toBeGreaterThan(0);
+        await touch('touchEnd', []);
+        await settle();
+
+        // And the other way, past MIN_SCALE (0.05).
+        await touch('touchStart', [
+            { id: 1, x: 50, y: 400 },
+            { id: 2, x: 950, y: 400 },
+        ]);
+        await settle();
+        await touch('touchMove', [
+            { id: 1, x: 499, y: 400 },
+            { id: 2, x: 501, y: 400 },
+        ]);
+        await settle();
+        expect((await transform()).scale).toBe(0.05);
+        await touch('touchEnd', []);
+    });
+
+    it('does not close an open panel when two fingers tap and lift', async () => {
+        // The gesture that catches this is the one the other no-tap test cannot: with
+        // a panel already open, the stray activate() lands on closePanel() rather than
+        // on nothing, taking the selection - and #315's deep link - with it.
+        // Opened with a real touch: `pointer` dispatches on the stage itself, so
+        // there would be no node under it to select.
+        const centre = await centerOfOn(touchPage, 'Beta');
+        await touch('touchStart', [{ id: 1, x: centre.x, y: centre.y }]);
+        await touch('touchEnd', []);
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+
+        // A two-finger tap with no movement at all, lifted in the order it went down.
+        await pointer('pointerdown', 2, 300, 500);
+        await pointer('pointerdown', 3, 500, 500);
+        await pointer('pointerup', 2, 300, 500);
+        await pointer('pointerup', 3, 500, 500);
+
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+    });
+
+    it('recovers from a pointer whose pointerup never arrived', async () => {
+        // The single-pointer path had this recovery before pinch existed: a press that
+        // never lifts must not wedge panning. A ghost left in the map would otherwise
+        // push every later press into the pinch branch, and each one-finger drag would
+        // be read as a one-sided pinch against coordinates that never move again.
+        await pointer('pointerdown', 9, 200, 200);
+
+        const before = await transform();
+        // A real mouse press is primary, which is what clears the ghost.
+        await touchPage.mouse.move(500, 400);
+        await touchPage.mouse.down();
+        await touchPage.mouse.move(560, 400);
+        await touchPage.mouse.up();
+
+        const after = await transform();
+        expect(after.scale).toBeCloseTo(before.scale, 5);
+        expect(after.x - before.x).toBeCloseTo(60, 0);
+    });
+
+    it('behaves identically under prefers-reduced-motion', async () => {
+        // Nothing about pan or zoom is transitioned, so the preference must not change
+        // the arithmetic - only that it is asserted stops a future transition from
+        // quietly making the gesture lag behind the fingers.
+        await touchPage.emulateMediaFeatures([
+            { name: 'prefers-reduced-motion', value: 'reduce' },
+        ]);
+        const before = await transform();
+
+        await touch('touchStart', [
+            { id: 1, x: 400, y: 400 },
+            { id: 2, x: 500, y: 400 },
+        ]);
+        await settle();
+        await touch('touchMove', [
+            { id: 1, x: 350, y: 400 },
+            { id: 2, x: 550, y: 400 },
+        ]);
+        await settle();
+        await touch('touchEnd', []);
+
+        const after = await transform();
+        expect(after.scale / before.scale).toBeCloseTo(2, 1);
+        const contentBefore = (450 - before.x) / before.scale;
+        const contentAfter = (450 - after.x) / after.scale;
+        expect(contentAfter).toBeCloseTo(contentBefore, 0);
     });
 });
