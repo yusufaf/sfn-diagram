@@ -2875,3 +2875,168 @@ describe('deep links via location.hash', () => {
     // host page's fragment - needs a real element bundle and a real origin, so it
     // lives in tests/element/elementRuntime.test.ts.
 });
+describe('toolbar exports', () => {
+    let exportPage: Page;
+
+    /** Click a toolbar button without moving the mouse, which could pan the stage. */
+    const clickToolbar = (selector: string): Promise<void> =>
+        exportPage.evaluate((target) => {
+            (document.querySelector(target) as HTMLElement).click();
+        }, selector);
+
+    const buttonLabel = (selector: string): Promise<string | null> =>
+        exportPage.$eval(selector, (element) => element.textContent);
+
+    beforeAll(async () => {
+        exportPage = await browser.newPage();
+        await exportPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await exportPage.setContent(html, { waitUntil: 'load' });
+
+        // Capture the download rather than letting Chromium write it to disk, and
+        // record the clipboard the copy button reaches for.
+        await exportPage.evaluate(() => {
+            const store = window as unknown as {
+                sfnClipboard?: string;
+                sfnDownloads?: Array<{ name: string; type: string }>;
+                sfnLastBlob?: string;
+            };
+            store.sfnDownloads = [];
+            const realCreate = URL.createObjectURL.bind(URL);
+            URL.createObjectURL = (blob: Blob) => {
+                store.sfnDownloads!.push({ name: '', type: blob.type });
+                void blob.text().then((text) => {
+                    store.sfnLastBlob = text;
+                });
+                return realCreate(blob);
+            };
+            const realClick = HTMLAnchorElement.prototype.click;
+            HTMLAnchorElement.prototype.click = function patched(this: HTMLAnchorElement) {
+                if (this.download) {
+                    store.sfnDownloads![store.sfnDownloads!.length - 1].name = this.download;
+                    return;
+                }
+                realClick.call(this);
+            };
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: {
+                    writeText: (text: string) => {
+                        store.sfnClipboard = text;
+                        return Promise.resolve();
+                    },
+                },
+            });
+        });
+    }, 60_000);
+
+    afterAll(async () => {
+        await exportPage.close();
+    });
+
+    it('downloads the SVG that is on screen, named for the diagram', async () => {
+        await clickToolbar('[data-sfn="export-svg"]');
+        await exportPage.waitForFunction(
+            () => (window as unknown as { sfnLastBlob?: string }).sfnLastBlob !== undefined,
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const download = await exportPage.evaluate(() => {
+            const store = window as unknown as {
+                sfnDownloads: Array<{ name: string; type: string }>;
+                sfnLastBlob: string;
+            };
+            return { blob: store.sfnLastBlob, entry: store.sfnDownloads[0] };
+        });
+
+        expect(download.entry).toEqual({ name: 'diagram.svg', type: 'image/svg+xml;charset=utf-8' });
+        expect(download.blob).toContain('xmlns="http://www.w3.org/2000/svg"');
+        expect(download.blob).toContain('data-state-id="Alpha"');
+    });
+
+    it('leaves search dimming out of the download - that is this reader, not the diagram', async () => {
+        await typeSearch({ expectedCount: '1 / 1', target: exportPage, text: 'Beta' });
+        // The live SVG really is dimmed, so the assertion below is not vacuous.
+        expect(
+            await exportPage.$eval('[data-state-id="Alpha"]', (element) =>
+                element.classList.contains('sfn-dim'),
+            ),
+        ).toBe(true);
+
+        await exportPage.evaluate(() => {
+            (window as unknown as { sfnLastBlob?: string }).sfnLastBlob = undefined;
+        });
+        await clickToolbar('[data-sfn="export-svg"]');
+        await exportPage.waitForFunction(
+            () => (window as unknown as { sfnLastBlob?: string }).sfnLastBlob !== undefined,
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const blob = await exportPage.evaluate(
+            () => (window as unknown as { sfnLastBlob: string }).sfnLastBlob,
+        );
+        expect(blob).not.toContain('sfn-dim');
+        expect(blob).toContain('data-state-id="Alpha"');
+
+        await exportPage.evaluate(() => {
+            const input = document.querySelector('#sfn-search') as HTMLInputElement;
+            input.value = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }, 20_000);
+
+    it('copies the embedded Mermaid source', async () => {
+        await clickToolbar('[data-sfn="copy-mermaid"]');
+        await exportPage.waitForFunction(
+            () => (window as unknown as { sfnClipboard?: string }).sfnClipboard !== undefined,
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const copied = await exportPage.evaluate(
+            () => (window as unknown as { sfnClipboard: string }).sfnClipboard,
+        );
+        expect(copied).toContain('stateDiagram-v2');
+        expect(copied).toContain('Alpha');
+        expect(await buttonLabel('[data-sfn="copy-mermaid"]')).toBe('Copied');
+    });
+
+    it('says so rather than copying the old diagram after a content swap sent none', async () => {
+        const update: ViewerUpdate = generateViewerUpdate({
+            aslDefinition: { StartAt: 'Fresh', States: { Fresh: { Type: 'Succeed' } } } as AslDefinition,
+        });
+        await exportPage.evaluate((detail) => {
+            const withoutMermaid = { ...(detail as Record<string, unknown>) };
+            delete withoutMermaid.mermaid;
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail: withoutMermaid }));
+        }, update as unknown as Record<string, unknown>);
+
+        await clickToolbar('[data-sfn="copy-mermaid"]');
+        await exportPage.waitForFunction(
+            () => document.querySelector('[data-sfn="copy-mermaid"]')!.textContent === 'Unavailable',
+            { polling: 20, timeout: 5_000 },
+        );
+        expect(await buttonLabel('[data-sfn="copy-mermaid"]')).toBe('Unavailable');
+    });
+
+    it('copies the new diagram when the swap did send its Mermaid', async () => {
+        const update: ViewerUpdate = generateViewerUpdate({
+            aslDefinition: { StartAt: 'Fresh', States: { Fresh: { Type: 'Succeed' } } } as AslDefinition,
+        });
+        await exportPage.evaluate((detail) => {
+            (window as unknown as { sfnClipboard?: string }).sfnClipboard = undefined;
+            document.dispatchEvent(new CustomEvent('sfn-set-content', { detail }));
+        }, update as unknown as Record<string, unknown>);
+
+        await clickToolbar('[data-sfn="copy-mermaid"]');
+        await exportPage.waitForFunction(
+            () => (window as unknown as { sfnClipboard?: string }).sfnClipboard !== undefined,
+            { polling: 20, timeout: 5_000 },
+        );
+
+        const copied = await exportPage.evaluate(
+            () => (window as unknown as { sfnClipboard: string }).sfnClipboard,
+        );
+        expect(copied).toContain('Fresh');
+        expect(copied).not.toContain('Alpha');
+    });
+});

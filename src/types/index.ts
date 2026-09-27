@@ -959,6 +959,13 @@ export interface ViewerUpdate {
     /** Whether `contentHtml` embeds a second, collapsed view behind a toggle. */
     hasCollapsedView: boolean;
 
+    /**
+     * Mermaid source for the same diagram, for the viewer toolbar's copy button. Pass
+     * it to `ViewerHandle.setContent` alongside `contentHtml`, or the button would go
+     * on handing out the Mermaid of the diagram that was just replaced.
+     */
+    mermaid: string;
+
     /** Metadata about the rendered diagram (the expanded view's, when both are shipped). */
     metadata: SvgOutput['metadata'];
 

@@ -6,6 +6,7 @@ const update: ViewerUpdate = {
     contentHtml: '<svg>diagram</svg>',
     edgeData: { 'A->B#normal#0': { from: 'A', to: 'B', type: 'normal' } },
     hasCollapsedView: false,
+    mermaid: 'stateDiagram-v2',
     metadata: { edgeCount: 1, nodeCount: 2 },
     stateData: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } },
 }
@@ -16,6 +17,7 @@ describe('buildUpdateContentMessage', () => {
             command: 'updateContent',
             contentHtml: update.contentHtml,
             edgeData: update.edgeData,
+            mermaid: update.mermaid,
             stateData: update.stateData,
         })
     })

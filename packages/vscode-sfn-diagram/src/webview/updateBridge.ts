@@ -33,6 +33,7 @@ export function buildUpdateBridgeScript(): string {
         detail: {
           contentHtml: message.contentHtml,
           edgeData: message.edgeData,
+          mermaid: message.mermaid,
           stateData: message.stateData,
         },
       }));

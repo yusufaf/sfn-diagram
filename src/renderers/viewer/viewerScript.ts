@@ -5,6 +5,8 @@ import { VIEWER_CONTROLLER_BUNDLE } from './viewerScript.generated';
 export interface BuildViewerScriptParams {
     /** Whether the click-an-edge panel is wired up (only when edge data was embedded). */
     hasEdgeData?: boolean;
+    /** Whether the document embeds Mermaid source for the toolbar's copy button. */
+    hasMermaid?: boolean;
     /**
      * Whether per-container collapse is wired up (only when a relayout model was
      * embedded). Inlines the relayout bundle — the graph, layout and renderer code —
@@ -19,15 +21,19 @@ export interface BuildViewerScriptParams {
 
 /**
  * Build a snippet that parses one embedded JSON blob into `variableName`, falling back
- * to an empty object when the element is missing or its contents fail to parse.
+ * to `fallback` when the element is missing or its contents fail to parse.
+ *
+ * The fallback has to match the blob's own shape. Every blob but one holds an object,
+ * and the Mermaid blob holds a bare string - defaulting that to `{}` would leave the
+ * copy button handing out `[object Object]` rather than reporting it had nothing.
  */
-function readBlob(variableName: string, elementId: string): string {
+function readBlob(variableName: string, elementId: string, fallback = '{}'): string {
     return `
-  var ${variableName} = {};
+  var ${variableName} = ${fallback};
   try {
-    ${variableName} = JSON.parse(document.getElementById('${elementId}').textContent) || {};
+    ${variableName} = JSON.parse(document.getElementById('${elementId}').textContent) || ${fallback};
   } catch (err) {
-    ${variableName} = {};
+    ${variableName} = ${fallback};
   }
 `;
 }
@@ -49,6 +55,7 @@ function readBlob(variableName: string, elementId: string): string {
  *
  * @param params - Script parameters
  * @param params.hasEdgeData - Whether to wire up the click-an-edge panel
+ * @param params.hasMermaid - Whether the document embeds Mermaid source to copy
  * @param params.hasRelayout - Whether to inline the relayout bundle and wire up per-container collapse
  * @param params.hasStateData - Whether to wire up the click-a-state panel
  * @param params.hasTimeline - Whether to wire up execution playback
@@ -61,17 +68,25 @@ function readBlob(variableName: string, elementId: string): string {
  * ```
  */
 export function buildViewerScript(params: BuildViewerScriptParams): string {
-    const { hasEdgeData = false, hasRelayout = false, hasStateData, hasTimeline = false } = params;
+    const {
+        hasEdgeData = false,
+        hasMermaid = false,
+        hasRelayout = false,
+        hasStateData,
+        hasTimeline = false,
+    } = params;
 
     const reads =
         (hasStateData ? readBlob('stateData', 'sfn-state-data') : '') +
         (hasEdgeData ? readBlob('edgeData', 'sfn-edge-data') : '') +
+        (hasMermaid ? readBlob('mermaid', 'sfn-mermaid-data', "''") : '') +
         (hasRelayout ? readBlob('relayoutModel', 'sfn-relayout-model') : '') +
         (hasTimeline ? readBlob('timeline', 'sfn-timeline-data') : '');
 
     // Alphabetical, matching the AttachViewerParams field order.
     const attachArgs: string[] = [];
     if (hasEdgeData) attachArgs.push('edgeData: edgeData');
+    if (hasMermaid) attachArgs.push('mermaid: mermaid');
     if (hasRelayout) {
         attachArgs.push('relayout: { model: relayoutModel, render: sfnRelayout.renderCollapsedView }');
     }

@@ -15,6 +15,7 @@ import { computeDiffStyling, computeStateDiff, summarizeDiff } from './diff';
 import { computeExecutionStyling } from './execution';
 import { computeCollapsePlan, styleCollapsedView } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
+import { MermaidRenderer } from './renderers';
 import {
     buildEdgeData,
     buildViewerContent,
@@ -162,6 +163,7 @@ function buildHtmlViews(params: {
     collapsedSvgOutput?: SvgOutput;
     edges: GraphEdge[];
     execution?: ExecutionSummary;
+    mermaid: string;
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
@@ -245,10 +247,27 @@ function buildHtmlViews(params: {
               })
             : undefined;
 
+    // The toolbar's "copy as Mermaid" hands out source the browser cannot render for
+    // itself: the viewer bundle may only contain src/renderers/viewer/**, and
+    // MermaidRenderer is outside it. Built from the same graph the expanded view was
+    // drawn from - the view the document opens on - so the copy matches what is on
+    // screen rather than a second parse of the definition. Structure only: no diff or
+    // execution styling, which Mermaid has no vocabulary for here.
+    const mermaid = new MermaidRenderer().render({
+        asl: aslObj,
+        customColors: options.customColors,
+        edges,
+        layout: options.layout,
+        nodes,
+        showVariables: options.showVariables,
+        theme: options.theme,
+    }).code;
+
     return {
         collapsedSvgOutput,
         edges: parsed.edges,
         execution: overlays.execution?.summary,
+        mermaid,
         relayoutModel,
         svgOutput,
     };
@@ -279,15 +298,17 @@ function buildHtmlViewParts(params: {
     collapsedSvgOutput?: SvgOutput;
     edges: GraphEdge[];
     execution?: ExecutionSummary;
+    mermaid: string;
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } = buildHtmlViews(params);
+    const { collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
+        buildHtmlViews(params);
     const collapsedSvg =
         collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
             ? collapsedSvgOutput.svg
             : undefined;
-    return { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput };
+    return { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput };
 }
 
 /**
@@ -417,7 +438,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
@@ -435,6 +456,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg,
             edgeData: buildEdgeData({ edges }),
+            mermaid,
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             relayoutModel,
@@ -477,7 +499,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, relayoutModel, svgOutput } = buildHtmlViewParts({
+    const { collapsedSvg, collapsedSvgOutput, edges, mermaid, relayoutModel, svgOutput } = buildHtmlViewParts({
         afterObj: aslObj,
         aslObj,
         options: mergedOptions,
@@ -495,6 +517,7 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
         }),
         edgeData: buildEdgeData({ edges }),
         hasCollapsedView: collapsedSvg !== undefined,
+        mermaid,
         metadata: svgOutput.metadata,
         ...(relayoutModel ? { relayoutModel } : {}),
         stateData: redactStateData({ redact, stateData: collectStateData({ definition: aslObj }) }),
@@ -528,7 +551,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, relayoutModel, svgOutput } =
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
@@ -559,6 +582,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             collapsedNodeCount: collapsedSvg ? collapsedSvgOutput?.metadata.nodeCount : undefined,
             collapsedSvg: embeddedCollapsedSvg,
             edgeData: buildEdgeData({ edges }),
+            mermaid,
             nodeCount: svgOutput.metadata.nodeCount,
             nonce,
             relayoutModel: embeddedModel,

@@ -5,6 +5,8 @@ export interface UpdateContentMessage {
     command: 'updateContent'
     contentHtml: string
     edgeData: ViewerUpdate['edgeData']
+    /** Mermaid for the new diagram, so the viewer's copy button does not go stale. */
+    mermaid: ViewerUpdate['mermaid']
     stateData: ViewerUpdate['stateData']
 }
 
@@ -42,6 +44,7 @@ export function buildUpdateContentMessage(params: BuildUpdateContentMessageParam
         command: 'updateContent',
         contentHtml: update.contentHtml,
         edgeData: update.edgeData,
+        mermaid: update.mermaid,
         stateData: update.stateData,
     }
 }
