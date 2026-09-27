@@ -94,6 +94,70 @@ sfn-diagram state.asl.json --format png --theme ./transparent.theme.json \
 { "base": "light", "background": "transparent" }
 ```
 
+## Exit codes
+
+Every invocation exits with one of three codes, so a script can tell a mistake in the
+command from a failure while running it without parsing stderr.
+
+| Code | Meaning |
+|---|---|
+| `0` | Success. Also a deliberate no-op: [`comment gitlab`](#comment-gitlab) on a pipeline with nothing to do, and `--check` finding nothing worse than a warning. |
+| `1` | **Runtime failure.** The invocation was valid, but something went wrong: an input that could not be read or parsed, a template with no extractable state machine, an unreadable `--theme` file, a missing optional peer dependency, a failed write. Also `--check` finding at least one error-severity diagnostic. |
+| `2` | **Usage error.** The invocation itself cannot work: an unknown flag, an invalid value, a blank value, a combination that is contradictory, or a required flag left out. Nothing about the input file would change the outcome. |
+
+Nothing else is ever returned.
+
+### `--check` shares 1 on purpose
+
+`--check` lints instead of drawing, and exits `1` when it finds an error-severity
+diagnostic — a finding, not a malfunction, and the same code a linter uses for the same
+reason. That is why usage errors live on `2`: it leaves `1` free to mean "I ran and the
+answer was no" without colliding with "you invoked me wrong".
+
+```bash
+sfn-diagram state.asl.json --check
+case $? in
+  0) echo "clean (or warnings only)" ;;
+  1) echo "lint errors found" ;;
+  2) echo "bad invocation" ;;
+esac
+```
+
+### Which code a bad path gets
+
+A path that cannot be read is a runtime failure, not a usage error — the command was
+well formed and the filesystem was not cooperative:
+
+```bash
+sfn-diagram missing.asl.json                 # 1
+sfn-diagram state.asl.json --diff gone.json  # 1
+sfn-diagram state.asl.json --theme gone.json # 1
+```
+
+A misspelled `--theme` lands in the same place, because `--theme` accepts either a
+built-in name or a path and the two are indistinguishable once the read fails. The
+error message names all the accepted forms for that reason:
+
+```
+$ sfn-diagram state.asl.json --theme ligth
+Error: Cannot read theme file ligth: ENOENT: no such file or directory, open '…/ligth'
+--theme takes light, dark, or a path to a theme JSON file.
+```
+
+### In CI
+
+```yaml
+- name: Render the diagram
+  run: |
+    if ! sfn-diagram state.asl.json -o diagram.svg; then
+      case $? in
+        2) echo "::error::sfn-diagram was invoked incorrectly - check the flags" ;;
+        *) echo "::error::sfn-diagram failed to render - check the definition" ;;
+      esac
+      exit 1
+    fi
+```
+
 ## Diff and execution overlays from the CLI
 
 ```bash
