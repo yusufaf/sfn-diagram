@@ -389,7 +389,10 @@ interface ExpectNonBlankParams {
 function expectNonBlank(params: ExpectNonBlankParams): string {
     const { flag, value } = params;
     if (value.trim() === '') {
-        throw new CliError(`Invalid ${flag}: expected a non-empty value`, 2);
+        throw new CliError(
+            `Invalid ${flag}: expected a non-empty value`,
+            EXIT_USAGE,
+        );
     }
     return value;
 }
@@ -626,11 +629,12 @@ function remapParseArgsError(error: unknown): CliError {
  * Report an exception that escaped {@link run}, and give the exit code to use for it.
  *
  * `run` turns every anticipated problem into a return code, so reaching here means a
- * bug rather than a usage or input problem — `remapParseArgsError` rethrowing a
- * `node:util.parseArgs` error it does not recognise, for instance, or an `EPIPE` on a
- * closed stdout. Reported as a runtime failure so `1` keeps meaning what the
- * documented exit-code convention says it means, rather than leaving Node to print an
- * unhandled rejection and pick a code itself.
+ * bug: the only path known to get here is `remapParseArgsError` rethrowing a
+ * `node:util.parseArgs` error it does not recognise, which no argv shape currently
+ * produces. It is defence rather than a live code path, and exists so that such a bug
+ * reports as a runtime failure — keeping `1` meaning what the documented exit-code
+ * convention says — instead of Node printing an unhandled rejection and choosing a
+ * code itself.
  *
  * @param error - The value the rejected promise carried, which need not be an `Error`.
  *

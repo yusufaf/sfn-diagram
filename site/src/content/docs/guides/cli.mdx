@@ -74,9 +74,10 @@ Every field is optional. `base` picks which built-in theme supplies the ones you
 out, so a file naming only `nodeColors.Task` is a one-colour tweak to the light theme
 rather than a theme built from nothing.
 
-A missing file, malformed JSON, or a top-level value that isn't an object is a usage
-error: the CLI writes `Error: Cannot read theme file <path>: <reason>` to stderr and
-exits `2`.
+A missing file, malformed JSON, or a top-level value that isn't an object is a runtime
+failure: the CLI writes `Error: Cannot read theme file <path>: <reason>` to stderr and
+exits `1`, the same as any other path it cannot read. See
+[Exit codes](#exit-codes).
 
 ## Background color and the theme
 
@@ -146,16 +147,22 @@ Error: Cannot read theme file ligth: ENOENT: no such file or directory, open 'â€
 
 ### In CI
 
+Capture the status into a variable before branching on it. Inside
+`if ! command; then`, `$?` is the status of the negated test rather than the command's,
+so it is always `0` there and a `case` on it would never match:
+
 ```yaml
 - name: Render the diagram
   run: |
-    if ! sfn-diagram state.asl.json -o diagram.svg; then
-      case $? in
-        2) echo "::error::sfn-diagram was invoked incorrectly - check the flags" ;;
-        *) echo "::error::sfn-diagram failed to render - check the definition" ;;
-      esac
-      exit 1
-    fi
+    set +e
+    sfn-diagram state.asl.json -o diagram.svg
+    status=$?
+    set -e
+    case "$status" in
+      0) ;;
+      2) echo "::error::sfn-diagram was invoked incorrectly - check the flags"; exit 1 ;;
+      *) echo "::error::sfn-diagram failed to render - check the definition"; exit 1 ;;
+    esac
 ```
 
 ## Diff and execution overlays from the CLI
