@@ -3426,6 +3426,49 @@ describe('pinch to zoom', () => {
         await touch('touchEnd', []);
     });
 
+    it('does not close an open panel when two fingers tap and lift', async () => {
+        // The gesture that catches this is the one the other no-tap test cannot: with
+        // a panel already open, the stray activate() lands on closePanel() rather than
+        // on nothing, taking the selection - and #315's deep link - with it.
+        // Opened with a real touch: `pointer` dispatches on the stage itself, so
+        // there would be no node under it to select.
+        const centre = await centerOfOn(touchPage, 'Beta');
+        await touch('touchStart', [{ id: 1, x: centre.x, y: centre.y }]);
+        await touch('touchEnd', []);
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+
+        // A two-finger tap with no movement at all, lifted in the order it went down.
+        await pointer('pointerdown', 2, 300, 500);
+        await pointer('pointerdown', 3, 500, 500);
+        await pointer('pointerup', 2, 300, 500);
+        await pointer('pointerup', 3, 500, 500);
+
+        expect(
+            await touchPage.$eval('#sfn-panel', (element) => element.classList.contains('sfn-open')),
+        ).toBe(true);
+    });
+
+    it('recovers from a pointer whose pointerup never arrived', async () => {
+        // The single-pointer path had this recovery before pinch existed: a press that
+        // never lifts must not wedge panning. A ghost left in the map would otherwise
+        // push every later press into the pinch branch, and each one-finger drag would
+        // be read as a one-sided pinch against coordinates that never move again.
+        await pointer('pointerdown', 9, 200, 200);
+
+        const before = await transform();
+        // A real mouse press is primary, which is what clears the ghost.
+        await touchPage.mouse.move(500, 400);
+        await touchPage.mouse.down();
+        await touchPage.mouse.move(560, 400);
+        await touchPage.mouse.up();
+
+        const after = await transform();
+        expect(after.scale).toBeCloseTo(before.scale, 5);
+        expect(after.x - before.x).toBeCloseTo(60, 0);
+    });
+
     it('behaves identically under prefers-reduced-motion', async () => {
         // Nothing about pan or zoom is transitioned, so the preference must not change
         // the arithmetic - only that it is asserted stops a future transition from

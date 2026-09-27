@@ -181,6 +181,15 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         const pointerEvent = event as PointerEvent;
         if (!isEngaged()) engagingPointerId = pointerEvent.pointerId;
         engage();
+
+        // A primary pointer is the first of its kind to go down, so anything still
+        // tracked when one arrives never ended - a pointerdown whose pointerup was
+        // lost. Dropping those here is what keeps the stale-pointer recovery the
+        // single-pointer path used to provide: without it a ghost would push every
+        // later press into the pinch branch below, and each one-finger drag would be
+        // read as a one-sided pinch against coordinates that never move again.
+        // A genuine second finger is never primary, so a real pinch is untouched.
+        if (pointerEvent.isPrimary) activePointers.clear();
         activePointers.set(pointerEvent.pointerId, { x: pointerEvent.clientX, y: pointerEvent.clientY });
 
         try {
@@ -191,10 +200,12 @@ export function attachPanZoom(params: AttachPanZoomParams): PanZoom {
         }
 
         if (activePointers.size > 1) {
-            // A second finger turns the drag into a pinch. `travel` is left where it
-            // is - a two-finger gesture is never a click, whatever the movement adds
-            // up to, and the guard below reads it after the fact.
+            // A second finger turns the drag into a pinch, and a pinch is never a
+            // click however little the fingers move - so the click guard is spent
+            // here rather than left to chance. `travel` is also what gates the pan's
+            // own slop, and a gesture already under way should not have to re-earn it.
             syncPinch();
+            travel = CLICK_SLOP + 1;
             stage.classList.remove('sfn-dragging');
             return;
         }
