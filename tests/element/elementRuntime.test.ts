@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import type { AslDefinition } from '../../src/types';
@@ -801,4 +802,72 @@ describe('defineSfnDiagram', () => {
         expect(result.defaultTagDefined).toBe(false);
         await scoped.close();
     }, 120_000);
+});
+describe('deep links belong to the document, not to an embedded element', () => {
+    let hostDir: string;
+    let hostFile: string;
+    let hostPage: Page;
+
+    beforeAll(async () => {
+        // A real origin: replaceState refuses an opaque one, so an about:blank page
+        // could not tell "the element declined to write" from "the write threw".
+        hostDir = mkdtempSync(join(tmpdir(), 'sfn-element-hash-'));
+        hostFile = join(hostDir, 'host.html');
+        writeFileSync(
+            hostFile,
+            `<!doctype html><html><body><script type="module">${autoElementBundle}</script>` +
+                `<sfn-diagram interactive definition='${JSON.stringify(asl)}'></sfn-diagram>` +
+                `</body></html>`,
+            'utf-8',
+        );
+
+        hostPage = await browser.newPage();
+        await hostPage.setViewport({ width: 1280, height: 800 });
+        await hostPage.goto(pathToFileURL(hostFile).href, { waitUntil: 'load' });
+        await hostPage.waitForFunction(
+            () => !!document.querySelector('[data-state-id="Process"]'),
+            POLLING_OPTIONS,
+        );
+    }, 60_000);
+
+    afterAll(async () => {
+        await hostPage?.close();
+        rmSync(hostDir, { force: true, recursive: true });
+    });
+
+    it('opens its panel without writing the host page\'s fragment', async () => {
+        await hostPage.evaluate(() => {
+            const group = document.querySelector('[data-state-id="Process"]') as SVGElement;
+            const options = { bubbles: true, pointerId: 1 };
+            group.dispatchEvent(new PointerEvent('pointerdown', options));
+            group.dispatchEvent(new PointerEvent('pointerup', options));
+        });
+
+        // The viewer really is live - otherwise this asserts nothing at all.
+        expect(
+            await hostPage.$eval('[data-sfn="panel"]', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(true);
+        expect(await hostPage.evaluate(() => location.hash)).toBe('');
+    });
+
+    it('ignores a fragment the host page happens to carry', async () => {
+        await hostPage.evaluate(() => {
+            (document.querySelector('[data-sfn="panel-close"]') as HTMLElement).click();
+            location.hash = '#sfn=state:Start';
+        });
+        // Give any hashchange listener the frames it would need to act.
+        await hostPage.evaluate(
+            () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+
+        expect(
+            await hostPage.$eval('[data-sfn="panel"]', (element) =>
+                element.classList.contains('sfn-open'),
+            ),
+        ).toBe(false);
+        // Left exactly as the host page set it.
+        expect(await hostPage.evaluate(() => location.hash)).toBe('#sfn=state:Start');
+    });
 });

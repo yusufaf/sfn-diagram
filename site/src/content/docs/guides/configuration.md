@@ -188,6 +188,37 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
 
+  ### Deep links
+
+  Selecting a state or edge in the standalone HTML viewer writes it into the URL, so a
+  reader can send a colleague straight to it:
+
+  ```
+  diagram.html#sfn=state:ProcessOrder
+  diagram.html#sfn=edge:ProcessOrder-%3EShip
+  ```
+
+  Opening a document with one of those opens the panel on that state or edge; closing
+  the panel clears the fragment again. The id is percent-encoded, which an edge needs —
+  its id carries the `->` of the transition it describes. A link into a state the
+  diagram no longer has opens nothing, and the link itself is left in the address bar
+  so it can still be read, copied, and retried once the diagram is regenerated.
+
+  The fragment is rewritten with `replaceState`, so clicking through six states does
+  not bury the page you came from under six history entries: Back leaves the document,
+  as it always did. Editing the fragment in the address bar works the other way round
+  and moves the panel.
+
+  Two things opt out of it entirely:
+
+  - **An embedded `<sfn-diagram>`.** `location.hash` belongs to the page, and an
+    embedded element is a component on someone else's — possibly one of several sharing
+    the one URL — so it never reads or writes the fragment.
+  - **A document that arrived with someone else's fragment.** If the URL already
+    carries something that is not `#sfn=…`, the viewer leaves the fragment alone for
+    the life of the page: claiming it on the first selection would overwrite it, and
+    clearing it on close would then destroy it outright.
+
   ### Redacting what travels with the document
 
   A generated document inlines two things the picture itself does not show: the raw ASL

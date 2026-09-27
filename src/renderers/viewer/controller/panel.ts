@@ -27,6 +27,14 @@ export interface SelectionOptions {
     trigger: Element;
 }
 
+/** What the panel currently has open, as a deep link or a content swap sees it. */
+export interface ViewerSelection {
+    /** The state's node id, or the edge's id. */
+    id: string;
+    /** Which of the two `id` names. */
+    kind: 'edge' | 'state';
+}
+
 /** Parameters for {@link DetailPanel.selectFromTarget}. */
 export interface SelectFromTargetParams {
     /** Whether this selection should move keyboard focus into the panel once it opens. */
@@ -68,11 +76,22 @@ export interface DetailPanel {
      */
     refreshSemantics(): void;
     /**
+     * Be told whenever the selection changes, including to nothing. Registered rather
+     * than polled so a deep link can mirror it without the panel knowing what a URL is.
+     */
+    onSelectionChange(listener: (selection: ViewerSelection | null) => void): void;
+    /**
      * Re-open the previously-selected state/edge against the current data, or close
      * the panel when its subject no longer exists (renamed or removed mid-edit) or is
      * no longer drawn (hidden inside a collapsed container).
      */
     restoreSelection(): void;
+    /**
+     * Open the panel for a state or edge named outright rather than clicked - what a
+     * deep link arrives as. Closes the panel when the id names nothing in the current
+     * content, exactly as {@link DetailPanel.restoreSelection} does for a stale one.
+     */
+    select(selection: ViewerSelection): void;
     /** Open the panel for the node/edge under `target`, or close it when there is none. */
     selectFromTarget(params: SelectFromTargetParams): void;
 }
@@ -94,7 +113,20 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
 
     // The currently-selected state or edge, if any - restored by setContent after a
     // content swap, and cleared whenever the panel closes.
-    let selection: { id: string; kind: 'edge' | 'state' } | null = null;
+    let selection: ViewerSelection | null = null;
+    const selectionListeners: Array<(selection: ViewerSelection | null) => void> = [];
+
+    /**
+     * Record the selection and tell anyone watching.
+     *
+     * Every assignment goes through here rather than writing `selection` directly, so
+     * a listener cannot miss one - a deep link that drifts out of step with the panel
+     * is worse than no deep link.
+     */
+    function setSelection(next: ViewerSelection | null): void {
+        selection = next;
+        for (const listener of selectionListeners) listener(next);
+    }
     // The element to return focus to on close - set by every open, read only when
     // focus actually made it into the panel (see closePanel).
     let panelTrigger: Element | null = null;
@@ -365,7 +397,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                 // viewport rect left stale by every pan made meanwhile.
                 viewport.refreshViewportOverlays();
                 clearEdgeSelection();
-                selection = null;
+                setSelection(null);
                 if (
                     activeElement &&
                     panel.contains(activeElement) &&
@@ -395,7 +427,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                     rows.push(fieldRow(field, summarize(state[field])));
                 }
                 showPanel(stateId, rows, state, buildRunsSection(stateId));
-                selection = { id: stateId, kind: 'state' };
+                setSelection({ id: stateId, kind: 'state' });
                 panelTrigger = options.trigger;
                 if (options.moveFocus) focusPanel();
             };
@@ -416,7 +448,7 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
                     edgeId,
                     edge ? [String(edge.from), String(edge.to)] : [],
                 );
-                selection = { id: edgeId, kind: 'edge' };
+                setSelection({ id: edgeId, kind: 'edge' });
                 panelTrigger = options.trigger;
                 if (options.moveFocus) focusPanel();
             };
@@ -527,34 +559,42 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
         }
     }
 
-    function restoreSelection(): void {
-        if (!selection) return;
+    function select(wanted: ViewerSelection): void {
         // Not a user interaction, so focus never moves - the trigger only needs to be a
         // connected element for `SelectionOptions`' sake; nothing later reads it unless
         // focus actually lands in the panel, which moveFocus: false guarantees it won't.
         const options: SelectionOptions = { moveFocus: false, trigger: stage };
-        if (selection.kind === 'state') {
+        if (wanted.kind === 'state') {
             // openPanel already closes when the id has no entry in the new stateData;
             // a state that is still defined but no longer drawn (collapsed away) would
             // otherwise keep a panel open beside a diagram that no longer shows it.
-            if (elementsByDataValue('data-state-id', selection.id).length === 0) {
+            if (elementsByDataValue('data-state-id', wanted.id).length === 0) {
                 closePanel();
                 return;
             }
-            openPanel(selection.id, options);
-        } else if (data.edgeData?.[selection.id] !== undefined) {
-            openEdgePanel(selection.id, options);
+            openPanel(wanted.id, options);
+        } else if (data.edgeData?.[wanted.id] !== undefined) {
+            openEdgePanel(wanted.id, options);
         } else {
             closePanel();
         }
+    }
+
+    function restoreSelection(): void {
+        if (!selection) return;
+        select(selection);
     }
 
     return {
         clearEdgeSelection,
         closePanel,
         hasPanelData,
+        onSelectionChange: (listener) => {
+            selectionListeners.push(listener);
+        },
         refreshSemantics: () => refreshSemantics(),
         restoreSelection,
+        select,
         selectFromTarget,
     };
 }
