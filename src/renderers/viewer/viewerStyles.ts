@@ -113,6 +113,52 @@ const LIGHT_PALETTE: ChromePalette = {
  */
 const COMPACT_BREAKPOINT = 640;
 
+/**
+ * The viewer's motion vocabulary, declared as custom properties on the viewer root so
+ * every animated rule below reads from the same two durations and one easing curve.
+ *
+ * `prefers-reduced-motion: reduce` redefines the durations as `0ms` (see
+ * {@link REDUCED_MOTION_RULES}), which is the whole opt-out: a transition still runs,
+ * it just completes in the same frame, so nothing has to branch on the media query.
+ */
+const MOTION_TOKENS = {
+    /** Chrome that appears and disappears: the minimap, a search dim. */
+    fast: '120ms',
+    /** Anything that also moves or repaints a shape: the detail panel, playback fills. */
+    base: '180ms',
+    /** Fast out, slow in - decelerating, so an element settles rather than stops dead. */
+    ease: 'cubic-bezier(.2, 0, 0, 1)',
+};
+
+/**
+ * Declare the motion tokens, then zero their durations under
+ * `prefers-reduced-motion: reduce` - the later rule wins the cascade on the same
+ * element, so no rule below has to branch on the media query itself.
+ *
+ * The standalone document has no viewer root element at all: its toolbar, panel and
+ * stage are children of `<body>` (see {@link wrapSvgInInteractiveHtml}), so the tokens
+ * have to reach them from `:root`. An embedded `<sfn-diagram>` declares them on itself
+ * instead - reaching past the element to the host page's `:root` would leak them.
+ */
+function motionRules(scope: 'document' | 'element'): string {
+    const selector = scope === 'document' ? ':root, [data-sfn-viewer]' : '[data-sfn-viewer]';
+
+    return `  ${selector} { --sfn-motion-fast: ${MOTION_TOKENS.fast}; --sfn-motion-base: ${MOTION_TOKENS.base};
+    --sfn-motion-ease: ${MOTION_TOKENS.ease}; }
+  @media (prefers-reduced-motion: reduce) {
+    ${selector} { --sfn-motion-fast: 0ms; --sfn-motion-base: 0ms; }
+  }
+`;
+}
+
+/**
+ * Period of the pulse painted on the state playback is currently inside. Not a token:
+ * it is a looping animation rather than a state change, and zeroing an infinite
+ * animation's duration is not the same thing as not running it - so the keyframe rule
+ * stays gated on `@media not (prefers-reduced-motion: reduce)` instead.
+ */
+const EXEC_PULSE_DURATION = '1.1s';
+
 const DARK_PALETTE: ChromePalette = {
     accent: '#539fe5',
     border: '#3b4149',
@@ -178,12 +224,15 @@ ${statusRules}
      the same emphasis the static overlay bakes in, moved onto the playhead. */
   path.sfn-exec-taken:not([data-edge-hit-area]) { stroke: #2e7d32; stroke-width: 3; stroke-opacity: 1; }
   path.sfn-exec-untaken:not([data-edge-hit-area]) { stroke-opacity: .2; }
+  /* No media query: the duration token is already 0ms under reduced motion, so the
+     repaint lands in the same frame the playhead moved. */
+  .sfn-playing [data-state-id] > rect, .sfn-playing [data-state-id] > circle,
+  .sfn-playing [data-state-id] > ellipse, .sfn-playing [data-state-id] > polygon {
+    transition: fill var(--sfn-motion-base) var(--sfn-motion-ease),
+      stroke var(--sfn-motion-base) var(--sfn-motion-ease); }
   @media not (prefers-reduced-motion: reduce) {
-    .sfn-playing [data-state-id] > rect, .sfn-playing [data-state-id] > circle,
-    .sfn-playing [data-state-id] > ellipse, .sfn-playing [data-state-id] > polygon {
-      transition: fill .18s ease, stroke .18s ease; }
     .sfn-exec-active > rect, .sfn-exec-active > circle, .sfn-exec-active > ellipse, .sfn-exec-active > polygon {
-      animation: sfn-exec-pulse 1.1s ease-in-out infinite; }
+      animation: sfn-exec-pulse ${EXEC_PULSE_DURATION} ease-in-out infinite; }
     @keyframes sfn-exec-pulse { 50% { stroke-width: 4; } }
   }`;
 }
@@ -229,7 +278,7 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
     // attribute selectors are what let more than one viewer share a page without
     // id collisions - see viewerController.ts and controller/dom.ts.
     return `
-  ${documentReset}[data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
+  ${documentReset}${motionRules(scope)}  [data-sfn-viewer] { position: relative; display: block; overflow: hidden; font-family: system-ui, sans-serif; color: ${palette.text}; }
   [data-sfn="stage"] { position: absolute; inset: 0; overflow: hidden; background: ${palette.stageBackground}; cursor: grab; }
   /* touch-action: none hands every touch to the pointer handlers - without it a
      single-finger drag races the browser's own scroll gesture and the pan stutters.
@@ -254,7 +303,9 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   [data-sfn="search"]:focus { outline: 2px solid ${palette.accent}; outline-offset: -1px; }
   [data-sfn="search-count"] { min-width: 52px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
   .sfn-divider { width: 1px; align-self: stretch; background: ${palette.border}; margin: 0 4px; }
-  [data-state-id] { cursor: pointer; }
+  /* Only opacity: the .sfn-hit outline stays instant, because outline-style animates
+     discretely and a half-drawn ring is worse than an immediate one. */
+  [data-state-id] { cursor: pointer; transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease); }
   [data-sfn-collapse-target] { cursor: pointer; }
   [data-sfn-collapse-target]:hover > rect { stroke-width: 2; }
   [data-sfn-collapse-target]:focus-visible { outline: none; }
@@ -276,10 +327,27 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
   path.sfn-edge-selected:not([data-edge-hit-area]) { stroke: ${palette.accent}; stroke-width: 3; }
   .sfn-edge-endpoint > title + *, .sfn-edge-endpoint > :first-child:not(title) { outline: 2px dashed ${palette.accent}; }
 ${playbackRules(palette)}
-  [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: none;
+  /* The closed panel keeps its box and is hidden with visibility rather than display:
+     display is not an interpolable property, so a none -> flex toggle gives the opening
+     transition no start value to run from. visibility keeps it out of the accessibility
+     tree all the same, and pointer-events stops the 360px column swallowing clicks
+     meant for the stage underneath it. The tab order is handled in JS (see
+     controller/panel.ts): the panel is inert while closed, which is immediate, where
+     visibility only catches up once the fade has run.
+     Opacity only - nothing here moves or resizes. Opening the panel is followed on the
+     same tick by geometry reads (the stage's own 'right', and the minimap viewport rect
+     refreshViewportOverlays derives from clientWidth), which a mid-flight transform or
+     width would silently make wrong. */
+  [data-sfn="panel"] { position: absolute; top: 0; right: 0; bottom: 0; width: 360px; z-index: 3; display: flex;
     flex-direction: column; background: ${palette.panelBackground}; border-left: 1px solid ${palette.border};
-    box-shadow: -2px 0 8px rgba(0,0,0,.12); }
-  [data-sfn="panel"].sfn-open { display: flex; }
+    box-shadow: -2px 0 8px rgba(0,0,0,.12); visibility: hidden; opacity: 0; pointer-events: none;
+    transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease),
+      visibility 0s linear var(--sfn-motion-base); }
+  /* visibility is stepped, not interpolated, so it is delayed rather than transitioned:
+     the browser applies the *destination* rule's timing, so closing waits out the fade
+     (the delay above) while opening flips in the same frame (no delay here). */
+  [data-sfn="panel"].sfn-open { visibility: visible; opacity: 1; pointer-events: auto;
+    transition: opacity var(--sfn-motion-base) var(--sfn-motion-ease), visibility 0s; }
   [data-sfn="panel-head"] { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
     border-bottom: 1px solid ${palette.border}; }
   [data-sfn="panel-title"] { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; flex: 1; }
@@ -309,8 +377,15 @@ ${playbackRules(palette)}
   .sfn-payload-note { margin: 4px 0 0; font-size: 11px; color: ${palette.mutedText}; }
   [data-sfn="minimap"] { position: absolute; bottom: 12px; right: 12px; z-index: 2; width: 180px; height: 130px;
     background: ${palette.panelBackground}; border: 1px solid ${palette.border}; border-radius: 6px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden; }
-  [data-sfn="minimap"].sfn-minimap-collapsed { display: none; }
+    box-shadow: 0 1px 4px rgba(0,0,0,.12); overflow: hidden;
+    transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease), visibility 0s; }
+  /* Collapsed the same way the panel is closed, delay and all. The compact bottom sheet
+     still hides it with display: none - that one is a layout decision, not a state
+     change, and the minimap code reads an empty client rect as "no box to measure
+     against". */
+  [data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none;
+    transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease),
+      visibility 0s linear var(--sfn-motion-fast); }
   [data-sfn="minimap-thumb"] { position: absolute; inset: 0; cursor: pointer; }
   [data-sfn="minimap-thumb"] svg { display: block; }
   [data-sfn="minimap-viewport"] { position: absolute; border: 2px solid ${palette.accent}; pointer-events: none; }

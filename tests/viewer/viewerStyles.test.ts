@@ -36,6 +36,93 @@ describe('buildViewerStyles', () => {
         });
     });
 
+    describe('motion', () => {
+        it('declares the duration and easing tokens', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain(
+                '--sfn-motion-fast: 120ms; --sfn-motion-base: 180ms;\n    --sfn-motion-ease: cubic-bezier(.2, 0, 0, 1);',
+            );
+        });
+
+        it('reaches the standalone document from :root, which has no viewer element', () => {
+            // The standalone document's chrome hangs off <body>, so tokens declared on
+            // [data-sfn-viewer] alone would never reach it.
+            expect(buildViewerStyles({ scope: 'document' })).toContain(
+                ':root, [data-sfn-viewer] { --sfn-motion-fast:',
+            );
+        });
+
+        it('stays inside an embedded element, which must not touch the host page root', () => {
+            const css = buildViewerStyles({ scope: 'element' });
+            expect(css).toContain('[data-sfn-viewer] { --sfn-motion-fast:');
+            expect(css).not.toContain(':root, [data-sfn-viewer]');
+        });
+
+        it('zeroes the durations for viewers who asked for reduced motion', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain(
+                '@media (prefers-reduced-motion: reduce) {\n    :root, [data-sfn-viewer] { --sfn-motion-fast: 0ms; --sfn-motion-base: 0ms; }',
+            );
+            // The override has to follow the declaration to win the cascade.
+            expect(css.indexOf('--sfn-motion-fast: 0ms')).toBeGreaterThan(
+                css.indexOf('--sfn-motion-fast: 120ms'),
+            );
+        });
+
+        it('hides the closed panel with visibility, so the opening transition has a start value', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain('visibility: hidden; opacity: 0; pointer-events: none;');
+            expect(css).toContain(
+                '[data-sfn="panel"].sfn-open { visibility: visible; opacity: 1; pointer-events: auto;',
+            );
+            // Stepped, so it is delayed out and immediate in - never interpolated.
+            expect(css).toContain('visibility 0s linear var(--sfn-motion-base); }');
+            // display: none would give the transition nothing to interpolate from.
+            expect(css).not.toContain('[data-sfn="panel"].sfn-open { display: flex; }');
+        });
+
+        it('collapses the minimap the same way, leaving display: none to the compact sheet', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain(
+                '[data-sfn="minimap"].sfn-minimap-collapsed { visibility: hidden; opacity: 0; pointer-events: none;',
+            );
+            expect(css).toContain('visibility 0s linear var(--sfn-motion-fast); }');
+            expect(css).not.toContain('[data-sfn="minimap"].sfn-minimap-collapsed { display: none; }');
+        });
+
+        it('never moves or resizes the panel, whose geometry is read on the same tick', () => {
+            const css = buildViewerStyles({});
+            const panelRule = css.slice(
+                css.indexOf('[data-sfn="panel"] { position: absolute'),
+                css.indexOf('[data-sfn="panel-head"]'),
+            );
+            expect(panelRule).not.toContain('transform');
+            expect(panelRule).not.toContain('width var(--sfn-motion');
+        });
+
+        it('fades the search dim rather than snapping it', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain(
+                '[data-state-id] { cursor: pointer; transition: opacity var(--sfn-motion-fast) var(--sfn-motion-ease); }',
+            );
+        });
+
+        it('drives the playback repaint off the same tokens instead of its own duration', () => {
+            const css = buildViewerStyles({});
+            expect(css).toContain(
+                'transition: fill var(--sfn-motion-base) var(--sfn-motion-ease),\n      stroke var(--sfn-motion-base) var(--sfn-motion-ease);',
+            );
+            expect(css).not.toContain('transition: fill .18s ease, stroke .18s ease;');
+        });
+
+        it('keeps the active-state pulse behind a media query, since a 0ms loop is not "off"', () => {
+            const css = buildViewerStyles({});
+            const guarded = css.slice(css.indexOf('@media not (prefers-reduced-motion: reduce)'));
+            expect(guarded).toContain('animation: sfn-exec-pulse 1.1s ease-in-out infinite;');
+            expect(guarded).toContain('@keyframes sfn-exec-pulse { 50% { stroke-width: 4; } }');
+        });
+    });
+
     describe('responsive detail panel', () => {
         it('keeps the 360px side panel that shrinks the stage as the default', () => {
             const css = buildViewerStyles({});
