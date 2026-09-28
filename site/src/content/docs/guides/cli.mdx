@@ -30,6 +30,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--hide-comments` | Don't use a state's `Comment` as its node label |
 | `--show-comments` | Use it — overrides a config file's `includeComments` |
 | `--collapse[=names]` | Collapse `Parallel`/`Map` containers into placeholders. Bare flag collapses every container; `--collapse=Name1,Name2` collapses only those. Write `\,` for a comma inside a state name |
+| `--no-collapse` | Don't collapse containers — overrides a config file's `collapse` |
 | `--show-icons` | Draw [AWS service icons](/guides/configuration/#aws-service-icons) on Task states |
 | `--hide-icons` | Don't draw them — overrides a config file's `showIcons` |
 | `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
@@ -77,8 +78,8 @@ sfn-diagram state.asl.json -o diagram.svg --config ci/sfn.yaml
 ### Where it is looked for
 
 Starting in the working directory and walking up, stopping at the repository root (the
-first directory containing a `.git` entry). Within one directory these names are tried
-in order:
+first directory containing a `.git` entry) or, outside a repository, at your home
+directory. Within one directory these names are tried in order:
 
 ```
 sfn-diagram.config.json
@@ -87,6 +88,7 @@ sfn-diagram.config.yml
 .sfn-diagramrc
 .sfn-diagramrc.json
 .sfn-diagramrc.yaml
+.sfn-diagramrc.yml
 ```
 
 `.sfn-diagramrc` has no extension and is read as YAML, which accepts JSON too.
@@ -147,6 +149,7 @@ config file:
 | `showVariables` | `--show-variables` | `--hide-variables` |
 | `showIcons` | `--show-icons` | `--hide-icons` |
 | `showStateTypes` | `--show-state-types` | `--hide-state-types` |
+| `collapse` | `--collapse[=names]` | `--no-collapse` |
 
 Passing both halves of a pair is a usage error (exit `2`) rather than last-one-wins,
 which would be easy to miss in a long CI command.

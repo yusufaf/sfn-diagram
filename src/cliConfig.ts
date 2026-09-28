@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
@@ -24,6 +25,7 @@ export const CONFIG_FILENAMES: readonly string[] = [
     '.sfn-diagramrc',
     '.sfn-diagramrc.json',
     '.sfn-diagramrc.yaml',
+    '.sfn-diagramrc.yml',
 ];
 
 /**
@@ -39,14 +41,47 @@ export class CliConfigError extends Error {}
 export interface DiscoverConfigPathParams {
     /** Directory to start from; the search walks up from here. */
     startDir: string;
+    /**
+     * Directory that ends the walk in addition to a repository root, defaulting to the
+     * user's home directory. Passing it explicitly is what makes the bound testable:
+     * a test cannot put a file in the real home directory.
+     */
+    stopAtDir?: string | null;
 }
 
-/** Whether `path` exists and is a regular file. */
+/**
+ * The directory the walk stops at when no repository root is found: the user's home.
+ *
+ * `homedir()` throws on a platform with no notion of one, in which case the walk is
+ * bounded only by the filesystem root, as it was before this bound existed.
+ */
+function defaultStopDirectory(): string | null {
+    try {
+        return resolve(homedir());
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Whether `path` exists and is a regular file.
+ *
+ * "Not there" is the ordinary answer and means keep looking. Anything else — a
+ * permission error, an I/O error, a symlink loop — is reported, because a config file
+ * that exists and cannot be read is the kind of thing a person needs told about: left
+ * silent, the run proceeds on defaults and nothing says why.
+ *
+ * @throws {CliConfigError} When `path` cannot be inspected for a reason other than
+ *   absence.
+ */
 function isFile(path: string): boolean {
     try {
         return statSync(path).isFile();
-    } catch {
-        return false;
+    } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new CliConfigError(`Cannot read config file ${path}: ${reason}`);
     }
 }
 
@@ -64,10 +99,12 @@ function exists(path: string): boolean {
  * Find the nearest config file at or above `startDir`.
  *
  * Walks up one directory at a time, checking {@link CONFIG_FILENAMES} in order within
- * each, and stops after the first directory that contains a `.git` entry — a config
- * belongs to a project, and without that stop the search would climb into a developer's
- * home directory and pick up an unrelated file. `.git` is checked as an entry of any
- * kind, since a worktree's `.git` is a file rather than a directory.
+ * each, and stops after the first directory that contains a `.git` entry, or that is the
+ * user's home directory. A config belongs to a project, and without a bound the search
+ * would climb to the filesystem root and pick up an unrelated file — `~/sfn-diagram.config.json`
+ * from a scratch directory, or `/sfn-diagram.config.json` inside a container whose
+ * mounted tree has no `.git`. `.git` is checked as an entry of any kind, since a
+ * worktree's `.git` is a file rather than a directory.
  *
  * The walk starts at the working directory rather than at the input file's directory,
  * so `sfn-diagram sub/dir/machine.asl.json` does not pick up
@@ -76,8 +113,12 @@ function exists(path: string): boolean {
  *
  * @param params - Search parameters
  * @param params.startDir - Directory to start from
+ * @param params.stopAtDir - Directory that ends the walk besides a repository root;
+ *   defaults to the user's home directory, and `null` removes the bound
  *
  * @returns The absolute path of the nearest config file, or `null` if there is none.
+ *
+ * @throws {CliConfigError} When a candidate path exists but cannot be inspected.
  *
  * @example
  * ```typescript
@@ -87,8 +128,9 @@ function exists(path: string): boolean {
 export function discoverConfigPath(
     params: DiscoverConfigPathParams,
 ): string | null {
-    const { startDir } = params;
+    const { startDir, stopAtDir } = params;
     let directory = resolve(startDir);
+    const stopAt = stopAtDir === undefined ? defaultStopDirectory() : stopAtDir;
 
     for (;;) {
         for (const filename of CONFIG_FILENAMES) {
@@ -96,7 +138,10 @@ export function discoverConfigPath(
             if (isFile(candidate)) return candidate;
         }
         // A repository root ends the search, after its own files have been checked.
+        // So does the home directory: outside a repository there is nothing else to
+        // stop the walk before the filesystem root.
         if (exists(join(directory, '.git'))) return null;
+        if (stopAt !== null && directory === stopAt) return null;
 
         const parent = dirname(directory);
         if (parent === directory) return null;
@@ -189,6 +234,24 @@ const PIXEL_FIELDS = {
     padding: { allowZero: true },
     rankSeparation: { allowZero: true },
 } as const satisfies Record<string, { allowZero: boolean }>;
+
+/**
+ * The fields a {@link CustomTheme} accepts.
+ *
+ * Used only to reject an object that names none of them: `{ backgroundColor: '#111' }`
+ * for `background` would otherwise be accepted and render as the plain light theme, with
+ * nothing said. Individual field types are left to the renderer, which already tolerates
+ * whatever it is given.
+ */
+const CUSTOM_THEME_FIELDS: readonly string[] = [
+    'background',
+    'base',
+    'edgeColors',
+    'fontFamily',
+    'fontSize',
+    'nodeColors',
+    'textColor',
+];
 
 /** Parameters for {@link validateConfig}. */
 interface ValidateConfigParams {
@@ -284,6 +347,15 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
             value !== null &&
             !Array.isArray(value)
         ) {
+            const named = Object.keys(value).filter((key) =>
+                CUSTOM_THEME_FIELDS.includes(key),
+            );
+            if (named.length === 0) {
+                reject(
+                    'theme',
+                    `a custom theme naming at least one of: ${CUSTOM_THEME_FIELDS.join(', ')}`,
+                );
+            }
             config.theme = value;
         } else {
             reject('theme', "'light', 'dark', or a custom theme object");

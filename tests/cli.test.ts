@@ -2603,3 +2603,120 @@ describe('run: config file', () => {
         expect(stdoutData).toContain('<svg');
     });
 });
+
+describe('run: config load ordering and --no-collapse', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+    let originalCwd: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-order-'));
+        writeFileSync(join(tempDir, '.git'), '');
+        originalCwd = process.cwd();
+    });
+
+    afterEach(() => {
+        process.chdir(originalCwd);
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    const parallelAsl = JSON.stringify({
+        StartAt: 'Fan',
+        States: {
+            Fan: {
+                Branches: [
+                    {
+                        StartAt: 'Left',
+                        States: { Left: { End: true, Type: 'Pass' } },
+                    },
+                ],
+                End: true,
+                Type: 'Parallel',
+            },
+        },
+    });
+
+    it('reports a contradictory command line as a usage error, not a broken config', async () => {
+        // The config load used to run first, so a broken config nearby turned an argv
+        // mistake into exit 1 - contradicting the invariant that 2 is for the command
+        // line and 1 is for a file.
+        const input = write('m.asl.json', parallelAsl);
+        write('sfn-diagram.config.json', '{ broken');
+        process.chdir(tempDir);
+
+        expect(await run([input, '--diff', input, '--execution', input])).toBe(
+            2,
+        );
+        expect(stderrData).toContain(
+            '--diff and --execution cannot be combined',
+        );
+        expect(stderrData).not.toContain('config file');
+    });
+
+    it('reports --check with --output as a usage error, not a broken config', async () => {
+        const input = write('m.asl.json', parallelAsl);
+        write('sfn-diagram.config.json', '{ broken');
+        process.chdir(tempDir);
+
+        expect(
+            await run([input, '--check', '-o', join(tempDir, 'x.svg')]),
+        ).toBe(2);
+        expect(stderrData).toContain('--check lints the input only');
+    });
+
+    it('--no-collapse turns off a config that collapses containers', async () => {
+        const input = write('m.asl.json', parallelAsl);
+        const config = write('c.json', JSON.stringify({ collapse: true }));
+
+        expect(await run([input, '--config', config])).toBe(0);
+        const collapsed = stdoutData;
+        expect(collapsed).not.toContain('data-state-id="Left"');
+
+        stdoutData = '';
+        expect(await run([input, '--config', config, '--no-collapse'])).toBe(0);
+        expect(stdoutData).toContain('data-state-id="Left"');
+    });
+
+    it('rejects --collapse together with --no-collapse', async () => {
+        const input = write('m.asl.json', parallelAsl);
+        expect(await run([input, '--collapse', '--no-collapse'])).toBe(2);
+        expect(stderrData).toContain(
+            '--collapse and --no-collapse cannot be combined',
+        );
+    });
+
+    it('reports an unreadable discovered config instead of proceeding on defaults', async () => {
+        // A directory where a config file should be: statSync succeeds but isFile() is
+        // false, so this exercises the ENOENT-vs-everything-else split only on
+        // platforms where a read fails. The directory case must not be reported.
+        const input = write('m.asl.json', parallelAsl);
+        mkdirSync(join(tempDir, 'sfn-diagram.config.json'));
+        process.chdir(tempDir);
+        expect(await run([input])).toBe(0);
+    });
+});

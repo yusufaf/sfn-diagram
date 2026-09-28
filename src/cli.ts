@@ -120,6 +120,7 @@ Options:
                                    (bare flag collapses all; --collapse=Name1,Name2
                                    collapses only those states; write \\, for a
                                    comma inside a state name)
+  --no-collapse                    Do not collapse containers (overrides a config file)
   --show-icons                     Draw AWS service icons on Task states
   --hide-icons                     Do not draw them (overrides a config file)
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
@@ -294,6 +295,7 @@ const OPTION_SPEC = {
     layout: { type: 'string' },
     'node-height': { type: 'string' },
     'node-separation': { type: 'string' },
+    'no-collapse': { type: 'boolean' },
     'node-width': { type: 'string' },
     output: { short: 'o', type: 'string' },
     padding: { type: 'string' },
@@ -547,6 +549,27 @@ export function parseArgs(argv: string[]): CliArgs {
         return null;
     };
 
+    /**
+     * Resolve `--collapse` and `--no-collapse` into one value, so a config file's
+     * `collapse` can be switched off the way the boolean options can.
+     *
+     * @throws {CliError} With exit code 2 when both were given.
+     */
+    const readCollapse = (): string[] | boolean | null => {
+        const sawNoCollapse = values['no-collapse'] === true;
+        if (collapseValue !== undefined && sawNoCollapse) {
+            throw new CliError(
+                '--collapse and --no-collapse cannot be combined; pick one',
+                EXIT_USAGE,
+            );
+        }
+        if (sawNoCollapse) return false;
+        if (collapseValue === undefined) return null;
+        return collapseValue === BARE_COLLAPSE_SENTINEL
+            ? true
+            : parseCollapseNames(collapseValue);
+    };
+
     // `--theme` takes a built-in name or a path to a custom theme JSON file. The path is
     // carried through as-is and read in `run()`, the way `--diff` and `--execution` are,
     // so `parseArgs` stays free of filesystem access.
@@ -583,12 +606,7 @@ export function parseArgs(argv: string[]): CliArgs {
                       value: values['catch-label-style'] as string,
                   }),
         check: values.check === true,
-        collapse:
-            collapseValue === undefined
-                ? null
-                : collapseValue === BARE_COLLAPSE_SENTINEL
-                  ? true
-                  : parseCollapseNames(collapseValue),
+        collapse: readCollapse(),
         config:
             values.config === undefined
                 ? null
@@ -1095,9 +1113,29 @@ export async function run(argv: string[]): Promise<number> {
     // itself cannot work, and no change to the input would help. They all exit
     // EXIT_USAGE so a caller can tell "you used it wrong" from "it broke while
     // running" without parsing stderr. See the Exit codes note in HELP_TEXT.
-    // Loaded before the semantic checks below, because a config file can set `format`
-    // and those checks read it. A file's contents being wrong is a runtime failure, not
-    // a usage error: EXIT_USAGE is reserved for what is wrong on the command line.
+    // These two read only the command line, so they belong above the config load: a
+    // contradictory invocation is a usage error whether or not a config file nearby
+    // happens to be broken, and reporting the file first would call an argv mistake a
+    // runtime failure.
+    if (args.diff !== null && args.execution !== null) {
+        process.stderr.write(
+            '--diff and --execution cannot be combined; pick one overlay per run\n',
+        );
+        return EXIT_USAGE;
+    }
+    if (
+        args.check &&
+        (args.diff !== null || args.execution !== null || args.output !== null)
+    ) {
+        process.stderr.write(
+            '--check lints the input only; it cannot be combined with --diff, --execution or --output\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // Loaded before the remaining semantic checks, because a config file can set
+    // `format` and those checks read it. A file's contents being wrong is a runtime
+    // failure, not a usage error: EXIT_USAGE is reserved for the command line.
     let configFile: CliConfig | null = null;
     try {
         const loaded = loadCliConfig({
@@ -1116,21 +1154,6 @@ export async function run(argv: string[]): Promise<number> {
     // on one output path - `args` no longer carries a usable default to fall back to.
     const options = resolveCliOptions({ args, config: configFile });
 
-    if (args.diff !== null && args.execution !== null) {
-        process.stderr.write(
-            '--diff and --execution cannot be combined; pick one overlay per run\n',
-        );
-        return EXIT_USAGE;
-    }
-    if (
-        args.check &&
-        (args.diff !== null || args.execution !== null || args.output !== null)
-    ) {
-        process.stderr.write(
-            '--check lints the input only; it cannot be combined with --diff, --execution or --output\n',
-        );
-        return EXIT_USAGE;
-    }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
             `--diff supports --format svg, mermaid or html, not ${options.format}\n`,

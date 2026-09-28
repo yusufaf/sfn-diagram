@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
     CONFIG_FILENAMES,
@@ -80,7 +80,67 @@ describe('discoverConfigPath', () => {
             '.sfn-diagramrc',
             '.sfn-diagramrc.json',
             '.sfn-diagramrc.yaml',
+            '.sfn-diagramrc.yml',
         ]);
+    });
+
+    it('covers both extensions for each name that has one', () => {
+        // .sfn-diagramrc.yml was missing, so a user who picked the short extension for
+        // the rc form got no config, no warning, and no way to tell it was not read.
+        for (const stem of ['sfn-diagram.config', '.sfn-diagramrc']) {
+            expect(CONFIG_FILENAMES).toContain(`${stem}.yaml`);
+            expect(CONFIG_FILENAMES).toContain(`${stem}.yml`);
+            expect(CONFIG_FILENAMES).toContain(`${stem}.json`);
+        }
+    });
+
+    it.each(CONFIG_FILENAMES)('discovers %s', (filename) => {
+        writeFileSync(join(root, '.git'), '');
+        const configPath = join(root, filename);
+        writeFileSync(configPath, '{}');
+        expect(discoverConfigPath({ startDir: root })).toBe(configPath);
+    });
+
+    it('stops at the home directory even with no .git anywhere', () => {
+        // Without this bound the walk reaches the filesystem root, so a run in a scratch
+        // directory silently picks up ~/sfn-diagram.config.json. `stopAtDir` stands in
+        // for the home directory, since a test cannot write to the real one.
+        const above = join(root, 'above.config');
+        mkdirSync(above, { recursive: true });
+        writeFileSync(join(above, 'sfn-diagram.config.json'), '{}');
+        const home = join(above, 'home');
+        const nested = join(home, 'scratch', 'deep');
+        mkdirSync(nested, { recursive: true });
+
+        expect(
+            discoverConfigPath({ startDir: nested, stopAtDir: home }),
+        ).toBeNull();
+        // Removing the bound reaches the same file, which is what used to happen.
+        expect(discoverConfigPath({ startDir: nested, stopAtDir: null })).toBe(
+            join(above, 'sfn-diagram.config.json'),
+        );
+    });
+
+    it('still finds a config in the stop directory itself', () => {
+        const home = join(root, 'home');
+        mkdirSync(join(home, 'deep'), { recursive: true });
+        const configPath = join(home, 'sfn-diagram.config.json');
+        writeFileSync(configPath, '{}');
+        expect(
+            discoverConfigPath({
+                startDir: join(home, 'deep'),
+                stopAtDir: home,
+            }),
+        ).toBe(configPath);
+    });
+
+    it('defaults the bound to the real home directory', () => {
+        // The default matters: run() never passes stopAtDir.
+        expect(
+            discoverConfigPath({ startDir: homedir(), stopAtDir: undefined }),
+        ).toBe(
+            discoverConfigPath({ startDir: homedir(), stopAtDir: homedir() }),
+        );
     });
 
     it('ignores a directory that shares a config filename', () => {
@@ -330,6 +390,29 @@ describe('loadCliConfig', () => {
             message = (error as Error).message;
         }
         expect(message).toContain(path);
+    });
+
+    it('rejects a theme object that names no known theme field', () => {
+        // `backgroundColor` for `background` would otherwise be accepted and render as
+        // the plain light theme with nothing said.
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ theme: { backgroundColor: '#111' } }),
+        );
+        expect(() =>
+            loadCliConfig({ explicitPath: null, startDir: root }),
+        ).toThrowError(/theme/);
+    });
+
+    it('accepts a theme object that names at least one known field', () => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ theme: { background: '#111', typo: 1 } }),
+        );
+        expect(
+            loadCliConfig({ explicitPath: null, startDir: root })?.config.theme,
+        ).toEqual({ background: '#111', typo: 1 });
+        expect(path).toContain('sfn-diagram.config.json');
     });
 
     it('accepts a custom theme object, not just a built-in name', () => {
