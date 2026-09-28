@@ -8,8 +8,44 @@ on:
 
 jobs:
   test:
-    name: Build & Test
-    runs-on: ubuntu-latest
+    name: Build & Test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    # Git Bash on the Windows runner: the tarball smoke test and the shell
+    # snippets below are POSIX-only.
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      # A platform-specific failure in one leg should not hide a different one
+      # in another - the whole point of the matrix is seeing all of them at once.
+      fail-fast: false
+      matrix:
+        include:
+          # The primary leg additionally carries every check whose result cannot
+          # depend on the platform or the Node version: lint, typecheck,
+          # publint/attw, the committed Action-bundle drift check, and the
+          # packed-tarball bin smoke test. Running those five times over would
+          # buy four identical answers.
+          - os: ubuntu-latest
+            node: lts/*
+            primary: true
+          # engines.node says >=20, and nothing ever tested that floor. 22 covers
+          # the version between the floor and whatever lts/* currently resolves to.
+          - os: ubuntu-latest
+            node: '20'
+            primary: false
+          - os: ubuntu-latest
+            node: '22'
+            primary: false
+          # Neither platform had ever run a test on a PR before this, despite the
+          # libuv exit-9 workaround in src/bin.ts being Windows-specific and the
+          # binary-signing hardening in 8896b98 being macOS-specific.
+          - os: macos-latest
+            node: lts/*
+            primary: false
+          - os: windows-latest
+            node: lts/*
+            primary: false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -17,10 +53,10 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Set node LTS
+      - name: Set node ${{ matrix.node }}
         uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install
@@ -45,7 +81,12 @@ jobs:
       # The Build above rebuilds it; fail if the committed copy is stale so the
       # bundled core can never drift from source. Deterministic because pnpm is
       # pinned via the packageManager field.
+      #
+      # Primary leg only: the bundle's content cannot depend on the runner, and on
+      # a Windows checkout the rebuilt file differs from the committed one by line
+      # endings alone, which would report drift that is not there.
       - name: Verify GitHub Action bundle is up to date
+        if: matrix.primary
         run: |
           if ! git diff --exit-code -- packages/github-action-sfn-diagram/dist; then
             echo "::error::Committed GitHub Action bundle is stale. Run 'pnpm --filter github-action-sfn-diagram build' and commit packages/github-action-sfn-diagram/dist."
@@ -53,10 +94,14 @@ jobs:
           fi
 
       # Root eslint config lints core and all packages (playground is ignored).
+      # Neither eslint's nor tsc's verdict can differ by platform or Node version,
+      # so both stay on the primary leg.
       - name: Lint
+        if: matrix.primary
         run: pnpm run lint
 
       - name: Typecheck
+        if: matrix.primary
         run: pnpm turbo run typecheck
 
       # publint + attw catch export-map and type-resolution regressions across the
@@ -65,6 +110,7 @@ jobs:
       # release with nothing on npm — catching it on the PR is the cheap path.
       # Only the two npm-published packages; vscode and github-action are not.
       - name: Validate package exports
+        if: matrix.primary
         run: |
           pnpm run validate
           pnpm --filter sfn-diagram-react run validate
@@ -74,7 +120,12 @@ jobs:
       # CLI's entry guard compared the raw symlink path to import.meta.url and
       # silently did nothing on that path from v0.5.1 to v1.6.0 - nothing in the
       # suite spawned the bin, and Windows shims hid it locally.
+      #
+      # Primary leg only: this asserts the *Linux* symlink shape specifically, and
+      # the same bin on Windows and macOS is already covered by the standalone
+      # binary jobs below.
       - name: Smoke test the packed tarball's bin
+        if: matrix.primary
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           WORK="$(mktemp -d)"
