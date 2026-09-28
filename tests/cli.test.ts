@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { CliError, parseArgs, run } from '../src/cli';
+import { CliError, parseArgs, reportUnexpectedError, run } from '../src/cli';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
 
@@ -386,7 +386,7 @@ describe('run', () => {
         ]) {
             stderrData = '';
             const code = await run([simpleFixture, '--check', ...extra]);
-            expect(code).toBe(1);
+            expect(code).toBe(2);
             expect(stderrData).toContain('--check lints the input only');
         }
     });
@@ -399,7 +399,7 @@ describe('run', () => {
 
     it('requires --output when --format is png', async () => {
         const code = await run([simpleFixture, '--format', 'png']);
-        expect(code).toBe(1);
+        expect(code).toBe(2);
         expect(stderrData).toContain('--output is required');
     });
 
@@ -922,7 +922,7 @@ describe('diff, execution and icon flags', () => {
             '--execution',
             executionFixture,
         ]);
-        expect(code).toBe(1);
+        expect(code).toBe(2);
         expect(stderrData).toContain(
             '--diff and --execution cannot be combined',
         );
@@ -938,7 +938,7 @@ describe('diff, execution and icon flags', () => {
             '-o',
             join(tempDir, 'out.png'),
         ]);
-        expect(code).toBe(1);
+        expect(code).toBe(2);
         expect(stderrData).toContain(
             '--diff supports --format svg, mermaid or html',
         );
@@ -954,7 +954,7 @@ describe('diff, execution and icon flags', () => {
             '-o',
             join(tempDir, 'out.png'),
         ]);
-        expect(code).toBe(1);
+        expect(code).toBe(2);
         expect(stderrData).toContain(
             '--execution supports --format svg, mermaid or html',
         );
@@ -1207,7 +1207,7 @@ describe('standalone binary build info', () => {
             '-o',
             'out.png',
         ]);
-        expect(code).toBe(1);
+        expect(code).toBe(2);
         expect(stderrData).toContain('not available in the standalone binary');
         expect(stderrData).toContain('@resvg/resvg-js');
     });
@@ -1854,33 +1854,39 @@ describe('run: DiagramOptions flags', () => {
             expect(stdoutData).toContain('#654321');
         });
 
-        it('exits 2 when the file is missing', async () => {
+        // An unreadable or unusable theme file is a runtime failure (1), matching an
+        // unreadable input or --diff baseline. Only a blank --theme is a usage
+        // error, and parseArgs rejects that before any read happens.
+        it('exits 1 when the file is missing, naming the accepted forms', async () => {
             expect(
                 await run([
                     simpleFixture,
                     '--theme',
                     join(tempDir, 'absent.json'),
                 ]),
-            ).toBe(2);
+            ).toBe(1);
             expect(stderrData).toContain('Cannot read theme file');
+            expect(stderrData).toContain(
+                '--theme takes light, dark, or a path',
+            );
             expect(stdoutData).toBe('');
         });
 
-        it('exits 2 on malformed JSON', async () => {
+        it('exits 1 on malformed JSON', async () => {
             const themePath = join(tempDir, 'broken.json');
             writeFileSync(themePath, '{ "background": ');
-            expect(await run([simpleFixture, '--theme', themePath])).toBe(2);
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(1);
             expect(stderrData).toContain('Cannot read theme file');
         });
 
-        it('exits 2 when the JSON is not an object', async () => {
+        it('exits 1 when the JSON is not an object', async () => {
             const themePath = join(tempDir, 'array.json');
             writeFileSync(themePath, '["light"]');
-            expect(await run([simpleFixture, '--theme', themePath])).toBe(2);
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(1);
             expect(stderrData).toContain('Cannot read theme file');
         });
 
-        it('fails before the Mermaid, diff and execution paths run', async () => {
+        it('fails on the Mermaid, diff and execution paths too', async () => {
             // Resolution sits ahead of the format branching, so a bad theme file is
             // reported once rather than per output path. This says nothing about where
             // the resolved theme lands — the test below is the one that proves Mermaid
@@ -1896,7 +1902,7 @@ describe('run: DiagramOptions flags', () => {
                     '--theme',
                     themePath,
                 ]),
-            ).toBe(2);
+            ).toBe(1);
             expect(
                 await run([
                     simpleFixture,
@@ -1905,7 +1911,7 @@ describe('run: DiagramOptions flags', () => {
                     '--theme',
                     themePath,
                 ]),
-            ).toBe(2);
+            ).toBe(1);
             expect(
                 await run([
                     simpleFixture,
@@ -1914,7 +1920,7 @@ describe('run: DiagramOptions flags', () => {
                     '--theme',
                     themePath,
                 ]),
-            ).toBe(2);
+            ).toBe(1);
         });
 
         it('applies the file on the Mermaid path', async () => {
@@ -2010,5 +2016,273 @@ describe('flag surface documentation', () => {
             (flag) => !specKeys.includes(flag) && !subcommandFlags.has(flag),
         );
         expect(unknown).toEqual([]);
+    });
+});
+
+describe('exit code convention', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation(() => true);
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-exit-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    const simpleAsl = JSON.stringify({
+        StartAt: 'Only',
+        States: { Only: { End: true, Type: 'Pass' } },
+    });
+
+    describe('2 — the invocation itself was wrong', () => {
+        it.each([
+            ['an unknown flag', ['--nope']],
+            ['a second positional', ['b.asl.json']],
+            ['an invalid enum value', ['--format', 'gif']],
+            ['a flag missing its value', ['--format']],
+            ['a value on a boolean flag', ['--hide-catch=true']],
+            ['a non-numeric pixel value', ['--padding', 'wide']],
+            ['a blank text value', ['--diagram-title=']],
+        ])('%s', async (_label, extra) => {
+            const input = write('in.asl.json', simpleAsl);
+            expect(await run([input, ...extra])).toBe(2);
+        });
+
+        it.each([
+            [
+                '--diff with --execution',
+                (input: string) => [
+                    input,
+                    '--diff',
+                    input,
+                    '--execution',
+                    input,
+                ],
+            ],
+            [
+                '--check with --output',
+                (input: string) => [input, '--check', '-o', 'out.svg'],
+            ],
+            [
+                '--check with --diff',
+                (input: string) => [input, '--check', '--diff', input],
+            ],
+            [
+                '--diff with a format that cannot render one',
+                (input: string) => [
+                    input,
+                    '--diff',
+                    input,
+                    '--format',
+                    'png',
+                    '-o',
+                    'o.png',
+                ],
+            ],
+            [
+                '--execution with a format that cannot render one',
+                (input: string) => [
+                    input,
+                    '--execution',
+                    input,
+                    '--format',
+                    'png',
+                    '-o',
+                    'o.png',
+                ],
+            ],
+            [
+                '--format png without --output',
+                (input: string) => [input, '--format', 'png'],
+            ],
+        ])('%s', async (_label, build) => {
+            const input = write('in.asl.json', simpleAsl);
+            expect(await run(build(input))).toBe(2);
+            expect(stderrData).not.toBe('');
+        });
+
+        it('comment gitlab: --execution-mode without --state-machine-arn', async () => {
+            expect(
+                await run(['comment', 'gitlab', '--execution-mode', 'latest']),
+            ).toBe(2);
+            expect(stderrData).toContain('--state-machine-arn is required');
+        });
+    });
+
+    describe('1 — the invocation was valid and something went wrong', () => {
+        it('an input file that does not exist', async () => {
+            expect(await run([join(tempDir, 'absent.asl.json')])).toBe(1);
+            expect(stderrData).toContain('Failed to read input');
+        });
+
+        it('an input file that is not JSON', async () => {
+            expect(await run([write('bad.asl.json', 'not json at all')])).toBe(
+                1,
+            );
+        });
+
+        it('an input file that is JSON but not a state machine', async () => {
+            expect(await run([write('empty.asl.json', '{}')])).toBe(1);
+        });
+
+        it('a --diff baseline that does not exist', async () => {
+            const input = write('in.asl.json', simpleAsl);
+            expect(
+                await run([input, '--diff', join(tempDir, 'absent.json')]),
+            ).toBe(1);
+            expect(stderrData).toContain('Failed to read --diff baseline');
+        });
+
+        it('an --execution history that does not exist', async () => {
+            const input = write('in.asl.json', simpleAsl);
+            expect(
+                await run([input, '--execution', join(tempDir, 'absent.json')]),
+            ).toBe(1);
+            expect(stderrData).toContain('Failed to read --execution history');
+        });
+
+        it('a template with several state machines and no --resource', async () => {
+            const template = write(
+                'template.json',
+                JSON.stringify({
+                    Resources: {
+                        First: {
+                            Properties: { DefinitionString: simpleAsl },
+                            Type: 'AWS::StepFunctions::StateMachine',
+                        },
+                        Second: {
+                            Properties: { DefinitionString: simpleAsl },
+                            Type: 'AWS::StepFunctions::StateMachine',
+                        },
+                    },
+                }),
+            );
+            expect(await run([template, '--resolve-cfn'])).toBe(1);
+            expect(stderrData).toContain('Error:');
+        });
+
+        it('--check finding an error-severity diagnostic', async () => {
+            // A finding, not a malfunction — the same code a linter uses, which is why
+            // usage errors had to move off 1.
+            const broken = write(
+                'broken.asl.json',
+                JSON.stringify({
+                    StartAt: 'Start',
+                    States: { Start: { Next: 'Nowhere', Type: 'Pass' } },
+                }),
+            );
+            expect(await run([broken, '--check'])).toBe(1);
+        });
+    });
+
+    describe('0 — success, including a graceful no-op', () => {
+        it('a rendered diagram', async () => {
+            expect(await run([write('in.asl.json', simpleAsl)])).toBe(0);
+        });
+
+        it('--help and --version', async () => {
+            expect(await run(['--help'])).toBe(0);
+            expect(await run(['--version'])).toBe(0);
+        });
+
+        it('--check with nothing worse than a warning', async () => {
+            expect(
+                await run([write('in.asl.json', simpleAsl), '--check']),
+            ).toBe(0);
+        });
+    });
+
+    it('never returns a code outside 0, 1 and 2', async () => {
+        const input = write('in.asl.json', simpleAsl);
+        const invocations: string[][] = [
+            [input],
+            [input, '--check'],
+            ['--help'],
+            ['--version'],
+            [input, '--nope'],
+            [input, '--format', 'gif'],
+            [input, '--diff', input, '--execution', input],
+            [input, '--format', 'png'],
+            [join(tempDir, 'absent.asl.json')],
+            [input, '--theme', join(tempDir, 'absent.json')],
+            ['comment', 'gitlab', '--execution-mode', 'latest'],
+        ];
+        for (const argv of invocations) {
+            expect([0, 1, 2]).toContain(await run(argv));
+        }
+    });
+
+    it('documents the convention in --help', () => {
+        const helpSource = readFileSync(
+            join(__dirname, '..', 'src', 'cli.ts'),
+            'utf-8',
+        );
+        const match = /const HELP_TEXT = `([\s\S]*?)\n`;/.exec(helpSource);
+        if (!match) throw new Error('HELP_TEXT not found in src/cli.ts');
+        expect(match[1]).toContain('Exit codes:');
+        expect(match[1]).toContain('2 usage error');
+    });
+});
+
+describe('reportUnexpectedError', () => {
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stderrData: string;
+
+    beforeEach(() => {
+        stderrData = '';
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+    });
+
+    afterEach(() => {
+        stderr.mockRestore();
+    });
+
+    // This is what src/bin.ts's .catch does with an exception that escapes run().
+    // Before it existed, such an exception was an unhandled rejection: a raw stack
+    // trace on stderr and an exit code Node chose rather than one the convention
+    // documents. It lives in cli.ts rather than inline in bin.ts so it is reachable
+    // from a test at all - importing bin.ts runs the CLI as a side effect.
+    it('reports an Error as a runtime failure', () => {
+        expect(reportUnexpectedError(new Error('something unexpected'))).toBe(
+            1,
+        );
+        expect(stderrData).toBe('Error: something unexpected\n');
+    });
+
+    it('reports a non-Error rejection without crashing on it', () => {
+        expect(reportUnexpectedError('a bare string')).toBe(1);
+        expect(stderrData).toBe('Error: a bare string\n');
+    });
+
+    it('reports undefined', () => {
+        expect(reportUnexpectedError(undefined)).toBe(1);
+        expect(stderrData).toBe('Error: undefined\n');
     });
 });

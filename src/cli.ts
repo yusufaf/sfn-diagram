@@ -132,6 +132,11 @@ Notes:
   zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
   icons are inlined, so the file works offline.
 
+  Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
+  render or write), 2 usage error (unknown flag, invalid value, a combination that
+  cannot work, or a required flag left out). --check exits 1 when it finds an
+  error-severity diagnostic and 0 when it finds nothing worse than a warning.
+
   --collapse applies to --format svg, mermaid and html, and to --diff (except
   --diff --format mermaid). It has no effect on --execution overlays, which build
   their graph separately — the same limitation --hide-catch has there.
@@ -201,6 +206,30 @@ Example .gitlab-ci.yml:
       paths: [sfn-diagram-artifacts/]
       when: on_success
 `;
+
+/**
+ * Success. Also the graceful outcome for a `comment gitlab` run with nothing to do
+ * (not a merge request pipeline, no changed ASL files, no token configured), and for
+ * `--check` when it finds nothing worse than a warning.
+ */
+const EXIT_OK = 0;
+
+/**
+ * Something went wrong while running an invocation that was itself valid: an input
+ * that could not be read or parsed, a template with no extractable state machine, a
+ * missing optional peer dependency, a failed write. Also `--check` reporting at least
+ * one error-severity diagnostic, which is a finding rather than a malfunction — the
+ * same code a linter uses for the same reason.
+ */
+const EXIT_FAILURE = 1;
+
+/**
+ * The invocation itself was wrong: an unknown flag, an invalid value, a combination
+ * that cannot work, or a required flag left out. Nothing about the input file would
+ * change the outcome. Every `CliError` carries this, and so does every semantic check
+ * in {@link run} before the first file is read.
+ */
+const EXIT_USAGE = 2;
 
 /** `node:util.parseArgs` option spec backing {@link parseArgs}. */
 const OPTION_SPEC = {
@@ -278,7 +307,7 @@ function expectEnum<Value extends string>(
     if (!allowed.includes(value as Value)) {
         throw new CliError(
             `Invalid ${flag}: ${value}. Expected one of: ${allowed.join(', ')}`,
-            2,
+            EXIT_USAGE,
         );
     }
     return value as Value;
@@ -324,7 +353,7 @@ function expectPixels(params: ExpectPixelsParams): number {
     if (!Number.isFinite(parsed) || parsed < 0 || (!allowZero && parsed <= 0)) {
         throw new CliError(
             `Invalid ${flag}: ${value}. Expected a ${allowZero ? 'non-negative' : 'positive'} number of pixels`,
-            2,
+            EXIT_USAGE,
         );
     }
     return parsed;
@@ -360,7 +389,10 @@ interface ExpectNonBlankParams {
 function expectNonBlank(params: ExpectNonBlankParams): string {
     const { flag, value } = params;
     if (value.trim() === '') {
-        throw new CliError(`Invalid ${flag}: expected a non-empty value`, 2);
+        throw new CliError(
+            `Invalid ${flag}: expected a non-empty value`,
+            EXIT_USAGE,
+        );
     }
     return value;
 }
@@ -418,7 +450,7 @@ export function parseArgs(argv: string[]): CliArgs {
     if (positionals.length > 1) {
         throw new CliError(
             `Unexpected positional argument: ${positionals[1]}`,
-            2,
+            EXIT_USAGE,
         );
     }
 
@@ -576,18 +608,49 @@ function remapParseArgsError(error: unknown): CliError {
     if (error.code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
         const flag =
             /Unknown option '(.+?)'/.exec(error.message)?.[1] ?? error.message;
-        return new CliError(`Unknown flag: ${flag}`, 2);
+        return new CliError(`Unknown flag: ${flag}`, EXIT_USAGE);
     }
     if (error.code === 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE') {
         const flag =
             /Option '(?:-\w, )?(--[\w-]+)/.exec(error.message)?.[1] ??
             error.message;
         if (/does not take an argument/.test(error.message)) {
-            return new CliError(`Flag ${flag} does not take a value`, 2);
+            return new CliError(
+                `Flag ${flag} does not take a value`,
+                EXIT_USAGE,
+            );
         }
-        return new CliError(`Flag ${flag} requires a value`, 2);
+        return new CliError(`Flag ${flag} requires a value`, EXIT_USAGE);
     }
     throw error;
+}
+
+/**
+ * Report an exception that escaped {@link run}, and give the exit code to use for it.
+ *
+ * `run` turns every anticipated problem into a return code, so reaching here means a
+ * bug: the only path known to get here is `remapParseArgsError` rethrowing a
+ * `node:util.parseArgs` error it does not recognise, which no argv shape currently
+ * produces. It is defence rather than a live code path, and exists so that such a bug
+ * reports as a runtime failure — keeping `1` meaning what the documented exit-code
+ * convention says — instead of Node printing an unhandled rejection and choosing a
+ * code itself.
+ *
+ * @param error - The value the rejected promise carried, which need not be an `Error`.
+ *
+ * @returns The exit code to assign to `process.exitCode`, always {@link EXIT_FAILURE}.
+ *
+ * @example
+ * ```typescript
+ * void run(process.argv.slice(2))
+ *     .then((code) => { process.exitCode = code; })
+ *     .catch((error: unknown) => { process.exitCode = reportUnexpectedError(error); });
+ * ```
+ */
+export function reportUnexpectedError(error: unknown): number {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`Error: ${message}\n`);
+    return EXIT_FAILURE;
 }
 
 export class CliError extends Error {
@@ -789,7 +852,7 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
 
     const expectValue = (flag: string, value: string | undefined): string => {
         if (value === undefined) {
-            throw new CliError(`Flag ${flag} requires a value`, 2);
+            throw new CliError(`Flag ${flag} requires a value`, EXIT_USAGE);
         }
         return value;
     };
@@ -814,7 +877,7 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
             if (value !== 'light' && value !== 'dark') {
                 throw new CliError(
                     `Invalid --theme: ${value} (expected light or dark)`,
-                    2,
+                    EXIT_USAGE,
                 );
             }
             args.theme = value;
@@ -833,7 +896,7 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
             if (!EXECUTION_MODES.includes(value as ExecutionMode)) {
                 throw new CliError(
                     `Invalid --execution-mode: ${value} (expected ${EXECUTION_MODES.join(', ')})`,
-                    2,
+                    EXIT_USAGE,
                 );
             }
             args.executionMode = value as ExecutionMode;
@@ -848,7 +911,7 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
             continue;
         }
 
-        throw new CliError(`Unknown flag: ${arg}`, 2);
+        throw new CliError(`Unknown flag: ${arg}`, EXIT_USAGE);
     }
 
     return args;
@@ -877,7 +940,7 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
         process.stderr.write(
             '--state-machine-arn is required when --execution-mode is not off\n',
         );
-        return 2;
+        return EXIT_USAGE;
     }
 
     const { exitCode, logs } = await runGitlabComment({
@@ -925,11 +988,15 @@ export async function run(argv: string[]): Promise<number> {
         return 0;
     }
 
+    // Everything from here to the first file read is a usage error: the invocation
+    // itself cannot work, and no change to the input would help. They all exit
+    // EXIT_USAGE so a caller can tell "you used it wrong" from "it broke while
+    // running" without parsing stderr. See the Exit codes note in HELP_TEXT.
     if (args.diff !== null && args.execution !== null) {
         process.stderr.write(
             '--diff and --execution cannot be combined; pick one overlay per run\n',
         );
-        return 1;
+        return EXIT_USAGE;
     }
     if (
         args.check &&
@@ -938,20 +1005,22 @@ export async function run(argv: string[]): Promise<number> {
         process.stderr.write(
             '--check lints the input only; it cannot be combined with --diff, --execution or --output\n',
         );
-        return 1;
+        return EXIT_USAGE;
     }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(args.format)) {
         process.stderr.write(
             `--diff supports --format svg, mermaid or html, not ${args.format}\n`,
         );
-        return 1;
+        return EXIT_USAGE;
     }
     if (args.execution !== null && !OVERLAY_FORMATS.includes(args.format)) {
         process.stderr.write(
             `--execution supports --format svg, mermaid or html, not ${args.format}\n`,
         );
-        return 1;
+        return EXIT_USAGE;
     }
+    // The flag is valid and the build cannot honour it, which still counts as usage:
+    // the fix is to change the invocation (use the npm package), not the input.
     if (args.format === 'png' && !args.check && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--format png is not available in the standalone binary: the native ' +
@@ -959,11 +1028,11 @@ export async function run(argv: string[]): Promise<number> {
                 'Use the npm package instead ' +
                 '(npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …).\n',
         );
-        return 1;
+        return EXIT_USAGE;
     }
     if (args.format === 'png' && !args.check && !args.output) {
         process.stderr.write('--output is required when --format is png\n');
-        return 1;
+        return EXIT_USAGE;
     }
 
     // With no input argument, loadAsl falls through to readStdin(). On a terminal
@@ -971,7 +1040,7 @@ export async function run(argv: string[]): Promise<number> {
     // instead. An explicit `-` still reads stdin: the user asked for it.
     if (args.input === null && process.stdin.isTTY) {
         process.stderr.write(HELP_TEXT);
-        return 2;
+        return EXIT_USAGE;
     }
 
     let aslSource: string;
@@ -980,7 +1049,7 @@ export async function run(argv: string[]): Promise<number> {
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Failed to read input: ${message}\n`);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     let baselineSource: string | null = null;
@@ -993,7 +1062,7 @@ export async function run(argv: string[]): Promise<number> {
             process.stderr.write(
                 `Failed to read --diff baseline: ${message}\n`,
             );
-            return 1;
+            return EXIT_FAILURE;
         }
     }
 
@@ -1007,7 +1076,7 @@ export async function run(argv: string[]): Promise<number> {
             process.stderr.write(
                 `Failed to read --execution history: ${message}\n`,
             );
-            return 1;
+            return EXIT_FAILURE;
         }
     }
 
@@ -1029,15 +1098,18 @@ export async function run(argv: string[]): Promise<number> {
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Error: ${message}\n`);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     if (args.check) {
         const diagnostics = lintAsl({ definition: definitionSource });
         writeLintReport(diagnostics);
+        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
+        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
+        // itself was wrong".
         return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-            ? 1
-            : 0;
+            ? EXIT_FAILURE
+            : EXIT_OK;
     }
 
     // Resolved after `--check`, which lints rather than drawing and so needs no theme.
@@ -1064,7 +1136,11 @@ export async function run(argv: string[]): Promise<number> {
                 `Error: Cannot read theme file ${args.themeFile}: ${reason}\n` +
                     `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.\n`,
             );
-            return 2;
+            // A file that cannot be read is a runtime failure, the same as an
+            // unreadable input or --diff baseline. A misspelled built-in name lands
+            // here too and is indistinguishable from a missing path, which is what
+            // the second line above is for.
+            return EXIT_FAILURE;
         }
     }
 
@@ -1223,7 +1299,7 @@ export async function run(argv: string[]): Promise<number> {
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         process.stderr.write(`Error: ${message}\n`);
-        return 1;
+        return EXIT_FAILURE;
     }
 }
 

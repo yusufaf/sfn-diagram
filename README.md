@@ -55,6 +55,10 @@ Prefer the command line:
 npx sfn-diagram my-workflow.asl.json --format svg -o diagram.svg
 ```
 
+It exits `0` on success, `1` when something goes wrong while running, and `2` when the
+invocation itself was wrong — so a CI job can tell a bad flag from a bad definition. See
+[Exit codes](https://sfn.yusufaf.dev/guides/cli/#exit-codes).
+
 ## Why sfn-diagram
 
 There's no shortage of ways to look at a state machine — this is where sfn-diagram fits versus the other two most common options:
@@ -110,7 +114,7 @@ Full documentation lives at **[sfn.yusufaf.dev](https://sfn.yusufaf.dev)**.
 
 - [Introduction](https://sfn.yusufaf.dev/introduction/) — what it does and how it compares
 - [Quick start](https://sfn.yusufaf.dev/quick-start/) — your first diagram
-- [Command line](https://sfn.yusufaf.dev/guides/cli/) — the `sfn-diagram` CLI, diffs, and execution overlays
+- [Command line](https://sfn.yusufaf.dev/guides/cli/) — the `sfn-diagram` CLI, flags, exit codes, diffs, and execution overlays
 - [Configuration](https://sfn.yusufaf.dev/guides/configuration/) — themes, layouts, edge styles, service icons
 - [Examples](https://sfn.yusufaf.dev/guides/examples/) — complete worked examples
 - [Use with your framework](https://sfn.yusufaf.dev/guides/frameworks/) — Next.js, Remix, SvelteKit, Astro

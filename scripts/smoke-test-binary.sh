@@ -64,9 +64,24 @@ set +e
 png_stderr="$("$binary" "$fixture" --format png -o "$tmp/out.png" 2>&1 >/dev/null)"
 png_status=$?
 set -e
-[ "$png_status" -eq 1 ] || fail "expected exit 1 for --format png, got $png_status"
+[ "$png_status" -eq 2 ] || fail "expected exit 2 for --format png, got $png_status"
 echo "$png_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected --format png stderr: $png_stderr"
+
+# The binary is the one surface `pnpm test` cannot reach, and the exit-code
+# convention is the sort of contract that breaks silently there. Asserting one code
+# of each class keeps that from happening again.
+echo "== exit codes: 2 for a usage error, 1 for a runtime failure"
+set +e
+"$binary" "$fixture" --definitely-not-a-flag >/dev/null 2>&1
+usage_status=$?
+"$binary" "$tmp/definitely-not-a-file.asl.json" >/dev/null 2>&1
+failure_status=$?
+set -e
+[ "$usage_status" -eq 2 ] ||
+    fail "expected exit 2 for an unknown flag, got $usage_status"
+[ "$failure_status" -eq 1 ] ||
+    fail "expected exit 1 for a missing input file, got $failure_status"
 
 # Map the binary's architecture suffix and the host CPU onto the same names so
 # the container check only runs when the binary can execute natively here.
