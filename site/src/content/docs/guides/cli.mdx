@@ -20,16 +20,22 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 |---|---|
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
+| `--config <path>` | Read defaults from this [config file](#configuration-file) instead of searching for one |
 | `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
 | `--hide-catch` | Drop error-handler (`Catch`) branches |
+| `--show-catch` | Draw them — overrides a config file's `catchHandling` |
 | `--hide-variables` | Drop the `$var` annotations for ASL `Assign` blocks |
+| `--show-variables` | Draw them — overrides a config file's `showVariables` |
 | `--hide-comments` | Don't use a state's `Comment` as its node label |
+| `--show-comments` | Use it — overrides a config file's `includeComments` |
 | `--collapse[=names]` | Collapse `Parallel`/`Map` containers into placeholders. Bare flag collapses every container; `--collapse=Name1,Name2` collapses only those. Write `\,` for a comma inside a state name |
 | `--show-icons` | Draw [AWS service icons](/guides/configuration/#aws-service-icons) on Task states |
+| `--hide-icons` | Don't draw them — overrides a config file's `showIcons` |
 | `--icon-position <left\|top\|right>` | Icon placement relative to the label (default: `left`) |
 | `--icon-size <pixels>` | Icon size in pixels (default: `24`) |
 | `--show-state-types` | Draw each state's type as a label on the node |
+| `--hide-state-types` | Don't draw them — overrides a config file's `showStateTypes` |
 | `--edge-style <straight\|curved\|orthogonal>` | Edge path style (default: `curved`). `orthogonal` currently renders the same as `straight` — see [#323](https://github.com/yusufaf/sfn-diagram/issues/323) |
 | `--style-preset <aws-standard\|enhanced>` | Node shapes: AWS parity, or a distinct shape per state type (default: `aws-standard`) |
 | `--catch-label-style <error-type\|catch-number>` | Label on `Catch` edges: the error name, or `Catch #N` (default: `error-type`) |
@@ -47,6 +53,122 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--resource <logicalId>` | State machine to extract when the template has several |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
+
+## Configuration file
+
+Settings a project uses on every run can live in a config file instead of on every
+command line. Any explicit flag overrides it.
+
+```json title="sfn-diagram.config.json"
+{
+  "layout": "LR",
+  "showIcons": true,
+  "padding": 40,
+  "theme": { "base": "dark", "background": "#101014" }
+}
+```
+
+```bash
+sfn-diagram state.asl.json -o diagram.svg               # uses the file
+sfn-diagram state.asl.json -o diagram.svg --layout TB   # the flag wins
+sfn-diagram state.asl.json -o diagram.svg --config ci/sfn.yaml
+```
+
+### Where it is looked for
+
+Starting in the working directory and walking up, stopping at the repository root (the
+first directory containing a `.git` entry). Within one directory these names are tried
+in order:
+
+```
+sfn-diagram.config.json
+sfn-diagram.config.yaml
+sfn-diagram.config.yml
+.sfn-diagramrc
+.sfn-diagramrc.json
+.sfn-diagramrc.yaml
+```
+
+`.sfn-diagramrc` has no extension and is read as YAML, which accepts JSON too.
+
+`--config <path>` skips the search. A file it names that cannot be read is an error, not
+a silent fallback to searching.
+
+The search starts from the working directory, **not** from the input file's directory —
+so `sfn-diagram sub/dir/machine.asl.json` does not pick up
+`sub/dir/sfn-diagram.config.json`. One invocation's configuration does not depend on
+which input it happens to name.
+
+### What it can set
+
+Field names match the [library options](/guides/configuration/) rather than the flags, so
+the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch: true`.
+
+| Field | Type |
+|---|---|
+| `backgroundColor` | string |
+| `catchHandling` | `"show"` \| `"hide"` |
+| `catchLabelStyle` | `"error-type"` \| `"catch-number"` |
+| `collapse` | boolean, or an array of state names |
+| `diagramDescription` | string |
+| `diagramTitle` | string |
+| `edgeStyle` | `"straight"` \| `"curved"` \| `"orthogonal"` |
+| `format` | `"svg"` \| `"mermaid"` \| `"png"` \| `"html"` |
+| `iconPosition` | `"left"` \| `"top"` \| `"right"` |
+| `iconSize` | number |
+| `includeComments` | boolean |
+| `layout` | `"TB"` \| `"LR"` \| `"RL"` \| `"BT"` |
+| `nodeHeight`, `nodeWidth` | number |
+| `nodeSeparation`, `rankSeparation`, `padding` | number |
+| `showIcons`, `showStateTypes`, `showVariables` | boolean |
+| `stylePreset` | `"aws-standard"` \| `"enhanced"` |
+| `theme` | `"light"` \| `"dark"`, or a [custom theme object](#custom-theme-files) |
+
+Keys it doesn't recognise are ignored, so a `$schema` key for editor completion is
+harmless and a field added by a later release won't break an older CLI reading the same
+file. Options that need a function — `iconResolver`, `redact`, `customColors` and the
+per-node and per-edge override maps — have no textual form and stay
+[API-only](/guides/configuration/).
+
+JavaScript and TypeScript config files are deliberately not supported: executing one
+would run arbitrary code, and it could not work in the
+[standalone binary](#standalone-binary), which would make the feature silently absent
+there.
+
+### Turning off something the file turned on
+
+A boolean flag can only switch a setting on, so each one has an opposite for overriding a
+config file:
+
+| Config field | Turn on | Turn off |
+|---|---|---|
+| `catchHandling` | `--show-catch` | `--hide-catch` |
+| `includeComments` | `--show-comments` | `--hide-comments` |
+| `showVariables` | `--show-variables` | `--hide-variables` |
+| `showIcons` | `--show-icons` | `--hide-icons` |
+| `showStateTypes` | `--show-state-types` | `--hide-state-types` |
+
+Passing both halves of a pair is a usage error (exit `2`) rather than last-one-wins,
+which would be easy to miss in a long CI command.
+
+### Errors
+
+A config file's contents being wrong is a runtime failure (exit `1`), not a usage error —
+exit `2` is reserved for what is wrong on the command line. See [Exit codes](#exit-codes).
+
+```
+$ sfn-diagram state.asl.json --config ci/sfn.json
+Error: Invalid theme in /repo/ci/sfn.json: expected 'light', 'dark', or a custom theme object
+$ echo $?
+1
+```
+
+### `comment gitlab` does not read it
+
+The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags. Its options are
+CI-shaped (`--asl-glob`, `--comment-tag`, `--output-dir`, `--execution-mode`) and mostly
+disjoint from the render options, and a file on disk quietly changing what a pipeline
+posts to a merge request is worse than restating a flag in the job.
 
 ## Custom theme files
 
