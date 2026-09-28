@@ -411,10 +411,10 @@ describe('run', () => {
         expect(stderrData).toContain('Invalid --format');
     });
 
-    it('requires --output when --format is png', async () => {
+    it('requires --output or --out-dir when --format is png', async () => {
         const code = await run([simpleFixture, '--format', 'png']);
         expect(code).toBe(2);
-        expect(stderrData).toContain('--output is required');
+        expect(stderrData).toContain('--output or --out-dir is required');
     });
 
     it('returns exit code 1 when the input file is missing', async () => {
@@ -2554,7 +2554,7 @@ describe('run: config file', () => {
         const config = write('c.json', JSON.stringify({ format: 'png' }));
         expect(await run([input, '--config', config])).toBe(2);
         expect(stderrData).toContain(
-            '--output is required when --format is png',
+            '--output or --out-dir is required when --format is png',
         );
     });
 
@@ -3027,6 +3027,76 @@ describe('run: multiple inputs', () => {
             expect(stderrData).toContain('same file');
             expect(existsSync(join(tempDir, 'out'))).toBe(false);
         });
+    });
+
+    it('renders PNG into --out-dir', async () => {
+        // The png guard demanded -o before --out-dir was considered, so batch PNG was
+        // impossible while OUTPUT_EXTENSIONS, a unit test and the guide all advertised it.
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(
+            await run([
+                'order.asl.json',
+                '--format',
+                'png',
+                '--out-dir',
+                'out',
+            ]),
+        ).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'order.png'))).toBe(true);
+    });
+
+    it('still requires an output for PNG when neither -o nor --out-dir is given', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['order.asl.json', '--format', 'png'])).toBe(2);
+        expect(stderrData).toContain('--output or --out-dir is required');
+    });
+
+    it('names the file when a single-file glob fails', async () => {
+        // With a glob the caller does not know which file was selected, so the name is
+        // exactly the information they need - batch size is the wrong trigger.
+        touch('machines/broken.asl.json', 'not json');
+        process.chdir(tempDir);
+        expect(await run(['machines/*.asl.json', '--out-dir', 'out'])).toBe(1);
+        expect(stderrData).toContain('broken.asl.json');
+    });
+
+    it('does not name the file for a single literal input', async () => {
+        touch('broken.asl.json', 'not json');
+        process.chdir(tempDir);
+        expect(await run(['broken.asl.json'])).toBe(1);
+        expect(stderrData).not.toContain('in broken.asl.json');
+    });
+
+    it('rejects --out-dir with stdin', async () => {
+        process.chdir(tempDir);
+        expect(await run(['-', '--out-dir', 'out'])).toBe(2);
+        expect(stderrData).toContain('stdin');
+        expect(existsSync(join(tempDir, 'out'))).toBe(false);
+    });
+
+    it('rejects --out-dir with --check, as --output already is', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(
+            await run(['order.asl.json', '--check', '--out-dir', 'out']),
+        ).toBe(2);
+        expect(stderrData).toContain('--check');
+    });
+
+    it('reports an --out-dir path blocked by a file as a usage error', async () => {
+        // It used to escape to bin.ts as a raw ENOTDIR with exit 1.
+        touch('order.asl.json');
+        touch('blocker');
+        process.chdir(tempDir);
+        expect(
+            await run(['order.asl.json', '--out-dir', 'blocker/nested/out']),
+        ).toBe(2);
+        // Reported rather than thrown: it used to escape to bin.ts with exit 1. The
+        // errno stays in the message because it is the reason the path cannot be made.
+        expect(stderrData).toContain('Cannot create --out-dir');
+        expect(stderrData).toContain('blocker/nested/out');
     });
 
     it('exits 1 when a glob matches nothing', async () => {

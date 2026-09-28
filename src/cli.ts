@@ -11,7 +11,12 @@ import { extractAslFromTemplate } from './cfn';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
-import { CliInputError, expandInputs, planOutputPaths } from './cliInputs';
+import {
+    CliInputError,
+    expandInputs,
+    hasGlobMagic,
+    planOutputPaths,
+} from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
 import { runGitlabComment } from './ci/gitlab';
@@ -1480,8 +1485,18 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    if (options.format === 'png' && !args.check && !args.output) {
-        process.stderr.write('--output is required when --format is png\n');
+    // `--out-dir` names the destination just as well as `-o` does, and PNG is one of
+    // the formats OUTPUT_EXTENSIONS covers, so demanding `-o` here made batch PNG
+    // impossible while the extension map, a unit test and the guide all offered it.
+    if (
+        options.format === 'png' &&
+        !args.check &&
+        !args.output &&
+        args.outDir === null
+    ) {
+        process.stderr.write(
+            '--output or --out-dir is required when --format is png\n',
+        );
         return EXIT_USAGE;
     }
 
@@ -1496,6 +1511,29 @@ export async function run(argv: string[]): Promise<number> {
     if (args.output !== null && args.outDir !== null) {
         process.stderr.write(
             '-o and --out-dir cannot be combined; -o names one file, --out-dir a directory\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // `--check` lints and writes nothing, so a destination is as contradictory here
+    // as `--output` already was. Left unchecked it exited 0 having produced neither
+    // a diagram nor a complaint.
+    if (args.check && args.outDir !== null) {
+        process.stderr.write(
+            '--check lints the input only; it cannot be combined with --out-dir\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // There is no filename to derive an output name from when the definition arrives
+    // on stdin. Left unchecked, a bare `-` wrote a file called `-.svg` and a piped
+    // invocation ignored --out-dir while still creating the directory.
+    if (
+        args.outDir !== null &&
+        (args.inputs.length === 0 || args.inputs.includes('-'))
+    ) {
+        process.stderr.write(
+            '--out-dir needs a named input; stdin has no filename to derive one from\n',
         );
         return EXIT_USAGE;
     }
@@ -1570,7 +1608,19 @@ export async function run(argv: string[]): Promise<number> {
         }
         // Created only once the batch is known to be renderable, so a rejected batch
         // leaves no directory behind.
-        mkdirSync(resolve(args.outDir), { recursive: true });
+        try {
+            mkdirSync(resolve(args.outDir), { recursive: true });
+        } catch (error) {
+            // A path blocked by a file part-way along (`a.json/nested/out`) used to
+            // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
+            // clean exit 2 an out-dir that *is* a file already gets.
+            const reason =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Cannot create --out-dir ${args.outDir}: ${reason}\n`,
+            );
+            return EXIT_USAGE;
+        }
     }
 
     // `--check` lints rather than drawing, so it needs no theme - and a broken theme
@@ -1647,8 +1697,12 @@ export async function run(argv: string[]): Promise<number> {
                   outputPath:
                       planned === null ? args.output : planned[index].output,
               }));
-    // Only a batch names its files; a single input would just be noise.
-    const labelInput = work.length > 1;
+    // A batch names its files, and so does a glob even when it expanded to one: the
+    // caller chose a pattern rather than a path, so which file was selected is
+    // exactly what they do not know. A single literal input needs no label - the
+    // reader just typed it.
+    const labelInput =
+        work.length > 1 || args.inputs.some((pattern) => hasGlobMagic(pattern));
 
     let worstCode = EXIT_OK;
     for (const item of work) {

@@ -1,5 +1,5 @@
-import { readdirSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { minimatch } from 'minimatch';
 import type { DiagramFormat } from './types';
 
@@ -38,25 +38,58 @@ function toPosix(pathOrPattern: string): string {
  * The leading directory segments of a pattern before its first metacharacter.
  *
  * Walking from here rather than from the working directory keeps a scoped pattern
- * (`machines/**` with a filename) from reading the whole tree.
+ * (`machines/**` with a filename) from reading the whole tree. Exported because that
+ * scoping cannot be observed from `expandInputs`'s result — matching filters the
+ * candidates afterwards either way, so a test of the output passes even with no
+ * scoping at all, and `readdirSync` cannot be spied on through an ESM namespace.
+ *
+ * @param pattern - A pattern containing at least one glob metacharacter.
+ *
+ * @returns The directory prefix to walk from, relative or absolute as the pattern was,
+ *   or `''` when the pattern's first segment already contains a metacharacter.
+ *
+ * @example
+ * ```typescript
+ * patternRoot('machines/**' + '/*.asl.json'); // 'machines'
+ * patternRoot('*.asl.json'); // ''
+ * ```
  */
-function patternRoot(pattern: string): string {
+export function patternRoot(pattern: string): string {
     const segments = toPosix(pattern).split('/');
     const plain: string[] = [];
     for (const segment of segments) {
+        // Only reached for patterns that contain magic, so the loop always breaks
+        // before the filename: every segment collected here is a real directory. An
+        // earlier version popped the last one anyway, which reduced
+        // `machines/**/*.asl.json` to no root at all and read the whole tree.
         if (hasGlobMagic(segment)) break;
         plain.push(segment);
     }
-    // The last plain segment may be the filename itself, which is not a directory;
-    // dropping it is harmless because the walk filters by the full pattern anyway.
-    plain.pop();
     return plain.join('/');
+}
+
+/** Whether a directory entry is a symlink that resolves to a regular file. */
+function isSymlinkToFile(
+    entry: { isSymbolicLink: () => boolean },
+    entryPath: string,
+): boolean {
+    if (!entry.isSymbolicLink()) return false;
+    try {
+        return statSync(entryPath).isFile();
+    } catch {
+        // A broken symlink is not a definition; it is also not an error worth failing
+        // the whole pattern over, since it matched nothing the caller asked for.
+        return false;
+    }
 }
 
 /** Parameters for {@link walkFiles}. */
 interface WalkFilesParams {
-    /** Directory every returned path is made relative to. */
-    cwd: string;
+    /**
+     * Directory every returned path is made relative to, or `null` to return absolute
+     * paths — which an absolute pattern has to be matched against.
+     */
+    cwd: string | null;
     /** Directory to read. */
     directory: string;
 }
@@ -74,13 +107,18 @@ function walkFiles(params: WalkFilesParams): string[] {
         return found;
     }
     for (const entry of entries) {
+        const entryPath = join(directory, entry.name);
         if (entry.isDirectory()) {
             if (SKIPPED_DIRECTORIES.includes(entry.name)) continue;
+            found.push(...walkFiles({ cwd, directory: entryPath }));
+        } else if (entry.isFile() || isSymlinkToFile(entry, entryPath)) {
+            // A symlink is neither isFile() nor isDirectory() with withFileTypes, so
+            // without the second test a symlinked definition is skipped entirely and
+            // the pattern reports no matches. Symlinked *directories* are still not
+            // descended, which is what keeps the walk from looping.
             found.push(
-                ...walkFiles({ cwd, directory: join(directory, entry.name) }),
+                toPosix(cwd === null ? entryPath : relative(cwd, entryPath)),
             );
-        } else if (entry.isFile()) {
-            found.push(toPosix(relative(cwd, join(directory, entry.name))));
         }
     }
     return found;
@@ -131,11 +169,25 @@ export function expandInputs(params: ExpandInputsParams): string[] {
             collected.push(pattern);
             continue;
         }
-        const normalized = toPosix(pattern);
-        const root = patternRoot(pattern);
+        // A leading `./` never appears on the candidates, which come from
+        // `relative()`, so leaving it on the pattern would match nothing. Shell
+        // completion and copied documentation both produce it constantly.
+        const normalized = toPosix(pattern).replace(/^\.\//, '');
+        const absolute =
+            isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized);
+        const root = patternRoot(normalized);
+        const walkRoot = absolute
+            ? root === ''
+                ? resolvedCwd
+                : root
+            : root === ''
+              ? resolvedCwd
+              : join(resolvedCwd, root);
         const candidates = walkFiles({
-            cwd: resolvedCwd,
-            directory: root === '' ? resolvedCwd : join(resolvedCwd, root),
+            // An absolute pattern can only match absolute candidates, so the walk
+            // reports them unmodified rather than relative to the working directory.
+            cwd: absolute ? null : resolvedCwd,
+            directory: walkRoot,
         });
         const matched = candidates
             // `dot: true` because the walk already decides which directories are
@@ -146,10 +198,18 @@ export function expandInputs(params: ExpandInputsParams): string[] {
                 minimatch(candidate, normalized, { dot: true }),
             )
             .sort();
-        if (matched.length === 0) {
-            throw new CliInputError(`No files matched: ${pattern}`);
+        if (matched.length > 0) {
+            collected.push(...matched);
+            continue;
         }
-        collected.push(...matched);
+        // `order[1].asl.json` is both a real filename and a valid pattern. Rendering
+        // it worked before globbing existed, so a pattern that matches nothing falls
+        // back to the literal path when that path is there.
+        if (existsSync(resolve(resolvedCwd, pattern))) {
+            collected.push(pattern);
+            continue;
+        }
+        throw new CliInputError(`No files matched: ${pattern}`);
     }
 
     return [...new Set(collected)];

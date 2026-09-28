@@ -209,11 +209,20 @@ $ echo $?
 
 A pattern is matched against paths relative to the working directory, and `node_modules`
 and `.git` are never descended into. Other hidden directories are walked, so
-`.github/workflows/machine.asl.json` is reachable.
+`.github/workflows/machine.asl.json` is reachable. Symlinked definitions are matched;
+symlinked directories are not descended, which is what keeps the walk from looping.
 
 `*.asl.json` means "in this directory"; use `**/*.asl.json` for any depth. (This differs
 from [`comment gitlab --asl-glob`](#comment-gitlab), which matches by basename at any
 depth because it filters a list git gives it rather than searching the filesystem.)
+
+A `./` prefix and an absolute pattern both work, so a CI job can pass
+`"$CI_PROJECT_DIR/machines/*.asl.json"`. Only the pattern's non-glob prefix is walked, so
+`machines/**/*.asl.json` never reads a sibling directory.
+
+A filename containing glob characters is still renderable. `order[1].asl.json` is both a
+valid pattern and a real name: it is matched as a pattern first, and falls back to the
+literal path when the pattern matches nothing and the file exists.
 
 ### One at a time
 
@@ -223,6 +232,13 @@ These take a single input, and more than one is a usage error:
 - `--diff` — one definition against one baseline.
 - `--execution` — one run overlaid on one definition.
 - `-` (stdin) — there is only one of it.
+
+`--out-dir` needs named inputs, so it cannot be combined with stdin: there is no filename
+to derive an output name from. It also cannot be combined with `--check`, which lints and
+writes nothing, or with `-o`, which names one file itself.
+
+With `--format png`, either `-o` or `--out-dir` satisfies the output requirement — PNG
+batches the same way every other format does.
 
 ### When one input fails
 
@@ -237,6 +253,10 @@ $ echo $?
 $ ls out
 order.svg  refund.svg
 ```
+
+A failure names its file whenever there is more than one input, and whenever the inputs
+came from a glob — with a pattern you did not choose the filename, so it is exactly what
+you need told. A single input you typed yourself is reported without the name.
 
 A glob that matches nothing exits `1` — the invocation was fine, the filesystem had
 nothing. See [Exit codes](#exit-codes).

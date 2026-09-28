@@ -1,13 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import {
     CliInputError,
     deriveOutputName,
     expandInputs,
     hasGlobMagic,
     OUTPUT_EXTENSIONS,
+    patternRoot,
     planOutputPaths,
 } from '../../src/cliInputs';
 
@@ -174,12 +182,105 @@ describe('expandInputs', () => {
         expect(message).not.toContain('*.asl.json');
     });
 
+    it('accepts a ./-prefixed pattern', () => {
+        // Shell completion and copy-pasted docs routinely produce `./`, and the
+        // candidates it is matched against never carry one.
+        touch('machines/one.asl.json');
+        expect(
+            expandInputs({ cwd: root, patterns: ['./machines/*.asl.json'] }),
+        ).toEqual(['machines/one.asl.json']);
+    });
+
+    it('accepts a bare ./ pattern in the working directory', () => {
+        touch('one.asl.json');
+        expect(expandInputs({ cwd: root, patterns: ['./*.asl.json'] })).toEqual(
+            ['one.asl.json'],
+        );
+    });
+
+    it('accepts an absolute pattern', () => {
+        // A CI job passing "$CI_PROJECT_DIR/machines/*.asl.json" must work.
+        const file = touch('machines/one.asl.json');
+        const pattern = join(root, 'machines', '*.asl.json');
+        expect(expandInputs({ cwd: root, patterns: [pattern] })).toEqual([
+            file.split(sep).join('/'),
+        ]);
+    });
+
+    it('falls back to a literal path when a bracketed name matches nothing', () => {
+        // `order[1].asl.json` is a real filename and a valid glob. Before globbing
+        // existed the positional went straight to readFileSync and rendered; treating
+        // it only as a pattern would be a regression on files that already work.
+        const file = touch('order[1].asl.json');
+        expect(existsSync(file)).toBe(true);
+        expect(
+            expandInputs({ cwd: root, patterns: ['order[1].asl.json'] }),
+        ).toEqual(['order[1].asl.json']);
+    });
+
+    it('still prefers a real glob match over the literal fallback', () => {
+        touch('order1.asl.json');
+        expect(
+            expandInputs({ cwd: root, patterns: ['order[1].asl.json'] }),
+        ).toEqual(['order1.asl.json']);
+    });
+
+    it('still throws when neither the pattern nor the literal path exists', () => {
+        expect(() =>
+            expandInputs({ cwd: root, patterns: ['order[9].asl.json'] }),
+        ).toThrowError(CliInputError);
+    });
+
+    it('matches a symlinked definition', () => {
+        // pnpm workspaces and shared definition directories are full of symlinks; a
+        // walk that reports neither isFile() nor isDirectory() for them skips the file
+        // entirely and reports "No files matched".
+        const target = touch('real/one.asl.json');
+        mkdirSync(join(root, 'machines'), { recursive: true });
+        try {
+            symlinkSync(target, join(root, 'machines', 'linked.asl.json'));
+        } catch {
+            // Windows without developer mode refuses symlinks; nothing to assert.
+            return;
+        }
+        expect(
+            expandInputs({ cwd: root, patterns: ['machines/*.asl.json'] }),
+        ).toEqual(['machines/linked.asl.json']);
+    });
+
     it('ignores a directory whose name matches the pattern', () => {
         mkdirSync(join(root, 'looks.asl.json'), { recursive: true });
         touch('real.asl.json');
         expect(expandInputs({ cwd: root, patterns: ['*.asl.json'] })).toEqual([
             'real.asl.json',
         ]);
+    });
+});
+
+describe('patternRoot', () => {
+    // The scoping this decides cannot be seen in expandInputs' result: matching filters
+    // the candidates afterwards either way, so a test of the output passes even when the
+    // walk read the entire tree. An earlier version popped the last plain segment
+    // unconditionally, which reduced every prefixed pattern to no root at all.
+    it.each([
+        ['machines/**/*.asl.json', 'machines'],
+        ['machines/*.asl.json', 'machines'],
+        ['a/b/c/*.asl.json', 'a/b/c'],
+        ['*.asl.json', ''],
+        ['**/*.asl.json', ''],
+        ['machines/**/deep/*.json', 'machines'],
+    ])('scopes %s to %s', (pattern, expected) => {
+        expect(patternRoot(pattern)).toBe(expected);
+    });
+
+    it('keeps an absolute prefix absolute', () => {
+        expect(patternRoot('/srv/machines/*.asl.json')).toBe('/srv/machines');
+    });
+
+    it('normalises a backslash-separated prefix', () => {
+        expect(patternRoot('machines\\nested\\*.asl.json')).toBe(
+            'machines/nested',
+        );
     });
 });
 
