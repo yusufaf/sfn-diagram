@@ -1,9 +1,23 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
+import type { PlannedOutput } from './cliInputs';
+import {
+    CliInputError,
+    expandInputs,
+    hasGlobMagic,
+    planOutputPaths,
+} from './cliInputs';
+import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
@@ -57,12 +71,18 @@ export interface CliArgs {
     iconSize: number | null;
     /** `false` from `--hide-comments`, `true` from `--show-comments`, `null` if neither. */
     includeComments: boolean | null;
-    input: string | null;
+    /**
+     * Every positional, in the order given, before glob expansion. Empty when none was
+     * given, which means stdin. A single `'-'` also means stdin.
+     */
+    inputs: string[];
     /** `null` when `--layout` was absent; the default is applied by `resolveCliOptions`. */
     layout: LayoutDirection | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
+    /** Directory for one output file per input, from `--out-dir`, or `null`. */
+    outDir: string | null;
     output: string | null;
     padding: number | null;
     rankSeparation: number | null;
@@ -100,6 +120,8 @@ const HELP_TEXT = `sfn-diagram — generate diagrams from AWS Step Functions ASL
 
 Usage:
   sfn-diagram <input> [options]
+  sfn-diagram <input>... --out-dir <dir> [options]
+  sfn-diagram '<glob>' --out-dir <dir> [options]
   sfn-diagram - [options]            (read ASL from stdin)
   sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
                                           request from CI — see --help there)
@@ -107,6 +129,8 @@ Usage:
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
   -o, --output <path>              Output file path (required for png; stdout otherwise)
+  --out-dir <dir>                  Write one output file per input into this directory,
+                                   named after each input (required for several inputs)
   --config <path>                  Read defaults from this config file instead of
                                    searching for one
   --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
@@ -171,6 +195,13 @@ Notes:
   searched upward from the working directory and stopping at the repository root.
   --config <path> reads that file instead of searching. Any explicit flag overrides
   the file, and "comment gitlab" does not read it.
+
+  Several inputs can be given as separate arguments or as a quoted glob
+  ("machines/**/*.asl.json"), which is expanded even where the shell does not.
+  Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
+  the same filename are refused before anything is written. --diff and --execution
+  take a single input. A failing input does not stop the batch; the run exits 1 if
+  any failed.
 
   Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
   render or write), 2 usage error (unknown flag, invalid value, a combination that
@@ -297,6 +328,7 @@ const OPTION_SPEC = {
     'node-separation': { type: 'string' },
     'no-collapse': { type: 'boolean' },
     'node-width': { type: 'string' },
+    'out-dir': { type: 'string' },
     output: { short: 'o', type: 'string' },
     padding: { type: 'string' },
     'rank-separation': { type: 'string' },
@@ -494,13 +526,6 @@ export function parseArgs(argv: string[]): CliArgs {
         throw remapParseArgsError(error);
     }
 
-    if (positionals.length > 1) {
-        throw new CliError(
-            `Unexpected positional argument: ${positionals[1]}`,
-            EXIT_USAGE,
-        );
-    }
-
     const collapseValue = values.collapse as string | undefined;
 
     /**
@@ -661,7 +686,7 @@ export function parseArgs(argv: string[]): CliArgs {
             whenFalse: false,
             whenTrue: true,
         }),
-        input: positionals[0] ?? null,
+        inputs: positionals,
         layout:
             values.layout === undefined
                 ? null
@@ -673,6 +698,13 @@ export function parseArgs(argv: string[]): CliArgs {
         nodeHeight: readPixels('node-height', false),
         nodeSeparation: readPixels('node-separation', true),
         nodeWidth: readPixels('node-width', false),
+        outDir:
+            values['out-dir'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--out-dir',
+                      value: values['out-dir'] as string,
+                  }),
         output: (values.output as string | undefined) ?? null,
         padding: readPixels('padding', true),
         rankSeparation: readPixels('rank-separation', true),
@@ -1084,6 +1116,278 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
     return exitCode;
 }
 
+/** Parameters for {@link renderOneInput}. */
+interface RenderOneInputParams {
+    /** The parsed command line, for the flags that are not diagram options. */
+    args: CliArgs;
+    /** Contents of `--diff`'s baseline, already read, or `null`. */
+    baselineSource: string | null;
+    /** Contents of `--execution`'s history, already read, or `null`. */
+    historySource: string | null;
+    /** The input to render: a path, or `null`/`'-'` for stdin. */
+    input: string | null;
+    /**
+     * Whether messages should name the input.
+     *
+     * True only for a batch of more than one: with a single input the reader
+     * already knows which file they asked for, and naming it is noise.
+     */
+    labelInput: boolean;
+    /** The effective diagram options for this run. */
+    options: ResolvedCliOptions;
+    /** Where this input's output goes, or `null` for stdout. */
+    outputPath: string | null;
+    /** The resolved theme, after any `--theme` file. */
+    theme: ThemeOption;
+}
+
+/**
+ * Read one input, then lint it or render it and write the result.
+ *
+ * Split out of {@link run} so a batch can call it per input. Everything shared across a
+ * batch — parsing, the config file, the option merge, the resolved theme, the `--diff`
+ * baseline and the `--execution` history — is resolved by the caller and passed in, so
+ * it happens once rather than once per input.
+ *
+ * @param params - Render parameters (see {@link RenderOneInputParams})
+ *
+ * @returns The exit code for this one input: `EXIT_OK`, or `EXIT_FAILURE` if it could
+ *   not be read, parsed, rendered or written, or if `--check` found an error.
+ */
+async function renderOneInput(params: RenderOneInputParams): Promise<number> {
+    const {
+        args,
+        baselineSource,
+        historySource,
+        input,
+        labelInput,
+        options,
+        outputPath,
+        theme,
+    } = params;
+    /** The input's path when a batch needs it named, otherwise an empty string. */
+    const inputLabel = labelInput && input !== null ? input : '';
+
+    let aslSource: string;
+    try {
+        aslSource = await loadAsl(input);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // A batch's stderr is useless if a failure does not say which file.
+        process.stderr.write(
+            `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: ${message}\n`,
+        );
+        return EXIT_FAILURE;
+    }
+
+    let definitionSource: AslDefinition | string;
+    let baselineDefinition: AslDefinition | string | null = null;
+    try {
+        definitionSource = resolveDefinitionSource({
+            resolveCfn: args.resolveCfn,
+            resource: args.resource,
+            source: aslSource,
+        });
+        if (baselineSource !== null) {
+            baselineDefinition = resolveDefinitionSource({
+                resolveCfn: args.resolveCfn,
+                resource: args.resource,
+                source: baselineSource,
+            });
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(
+            `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
+        );
+        return EXIT_FAILURE;
+    }
+
+    if (args.check) {
+        const diagnostics = lintAsl({ definition: definitionSource });
+        // A batch's lint output is unreadable without saying which file each
+        // diagnostic came from.
+        if (inputLabel !== '') process.stderr.write(`${inputLabel}:\n`);
+        writeLintReport(diagnostics);
+        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
+        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
+        // itself was wrong".
+        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+            ? EXIT_FAILURE
+            : EXIT_OK;
+    }
+
+    const sharedOptions = {
+        catchHandling: options.catchHandling,
+        ...(options.catchLabelStyle !== null
+            ? { catchLabelStyle: options.catchLabelStyle }
+            : {}),
+        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
+        ...(options.includeComments !== null
+            ? { includeComments: options.includeComments }
+            : {}),
+        ...(options.showVariables !== null
+            ? { showVariables: options.showVariables }
+            : {}),
+    };
+    const svgOptions = {
+        ...sharedOptions,
+        layout: options.layout,
+        theme,
+        ...(options.backgroundColor !== null
+            ? { backgroundColor: options.backgroundColor }
+            : {}),
+        ...(options.diagramDescription !== null
+            ? { diagramDescription: options.diagramDescription }
+            : {}),
+        ...(options.diagramTitle !== null
+            ? { diagramTitle: options.diagramTitle }
+            : {}),
+        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
+        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
+        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
+        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
+        ...(options.iconPosition !== null
+            ? { iconPosition: options.iconPosition }
+            : {}),
+        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
+        ...(options.nodeHeight !== null
+            ? { nodeHeight: options.nodeHeight }
+            : {}),
+        ...(options.nodeSeparation !== null
+            ? { nodeSeparation: options.nodeSeparation }
+            : {}),
+        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
+        ...(options.padding !== null ? { padding: options.padding } : {}),
+        ...(options.rankSeparation !== null
+            ? { rankSeparation: options.rankSeparation }
+            : {}),
+        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
+        ...(options.showStateTypes !== null
+            ? { showStateTypes: options.showStateTypes }
+            : {}),
+        ...(options.stylePreset !== null
+            ? { stylePreset: options.stylePreset }
+            : {}),
+    };
+
+    try {
+        if (baselineDefinition !== null) {
+            if (options.format === 'mermaid') {
+                const result = generateMermaidDiff({
+                    after: definitionSource,
+                    before: baselineDefinition,
+                    layout: options.layout,
+                    theme,
+                });
+                writeDiffSummary(result.metadata);
+                writeOutput(result.code, outputPath);
+                return 0;
+            }
+
+            if (options.format === 'html') {
+                // The viewer applies the diff itself; icons are inlined so the document
+                // stays offline, matching the plain `--format html` path.
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    diff: { before: baselineDefinition },
+                    ...svgOptions,
+                });
+                if (result.metadata.diff)
+                    writeDiffSummary(result.metadata.diff);
+                writeOutput(result.html, outputPath);
+                return 0;
+            }
+
+            const result = generateDiff({
+                after: definitionSource,
+                before: baselineDefinition,
+                ...svgOptions,
+            });
+            writeDiffSummary(result.metadata);
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (historySource !== null) {
+            if (options.format === 'mermaid') {
+                const result = generateMermaidExecution({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                    layout: options.layout,
+                    theme,
+                });
+                writeExecutionSummary(result.metadata);
+                writeOutput(result.code, outputPath);
+                return 0;
+            }
+
+            if (options.format === 'html') {
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                    ...svgOptions,
+                });
+                if (result.metadata.execution)
+                    writeExecutionSummary(result.metadata.execution);
+                writeOutput(result.html, outputPath);
+                return 0;
+            }
+
+            const result = generateExecution({
+                aslDefinition: definitionSource,
+                history: historySource,
+                ...svgOptions,
+            });
+            writeExecutionSummary(result.metadata);
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'mermaid') {
+            const result = generateMermaid({
+                aslDefinition: definitionSource,
+                ...sharedOptions,
+                layout: options.layout,
+                theme,
+            });
+            writeOutput(result.code, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'svg') {
+            const result = generateSvg({
+                aslDefinition: definitionSource,
+                ...svgOptions,
+            });
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'html') {
+            const result = await generateHtmlAsync({
+                aslDefinition: definitionSource,
+                ...svgOptions,
+            });
+            writeOutput(result.html, outputPath);
+            return 0;
+        }
+
+        const result = await exportPng({
+            aslDefinition: definitionSource,
+            ...svgOptions,
+        });
+        writeFileSync(resolve(outputPath as string), result.buffer);
+        return 0;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(
+            `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
+        );
+        return EXIT_FAILURE;
+    }
+}
+
 export async function run(argv: string[]): Promise<number> {
     if (argv[0] === 'comment' && argv[1] === 'gitlab') {
         return runCommentGitlab(argv.slice(2));
@@ -1181,26 +1485,179 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    if (options.format === 'png' && !args.check && !args.output) {
-        process.stderr.write('--output is required when --format is png\n');
+    // `--out-dir` names the destination just as well as `-o` does, and PNG is one of
+    // the formats OUTPUT_EXTENSIONS covers, so demanding `-o` here made batch PNG
+    // impossible while the extension map, a unit test and the guide all offered it.
+    if (
+        options.format === 'png' &&
+        !args.check &&
+        !args.output &&
+        args.outDir === null
+    ) {
+        process.stderr.write(
+            '--output or --out-dir is required when --format is png\n',
+        );
         return EXIT_USAGE;
     }
 
     // With no input argument, loadAsl falls through to readStdin(). On a terminal
     // that stdin never ends, so a bare invocation would block forever - print usage
     // instead. An explicit `-` still reads stdin: the user asked for it.
-    if (args.input === null && process.stdin.isTTY) {
+    if (args.inputs.length === 0 && process.stdin.isTTY) {
         process.stderr.write(HELP_TEXT);
         return EXIT_USAGE;
     }
 
-    let aslSource: string;
+    if (args.output !== null && args.outDir !== null) {
+        process.stderr.write(
+            '-o and --out-dir cannot be combined; -o names one file, --out-dir a directory\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // `--check` lints and writes nothing, so a destination is as contradictory here
+    // as `--output` already was. Left unchecked it exited 0 having produced neither
+    // a diagram nor a complaint.
+    if (args.check && args.outDir !== null) {
+        process.stderr.write(
+            '--check lints the input only; it cannot be combined with --out-dir\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // There is no filename to derive an output name from when the definition arrives
+    // on stdin. Left unchecked, a bare `-` wrote a file called `-.svg` and a piped
+    // invocation ignored --out-dir while still creating the directory.
+    if (
+        args.outDir !== null &&
+        (args.inputs.length === 0 || args.inputs.includes('-'))
+    ) {
+        process.stderr.write(
+            '--out-dir needs a named input; stdin has no filename to derive one from\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // Globs are expanded before the count-dependent checks below, so a pattern matching
+    // two files is treated the same as two positionals.
+    let inputs: string[];
     try {
-        aslSource = await loadAsl(args.input);
+        inputs =
+            args.inputs.length === 0
+                ? [] // stdin
+                : expandInputs({ cwd: process.cwd(), patterns: args.inputs });
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Failed to read input: ${message}\n`);
+        if (!(error instanceof CliInputError)) throw error;
+        // A pattern that matched nothing is about the filesystem, not the command line.
+        process.stderr.write(`Error: ${error.message}\n`);
         return EXIT_FAILURE;
+    }
+
+    if (inputs.length > 1) {
+        if (inputs.includes('-')) {
+            process.stderr.write(
+                'stdin cannot be one of several inputs; there is only one stdin\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.output !== null) {
+            process.stderr.write(
+                '-o takes a single output file; use --out-dir for more than one input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.outDir === null && !args.check) {
+            process.stderr.write(
+                '--out-dir is required for more than one input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.diff !== null) {
+            process.stderr.write(
+                '--diff compares one definition against one baseline; pass a single input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.execution !== null) {
+            process.stderr.write(
+                '--execution overlays one run on one definition; pass a single input\n',
+            );
+            return EXIT_USAGE;
+        }
+    }
+
+    let planned: PlannedOutput[] | null = null;
+    if (args.outDir !== null && !args.check) {
+        if (existsSync(args.outDir) && !statSync(args.outDir).isDirectory()) {
+            process.stderr.write(
+                `--out-dir is not a directory: ${args.outDir}\n`,
+            );
+            return EXIT_USAGE;
+        }
+        try {
+            planned = planOutputPaths({
+                format: options.format,
+                inputs,
+                outDir: args.outDir,
+            });
+        } catch (error) {
+            if (!(error instanceof CliInputError)) throw error;
+            // A collision is a property of the invocation, not of any file's contents.
+            process.stderr.write(`Error: ${error.message}\n`);
+            return EXIT_USAGE;
+        }
+        // Created only once the batch is known to be renderable, so a rejected batch
+        // leaves no directory behind.
+        try {
+            mkdirSync(resolve(args.outDir), { recursive: true });
+        } catch (error) {
+            // A path blocked by a file part-way along (`a.json/nested/out`) used to
+            // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
+            // clean exit 2 an out-dir that *is* a file already gets.
+            const reason =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Cannot create --out-dir ${args.outDir}: ${reason}\n`,
+            );
+            return EXIT_USAGE;
+        }
+    }
+
+    // `--check` lints rather than drawing, so it needs no theme - and a broken theme
+    // file must not fail a lint that would otherwise pass. That was true before the
+    // per-input half moved into renderOneInput, where `--check` now lives, so the
+    // guard is explicit here rather than implied by an early return.
+    let theme: ThemeOption = options.theme;
+    if (!args.check && args.themeFile !== null) {
+        try {
+            const parsed: unknown = JSON.parse(
+                readFileSync(resolve(args.themeFile), 'utf-8'),
+            );
+            if (
+                typeof parsed !== 'object' ||
+                parsed === null ||
+                Array.isArray(parsed)
+            ) {
+                throw new Error(
+                    'Expected a JSON object describing a custom theme',
+                );
+            }
+            theme = parsed as CustomTheme;
+        } catch (error) {
+            const reason =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Error: Cannot read theme file ${args.themeFile}: ${reason}
+` +
+                    `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.
+`,
+            );
+            // A file that cannot be read is a runtime failure, the same as an
+            // unreadable input or --diff baseline. A misspelled built-in name lands
+            // here too and is indistinguishable from a missing path, which is what
+            // the second line above is for.
+            return EXIT_FAILURE;
+        }
     }
 
     let baselineSource: string | null = null;
@@ -1231,240 +1688,39 @@ export async function run(argv: string[]): Promise<number> {
         }
     }
 
-    let definitionSource: AslDefinition | string;
-    let baselineDefinition: AslDefinition | string | null = null;
-    try {
-        definitionSource = resolveDefinitionSource({
-            resolveCfn: args.resolveCfn,
-            resource: args.resource,
-            source: aslSource,
+    // One entry per input, so the single-input path is the same code as a batch of one.
+    const work: Array<{ input: string | null; outputPath: string | null }> =
+        inputs.length === 0
+            ? [{ input: null, outputPath: args.output }]
+            : inputs.map((input, index) => ({
+                  input,
+                  outputPath:
+                      planned === null ? args.output : planned[index].output,
+              }));
+    // A batch names its files, and so does a glob even when it expanded to one: the
+    // caller chose a pattern rather than a path, so which file was selected is
+    // exactly what they do not know. A single literal input needs no label - the
+    // reader just typed it.
+    const labelInput =
+        work.length > 1 || args.inputs.some((pattern) => hasGlobMagic(pattern));
+
+    let worstCode = EXIT_OK;
+    for (const item of work) {
+        // A failing input does not stop the batch: stopping at the first would hide the
+        // rest, which is the opposite of what a batch is for.
+        const code = await renderOneInput({
+            args,
+            baselineSource,
+            historySource,
+            input: item.input,
+            labelInput,
+            options,
+            outputPath: item.outputPath,
+            theme,
         });
-        if (baselineSource !== null) {
-            baselineDefinition = resolveDefinitionSource({
-                resolveCfn: args.resolveCfn,
-                resource: args.resource,
-                source: baselineSource,
-            });
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
-        return EXIT_FAILURE;
+        if (code !== EXIT_OK) worstCode = code;
     }
-
-    if (args.check) {
-        const diagnostics = lintAsl({ definition: definitionSource });
-        writeLintReport(diagnostics);
-        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
-        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
-        // itself was wrong".
-        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-            ? EXIT_FAILURE
-            : EXIT_OK;
-    }
-
-    // Resolved after `--check`, which lints rather than drawing and so needs no theme.
-    // A file supersedes both `--theme <name>` and a config file's `theme`, so it is
-    // applied on top of the merge rather than inside it - and it stays out of
-    // `resolveCliOptions`, which does no IO.
-    let theme: ThemeOption = options.theme;
-    if (args.themeFile !== null) {
-        try {
-            const parsed: unknown = JSON.parse(
-                readFileSync(resolve(args.themeFile), 'utf-8'),
-            );
-            if (
-                typeof parsed !== 'object' ||
-                parsed === null ||
-                Array.isArray(parsed)
-            ) {
-                throw new Error(
-                    'Expected a JSON object describing a custom theme',
-                );
-            }
-            theme = parsed as CustomTheme;
-        } catch (error) {
-            const reason =
-                error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Error: Cannot read theme file ${args.themeFile}: ${reason}\n` +
-                    `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.\n`,
-            );
-            // A file that cannot be read is a runtime failure, the same as an
-            // unreadable input or --diff baseline. A misspelled built-in name lands
-            // here too and is indistinguishable from a missing path, which is what
-            // the second line above is for.
-            return EXIT_FAILURE;
-        }
-    }
-
-    const sharedOptions = {
-        catchHandling: options.catchHandling,
-        ...(options.catchLabelStyle !== null
-            ? { catchLabelStyle: options.catchLabelStyle }
-            : {}),
-        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
-        ...(options.includeComments !== null
-            ? { includeComments: options.includeComments }
-            : {}),
-        ...(options.showVariables !== null
-            ? { showVariables: options.showVariables }
-            : {}),
-    };
-    const svgOptions = {
-        ...sharedOptions,
-        layout: options.layout,
-        theme,
-        ...(options.backgroundColor !== null
-            ? { backgroundColor: options.backgroundColor }
-            : {}),
-        ...(options.diagramDescription !== null
-            ? { diagramDescription: options.diagramDescription }
-            : {}),
-        ...(options.diagramTitle !== null
-            ? { diagramTitle: options.diagramTitle }
-            : {}),
-        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
-        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
-        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
-        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
-        ...(options.iconPosition !== null
-            ? { iconPosition: options.iconPosition }
-            : {}),
-        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
-        ...(options.nodeHeight !== null
-            ? { nodeHeight: options.nodeHeight }
-            : {}),
-        ...(options.nodeSeparation !== null
-            ? { nodeSeparation: options.nodeSeparation }
-            : {}),
-        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
-        ...(options.padding !== null ? { padding: options.padding } : {}),
-        ...(options.rankSeparation !== null
-            ? { rankSeparation: options.rankSeparation }
-            : {}),
-        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
-        ...(options.showStateTypes !== null
-            ? { showStateTypes: options.showStateTypes }
-            : {}),
-        ...(options.stylePreset !== null
-            ? { stylePreset: options.stylePreset }
-            : {}),
-    };
-
-    try {
-        if (baselineDefinition !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidDiff({
-                    after: definitionSource,
-                    before: baselineDefinition,
-                    layout: options.layout,
-                    theme,
-                });
-                writeDiffSummary(result.metadata);
-                writeOutput(result.code, args.output);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                // The viewer applies the diff itself; icons are inlined so the document
-                // stays offline, matching the plain `--format html` path.
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    diff: { before: baselineDefinition },
-                    ...svgOptions,
-                });
-                if (result.metadata.diff)
-                    writeDiffSummary(result.metadata.diff);
-                writeOutput(result.html, args.output);
-                return 0;
-            }
-
-            const result = generateDiff({
-                after: definitionSource,
-                before: baselineDefinition,
-                ...svgOptions,
-            });
-            writeDiffSummary(result.metadata);
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (historySource !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidExecution({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    layout: options.layout,
-                    theme,
-                });
-                writeExecutionSummary(result.metadata);
-                writeOutput(result.code, args.output);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    ...svgOptions,
-                });
-                if (result.metadata.execution)
-                    writeExecutionSummary(result.metadata.execution);
-                writeOutput(result.html, args.output);
-                return 0;
-            }
-
-            const result = generateExecution({
-                aslDefinition: definitionSource,
-                history: historySource,
-                ...svgOptions,
-            });
-            writeExecutionSummary(result.metadata);
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (options.format === 'mermaid') {
-            const result = generateMermaid({
-                aslDefinition: definitionSource,
-                ...sharedOptions,
-                layout: options.layout,
-                theme,
-            });
-            writeOutput(result.code, args.output);
-            return 0;
-        }
-
-        if (options.format === 'svg') {
-            const result = generateSvg({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (options.format === 'html') {
-            const result = await generateHtmlAsync({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            writeOutput(result.html, args.output);
-            return 0;
-        }
-
-        const result = await exportPng({
-            aslDefinition: definitionSource,
-            ...svgOptions,
-        });
-        writeFileSync(resolve(args.output as string), result.buffer);
-        return 0;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
-        return EXIT_FAILURE;
-    }
+    return worstCode;
 }
 
 function writeOutput(content: string, outputPath: string | null): void {
