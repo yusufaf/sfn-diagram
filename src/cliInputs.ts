@@ -1,6 +1,7 @@
 import { readdirSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { minimatch } from 'minimatch';
+import type { DiagramFormat } from './types';
 
 /** A problem with what the command line asked to render. */
 export class CliInputError extends Error {}
@@ -152,4 +153,148 @@ export function expandInputs(params: ExpandInputsParams): string[] {
     }
 
     return [...new Set(collected)];
+}
+
+/**
+ * File extension written for each output format.
+ *
+ * Every {@link DiagramFormat} must appear: a format missing from here would produce an
+ * output file with no extension, silently. A test asserts the key set.
+ */
+export const OUTPUT_EXTENSIONS: Readonly<Record<DiagramFormat, string>> = {
+    html: '.html',
+    mermaid: '.mmd',
+    png: '.png',
+    svg: '.svg',
+};
+
+/**
+ * Input suffixes stripped before the output extension is appended, longest first.
+ *
+ * Order matters: `order.asl.json` must lose all of `.asl.json`, and matching `.json`
+ * first would leave `order.asl.svg`.
+ */
+const INPUT_SUFFIXES: readonly string[] = [
+    '.asl.json',
+    '.asl.yaml',
+    '.asl.yml',
+    '.asl',
+    '.json',
+    '.yaml',
+    '.yml',
+];
+
+/** Parameters for {@link deriveOutputName}. */
+export interface DeriveOutputNameParams {
+    /** The output format, which decides the extension. */
+    format: DiagramFormat;
+    /** The input path; only its basename is used. */
+    input: string;
+}
+
+/**
+ * The output filename for one input, with no directory part.
+ *
+ * The input's directory is deliberately discarded — output is flat, because that is what
+ * a caller globs over afterwards. Two inputs that would produce the same name are caught
+ * by {@link planOutputPaths} rather than silently overwriting each other.
+ *
+ * @param params - Derivation parameters
+ * @param params.format - The output format, which decides the extension
+ * @param params.input - The input path; only its basename is used
+ *
+ * @returns The output filename, e.g. `order.svg`.
+ *
+ * @example
+ * ```typescript
+ * deriveOutputName({ format: 'svg', input: 'machines/order.asl.json' }); // 'order.svg'
+ * ```
+ */
+export function deriveOutputName(params: DeriveOutputNameParams): string {
+    const { format, input } = params;
+    const name = basename(toPosix(input));
+    const suffix = INPUT_SUFFIXES.find((candidate) =>
+        name.toLowerCase().endsWith(candidate),
+    );
+    const stem = suffix === undefined ? name : name.slice(0, -suffix.length);
+    return `${stem}${OUTPUT_EXTENSIONS[format]}`;
+}
+
+/** One input and the file its output goes to. */
+export interface PlannedOutput {
+    /** The input path, as it will be read. */
+    input: string;
+    /** The output path, inside the requested output directory. */
+    output: string;
+}
+
+/** Parameters for {@link planOutputPaths}. */
+export interface PlanOutputPathsParams {
+    /** The output format, which decides each extension. */
+    format: DiagramFormat;
+    /** The inputs, in the order they will be rendered. */
+    inputs: string[];
+    /** Directory every output is written into. */
+    outDir: string;
+}
+
+/**
+ * Pair every input with its output path, refusing the whole batch if two collide.
+ *
+ * Collisions are found before anything is written, so a rejected batch leaves no
+ * half-populated output directory behind. Every colliding group is reported, not just
+ * the first, because a caller fixing one would otherwise have to run again to find the
+ * next.
+ *
+ * @param params - Planning parameters
+ * @param params.format - The output format, which decides each extension
+ * @param params.inputs - The inputs, in the order they will be rendered
+ * @param params.outDir - Directory every output is written into
+ *
+ * @returns One entry per input, in the order given.
+ *
+ * @throws {CliInputError} When two or more inputs derive the same output name.
+ *
+ * @example
+ * ```typescript
+ * planOutputPaths({ format: 'svg', inputs: ['a/order.asl.json'], outDir: 'out' });
+ * // [{ input: 'a/order.asl.json', output: 'out/order.svg' }]
+ * ```
+ */
+export function planOutputPaths(
+    params: PlanOutputPathsParams,
+): PlannedOutput[] {
+    const { format, inputs, outDir } = params;
+    const byName = new Map<string, string[]>();
+
+    for (const input of inputs) {
+        const name = deriveOutputName({ format, input });
+        const existing = byName.get(name);
+        if (existing === undefined) {
+            byName.set(name, [input]);
+        } else {
+            existing.push(input);
+        }
+    }
+
+    const collisions = [...byName.entries()].filter(
+        ([, sources]) => sources.length > 1,
+    );
+    if (collisions.length > 0) {
+        const detail = collisions
+            .map(
+                ([name, sources]) =>
+                    `  ${join(outDir, name)} <- ${sources.join(', ')}`,
+            )
+            .join('\n');
+        throw new CliInputError(
+            `Two or more inputs would be written to the same file:\n${detail}\n` +
+                'Rename one, give them distinct basenames, or render them in separate runs.',
+        );
+    }
+
+    return inputs.map((input) => ({
+        input,
+        output: join(outDir, deriveOutputName({ format, input })),
+    }));
 }

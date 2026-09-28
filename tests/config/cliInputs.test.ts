@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CliInputError, expandInputs, hasGlobMagic } from '../../src/cliInputs';
+import {
+    CliInputError,
+    deriveOutputName,
+    expandInputs,
+    hasGlobMagic,
+    OUTPUT_EXTENSIONS,
+    planOutputPaths,
+} from '../../src/cliInputs';
 
 describe('hasGlobMagic', () => {
     it.each([
@@ -173,5 +180,152 @@ describe('expandInputs', () => {
         expect(expandInputs({ cwd: root, patterns: ['*.asl.json'] })).toEqual([
             'real.asl.json',
         ]);
+    });
+});
+
+describe('deriveOutputName', () => {
+    it.each([
+        ['order.asl.json', 'svg', 'order.svg'],
+        ['order.asl.json', 'mermaid', 'order.mmd'],
+        ['order.asl.json', 'png', 'order.png'],
+        ['order.asl.json', 'html', 'order.html'],
+        ['machines/refund.asl.json', 'svg', 'refund.svg'],
+        ['plain.asl', 'svg', 'plain.svg'],
+        ['template.yaml', 'svg', 'template.svg'],
+        ['template.yml', 'svg', 'template.svg'],
+        ['machine.json', 'svg', 'machine.svg'],
+        ['machine.asl.yaml', 'svg', 'machine.svg'],
+    ] as const)('maps %s at --format %s to %s', (input, format, expected) => {
+        expect(deriveOutputName({ format, input })).toBe(expected);
+    });
+
+    it('keeps a name with no recognised suffix intact', () => {
+        expect(deriveOutputName({ format: 'svg', input: 'Makefile' })).toBe(
+            'Makefile.svg',
+        );
+    });
+
+    it('strips the longest matching suffix, not the shortest', () => {
+        // '.asl.json' and '.json' both match; taking '.json' would leave 'order.asl'.
+        expect(
+            deriveOutputName({ format: 'svg', input: 'order.asl.json' }),
+        ).toBe('order.svg');
+    });
+
+    it('discards the input directory', () => {
+        expect(
+            deriveOutputName({ format: 'svg', input: 'a/b/c/order.asl.json' }),
+        ).toBe('order.svg');
+    });
+
+    it('discards a backslash-separated input directory too', () => {
+        expect(
+            deriveOutputName({ format: 'svg', input: 'a\\b\\order.asl.json' }),
+        ).toBe('order.svg');
+    });
+
+    it('covers every diagram format', () => {
+        // A format added without an extension here would produce an output with no
+        // extension at all, silently.
+        expect(Object.keys(OUTPUT_EXTENSIONS).sort()).toEqual([
+            'html',
+            'mermaid',
+            'png',
+            'svg',
+        ]);
+    });
+});
+
+describe('planOutputPaths', () => {
+    it('pairs each input with a flattened output path', () => {
+        expect(
+            planOutputPaths({
+                format: 'svg',
+                inputs: ['a/order.asl.json', 'b/refund.asl.json'],
+                outDir: 'out',
+            }),
+        ).toEqual([
+            { input: 'a/order.asl.json', output: join('out', 'order.svg') },
+            { input: 'b/refund.asl.json', output: join('out', 'refund.svg') },
+        ]);
+    });
+
+    it('throws naming both inputs and the output they collide on', () => {
+        let message = '';
+        try {
+            planOutputPaths({
+                format: 'svg',
+                inputs: ['a/order.asl.json', 'b/order.asl.json'],
+                outDir: 'out',
+            });
+            expect.unreachable('two inputs map to the same output');
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliInputError);
+            message = (error as Error).message;
+        }
+        expect(message).toContain('a/order.asl.json');
+        expect(message).toContain('b/order.asl.json');
+        expect(message).toContain(join('out', 'order.svg'));
+    });
+
+    it('reports every collision, not only the first', () => {
+        let message = '';
+        try {
+            planOutputPaths({
+                format: 'svg',
+                inputs: [
+                    'a/order.asl.json',
+                    'b/order.asl.json',
+                    'a/refund.asl.json',
+                    'b/refund.asl.json',
+                ],
+                outDir: 'out',
+            });
+            expect.unreachable('two pairs collide');
+        } catch (error) {
+            message = (error as Error).message;
+        }
+        expect(message).toContain('order.svg');
+        expect(message).toContain('refund.svg');
+    });
+
+    it('collides on the derived name, not the input name', () => {
+        // order.asl.json and order.asl are different inputs that both become order.svg.
+        expect(() =>
+            planOutputPaths({
+                format: 'svg',
+                inputs: ['order.asl.json', 'order.asl'],
+                outDir: 'out',
+            }),
+        ).toThrowError(/order\.svg/);
+    });
+
+    it('accepts a single input', () => {
+        expect(
+            planOutputPaths({
+                format: 'mermaid',
+                inputs: ['order.asl.json'],
+                outDir: 'out',
+            }),
+        ).toEqual([
+            { input: 'order.asl.json', output: join('out', 'order.mmd') },
+        ]);
+    });
+
+    it('does not suggest a flag that does not exist', () => {
+        // The chosen design has no --preserve-tree; an error pointing at one would send
+        // the reader looking for something they cannot use.
+        let message = '';
+        try {
+            planOutputPaths({
+                format: 'svg',
+                inputs: ['a/order.asl.json', 'b/order.asl.json'],
+                outDir: 'out',
+            });
+            expect.unreachable('two inputs map to the same output');
+        } catch (error) {
+            message = (error as Error).message;
+        }
+        expect(message).not.toContain('--preserve-tree');
     });
 });
