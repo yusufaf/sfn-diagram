@@ -1,9 +1,17 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    readFileSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
+import type { PlannedOutput } from './cliInputs';
+import { CliInputError, expandInputs, planOutputPaths } from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
 import { runGitlabComment } from './ci/gitlab';
@@ -58,12 +66,18 @@ export interface CliArgs {
     iconSize: number | null;
     /** `false` from `--hide-comments`, `true` from `--show-comments`, `null` if neither. */
     includeComments: boolean | null;
-    input: string | null;
+    /**
+     * Every positional, in the order given, before glob expansion. Empty when none was
+     * given, which means stdin. A single `'-'` also means stdin.
+     */
+    inputs: string[];
     /** `null` when `--layout` was absent; the default is applied by `resolveCliOptions`. */
     layout: LayoutDirection | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
+    /** Directory for one output file per input, from `--out-dir`, or `null`. */
+    outDir: string | null;
     output: string | null;
     padding: number | null;
     rankSeparation: number | null;
@@ -101,6 +115,8 @@ const HELP_TEXT = `sfn-diagram — generate diagrams from AWS Step Functions ASL
 
 Usage:
   sfn-diagram <input> [options]
+  sfn-diagram <input>... --out-dir <dir> [options]
+  sfn-diagram '<glob>' --out-dir <dir> [options]
   sfn-diagram - [options]            (read ASL from stdin)
   sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
                                           request from CI — see --help there)
@@ -108,6 +124,8 @@ Usage:
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
   -o, --output <path>              Output file path (required for png; stdout otherwise)
+  --out-dir <dir>                  Write one output file per input into this directory,
+                                   named after each input (required for several inputs)
   --config <path>                  Read defaults from this config file instead of
                                    searching for one
   --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
@@ -172,6 +190,13 @@ Notes:
   searched upward from the working directory and stopping at the repository root.
   --config <path> reads that file instead of searching. Any explicit flag overrides
   the file, and "comment gitlab" does not read it.
+
+  Several inputs can be given as separate arguments or as a quoted glob
+  ("machines/**/*.asl.json"), which is expanded even where the shell does not.
+  Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
+  the same filename are refused before anything is written. --diff and --execution
+  take a single input. A failing input does not stop the batch; the run exits 1 if
+  any failed.
 
   Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
   render or write), 2 usage error (unknown flag, invalid value, a combination that
@@ -298,6 +323,7 @@ const OPTION_SPEC = {
     'node-separation': { type: 'string' },
     'no-collapse': { type: 'boolean' },
     'node-width': { type: 'string' },
+    'out-dir': { type: 'string' },
     output: { short: 'o', type: 'string' },
     padding: { type: 'string' },
     'rank-separation': { type: 'string' },
@@ -495,13 +521,6 @@ export function parseArgs(argv: string[]): CliArgs {
         throw remapParseArgsError(error);
     }
 
-    if (positionals.length > 1) {
-        throw new CliError(
-            `Unexpected positional argument: ${positionals[1]}`,
-            EXIT_USAGE,
-        );
-    }
-
     const collapseValue = values.collapse as string | undefined;
 
     /**
@@ -662,7 +681,7 @@ export function parseArgs(argv: string[]): CliArgs {
             whenFalse: false,
             whenTrue: true,
         }),
-        input: positionals[0] ?? null,
+        inputs: positionals,
         layout:
             values.layout === undefined
                 ? null
@@ -674,6 +693,13 @@ export function parseArgs(argv: string[]): CliArgs {
         nodeHeight: readPixels('node-height', false),
         nodeSeparation: readPixels('node-separation', true),
         nodeWidth: readPixels('node-width', false),
+        outDir:
+            values['out-dir'] === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--out-dir',
+                      value: values['out-dir'] as string,
+                  }),
         output: (values.output as string | undefined) ?? null,
         padding: readPixels('padding', true),
         rankSeparation: readPixels('rank-separation', true),
@@ -1095,6 +1121,13 @@ interface RenderOneInputParams {
     historySource: string | null;
     /** The input to render: a path, or `null`/`'-'` for stdin. */
     input: string | null;
+    /**
+     * Whether messages should name the input.
+     *
+     * True only for a batch of more than one: with a single input the reader
+     * already knows which file they asked for, and naming it is noise.
+     */
+    labelInput: boolean;
     /** The effective diagram options for this run. */
     options: ResolvedCliOptions;
     /** Where this input's output goes, or `null` for stdout. */
@@ -1122,17 +1155,23 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         baselineSource,
         historySource,
         input,
+        labelInput,
         options,
         outputPath,
         theme,
     } = params;
+    /** The input's path when a batch needs it named, otherwise an empty string. */
+    const inputLabel = labelInput && input !== null ? input : '';
 
     let aslSource: string;
     try {
         aslSource = await loadAsl(input);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Failed to read input: ${message}\n`);
+        // A batch's stderr is useless if a failure does not say which file.
+        process.stderr.write(
+            `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: ${message}\n`,
+        );
         return EXIT_FAILURE;
     }
 
@@ -1153,12 +1192,17 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         }
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
+        process.stderr.write(
+            `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
+        );
         return EXIT_FAILURE;
     }
 
     if (args.check) {
         const diagnostics = lintAsl({ definition: definitionSource });
+        // A batch's lint output is unreadable without saying which file each
+        // diagnostic came from.
+        if (inputLabel !== '') process.stderr.write(`${inputLabel}:\n`);
         writeLintReport(diagnostics);
         // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
         // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
@@ -1332,7 +1376,9 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         return 0;
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
+        process.stderr.write(
+            `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
+        );
         return EXIT_FAILURE;
     }
 }
@@ -1442,9 +1488,89 @@ export async function run(argv: string[]): Promise<number> {
     // With no input argument, loadAsl falls through to readStdin(). On a terminal
     // that stdin never ends, so a bare invocation would block forever - print usage
     // instead. An explicit `-` still reads stdin: the user asked for it.
-    if (args.input === null && process.stdin.isTTY) {
+    if (args.inputs.length === 0 && process.stdin.isTTY) {
         process.stderr.write(HELP_TEXT);
         return EXIT_USAGE;
+    }
+
+    if (args.output !== null && args.outDir !== null) {
+        process.stderr.write(
+            '-o and --out-dir cannot be combined; -o names one file, --out-dir a directory\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // Globs are expanded before the count-dependent checks below, so a pattern matching
+    // two files is treated the same as two positionals.
+    let inputs: string[];
+    try {
+        inputs =
+            args.inputs.length === 0
+                ? [] // stdin
+                : expandInputs({ cwd: process.cwd(), patterns: args.inputs });
+    } catch (error) {
+        if (!(error instanceof CliInputError)) throw error;
+        // A pattern that matched nothing is about the filesystem, not the command line.
+        process.stderr.write(`Error: ${error.message}\n`);
+        return EXIT_FAILURE;
+    }
+
+    if (inputs.length > 1) {
+        if (inputs.includes('-')) {
+            process.stderr.write(
+                'stdin cannot be one of several inputs; there is only one stdin\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.output !== null) {
+            process.stderr.write(
+                '-o takes a single output file; use --out-dir for more than one input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.outDir === null && !args.check) {
+            process.stderr.write(
+                '--out-dir is required for more than one input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.diff !== null) {
+            process.stderr.write(
+                '--diff compares one definition against one baseline; pass a single input\n',
+            );
+            return EXIT_USAGE;
+        }
+        if (args.execution !== null) {
+            process.stderr.write(
+                '--execution overlays one run on one definition; pass a single input\n',
+            );
+            return EXIT_USAGE;
+        }
+    }
+
+    let planned: PlannedOutput[] | null = null;
+    if (args.outDir !== null && !args.check) {
+        if (existsSync(args.outDir) && !statSync(args.outDir).isDirectory()) {
+            process.stderr.write(
+                `--out-dir is not a directory: ${args.outDir}\n`,
+            );
+            return EXIT_USAGE;
+        }
+        try {
+            planned = planOutputPaths({
+                format: options.format,
+                inputs,
+                outDir: args.outDir,
+            });
+        } catch (error) {
+            if (!(error instanceof CliInputError)) throw error;
+            // A collision is a property of the invocation, not of any file's contents.
+            process.stderr.write(`Error: ${error.message}\n`);
+            return EXIT_USAGE;
+        }
+        // Created only once the batch is known to be renderable, so a rejected batch
+        // leaves no directory behind.
+        mkdirSync(resolve(args.outDir), { recursive: true });
     }
 
     // `--check` lints rather than drawing, so it needs no theme - and a broken theme
@@ -1512,15 +1638,35 @@ export async function run(argv: string[]): Promise<number> {
         }
     }
 
-    return renderOneInput({
-        args,
-        baselineSource,
-        historySource,
-        input: args.input,
-        options,
-        outputPath: args.output,
-        theme,
-    });
+    // One entry per input, so the single-input path is the same code as a batch of one.
+    const work: Array<{ input: string | null; outputPath: string | null }> =
+        inputs.length === 0
+            ? [{ input: null, outputPath: args.output }]
+            : inputs.map((input, index) => ({
+                  input,
+                  outputPath:
+                      planned === null ? args.output : planned[index].output,
+              }));
+    // Only a batch names its files; a single input would just be noise.
+    const labelInput = work.length > 1;
+
+    let worstCode = EXIT_OK;
+    for (const item of work) {
+        // A failing input does not stop the batch: stopping at the first would hide the
+        // rest, which is the opposite of what a batch is for.
+        const code = await renderOneInput({
+            args,
+            baselineSource,
+            historySource,
+            input: item.input,
+            labelInput,
+            options,
+            outputPath: item.outputPath,
+            theme,
+        });
+        if (code !== EXIT_OK) worstCode = code;
+    }
+    return worstCode;
 }
 
 function writeOutput(content: string, outputPath: string | null): void {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    existsSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -20,7 +21,7 @@ describe('parseArgs', () => {
         const args = parseArgs(['state.asl.json']);
         expect(args).toMatchObject({
             format: null,
-            input: 'state.asl.json',
+            inputs: ['state.asl.json'],
             layout: null,
             output: null,
             showHelp: false,
@@ -43,7 +44,7 @@ describe('parseArgs', () => {
         ]);
         expect(args).toMatchObject({
             format: 'mermaid',
-            input: 'in.json',
+            inputs: ['in.json'],
             layout: 'LR',
             output: 'out.mmd',
             theme: 'dark',
@@ -67,7 +68,7 @@ describe('parseArgs', () => {
     });
 
     it('treats "-" as the stdin input', () => {
-        expect(parseArgs(['-']).input).toBe('-');
+        expect(parseArgs(['-']).inputs).toEqual(['-']);
     });
 
     it('rejects an invalid --format with exit code 2', () => {
@@ -102,10 +103,13 @@ describe('parseArgs', () => {
         );
     });
 
-    it('rejects a second positional argument', () => {
-        expect(() => parseArgs(['a.json', 'b.json'])).toThrowError(
-            /Unexpected positional/,
-        );
+    it('accepts a second positional, which used to be rejected', () => {
+        // Several inputs are the point of --out-dir; the old "Unexpected positional
+        // argument" error is gone.
+        expect(parseArgs(['a.json', 'b.json']).inputs).toEqual([
+            'a.json',
+            'b.json',
+        ]);
     });
 
     it('errors when a flag is missing its value', () => {
@@ -200,7 +204,7 @@ describe('parseArgs', () => {
     it('never swallows the input path as a --collapse value', () => {
         const args = parseArgs(['--collapse', 'state.asl.json']);
         expect(args.collapse).toBe(true);
-        expect(args.input).toBe('state.asl.json');
+        expect(args.inputs).toEqual(['state.asl.json']);
     });
 
     it('defaults --collapse to null (not passed)', () => {
@@ -212,7 +216,9 @@ describe('parseArgs', () => {
     });
 
     it('treats everything after -- as positional', () => {
-        expect(parseArgs(['--', '-weird.json']).input).toBe('-weird.json');
+        expect(parseArgs(['--', '-weird.json']).inputs).toEqual([
+            '-weird.json',
+        ]);
     });
 
     it('accepts grouped short flags', () => {
@@ -225,7 +231,7 @@ describe('parseArgs', () => {
         const args = parseArgs(['--collapse', '--format', 'svg', 'x.json']);
         expect(args.collapse).toBe(true);
         expect(args.format).toBe('svg');
-        expect(args.input).toBe('x.json');
+        expect(args.inputs).toEqual(['x.json']);
     });
 
     it('treats an explicit --collapse= (empty) as collapsing nothing', () => {
@@ -235,7 +241,7 @@ describe('parseArgs', () => {
     it('treats a literal --collapse positional after -- as a filename, not a flag', () => {
         const args = parseArgs(['--', '--collapse']);
         expect(args.collapse).toBeNull();
-        expect(args.input).toBe('--collapse');
+        expect(args.inputs).toEqual(['--collapse']);
     });
 
     it('rejects a value on a boolean flag with a clear message', () => {
@@ -2718,5 +2724,339 @@ describe('run: config load ordering and --no-collapse', () => {
         mkdirSync(join(tempDir, 'sfn-diagram.config.json'));
         process.chdir(tempDir);
         expect(await run([input])).toBe(0);
+    });
+});
+
+describe('parseArgs: multiple inputs and --out-dir', () => {
+    it('collects every positional', () => {
+        expect(parseArgs(['a.asl.json', 'b.asl.json']).inputs).toEqual([
+            'a.asl.json',
+            'b.asl.json',
+        ]);
+    });
+
+    it('reports no positionals as an empty list', () => {
+        expect(parseArgs([]).inputs).toEqual([]);
+    });
+
+    it('keeps a single positional in the list', () => {
+        expect(parseArgs(['a.asl.json']).inputs).toEqual(['a.asl.json']);
+    });
+
+    it('parses --out-dir', () => {
+        expect(parseArgs(['a.asl.json', '--out-dir', 'out']).outDir).toBe(
+            'out',
+        );
+    });
+
+    it('leaves --out-dir null when absent', () => {
+        expect(parseArgs(['a.asl.json']).outDir).toBeNull();
+    });
+
+    it('rejects a blank --out-dir', () => {
+        expect(() => parseArgs(['a.asl.json', '--out-dir='])).toThrowError(
+            'Invalid --out-dir: expected a non-empty value',
+        );
+    });
+
+    it('no longer rejects a second positional', () => {
+        // It used to be "Unexpected positional argument".
+        expect(() => parseArgs(['a.asl.json', 'b.asl.json'])).not.toThrow();
+    });
+});
+
+describe('run: multiple inputs', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+    let originalCwd: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-multi-'));
+        writeFileSync(join(tempDir, '.git'), '');
+        originalCwd = process.cwd();
+    });
+
+    afterEach(() => {
+        process.chdir(originalCwd);
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const simpleAsl = JSON.stringify({
+        StartAt: 'Only',
+        States: { Only: { End: true, Type: 'Pass' } },
+    });
+
+    const touch = (relative: string, contents = simpleAsl): string => {
+        const path = join(tempDir, relative);
+        mkdirSync(join(path, '..'), { recursive: true });
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    it('renders every positional into --out-dir', async () => {
+        touch('order.asl.json');
+        touch('refund.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run([
+                'order.asl.json',
+                'refund.asl.json',
+                '--out-dir',
+                'out',
+            ]),
+        ).toBe(0);
+        expect(
+            readFileSync(join(tempDir, 'out', 'order.svg'), 'utf-8'),
+        ).toContain('<svg');
+        expect(
+            readFileSync(join(tempDir, 'out', 'refund.svg'), 'utf-8'),
+        ).toContain('<svg');
+        expect(stdoutData).toBe('');
+    });
+
+    it('expands a glob', async () => {
+        touch('machines/order.asl.json');
+        touch('machines/refund.asl.json');
+        process.chdir(tempDir);
+
+        expect(await run(['machines/*.asl.json', '--out-dir', 'out'])).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'out', 'refund.svg'))).toBe(true);
+    });
+
+    it('creates --out-dir when it does not exist', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run(['order.asl.json', '--out-dir', 'deep/nested/out']),
+        ).toBe(0);
+        expect(
+            existsSync(join(tempDir, 'deep', 'nested', 'out', 'order.svg')),
+        ).toBe(true);
+    });
+
+    it('honours --format when naming outputs', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run([
+                'order.asl.json',
+                '--out-dir',
+                'out',
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        expect(
+            readFileSync(join(tempDir, 'out', 'order.mmd'), 'utf-8'),
+        ).toContain('stateDiagram-v2');
+    });
+
+    it('renders the rest when one input cannot be read, exiting 1', async () => {
+        touch('order.asl.json');
+        touch('refund.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run([
+                'order.asl.json',
+                'missing.asl.json',
+                'refund.asl.json',
+                '--out-dir',
+                'out',
+            ]),
+        ).toBe(1);
+        expect(stderrData).toContain('missing.asl.json');
+        // The good ones still rendered: a batch that stops at the first failure hides
+        // the rest, which is the opposite of what a batch is for.
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'out', 'refund.svg'))).toBe(true);
+    });
+
+    it('exits 1 when one input is invalid ASL, still rendering the others', async () => {
+        touch('order.asl.json');
+        touch('broken.asl.json', 'not json');
+        process.chdir(tempDir);
+
+        expect(
+            await run([
+                'order.asl.json',
+                'broken.asl.json',
+                '--out-dir',
+                'out',
+            ]),
+        ).toBe(1);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
+        expect(stderrData).toContain('broken.asl.json');
+    });
+
+    it('lints every input with --check', async () => {
+        touch('good.asl.json');
+        touch(
+            'bad.asl.json',
+            JSON.stringify({
+                StartAt: 'Start',
+                States: { Start: { Next: 'Nowhere', Type: 'Pass' } },
+            }),
+        );
+        process.chdir(tempDir);
+
+        expect(await run(['good.asl.json', 'bad.asl.json', '--check'])).toBe(1);
+        expect(stderrData).toContain('bad.asl.json');
+    });
+
+    it('exits 0 for --check over several clean inputs', async () => {
+        touch('one.asl.json');
+        touch('two.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['one.asl.json', 'two.asl.json', '--check'])).toBe(0);
+    });
+
+    describe('usage errors', () => {
+        it('rejects -o with more than one input', async () => {
+            touch('a.asl.json');
+            touch('b.asl.json');
+            process.chdir(tempDir);
+            expect(
+                await run(['a.asl.json', 'b.asl.json', '-o', 'out.svg']),
+            ).toBe(2);
+            expect(stderrData).toContain('--out-dir');
+        });
+
+        it('rejects -o together with --out-dir', async () => {
+            touch('a.asl.json');
+            process.chdir(tempDir);
+            expect(
+                await run(['a.asl.json', '-o', 'out.svg', '--out-dir', 'out']),
+            ).toBe(2);
+        });
+
+        it('rejects several inputs with neither -o nor --out-dir', async () => {
+            touch('a.asl.json');
+            touch('b.asl.json');
+            process.chdir(tempDir);
+            expect(await run(['a.asl.json', 'b.asl.json'])).toBe(2);
+            expect(stderrData).toContain('--out-dir');
+        });
+
+        it('rejects stdin among several inputs', async () => {
+            touch('a.asl.json');
+            process.chdir(tempDir);
+            expect(await run(['a.asl.json', '-', '--out-dir', 'out'])).toBe(2);
+            expect(stderrData).toContain('stdin');
+        });
+
+        it('rejects --diff with more than one input', async () => {
+            const base = touch('base.asl.json');
+            touch('a.asl.json');
+            touch('b.asl.json');
+            process.chdir(tempDir);
+            expect(
+                await run([
+                    'a.asl.json',
+                    'b.asl.json',
+                    '--diff',
+                    base,
+                    '--out-dir',
+                    'out',
+                ]),
+            ).toBe(2);
+            expect(stderrData).toContain('--diff');
+        });
+
+        it('rejects --execution with more than one input', async () => {
+            touch('a.asl.json');
+            touch('b.asl.json');
+            const history = touch('history.json', '{"events":[]}');
+            process.chdir(tempDir);
+            expect(
+                await run([
+                    'a.asl.json',
+                    'b.asl.json',
+                    '--execution',
+                    history,
+                    '--out-dir',
+                    'out',
+                ]),
+            ).toBe(2);
+            expect(stderrData).toContain('--execution');
+        });
+
+        it('rejects --out-dir pointing at an existing file', async () => {
+            touch('a.asl.json');
+            touch('out');
+            process.chdir(tempDir);
+            expect(await run(['a.asl.json', '--out-dir', 'out'])).toBe(2);
+            expect(stderrData).toContain('out');
+        });
+
+        it('refuses a colliding batch before writing anything', async () => {
+            touch('a/order.asl.json');
+            touch('b/order.asl.json');
+            process.chdir(tempDir);
+            expect(
+                await run([
+                    'a/order.asl.json',
+                    'b/order.asl.json',
+                    '--out-dir',
+                    'out',
+                ]),
+            ).toBe(2);
+            expect(stderrData).toContain('same file');
+            expect(existsSync(join(tempDir, 'out'))).toBe(false);
+        });
+    });
+
+    it('exits 1 when a glob matches nothing', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        // The invocation is well formed; the filesystem had no matches. Files are 1.
+        expect(await run(['*.nope.json', '--out-dir', 'out'])).toBe(1);
+        expect(stderrData).toContain('*.nope.json');
+    });
+
+    it('still writes a single input to stdout with no -o', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['order.asl.json'])).toBe(0);
+        expect(stdoutData).toContain('<svg');
+    });
+
+    it('still writes a single input to -o', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['order.asl.json', '-o', 'one.svg'])).toBe(0);
+        expect(readFileSync(join(tempDir, 'one.svg'), 'utf-8')).toContain(
+            '<svg',
+        );
+    });
+
+    it('accepts --out-dir for a single input', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['order.asl.json', '--out-dir', 'out'])).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
     });
 });
