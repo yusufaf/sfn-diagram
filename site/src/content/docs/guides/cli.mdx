@@ -20,6 +20,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 |---|---|
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
+| `--out-dir <dir>` | Write one output file per input into this directory — see [Rendering several files](#rendering-several-files) |
 | `--config <path>` | Read defaults from this [config file](#configuration-file) instead of searching for one |
 | `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
@@ -172,6 +173,76 @@ The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags. Its opti
 CI-shaped (`--asl-glob`, `--comment-tag`, `--output-dir`, `--execution-mode`) and mostly
 disjoint from the render options, and a file on disk quietly changing what a pipeline
 posts to a merge request is worse than restating a flag in the job.
+
+## Rendering several files
+
+Pass more than one input, or a glob, with `--out-dir`:
+
+```bash
+sfn-diagram machines/order.asl.json machines/refund.asl.json --out-dir diagrams
+sfn-diagram 'machines/**/*.asl.json' --out-dir diagrams
+```
+
+Quote the glob. Unquoted, your shell expands it first — which works, but only where the
+shell supports the pattern; quoted, `sfn-diagram` expands it the same way everywhere,
+including Windows `cmd` and PowerShell.
+
+### Output filenames
+
+Output is flat: `<out-dir>/<input basename with its suffix stripped>.<ext>`, so
+`machines/order.asl.json` becomes `diagrams/order.svg`. The extension follows `--format`
+(`.svg`, `.mmd`, `.png`, `.html`). The directory is created if it does not exist.
+
+Two inputs that would produce the same filename are **refused before anything is
+written**, so a rejected batch never leaves a half-populated directory:
+
+```
+$ sfn-diagram a/order.asl.json b/order.asl.json --out-dir out
+Error: Two or more inputs would be written to the same file:
+  out/order.svg <- a/order.asl.json, b/order.asl.json
+Rename one, give them distinct basenames, or render them in separate runs.
+$ echo $?
+2
+```
+
+### What the walk covers
+
+A pattern is matched against paths relative to the working directory, and `node_modules`
+and `.git` are never descended into. Other hidden directories are walked, so
+`.github/workflows/machine.asl.json` is reachable.
+
+`*.asl.json` means "in this directory"; use `**/*.asl.json` for any depth. (This differs
+from [`comment gitlab --asl-glob`](#comment-gitlab), which matches by basename at any
+depth because it filters a list git gives it rather than searching the filesystem.)
+
+### One at a time
+
+These take a single input, and more than one is a usage error:
+
+- `-o` / `--output` — it names one file. Use `--out-dir` instead.
+- `--diff` — one definition against one baseline.
+- `--execution` — one run overlaid on one definition.
+- `-` (stdin) — there is only one of it.
+
+### When one input fails
+
+The batch continues, the failure is reported on stderr naming the file, and the run exits
+`1`. Stopping at the first failure would hide the rest:
+
+```
+$ sfn-diagram order.asl.json broken.asl.json refund.asl.json --out-dir out
+Error in broken.asl.json: ASL definition is not valid JSON: Unexpected token 'o', "not json" is not valid JSON
+$ echo $?
+1
+$ ls out
+order.svg  refund.svg
+```
+
+A glob that matches nothing exits `1` — the invocation was fine, the filesystem had
+nothing. See [Exit codes](#exit-codes).
+
+`--check` works over several inputs too, printing each file's diagnostics under its name
+and exiting `1` if any input has an error.
 
 ## Custom theme files
 
