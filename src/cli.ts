@@ -4,6 +4,7 @@ import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
+import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
@@ -1084,6 +1085,258 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
     return exitCode;
 }
 
+/** Parameters for {@link renderOneInput}. */
+interface RenderOneInputParams {
+    /** The parsed command line, for the flags that are not diagram options. */
+    args: CliArgs;
+    /** Contents of `--diff`'s baseline, already read, or `null`. */
+    baselineSource: string | null;
+    /** Contents of `--execution`'s history, already read, or `null`. */
+    historySource: string | null;
+    /** The input to render: a path, or `null`/`'-'` for stdin. */
+    input: string | null;
+    /** The effective diagram options for this run. */
+    options: ResolvedCliOptions;
+    /** Where this input's output goes, or `null` for stdout. */
+    outputPath: string | null;
+    /** The resolved theme, after any `--theme` file. */
+    theme: ThemeOption;
+}
+
+/**
+ * Read one input, then lint it or render it and write the result.
+ *
+ * Split out of {@link run} so a batch can call it per input. Everything shared across a
+ * batch — parsing, the config file, the option merge, the resolved theme, the `--diff`
+ * baseline and the `--execution` history — is resolved by the caller and passed in, so
+ * it happens once rather than once per input.
+ *
+ * @param params - Render parameters (see {@link RenderOneInputParams})
+ *
+ * @returns The exit code for this one input: `EXIT_OK`, or `EXIT_FAILURE` if it could
+ *   not be read, parsed, rendered or written, or if `--check` found an error.
+ */
+async function renderOneInput(params: RenderOneInputParams): Promise<number> {
+    const {
+        args,
+        baselineSource,
+        historySource,
+        input,
+        options,
+        outputPath,
+        theme,
+    } = params;
+
+    let aslSource: string;
+    try {
+        aslSource = await loadAsl(input);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Failed to read input: ${message}\n`);
+        return EXIT_FAILURE;
+    }
+
+    let definitionSource: AslDefinition | string;
+    let baselineDefinition: AslDefinition | string | null = null;
+    try {
+        definitionSource = resolveDefinitionSource({
+            resolveCfn: args.resolveCfn,
+            resource: args.resource,
+            source: aslSource,
+        });
+        if (baselineSource !== null) {
+            baselineDefinition = resolveDefinitionSource({
+                resolveCfn: args.resolveCfn,
+                resource: args.resource,
+                source: baselineSource,
+            });
+        }
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Error: ${message}\n`);
+        return EXIT_FAILURE;
+    }
+
+    if (args.check) {
+        const diagnostics = lintAsl({ definition: definitionSource });
+        writeLintReport(diagnostics);
+        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
+        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
+        // itself was wrong".
+        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+            ? EXIT_FAILURE
+            : EXIT_OK;
+    }
+
+    const sharedOptions = {
+        catchHandling: options.catchHandling,
+        ...(options.catchLabelStyle !== null
+            ? { catchLabelStyle: options.catchLabelStyle }
+            : {}),
+        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
+        ...(options.includeComments !== null
+            ? { includeComments: options.includeComments }
+            : {}),
+        ...(options.showVariables !== null
+            ? { showVariables: options.showVariables }
+            : {}),
+    };
+    const svgOptions = {
+        ...sharedOptions,
+        layout: options.layout,
+        theme,
+        ...(options.backgroundColor !== null
+            ? { backgroundColor: options.backgroundColor }
+            : {}),
+        ...(options.diagramDescription !== null
+            ? { diagramDescription: options.diagramDescription }
+            : {}),
+        ...(options.diagramTitle !== null
+            ? { diagramTitle: options.diagramTitle }
+            : {}),
+        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
+        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
+        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
+        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
+        ...(options.iconPosition !== null
+            ? { iconPosition: options.iconPosition }
+            : {}),
+        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
+        ...(options.nodeHeight !== null
+            ? { nodeHeight: options.nodeHeight }
+            : {}),
+        ...(options.nodeSeparation !== null
+            ? { nodeSeparation: options.nodeSeparation }
+            : {}),
+        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
+        ...(options.padding !== null ? { padding: options.padding } : {}),
+        ...(options.rankSeparation !== null
+            ? { rankSeparation: options.rankSeparation }
+            : {}),
+        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
+        ...(options.showStateTypes !== null
+            ? { showStateTypes: options.showStateTypes }
+            : {}),
+        ...(options.stylePreset !== null
+            ? { stylePreset: options.stylePreset }
+            : {}),
+    };
+
+    try {
+        if (baselineDefinition !== null) {
+            if (options.format === 'mermaid') {
+                const result = generateMermaidDiff({
+                    after: definitionSource,
+                    before: baselineDefinition,
+                    layout: options.layout,
+                    theme,
+                });
+                writeDiffSummary(result.metadata);
+                writeOutput(result.code, outputPath);
+                return 0;
+            }
+
+            if (options.format === 'html') {
+                // The viewer applies the diff itself; icons are inlined so the document
+                // stays offline, matching the plain `--format html` path.
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    diff: { before: baselineDefinition },
+                    ...svgOptions,
+                });
+                if (result.metadata.diff)
+                    writeDiffSummary(result.metadata.diff);
+                writeOutput(result.html, outputPath);
+                return 0;
+            }
+
+            const result = generateDiff({
+                after: definitionSource,
+                before: baselineDefinition,
+                ...svgOptions,
+            });
+            writeDiffSummary(result.metadata);
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (historySource !== null) {
+            if (options.format === 'mermaid') {
+                const result = generateMermaidExecution({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                    layout: options.layout,
+                    theme,
+                });
+                writeExecutionSummary(result.metadata);
+                writeOutput(result.code, outputPath);
+                return 0;
+            }
+
+            if (options.format === 'html') {
+                const result = await generateHtmlAsync({
+                    aslDefinition: definitionSource,
+                    history: historySource,
+                    ...svgOptions,
+                });
+                if (result.metadata.execution)
+                    writeExecutionSummary(result.metadata.execution);
+                writeOutput(result.html, outputPath);
+                return 0;
+            }
+
+            const result = generateExecution({
+                aslDefinition: definitionSource,
+                history: historySource,
+                ...svgOptions,
+            });
+            writeExecutionSummary(result.metadata);
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'mermaid') {
+            const result = generateMermaid({
+                aslDefinition: definitionSource,
+                ...sharedOptions,
+                layout: options.layout,
+                theme,
+            });
+            writeOutput(result.code, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'svg') {
+            const result = generateSvg({
+                aslDefinition: definitionSource,
+                ...svgOptions,
+            });
+            writeOutput(result.svg, outputPath);
+            return 0;
+        }
+
+        if (options.format === 'html') {
+            const result = await generateHtmlAsync({
+                aslDefinition: definitionSource,
+                ...svgOptions,
+            });
+            writeOutput(result.html, outputPath);
+            return 0;
+        }
+
+        const result = await exportPng({
+            aslDefinition: definitionSource,
+            ...svgOptions,
+        });
+        writeFileSync(resolve(outputPath as string), result.buffer);
+        return 0;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`Error: ${message}\n`);
+        return EXIT_FAILURE;
+    }
+}
+
 export async function run(argv: string[]): Promise<number> {
     if (argv[0] === 'comment' && argv[1] === 'gitlab') {
         return runCommentGitlab(argv.slice(2));
@@ -1194,13 +1447,41 @@ export async function run(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
-    let aslSource: string;
-    try {
-        aslSource = await loadAsl(args.input);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Failed to read input: ${message}\n`);
-        return EXIT_FAILURE;
+    // `--check` lints rather than drawing, so it needs no theme - and a broken theme
+    // file must not fail a lint that would otherwise pass. That was true before the
+    // per-input half moved into renderOneInput, where `--check` now lives, so the
+    // guard is explicit here rather than implied by an early return.
+    let theme: ThemeOption = options.theme;
+    if (!args.check && args.themeFile !== null) {
+        try {
+            const parsed: unknown = JSON.parse(
+                readFileSync(resolve(args.themeFile), 'utf-8'),
+            );
+            if (
+                typeof parsed !== 'object' ||
+                parsed === null ||
+                Array.isArray(parsed)
+            ) {
+                throw new Error(
+                    'Expected a JSON object describing a custom theme',
+                );
+            }
+            theme = parsed as CustomTheme;
+        } catch (error) {
+            const reason =
+                error instanceof Error ? error.message : String(error);
+            process.stderr.write(
+                `Error: Cannot read theme file ${args.themeFile}: ${reason}
+` +
+                    `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.
+`,
+            );
+            // A file that cannot be read is a runtime failure, the same as an
+            // unreadable input or --diff baseline. A misspelled built-in name lands
+            // here too and is indistinguishable from a missing path, which is what
+            // the second line above is for.
+            return EXIT_FAILURE;
+        }
     }
 
     let baselineSource: string | null = null;
@@ -1231,240 +1512,15 @@ export async function run(argv: string[]): Promise<number> {
         }
     }
 
-    let definitionSource: AslDefinition | string;
-    let baselineDefinition: AslDefinition | string | null = null;
-    try {
-        definitionSource = resolveDefinitionSource({
-            resolveCfn: args.resolveCfn,
-            resource: args.resource,
-            source: aslSource,
-        });
-        if (baselineSource !== null) {
-            baselineDefinition = resolveDefinitionSource({
-                resolveCfn: args.resolveCfn,
-                resource: args.resource,
-                source: baselineSource,
-            });
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
-        return EXIT_FAILURE;
-    }
-
-    if (args.check) {
-        const diagnostics = lintAsl({ definition: definitionSource });
-        writeLintReport(diagnostics);
-        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
-        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
-        // itself was wrong".
-        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-            ? EXIT_FAILURE
-            : EXIT_OK;
-    }
-
-    // Resolved after `--check`, which lints rather than drawing and so needs no theme.
-    // A file supersedes both `--theme <name>` and a config file's `theme`, so it is
-    // applied on top of the merge rather than inside it - and it stays out of
-    // `resolveCliOptions`, which does no IO.
-    let theme: ThemeOption = options.theme;
-    if (args.themeFile !== null) {
-        try {
-            const parsed: unknown = JSON.parse(
-                readFileSync(resolve(args.themeFile), 'utf-8'),
-            );
-            if (
-                typeof parsed !== 'object' ||
-                parsed === null ||
-                Array.isArray(parsed)
-            ) {
-                throw new Error(
-                    'Expected a JSON object describing a custom theme',
-                );
-            }
-            theme = parsed as CustomTheme;
-        } catch (error) {
-            const reason =
-                error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Error: Cannot read theme file ${args.themeFile}: ${reason}\n` +
-                    `--theme takes ${BUILT_IN_THEMES.join(', ')}, or a path to a theme JSON file.\n`,
-            );
-            // A file that cannot be read is a runtime failure, the same as an
-            // unreadable input or --diff baseline. A misspelled built-in name lands
-            // here too and is indistinguishable from a missing path, which is what
-            // the second line above is for.
-            return EXIT_FAILURE;
-        }
-    }
-
-    const sharedOptions = {
-        catchHandling: options.catchHandling,
-        ...(options.catchLabelStyle !== null
-            ? { catchLabelStyle: options.catchLabelStyle }
-            : {}),
-        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
-        ...(options.includeComments !== null
-            ? { includeComments: options.includeComments }
-            : {}),
-        ...(options.showVariables !== null
-            ? { showVariables: options.showVariables }
-            : {}),
-    };
-    const svgOptions = {
-        ...sharedOptions,
-        layout: options.layout,
+    return renderOneInput({
+        args,
+        baselineSource,
+        historySource,
+        input: args.input,
+        options,
+        outputPath: args.output,
         theme,
-        ...(options.backgroundColor !== null
-            ? { backgroundColor: options.backgroundColor }
-            : {}),
-        ...(options.diagramDescription !== null
-            ? { diagramDescription: options.diagramDescription }
-            : {}),
-        ...(options.diagramTitle !== null
-            ? { diagramTitle: options.diagramTitle }
-            : {}),
-        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
-        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
-        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
-        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
-        ...(options.iconPosition !== null
-            ? { iconPosition: options.iconPosition }
-            : {}),
-        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
-        ...(options.nodeHeight !== null
-            ? { nodeHeight: options.nodeHeight }
-            : {}),
-        ...(options.nodeSeparation !== null
-            ? { nodeSeparation: options.nodeSeparation }
-            : {}),
-        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
-        ...(options.padding !== null ? { padding: options.padding } : {}),
-        ...(options.rankSeparation !== null
-            ? { rankSeparation: options.rankSeparation }
-            : {}),
-        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
-        ...(options.showStateTypes !== null
-            ? { showStateTypes: options.showStateTypes }
-            : {}),
-        ...(options.stylePreset !== null
-            ? { stylePreset: options.stylePreset }
-            : {}),
-    };
-
-    try {
-        if (baselineDefinition !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidDiff({
-                    after: definitionSource,
-                    before: baselineDefinition,
-                    layout: options.layout,
-                    theme,
-                });
-                writeDiffSummary(result.metadata);
-                writeOutput(result.code, args.output);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                // The viewer applies the diff itself; icons are inlined so the document
-                // stays offline, matching the plain `--format html` path.
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    diff: { before: baselineDefinition },
-                    ...svgOptions,
-                });
-                if (result.metadata.diff)
-                    writeDiffSummary(result.metadata.diff);
-                writeOutput(result.html, args.output);
-                return 0;
-            }
-
-            const result = generateDiff({
-                after: definitionSource,
-                before: baselineDefinition,
-                ...svgOptions,
-            });
-            writeDiffSummary(result.metadata);
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (historySource !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidExecution({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    layout: options.layout,
-                    theme,
-                });
-                writeExecutionSummary(result.metadata);
-                writeOutput(result.code, args.output);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    ...svgOptions,
-                });
-                if (result.metadata.execution)
-                    writeExecutionSummary(result.metadata.execution);
-                writeOutput(result.html, args.output);
-                return 0;
-            }
-
-            const result = generateExecution({
-                aslDefinition: definitionSource,
-                history: historySource,
-                ...svgOptions,
-            });
-            writeExecutionSummary(result.metadata);
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (options.format === 'mermaid') {
-            const result = generateMermaid({
-                aslDefinition: definitionSource,
-                ...sharedOptions,
-                layout: options.layout,
-                theme,
-            });
-            writeOutput(result.code, args.output);
-            return 0;
-        }
-
-        if (options.format === 'svg') {
-            const result = generateSvg({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            writeOutput(result.svg, args.output);
-            return 0;
-        }
-
-        if (options.format === 'html') {
-            const result = await generateHtmlAsync({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            writeOutput(result.html, args.output);
-            return 0;
-        }
-
-        const result = await exportPng({
-            aslDefinition: definitionSource,
-            ...svgOptions,
-        });
-        writeFileSync(resolve(args.output as string), result.buffer);
-        return 0;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`Error: ${message}\n`);
-        return EXIT_FAILURE;
-    }
+    });
 }
 
 function writeOutput(content: string, outputPath: string | null): void {
