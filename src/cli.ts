@@ -2,6 +2,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
+import type { CliConfig } from './cliConfig';
+import { CliConfigError, loadCliConfig } from './cliConfig';
+import { resolveCliOptions } from './cliOptions';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
@@ -11,6 +14,7 @@ import { lintAsl } from './lint';
 import { exportPng } from './png';
 import type {
     AslDefinition,
+    CatchHandling,
     CatchLabelStyle,
     CustomTheme,
     DiagramFormat,
@@ -29,22 +33,33 @@ export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
     backgroundColor: string | null;
+    /**
+     * `'hide'` from `--hide-catch`, `'show'` from `--show-catch`, and `null` when
+     * neither was given so a config file's `catchHandling` can supply it.
+     */
+    catchHandling: CatchHandling | null;
     catchLabelStyle: CatchLabelStyle | null;
     check: boolean;
     collapse: string[] | boolean | null;
+    /** Path from `--config`, or `null` to search for a config file. */
+    config: string | null;
     diagramDescription: string | null;
     diagramTitle: string | null;
     diff: string | null;
     edgeStyle: EdgePathStyle | null;
     execution: string | null;
-    format: DiagramFormat;
-    hideCatch: boolean;
-    hideComments: boolean;
-    hideVariables: boolean;
+    /**
+     * `null` when `--format` was absent; the default is applied by `resolveCliOptions`
+     * so that `--format svg` can still override a config file asking for something else.
+     */
+    format: DiagramFormat | null;
     iconPosition: IconPosition | null;
     iconSize: number | null;
+    /** `false` from `--hide-comments`, `true` from `--show-comments`, `null` if neither. */
+    includeComments: boolean | null;
     input: string | null;
-    layout: LayoutDirection;
+    /** `null` when `--layout` was absent; the default is applied by `resolveCliOptions`. */
+    layout: LayoutDirection | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
@@ -54,11 +69,23 @@ export interface CliArgs {
     resolveCfn: boolean;
     resource: string | null;
     showHelp: boolean;
-    showIcons: boolean;
-    showStateTypes: boolean;
+    /** `true` from `--show-icons`, `false` from `--hide-icons`, `null` if neither. */
+    showIcons: boolean | null;
+    /**
+     * `true` from `--show-state-types`, `false` from `--hide-state-types`, `null` if
+     * neither.
+     */
+    showStateTypes: boolean | null;
+    /** `false` from `--hide-variables`, `true` from `--show-variables`, `null` if neither. */
+    showVariables: boolean | null;
     showVersion: boolean;
     stylePreset: StylePreset | null;
-    theme: ThemeOption;
+    /**
+     * `'light'` or `'dark'` when `--theme` named a built-in, and `null` when `--theme`
+     * was absent *or* named a file - see {@link CliArgs.themeFile}. The default is
+     * applied by `resolveCliOptions`.
+     */
+    theme: 'dark' | 'light' | null;
     /**
      * Path to a custom theme JSON file, set when `--theme` was given anything other than
      * `light` or `dark`. When non-null it supersedes {@link CliArgs.theme} entirely, and
@@ -80,16 +107,21 @@ Usage:
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
   -o, --output <path>              Output file path (required for png; stdout otherwise)
+  --config <path>                  Read defaults from this config file instead of
+                                   searching for one
   --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
                                    path to a custom theme JSON file (default: light)
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
+  --show-catch                     Draw them (overrides a config file's catchHandling)
   --hide-variables                 Drop the "$var" annotations for ASL Assign blocks
+  --show-variables                 Draw them (overrides a config file's showVariables)
   --collapse[=names]               Collapse Parallel/Map containers into placeholders
                                    (bare flag collapses all; --collapse=Name1,Name2
                                    collapses only those states; write \\, for a
                                    comma inside a state name)
   --show-icons                     Draw AWS service icons on Task states
+  --hide-icons                     Do not draw them (overrides a config file)
   --icon-position <left|top|right> Icon placement relative to the label (default: left)
   --icon-size <pixels>             Icon size in pixels (default: 24)
   --edge-style <straight|curved|orthogonal>
@@ -101,7 +133,9 @@ Options:
                                    Label on Catch edges: the error name, or "Catch #N"
                                    (default: error-type)
   --show-state-types               Draw each state's type as a label on the node
+  --hide-state-types               Do not draw them (overrides a config file)
   --hide-comments                  Don't use a state's Comment as its node label
+  --show-comments                  Use it (overrides a config file's includeComments)
   --node-width <pixels>            Width of each state node (default: 120)
   --node-height <pixels>           Height of each state node (default: 60)
   --node-separation <pixels>       Separation between nodes in a rank (default: 50)
@@ -131,6 +165,11 @@ Notes:
   --format html produces a self-contained interactive viewer: drag to pan, wheel to
   zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
   icons are inlined, so the file works offline.
+
+  Defaults can come from sfn-diagram.config.json (or .yaml/.yml, or .sfn-diagramrc),
+  searched upward from the working directory and stopping at the repository root.
+  --config <path> reads that file instead of searching. Any explicit flag overrides
+  the file, and "comment gitlab" does not read it.
 
   Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
   render or write), 2 usage error (unknown flag, invalid value, a combination that
@@ -237,6 +276,7 @@ const OPTION_SPEC = {
     'catch-label-style': { type: 'string' },
     check: { type: 'boolean' },
     collapse: { type: 'string' },
+    config: { type: 'string' },
     'diagram-description': { type: 'string' },
     'diagram-title': { type: 'string' },
     diff: { type: 'string' },
@@ -246,6 +286,8 @@ const OPTION_SPEC = {
     help: { short: 'h', type: 'boolean' },
     'hide-catch': { type: 'boolean' },
     'hide-comments': { type: 'boolean' },
+    'hide-icons': { type: 'boolean' },
+    'hide-state-types': { type: 'boolean' },
     'hide-variables': { type: 'boolean' },
     'icon-position': { type: 'string' },
     'icon-size': { type: 'string' },
@@ -258,8 +300,11 @@ const OPTION_SPEC = {
     'rank-separation': { type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
+    'show-catch': { type: 'boolean' },
+    'show-comments': { type: 'boolean' },
     'show-icons': { type: 'boolean' },
     'show-state-types': { type: 'boolean' },
+    'show-variables': { type: 'boolean' },
     'style-preset': { type: 'string' },
     theme: { type: 'string' },
     version: { short: 'v', type: 'boolean' },
@@ -476,6 +521,32 @@ export function parseArgs(argv: string[]): CliArgs {
             : expectPixels({ allowZero, flag: `--${key}`, value: raw });
     };
 
+    /**
+     * Resolve one pair of opposing boolean flags into a tri-state, so a config file's
+     * value can be overridden in either direction.
+     *
+     * @throws {CliError} With exit code 2 when both members of the pair were given.
+     */
+    const readToggle = <Value>(toggle: {
+        onFalse: keyof typeof OPTION_SPEC;
+        onTrue: keyof typeof OPTION_SPEC;
+        whenFalse: Value;
+        whenTrue: Value;
+    }): Value | null => {
+        const { onFalse, onTrue, whenFalse, whenTrue } = toggle;
+        const sawTrue = values[onTrue] === true;
+        const sawFalse = values[onFalse] === true;
+        if (sawTrue && sawFalse) {
+            throw new CliError(
+                `--${onTrue} and --${onFalse} cannot be combined; pick one`,
+                EXIT_USAGE,
+            );
+        }
+        if (sawTrue) return whenTrue;
+        if (sawFalse) return whenFalse;
+        return null;
+    };
+
     // `--theme` takes a built-in name or a path to a custom theme JSON file. The path is
     // carried through as-is and read in `run()`, the way `--diff` and `--execution` are,
     // so `parseArgs` stays free of filesystem access.
@@ -497,6 +568,12 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--background-color',
                       value: values['background-color'] as string,
                   }),
+        catchHandling: readToggle({
+            onFalse: 'show-catch',
+            onTrue: 'hide-catch',
+            whenFalse: 'show' as const,
+            whenTrue: 'hide' as const,
+        }),
         catchLabelStyle:
             values['catch-label-style'] === undefined
                 ? null
@@ -512,6 +589,13 @@ export function parseArgs(argv: string[]): CliArgs {
                 : collapseValue === BARE_COLLAPSE_SENTINEL
                   ? true
                   : parseCollapseNames(collapseValue),
+        config:
+            values.config === undefined
+                ? null
+                : expectNonBlank({
+                      flag: '--config',
+                      value: values.config as string,
+                  }),
         diagramDescription:
             values['diagram-description'] === undefined
                 ? null
@@ -538,15 +622,12 @@ export function parseArgs(argv: string[]): CliArgs {
         execution: (values.execution as string | undefined) ?? null,
         format:
             values.format === undefined
-                ? 'svg'
+                ? null
                 : expectEnum({
                       allowed: VALID_FORMATS,
                       flag: '--format',
                       value: values.format as string,
                   }),
-        hideCatch: values['hide-catch'] === true,
-        hideComments: values['hide-comments'] === true,
-        hideVariables: values['hide-variables'] === true,
         iconPosition:
             values['icon-position'] === undefined
                 ? null
@@ -556,10 +637,16 @@ export function parseArgs(argv: string[]): CliArgs {
                       value: values['icon-position'] as string,
                   }),
         iconSize: readPixels('icon-size', false),
+        includeComments: readToggle({
+            onFalse: 'hide-comments',
+            onTrue: 'show-comments',
+            whenFalse: false,
+            whenTrue: true,
+        }),
         input: positionals[0] ?? null,
         layout:
             values.layout === undefined
-                ? 'TB'
+                ? null
                 : expectEnum({
                       allowed: VALID_LAYOUTS,
                       flag: '--layout',
@@ -574,8 +661,24 @@ export function parseArgs(argv: string[]): CliArgs {
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
         showHelp: values.help === true,
-        showIcons: values['show-icons'] === true,
-        showStateTypes: values['show-state-types'] === true,
+        showIcons: readToggle({
+            onFalse: 'hide-icons',
+            onTrue: 'show-icons',
+            whenFalse: false,
+            whenTrue: true,
+        }),
+        showStateTypes: readToggle({
+            onFalse: 'hide-state-types',
+            onTrue: 'show-state-types',
+            whenFalse: false,
+            whenTrue: true,
+        }),
+        showVariables: readToggle({
+            onFalse: 'hide-variables',
+            onTrue: 'show-variables',
+            whenFalse: false,
+            whenTrue: true,
+        }),
         showVersion: values.version === true,
         stylePreset:
             values['style-preset'] === undefined
@@ -588,7 +691,7 @@ export function parseArgs(argv: string[]): CliArgs {
         theme:
             themeValue !== undefined && isBuiltInTheme(themeValue)
                 ? themeValue
-                : 'light',
+                : null,
         themeFile:
             themeValue !== undefined && !isBuiltInTheme(themeValue)
                 ? themeValue
@@ -992,6 +1095,27 @@ export async function run(argv: string[]): Promise<number> {
     // itself cannot work, and no change to the input would help. They all exit
     // EXIT_USAGE so a caller can tell "you used it wrong" from "it broke while
     // running" without parsing stderr. See the Exit codes note in HELP_TEXT.
+    // Loaded before the semantic checks below, because a config file can set `format`
+    // and those checks read it. A file's contents being wrong is a runtime failure, not
+    // a usage error: EXIT_USAGE is reserved for what is wrong on the command line.
+    let configFile: CliConfig | null = null;
+    try {
+        const loaded = loadCliConfig({
+            explicitPath: args.config,
+            startDir: process.cwd(),
+        });
+        configFile = loaded?.config ?? null;
+    } catch (error) {
+        if (!(error instanceof CliConfigError)) throw error;
+        process.stderr.write(`Error: ${error.message}\n`);
+        return EXIT_FAILURE;
+    }
+
+    // Flags over config over defaults, once, here. Every option read below comes from
+    // this object rather than from `args`, so a config value cannot be silently skipped
+    // on one output path - `args` no longer carries a usable default to fall back to.
+    const options = resolveCliOptions({ args, config: configFile });
+
     if (args.diff !== null && args.execution !== null) {
         process.stderr.write(
             '--diff and --execution cannot be combined; pick one overlay per run\n',
@@ -1007,21 +1131,25 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    if (args.diff !== null && !OVERLAY_FORMATS.includes(args.format)) {
+    if (args.diff !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
-            `--diff supports --format svg, mermaid or html, not ${args.format}\n`,
+            `--diff supports --format svg, mermaid or html, not ${options.format}\n`,
         );
         return EXIT_USAGE;
     }
-    if (args.execution !== null && !OVERLAY_FORMATS.includes(args.format)) {
+    if (args.execution !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
-            `--execution supports --format svg, mermaid or html, not ${args.format}\n`,
+            `--execution supports --format svg, mermaid or html, not ${options.format}\n`,
         );
         return EXIT_USAGE;
     }
     // The flag is valid and the build cannot honour it, which still counts as usage:
     // the fix is to change the invocation (use the npm package), not the input.
-    if (args.format === 'png' && !args.check && readBuildInfo()?.standalone) {
+    if (
+        options.format === 'png' &&
+        !args.check &&
+        readBuildInfo()?.standalone
+    ) {
         process.stderr.write(
             '--format png is not available in the standalone binary: the native ' +
                 'rasterizer it needs cannot be bundled into a single-file executable. ' +
@@ -1030,7 +1158,7 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    if (args.format === 'png' && !args.check && !args.output) {
+    if (options.format === 'png' && !args.check && !args.output) {
         process.stderr.write('--output is required when --format is png\n');
         return EXIT_USAGE;
     }
@@ -1113,7 +1241,10 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     // Resolved after `--check`, which lints rather than drawing and so needs no theme.
-    let theme: ThemeOption = args.theme;
+    // A file supersedes both `--theme <name>` and a config file's `theme`, so it is
+    // applied on top of the merge rather than inside it - and it stays out of
+    // `resolveCliOptions`, which does no IO.
+    let theme: ThemeOption = options.theme;
     if (args.themeFile !== null) {
         try {
             const parsed: unknown = JSON.parse(
@@ -1145,56 +1276,66 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     const sharedOptions = {
-        catchHandling: args.hideCatch ? ('hide' as const) : ('show' as const),
-        ...(args.catchLabelStyle !== null
-            ? { catchLabelStyle: args.catchLabelStyle }
+        catchHandling: options.catchHandling,
+        ...(options.catchLabelStyle !== null
+            ? { catchLabelStyle: options.catchLabelStyle }
             : {}),
-        ...(args.collapse !== null ? { collapse: args.collapse } : {}),
-        ...(args.hideComments ? { includeComments: false } : {}),
-        ...(args.hideVariables ? { showVariables: false } : {}),
+        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
+        ...(options.includeComments !== null
+            ? { includeComments: options.includeComments }
+            : {}),
+        ...(options.showVariables !== null
+            ? { showVariables: options.showVariables }
+            : {}),
     };
     const svgOptions = {
         ...sharedOptions,
-        layout: args.layout,
+        layout: options.layout,
         theme,
-        ...(args.backgroundColor !== null
-            ? { backgroundColor: args.backgroundColor }
+        ...(options.backgroundColor !== null
+            ? { backgroundColor: options.backgroundColor }
             : {}),
-        ...(args.diagramDescription !== null
-            ? { diagramDescription: args.diagramDescription }
+        ...(options.diagramDescription !== null
+            ? { diagramDescription: options.diagramDescription }
             : {}),
-        ...(args.diagramTitle !== null
-            ? { diagramTitle: args.diagramTitle }
+        ...(options.diagramTitle !== null
+            ? { diagramTitle: options.diagramTitle }
             : {}),
         // Clickable edges are only wanted where a viewer is wired up. `--format svg`
         // must stay byte-identical, and generateHtmlAsync forces this on regardless.
-        ...(args.format === 'html' ? { edgeHitAreas: true } : {}),
-        ...(args.edgeStyle !== null ? { edgeStyle: args.edgeStyle } : {}),
-        ...(args.iconPosition !== null
-            ? { iconPosition: args.iconPosition }
+        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
+        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
+        ...(options.iconPosition !== null
+            ? { iconPosition: options.iconPosition }
             : {}),
-        ...(args.iconSize !== null ? { iconSize: args.iconSize } : {}),
-        ...(args.nodeHeight !== null ? { nodeHeight: args.nodeHeight } : {}),
-        ...(args.nodeSeparation !== null
-            ? { nodeSeparation: args.nodeSeparation }
+        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
+        ...(options.nodeHeight !== null
+            ? { nodeHeight: options.nodeHeight }
             : {}),
-        ...(args.nodeWidth !== null ? { nodeWidth: args.nodeWidth } : {}),
-        ...(args.padding !== null ? { padding: args.padding } : {}),
-        ...(args.rankSeparation !== null
-            ? { rankSeparation: args.rankSeparation }
+        ...(options.nodeSeparation !== null
+            ? { nodeSeparation: options.nodeSeparation }
             : {}),
-        ...(args.showIcons ? { showIcons: true } : {}),
-        ...(args.showStateTypes ? { showStateTypes: true } : {}),
-        ...(args.stylePreset !== null ? { stylePreset: args.stylePreset } : {}),
+        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
+        ...(options.padding !== null ? { padding: options.padding } : {}),
+        ...(options.rankSeparation !== null
+            ? { rankSeparation: options.rankSeparation }
+            : {}),
+        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
+        ...(options.showStateTypes !== null
+            ? { showStateTypes: options.showStateTypes }
+            : {}),
+        ...(options.stylePreset !== null
+            ? { stylePreset: options.stylePreset }
+            : {}),
     };
 
     try {
         if (baselineDefinition !== null) {
-            if (args.format === 'mermaid') {
+            if (options.format === 'mermaid') {
                 const result = generateMermaidDiff({
                     after: definitionSource,
                     before: baselineDefinition,
-                    layout: args.layout,
+                    layout: options.layout,
                     theme,
                 });
                 writeDiffSummary(result.metadata);
@@ -1202,7 +1343,7 @@ export async function run(argv: string[]): Promise<number> {
                 return 0;
             }
 
-            if (args.format === 'html') {
+            if (options.format === 'html') {
                 // The viewer applies the diff itself; icons are inlined so the document
                 // stays offline, matching the plain `--format html` path.
                 const result = await generateHtmlAsync({
@@ -1227,11 +1368,11 @@ export async function run(argv: string[]): Promise<number> {
         }
 
         if (historySource !== null) {
-            if (args.format === 'mermaid') {
+            if (options.format === 'mermaid') {
                 const result = generateMermaidExecution({
                     aslDefinition: definitionSource,
                     history: historySource,
-                    layout: args.layout,
+                    layout: options.layout,
                     theme,
                 });
                 writeExecutionSummary(result.metadata);
@@ -1239,7 +1380,7 @@ export async function run(argv: string[]): Promise<number> {
                 return 0;
             }
 
-            if (args.format === 'html') {
+            if (options.format === 'html') {
                 const result = await generateHtmlAsync({
                     aslDefinition: definitionSource,
                     history: historySource,
@@ -1261,18 +1402,18 @@ export async function run(argv: string[]): Promise<number> {
             return 0;
         }
 
-        if (args.format === 'mermaid') {
+        if (options.format === 'mermaid') {
             const result = generateMermaid({
                 aslDefinition: definitionSource,
                 ...sharedOptions,
-                layout: args.layout,
+                layout: options.layout,
                 theme,
             });
             writeOutput(result.code, args.output);
             return 0;
         }
 
-        if (args.format === 'svg') {
+        if (options.format === 'svg') {
             const result = generateSvg({
                 aslDefinition: definitionSource,
                 ...svgOptions,
@@ -1281,7 +1422,7 @@ export async function run(argv: string[]): Promise<number> {
             return 0;
         }
 
-        if (args.format === 'html') {
+        if (options.format === 'html') {
             const result = await generateHtmlAsync({
                 aslDefinition: definitionSource,
                 ...svgOptions,

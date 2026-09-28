@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -8,16 +14,18 @@ import { CliError, parseArgs, reportUnexpectedError, run } from '../src/cli';
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
 
 describe('parseArgs', () => {
-    it('applies sensible defaults', () => {
+    it('reports an absent option rather than substituting a default', () => {
+        // The defaults live in resolveCliOptions now, so that `--layout TB` can
+        // override a config file that says otherwise. parseArgs reports absence.
         const args = parseArgs(['state.asl.json']);
         expect(args).toMatchObject({
-            format: 'svg',
+            format: null,
             input: 'state.asl.json',
-            layout: 'TB',
+            layout: null,
             output: null,
             showHelp: false,
             showVersion: false,
-            theme: 'light',
+            theme: null,
         });
     });
 
@@ -77,7 +85,7 @@ describe('parseArgs', () => {
         // `--theme` accepts light, dark, or a path, so the parser can no longer tell a
         // typo from a filename; `run()` reports it when the read fails.
         expect(parseArgs(['in.json', '--theme', 'neon'])).toMatchObject({
-            theme: 'light',
+            theme: null,
             themeFile: 'neon',
         });
     });
@@ -141,16 +149,16 @@ describe('parseArgs', () => {
         expect(args).toMatchObject({
             diff: null,
             execution: null,
-            hideVariables: false,
             iconPosition: null,
             iconSize: null,
-            showIcons: false,
+            showIcons: null,
+            showVariables: null,
         });
     });
 
     it('parses --hide-variables', () => {
-        expect(parseArgs(['in.json', '--hide-variables']).hideVariables).toBe(
-            true,
+        expect(parseArgs(['in.json', '--hide-variables']).showVariables).toBe(
+            false,
         );
     });
 
@@ -1268,13 +1276,13 @@ describe('parseArgs: DiagramOptions flags', () => {
             diagramDescription: null,
             diagramTitle: null,
             edgeStyle: null,
-            hideComments: false,
+            includeComments: null,
             nodeHeight: null,
             nodeSeparation: null,
             nodeWidth: null,
             padding: null,
             rankSeparation: null,
-            showStateTypes: false,
+            showStateTypes: null,
             stylePreset: null,
             themeFile: null,
         });
@@ -1422,8 +1430,8 @@ describe('parseArgs: DiagramOptions flags', () => {
     });
 
     it('sets the boolean flags', () => {
-        expect(parseArgs(['in.json', '--hide-comments']).hideComments).toBe(
-            true,
+        expect(parseArgs(['in.json', '--hide-comments']).includeComments).toBe(
+            false,
         );
         expect(
             parseArgs(['in.json', '--show-state-types']).showStateTypes,
@@ -2284,5 +2292,314 @@ describe('reportUnexpectedError', () => {
     it('reports undefined', () => {
         expect(reportUnexpectedError(undefined)).toBe(1);
         expect(stderrData).toBe('Error: undefined\n');
+    });
+});
+
+describe('parseArgs: config and negation flags', () => {
+    it('reports every option as absent when no flag was given', () => {
+        // The precedence rule needs "absent" to be distinguishable from "set to the
+        // value that happens to be the default", so parseArgs no longer defaults.
+        expect(parseArgs(['in.json'])).toMatchObject({
+            catchHandling: null,
+            config: null,
+            format: null,
+            includeComments: null,
+            layout: null,
+            showIcons: null,
+            showStateTypes: null,
+            showVariables: null,
+            theme: null,
+            themeFile: null,
+        });
+    });
+
+    it('still reports an explicit flag set to the default value', () => {
+        expect(parseArgs(['in.json', '--layout', 'TB']).layout).toBe('TB');
+        expect(parseArgs(['in.json', '--format', 'svg']).format).toBe('svg');
+        expect(parseArgs(['in.json', '--theme', 'light']).theme).toBe('light');
+    });
+
+    it('parses --config as a path', () => {
+        expect(parseArgs(['in.json', '--config', './sfn.json']).config).toBe(
+            './sfn.json',
+        );
+    });
+
+    it('rejects a blank --config', () => {
+        expect(() => parseArgs(['in.json', '--config='])).toThrowError(
+            'Invalid --config: expected a non-empty value',
+        );
+    });
+
+    it.each([
+        ['--hide-catch', 'catchHandling', 'hide'],
+        ['--show-catch', 'catchHandling', 'show'],
+        ['--hide-comments', 'includeComments', false],
+        ['--show-comments', 'includeComments', true],
+        ['--hide-variables', 'showVariables', false],
+        ['--show-variables', 'showVariables', true],
+        ['--show-icons', 'showIcons', true],
+        ['--hide-icons', 'showIcons', false],
+        ['--show-state-types', 'showStateTypes', true],
+        ['--hide-state-types', 'showStateTypes', false],
+    ])('%s sets %s', (flag, field, expected) => {
+        expect(parseArgs(['in.json', flag])).toMatchObject({
+            [field]: expected,
+        });
+    });
+
+    it.each([
+        ['--hide-catch', '--show-catch'],
+        ['--hide-comments', '--show-comments'],
+        ['--hide-variables', '--show-variables'],
+        ['--show-icons', '--hide-icons'],
+        ['--show-state-types', '--hide-state-types'],
+    ])('rejects %s together with %s', (first, second) => {
+        // Last-one-wins would be invisible in a long CI command line.
+        try {
+            parseArgs(['in.json', first, second]);
+            expect.unreachable(`${first} ${second} should not parse`);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliError);
+            expect((error as CliError).exitCode).toBe(2);
+            expect((error as CliError).message).toContain(first);
+            expect((error as CliError).message).toContain(second);
+        }
+    });
+});
+
+describe('run: config file', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+    let originalCwd: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-config-'));
+        // A .git marker stops discovery escaping the temp dir into this repo, whose own
+        // config would otherwise leak into every test here.
+        writeFileSync(join(tempDir, '.git'), '');
+        originalCwd = process.cwd();
+    });
+
+    afterEach(() => {
+        process.chdir(originalCwd);
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    const simpleAsl = JSON.stringify({
+        StartAt: 'Only',
+        States: { Only: { End: true, Type: 'Pass' } },
+    });
+
+    const svgWidthOf = (svg: string): number => {
+        const match = /<svg[^>]*\swidth="([\d.]+)"/.exec(svg);
+        if (!match) throw new Error('no <svg width> found');
+        return Number(match[1]);
+    };
+
+    it('applies a discovered config', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        write('sfn-diagram.config.json', JSON.stringify({ padding: 0 }));
+        process.chdir(tempDir);
+
+        expect(await run([input])).toBe(0);
+        const unpadded = svgWidthOf(stdoutData);
+
+        stdoutData = '';
+        rmSync(join(tempDir, 'sfn-diagram.config.json'));
+        expect(await run([input])).toBe(0);
+        expect(svgWidthOf(stdoutData)).toBe(unpadded + 40);
+    });
+
+    it('applies a config named by --config from anywhere', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'elsewhere.json',
+            JSON.stringify({ format: 'mermaid' }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('stateDiagram-v2');
+    });
+
+    it('lets an explicit flag beat the config', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ format: 'mermaid' }));
+
+        // Show the config taking effect first, so the override below is a real
+        // override rather than an assertion that holds whether or not it was read.
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('stateDiagram-v2');
+
+        stdoutData = '';
+        expect(await run([input, '--config', config, '--format', 'svg'])).toBe(
+            0,
+        );
+        expect(stdoutData).toContain('<svg');
+        expect(stdoutData).not.toContain('stateDiagram-v2');
+    });
+
+    it('lets a negation flag beat a config that turned something on', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ showStateTypes: true }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('>Pass<');
+
+        stdoutData = '';
+        expect(
+            await run([input, '--config', config, '--hide-state-types']),
+        ).toBe(0);
+        expect(stdoutData).not.toContain('>Pass<');
+    });
+
+    it('applies a config custom theme object', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ theme: { background: '#123456' } }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('#123456');
+    });
+
+    it('lets --theme beat a config custom theme', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ theme: { background: '#123456' } }),
+        );
+
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('#123456');
+
+        stdoutData = '';
+        expect(await run([input, '--config', config, '--theme', 'dark'])).toBe(
+            0,
+        );
+        expect(stdoutData).not.toContain('#123456');
+    });
+
+    it('reaches the Mermaid path, not just SVG', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ layout: 'LR' }));
+        expect(
+            await run([input, '--config', config, '--format', 'mermaid']),
+        ).toBe(0);
+        expect(stdoutData).toContain('direction LR');
+    });
+
+    it('reaches the diff path', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ layout: 'LR' }));
+        expect(
+            await run([
+                input,
+                '--diff',
+                input,
+                '--config',
+                config,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('direction LR');
+    });
+
+    it('lets a config format reach the overlay-format usage check', async () => {
+        // The check has to read the merged format, not the flag, or a config setting
+        // png would sail past it and fail later with a confusing error.
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ format: 'png' }));
+        expect(await run([input, '--diff', input, '--config', config])).toBe(2);
+        expect(stderrData).toContain(
+            '--diff supports --format svg, mermaid or html',
+        );
+    });
+
+    it('lets a config format reach the png --output usage check', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ format: 'png' }));
+        expect(await run([input, '--config', config])).toBe(2);
+        expect(stderrData).toContain(
+            '--output is required when --format is png',
+        );
+    });
+
+    it('exits 1 when --config names a file that does not exist', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        expect(
+            await run([input, '--config', join(tempDir, 'absent.json')]),
+        ).toBe(1);
+        expect(stderrData).toContain('Cannot read config file');
+    });
+
+    it('exits 1 on a malformed config, naming the file', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', '{ "theme": ');
+        expect(await run([input, '--config', config])).toBe(1);
+        expect(stderrData).toContain('Cannot parse config file');
+        expect(stderrData).toContain(config);
+    });
+
+    it('exits 1 on an invalid config value, naming the field', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ theme: 'neon' }));
+        expect(await run([input, '--config', config])).toBe(1);
+        expect(stderrData).toContain('Invalid theme');
+    });
+
+    it('still lints with --check when a config sets a format', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ format: 'png' }));
+        // --check ignores format; a config setting one must not make it demand -o.
+        expect(await run([input, '--check', '--config', config])).toBe(0);
+    });
+
+    it('reports a broken config even with --check', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', '{ nope');
+        expect(await run([input, '--check', '--config', config])).toBe(1);
+    });
+
+    it('ignores a config beside the input when the cwd is elsewhere', async () => {
+        // Discovery is rooted at the working directory, not at the input's directory.
+        const nested = join(tempDir, 'nested');
+        mkdirSync(nested, { recursive: true });
+        const input = join(nested, 'm.asl.json');
+        writeFileSync(input, simpleAsl);
+        writeFileSync(
+            join(nested, 'sfn-diagram.config.json'),
+            JSON.stringify({ format: 'mermaid' }),
+        );
+        process.chdir(tempDir);
+        expect(await run([input])).toBe(0);
+        expect(stdoutData).toContain('<svg');
     });
 });
