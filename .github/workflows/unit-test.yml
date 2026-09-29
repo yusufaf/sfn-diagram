@@ -76,6 +76,20 @@ jobs:
           pnpm exec puppeteer browsers install chrome
           pnpm exec puppeteer browsers install chrome-headless-shell
 
+      # Before Build, deliberately. sfn-diagram#build runs build:manifest, which
+      # rewrites custom-elements.json in the working tree - so the same check inside
+      # `pnpm test` below can only ever pass in CI, and a PR that edited an element
+      # JSDoc without regenerating the manifest would go green. Run against the
+      # checkout as committed instead.
+      #
+      # A `git diff --exit-code` here, like the Action-bundle check, would not work:
+      # the committed manifest carries `\r\n` escaped inside its JSON strings from
+      # whichever Windows machine generated it, and a Linux rebuild emits `\n`, so
+      # every run would report drift. check-manifest.mjs compares with both real and
+      # escaped line endings normalized, which is exactly that difference.
+      - name: Verify custom-elements.json is up to date
+        run: node scripts/check-manifest.mjs --check
+
       # The build toolchain's own floor is higher than the package's: tsdown@0.23.0
       # declares engines.node ^22.18.0 || ^24.11.0 || >=26 and calls
       # Promise.withResolvers, added in Node 22.0, so `tsdown` dies on Node 20 with
@@ -132,22 +146,6 @@ jobs:
             exit 1
           fi
 
-      # The same shape, and for the same reason. `scripts/check-manifest.mjs --check`
-      # runs from `pnpm test` below, but by then the Build step has already
-      # regenerated custom-elements.json in the working tree (sfn-diagram#build is
-      # build:viewer-script && build:manifest && tsdown), so in CI that check can only
-      # ever pass. This is what actually catches a stale committed manifest here; the
-      # script is what catches it before a push.
-      #
-      # Primary leg only: git's eol conversion makes the rebuilt file differ from the
-      # committed one on a Windows checkout with no content change.
-      - name: Verify custom-elements.json is up to date
-        if: matrix.primary
-        run: |
-          if ! git diff --exit-code -- custom-elements.json; then
-            echo "::error::Committed custom-elements.json is stale. Run 'pnpm run build:manifest' and commit the result."
-            exit 1
-          fi
 
       # Budgets are bytes, so they cannot differ by runner - and this needs the
       # Build above, which is why it sits here rather than beside the test steps.
@@ -233,7 +231,6 @@ jobs:
         if: matrix.node == '20'
         run: |
           node scripts/build-viewer-script.mjs --check
-          node scripts/check-manifest.mjs --check
           pnpm exec vitest run --project unit
           pnpm exec vitest run --project perf
 
