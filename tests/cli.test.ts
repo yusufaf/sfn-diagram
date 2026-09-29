@@ -14,6 +14,13 @@ import { CliError, parseArgs, reportUnexpectedError, run } from '../src/cli';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
 
+// The two tests below are the only ones here that run a real resvg PNG export
+// rather than rejecting before the render. A cold native-module load plus the
+// system-font scan in src/exporters/pngFonts.ts takes longer than vitest's
+// 5s default on the macOS and Windows runners, where every other case in this
+// file finishes well inside it.
+const REAL_PNG_EXPORT_TIMEOUT_MS = 30_000;
+
 describe('parseArgs', () => {
     it('reports an absent option rather than substituting a default', () => {
         // The defaults live in resolveCliOptions now, so that `--layout TB` can
@@ -1797,44 +1804,48 @@ describe('run: DiagramOptions flags', () => {
         expect(stdoutData).not.toContain('Explains itself');
     });
 
-    it('--background-color reaches PNG export when the theme is transparent', async () => {
-        const themePath = join(tempDir, 'transparent.json');
-        writeFileSync(
-            themePath,
-            JSON.stringify({ background: 'transparent', base: 'light' }),
-        );
-
-        const plainPath = join(tempDir, 'plain.png');
-        const redPath = join(tempDir, 'red.png');
-        expect(
-            await run([
-                simpleFixture,
-                '--format',
-                'png',
-                '--theme',
+    it(
+        '--background-color reaches PNG export when the theme is transparent',
+        { timeout: REAL_PNG_EXPORT_TIMEOUT_MS },
+        async () => {
+            const themePath = join(tempDir, 'transparent.json');
+            writeFileSync(
                 themePath,
-                '-o',
-                plainPath,
-            ]),
-        ).toBe(0);
-        expect(
-            await run([
-                simpleFixture,
-                '--format',
-                'png',
-                '--theme',
-                themePath,
-                '--background-color',
-                '#ff0000',
-                '-o',
-                redPath,
-            ]),
-        ).toBe(0);
+                JSON.stringify({ background: 'transparent', base: 'light' }),
+            );
 
-        expect(readFileSync(redPath).equals(readFileSync(plainPath))).toBe(
-            false,
-        );
-    });
+            const plainPath = join(tempDir, 'plain.png');
+            const redPath = join(tempDir, 'red.png');
+            expect(
+                await run([
+                    simpleFixture,
+                    '--format',
+                    'png',
+                    '--theme',
+                    themePath,
+                    '-o',
+                    plainPath,
+                ]),
+            ).toBe(0);
+            expect(
+                await run([
+                    simpleFixture,
+                    '--format',
+                    'png',
+                    '--theme',
+                    themePath,
+                    '--background-color',
+                    '#ff0000',
+                    '-o',
+                    redPath,
+                ]),
+            ).toBe(0);
+
+            expect(readFileSync(redPath).equals(readFileSync(plainPath))).toBe(
+                false,
+            );
+        },
+    );
 
     describe('--theme with a custom theme file', () => {
         it('applies the file, overriding the built-in theme', async () => {
@@ -3029,22 +3040,26 @@ describe('run: multiple inputs', () => {
         });
     });
 
-    it('renders PNG into --out-dir', async () => {
-        // The png guard demanded -o before --out-dir was considered, so batch PNG was
-        // impossible while OUTPUT_EXTENSIONS, a unit test and the guide all advertised it.
-        touch('order.asl.json');
-        process.chdir(tempDir);
-        expect(
-            await run([
-                'order.asl.json',
-                '--format',
-                'png',
-                '--out-dir',
-                'out',
-            ]),
-        ).toBe(0);
-        expect(existsSync(join(tempDir, 'out', 'order.png'))).toBe(true);
-    });
+    it(
+        'renders PNG into --out-dir',
+        { timeout: REAL_PNG_EXPORT_TIMEOUT_MS },
+        async () => {
+            // The png guard demanded -o before --out-dir was considered, so batch PNG was
+            // impossible while OUTPUT_EXTENSIONS, a unit test and the guide all advertised it.
+            touch('order.asl.json');
+            process.chdir(tempDir);
+            expect(
+                await run([
+                    'order.asl.json',
+                    '--format',
+                    'png',
+                    '--out-dir',
+                    'out',
+                ]),
+            ).toBe(0);
+            expect(existsSync(join(tempDir, 'out', 'order.png'))).toBe(true);
+        },
+    );
 
     it('still requires an output for PNG when neither -o nor --out-dir is given', async () => {
         touch('order.asl.json');
