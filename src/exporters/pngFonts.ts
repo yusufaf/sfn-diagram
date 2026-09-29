@@ -2,13 +2,20 @@ import { existsSync } from 'node:fs';
 import { delimiter } from 'node:path';
 
 /** A candidate font family and the absolute file that must exist to use it. */
-interface FontProbe {
+export interface FontProbe {
     family: string;
     path: string;
 }
 
-/** Per-platform font probing tables, checked in order. */
-const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
+/**
+ * Per-platform font probing tables, checked in order.
+ *
+ * Exported so `scripts/font-probes.mjs` — which CI uses to assert an image ships
+ * the font this will actually look for — can be pinned against it by
+ * `tests/ci/fontProbes.test.ts`, rather than a workflow comment claiming to know
+ * the path (#230).
+ */
+export const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
     darwin: [
         { family: 'Helvetica', path: '/System/Library/Fonts/Helvetica.ttc' },
         { family: 'Arial', path: '/Library/Fonts/Arial.ttf' },

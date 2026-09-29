@@ -18,9 +18,8 @@
 // endings (what a Windows checkout produces) breaks esbuild's shebang-stripping
 // regex during that import.
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
 import { parse } from 'yaml';
+import { runAsScript } from './lib/cliScript.mjs';
 
 /**
  * @typedef {object} ResolveOptionalPeerVersionParams
@@ -63,27 +62,17 @@ export function resolveOptionalPeerVersion(params) {
     return String(entry.version).split('(')[0];
 }
 
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-    const { values } = parseArgs({
-        options: { package: { type: 'string' } },
-        strict: true,
-    });
-
-    if (!values.package) {
-        console.error('usage: resolve-optional-peer-version.mjs --package <name>');
-        process.exit(1);
-    }
-
-    try {
+await runAsScript({
+    importMetaUrl: import.meta.url,
+    options: { package: { type: 'string' } },
+    required: ['package'],
+    usage: 'resolve-optional-peer-version.mjs --package <name>',
+    main: ({ package: packageName }) => {
         console.log(
             resolveOptionalPeerVersion({
                 lockfileContents: readFileSync('pnpm-lock.yaml', 'utf-8'),
-                packageName: values.package,
+                packageName,
             }),
         );
-    } catch (error) {
-        console.error(`::error::${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
-    }
-}
+    },
+});

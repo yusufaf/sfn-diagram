@@ -25,7 +25,11 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
     CI=true
 COPY package.json pnpm-lock.yaml ./
 RUN npm install -g "$(node -p "require('./package.json').packageManager")"
+# Both files, not just the first: resolve-optional-peer-version.mjs imports the
+# shared argv/error scaffold from scripts/lib/ (#230), and a missing COPY here is
+# exactly what broke every image from v1.4.0 to v1.5.0.
 COPY scripts/resolve-optional-peer-version.mjs ./scripts/
+COPY scripts/lib ./scripts/lib
 # @resvg/resvg-js is a devDependency + *optional* peer, so `--prod` skips it and
 # `--format png` throws the missing-peer error at runtime - #153, which shipped
 # broken for three releases. Install it explicitly, pinned to the version the
