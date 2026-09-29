@@ -11,15 +11,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { CliError, parseArgs, reportUnexpectedError, run } from '../src/cli';
+import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
 
-// The two tests below are the only ones here that run a real resvg PNG export
-// rather than rejecting before the render. A cold native-module load plus the
-// system-font scan in src/exporters/pngFonts.ts takes longer than vitest's
-// 5s default on the macOS and Windows runners, where every other case in this
-// file finishes well inside it.
-const REAL_PNG_EXPORT_TIMEOUT_MS = 30_000;
+// Two tests in this file run a real resvg PNG export rather than rejecting before
+// the render, and they are the only ones here that need more than vitest's 5s
+// default. They share the timeout with every other real-export suite.
 
 describe('parseArgs', () => {
     it('reports an absent option rather than substituting a default', () => {

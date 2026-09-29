@@ -14,6 +14,7 @@ import { DagreLayout } from '../src/layout';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { AslDefinition, StateNode } from '../src/types';
+import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -340,7 +341,7 @@ describe('Integration Tests', () => {
         });
     });
 
-    describe('exportPng', { timeout: 15000 }, () => {
+    describe('exportPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         it('should export PNG from ASL definition', async () => {
             const aslDefinition = loadFixture('simple');
             const result = await exportPng({ aslDefinition });

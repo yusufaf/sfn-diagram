@@ -5,8 +5,9 @@ vi.mock('node-html-to-image', () => {
 });
 
 import { PngExporter } from '../src/png';
+import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
-describe('PngExporter', { timeout: 15000 }, () => {
+describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
     const createTestSvg = (): string => `
         <svg width="200" height="100" xmlns="http://www.w3.org/2000/svg">
             <rect x="10" y="10" width="180" height="80" fill="#fff" stroke="#000" />

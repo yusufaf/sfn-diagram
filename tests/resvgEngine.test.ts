@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderResvgPng } from '../src/exporters/resvgEngine';
+import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -9,7 +10,7 @@ const textSvg = (includeText: boolean): string => `
     </svg>
 `;
 
-describe('renderResvgPng', { timeout: 15000 }, () => {
+describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
     it('produces a buffer starting with the PNG magic bytes', async () => {
         const { buffer } = await renderResvgPng({ svg: textSvg(true), width: 200 });
 
