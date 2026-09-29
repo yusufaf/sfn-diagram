@@ -83,13 +83,19 @@ jobs:
       # manifest assertion and the report-failure job below exist to make loud.
       #
       # provenance/sbom describe a published artifact, so they belong on this push
-      # and would attest nothing in the PR check. The GHA cache is shared with that
-      # check, which is the job that runs often enough to benefit from it.
+      # and would attest nothing in the PR check.
+      #
+      # No layer cache here, deliberately, though docker-build-check uses one. Two
+      # reasons, both about publishing rather than speed: a restored layer would pin
+      # `apt-get install ca-certificates ...` to whenever that layer was first built,
+      # so a release could ship base packages months stale; and this workflow runs on
+      # a tag ref, whose cache scope is not the one the PR check writes, so the
+      # restore would likely miss while still exporting multi-GB against the repo's
+      # 10 GB quota - which ~14 other jobs share for their pnpm caches. A few
+      # uncached minutes a handful of times a year is the cheaper side of that trade.
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           context: .
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64

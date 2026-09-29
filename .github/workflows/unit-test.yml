@@ -268,11 +268,16 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      # scope= per build variant: a type=gha export replaces the whole index for its
+      # scope, so builds that share one evict each other instead of sharing. mode=min
+      # rather than max because the repo's Actions cache quota is 10 GB and ~14 other
+      # jobs keep their pnpm caches in it; exporting every intermediate layer of a
+      # three-stage image on every PR would evict them.
       - name: Build image
         uses: docker/build-push-action@v7
         with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=docker-check-amd64
+          cache-to: type=gha,mode=min,scope=docker-check-amd64
           context: .
           load: true
           tags: sfn-diagram-ci-check
@@ -284,8 +289,8 @@ jobs:
       - name: (temporary) Build linux/amd64 and linux/arm64
         uses: docker/build-push-action@v7
         with:
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=docker-check-multiarch
+          cache-to: type=gha,mode=min,scope=docker-check-multiarch
           context: .
           outputs: type=cacheonly
           platforms: linux/amd64,linux/arm64
