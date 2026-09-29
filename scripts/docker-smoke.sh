@@ -29,30 +29,40 @@ image=""
 png_out=""
 expect_version=""
 
+usage() {
+    echo "usage: docker-smoke.sh --image <ref> --png-out <path> [--expect-version <version>]" >&2
+    [ $# -eq 0 ] || echo "docker-smoke.sh: $1" >&2
+    exit 2
+}
+
 while [ $# -gt 0 ]; do
+    # `${2:?...}` would abort with a raw bash expansion error and exit 1 here, which
+    # is the wrong code for a usage mistake - a missing value gets the same exit 2
+    # as an unknown flag.
     case "$1" in
         --image)
-            image="${2:?--image needs a value}"
+            [ $# -ge 2 ] || usage "--image needs a value"
+            image="$2"
             shift 2
             ;;
         --png-out)
-            png_out="${2:?--png-out needs a value}"
+            [ $# -ge 2 ] || usage "--png-out needs a value"
+            png_out="$2"
             shift 2
             ;;
         --expect-version)
-            expect_version="${2:?--expect-version needs a value}"
+            [ $# -ge 2 ] || usage "--expect-version needs a value"
+            expect_version="$2"
             shift 2
             ;;
         *)
-            echo "usage: docker-smoke.sh --image <ref> --png-out <path> [--expect-version <version>]" >&2
-            exit 2
+            usage "unknown argument '$1'"
             ;;
     esac
 done
 
 if [ -z "$image" ] || [ -z "$png_out" ]; then
-    echo "usage: docker-smoke.sh --image <ref> --png-out <path> [--expect-version <version>]" >&2
-    exit 2
+    usage "--image and --png-out are both required"
 fi
 
 docker="${DOCKER:-docker}"
@@ -70,11 +80,16 @@ fail() {
     exit 1
 }
 
-if [ -n "$expect_version" ]; then
-    echo "== version"
-    actual_version="$("$docker" run --rm "$image" --version)"
-    [ "$actual_version" = "$expect_version" ] ||
-        fail "image reports version '$actual_version', expected '$expect_version'"
+# Always run it, even with nothing to compare against: `--version` reads the
+# version out of the image, so it fails if the entrypoint cannot start or the
+# runtime stage is missing package.json - breakage that renders fine and would
+# otherwise only surface after publishing. Only the comparison is optional.
+echo "== version"
+if ! actual_version="$("$docker" run --rm "$image" --version)"; then
+    fail "image could not report its version - the entrypoint did not run"
+fi
+if [ -n "$expect_version" ] && [ "$actual_version" != "$expect_version" ]; then
+    fail "image reports version '$actual_version', expected '$expect_version'"
 fi
 
 echo "== svg from stdin"
@@ -82,8 +97,13 @@ echo "== svg from stdin"
     fail "image did not render a valid SVG from stdin"
 
 echo "== the font the PNG engine probes for is present"
-font_path="$(node "$repo_root/scripts/font-probes.mjs" --platform linux | head -n 1)"
-[ -n "$font_path" ] || fail "could not determine the font path pngFonts.ts probes first"
+# Assigned in its own `if`, not inline: under `set -e` an inline assignment from a
+# failing command aborts before the guard below can turn it into an annotation, so
+# a missing `node` would fail the step with nothing but bash's own message.
+if ! font_path="$(node "$repo_root/scripts/font-probes.mjs" --platform linux | head -n 1)"; then
+    fail "could not run scripts/font-probes.mjs to find the path pngFonts.ts probes first"
+fi
+[ -n "$font_path" ] || fail "scripts/font-probes.mjs printed no font path for linux"
 "$docker" run --rm --entrypoint sh "$image" -c "test -f '$font_path'" ||
     fail "image is missing $font_path - resvg would render text-free diagrams"
 
