@@ -45,9 +45,60 @@ export const CEM_ARGS = [
     'src/element/**/*.test.ts',
 ];
 
-/** Normalize real and JSON-escaped CRLF, plus a trailing newline. */
+/** Recursively replace CRLF with LF in every string a parsed manifest holds. */
+function normalizeStrings(value) {
+    if (typeof value === 'string') return value.replace(/\r\n/g, '\n');
+    if (Array.isArray(value)) return value.map(normalizeStrings);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([key, inner]) => [key, normalizeStrings(inner)])
+        );
+    }
+    return value;
+}
+
+/** Sort by a field so a platform's traversal order cannot look like a change. */
+function sortedBy(items, field) {
+    if (!Array.isArray(items)) return items;
+    return [...items].sort((left, right) =>
+        String(left?.[field] ?? '').localeCompare(String(right?.[field] ?? ''))
+    );
+}
+
+/**
+ * Reduce a manifest to a form that depends only on its content: CRLF normalized
+ * inside every string, and the module/declaration/export lists in a fixed order.
+ *
+ * Order matters here because it is not stable across platforms. Measured: on a
+ * Windows checkout the analyzer emits `auto.ts` first, on Linux
+ * `SfnDiagramElement.ts` first, with byte-identical content otherwise - so a
+ * string comparison reports the committed file as stale on whichever platform did
+ * not generate it.
+ */
+function canonicalize(contents) {
+    const manifest = normalizeStrings(JSON.parse(contents));
+
+    manifest.modules = sortedBy(manifest.modules, 'path').map((module) => ({
+        ...module,
+        declarations: sortedBy(module.declarations, 'name'),
+        exports: sortedBy(module.exports, 'name'),
+    }));
+
+    return JSON.stringify(manifest, null, 2);
+}
+
+/** Fallback for content that is not valid JSON: normalize line endings only. */
 function normalize(contents) {
     return contents.replace(/\r\n/g, '\n').replace(/\\r\\n/g, '\\n').replace(/\n+$/, '');
+}
+
+/** Canonical form when the text parses as JSON, normalized text when it does not. */
+function comparable(contents) {
+    try {
+        return canonicalize(contents);
+    } catch {
+        return normalize(contents);
+    }
 }
 
 /**
@@ -71,7 +122,7 @@ function normalize(contents) {
  */
 export function manifestsMatch(params) {
     const { committed, regenerated } = params;
-    return normalize(committed) === normalize(regenerated);
+    return comparable(committed) === comparable(regenerated);
 }
 
 /**
@@ -88,8 +139,8 @@ export function manifestsMatch(params) {
  * ```
  */
 export function describeFirstDifference(params) {
-    const committed = normalize(params.committed);
-    const regenerated = normalize(params.regenerated);
+    const committed = comparable(params.committed);
+    const regenerated = comparable(params.regenerated);
 
     let index = 0;
     while (
