@@ -76,6 +76,20 @@ jobs:
           pnpm exec puppeteer browsers install chrome
           pnpm exec puppeteer browsers install chrome-headless-shell
 
+      # Before Build, deliberately. sfn-diagram#build runs build:manifest, which
+      # rewrites custom-elements.json in the working tree - so the same check inside
+      # `pnpm test` below can only ever pass in CI, and a PR that edited an element
+      # JSDoc without regenerating the manifest would go green. Run against the
+      # checkout as committed instead.
+      #
+      # A `git diff --exit-code` here, like the Action-bundle check, would not work:
+      # the committed manifest carries `\r\n` escaped inside its JSON strings from
+      # whichever Windows machine generated it, and a Linux rebuild emits `\n`, so
+      # every run would report drift. check-manifest.mjs compares with both real and
+      # escaped line endings normalized, which is exactly that difference.
+      - name: Verify custom-elements.json is up to date
+        run: node scripts/check-manifest.mjs --check
+
       # The build toolchain's own floor is higher than the package's: tsdown@0.23.0
       # declares engines.node ^22.18.0 || ^24.11.0 || >=26 and calls
       # Promise.withResolvers, added in Node 22.0, so `tsdown` dies on Node 20 with
@@ -131,6 +145,15 @@ jobs:
             echo "::error::Committed GitHub Action bundle is stale. Run 'pnpm --filter github-action-sfn-diagram build' and commit packages/github-action-sfn-diagram/dist."
             exit 1
           fi
+
+
+      # Budgets are bytes, so they cannot differ by runner - and this needs the
+      # Build above, which is why it sits here rather than beside the test steps.
+      # It prints every entry's headroom, not just failures, so a PR that grows a
+      # bundle on purpose can see by how much before raising a number.
+      - name: Bundle size
+        if: matrix.primary
+        run: pnpm run check:bundle-size
 
       # Root eslint config lints core and all packages (playground is ignored).
       # Neither eslint's nor tsc's verdict can differ by platform or Node version,
@@ -210,6 +233,21 @@ jobs:
           node scripts/build-viewer-script.mjs --check
           pnpm exec vitest run --project unit
           pnpm exec vitest run --project perf
+
+      # Coverage is the unit project only, so its number cannot differ by platform
+      # or Node version. vitest fails the run itself when a threshold in
+      # vitest.config.ts is missed; the artifact is for reading the detail after.
+      - name: Coverage
+        if: matrix.primary
+        run: pnpm run test:coverage
+
+      - name: Upload coverage
+        if: matrix.primary && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: warn
 
   # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
   # release time - a broken build stage (the missing `scripts/` COPY that broke

@@ -7,8 +7,33 @@ export default defineConfig({
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],
             include: ['src/**/*.ts'],
-            // Type-only files and ambient declarations have no runtime to cover.
-            exclude: ['src/**/*.d.ts', 'src/types/**'],
+            exclude: [
+                // Type-only files and ambient declarations have no runtime to cover.
+                'src/**/*.d.ts',
+                'src/types/**',
+                // The in-page half of the viewer: this code is serialized into a
+                // <script> and executed inside a real Chromium page by
+                // tests/viewer/viewerRuntime.test.ts and tests/element/**, where the v8
+                // provider cannot see it at all. Counting it measures instrumentation
+                // rather than testing - it would put the total at 70% instead of 94%,
+                // forcing the thresholds below to a level nothing could trip.
+                //
+                // Deliberately not the whole of src/renderers/viewer: edgeData,
+                // stateData, viewerShell, viewerStyles, scriptJson, minimapThreshold
+                // and index all run in plain Node and stay inside the gate. Only the
+                // modules below are browser-only. (controller/hash and
+                // controller/exportActions do have some Node-side tests, but both are
+                // mostly page code, so they follow the rest of controller/.)
+                'src/renderers/viewer/controller/**',
+                'src/renderers/viewer/*.generated.ts',
+                'src/renderers/viewer/relayout.ts',
+                'src/renderers/viewer/viewerController.ts',
+                'src/renderers/viewer/viewerScript.ts',
+            ],
+            // Set just under what the unit suite reaches today (94.22 statements,
+            // 88.58 branches, 93.55 functions, 94.83 lines), so a real regression
+            // fails and ordinary churn does not. Raise them when the real numbers do.
+            thresholds: { branches: 85, functions: 90, lines: 90, statements: 90 },
         },
         projects: [
             {

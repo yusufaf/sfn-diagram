@@ -1,0 +1,15 @@
+# URLs excluded from the weekly link check, each with a reason. Nothing is excluded
+# speculatively: an entry here means the checker cannot resolve the URL for a reason
+# unrelated to whether the link is good, not that fixing it is inconvenient.
+# Entries are regexes.
+
+# The Microsoft Marketplace serves a JS shell to non-browser clients and answers
+# HEAD/GET from CI with 403, so every marketplace.visualstudio.com link reads as
+# broken regardless of whether the extension is published.
+https://marketplace\.visualstudio\.com/.*
+
+# Placeholders in fenced code blocks, which lychee linkifies anyway: the example
+# icon host in site/src/content/docs/guides/configuration.md, and the fork URL in
+# CONTRIBUTING.md's clone instructions. Both would fail every run.
+https://my-cdn\.com/.*
+https://github\.com/YOUR_USERNAME/.*
