@@ -23,17 +23,21 @@ jobs:
         include:
           # The primary leg additionally carries every check whose result cannot
           # depend on the platform or the Node version: lint, typecheck,
-          # publint/attw, the committed Action-bundle drift check, and the
-          # packed-tarball bin smoke test. Running those five times over would
-          # buy four identical answers.
+          # publint/attw and the committed Action-bundle drift check. Running
+          # those four times over would buy three identical answers.
           - os: ubuntu-latest
             node: lts/*
             primary: true
-          # engines.node says >=20, and nothing ever tested that floor. 22 covers
-          # the version between the floor and whatever lts/* currently resolves to.
+          # engines.node says >=20 and nothing ever tested that floor. It is a
+          # claim about the *published* artifact, not about building the repo:
+          # tsdown@0.23.0 calls Promise.withResolvers (Node 22.0+), so
+          # `pnpm run build` cannot run on 20 at all. This leg therefore builds
+          # under Node 22 and switches back to 20 to run everything against the
+          # result - see the two `matrix.node == '20'` steps below.
           - os: ubuntu-latest
             node: '20'
             primary: false
+          # 22 covers the version between the floor and whatever lts/* resolves to.
           - os: ubuntu-latest
             node: '22'
             primary: false
@@ -72,10 +76,45 @@ jobs:
           pnpm exec puppeteer browsers install chrome
           pnpm exec puppeteer browsers install chrome-headless-shell
 
+      # The build toolchain's own floor is higher than the package's: tsdown@0.23.0
+      # declares engines.node ^22.18.0 || ^24.11.0 || >=26 and calls
+      # Promise.withResolvers, added in Node 22.0, so `tsdown` dies on Node 20 with
+      # "Promise.withResolvers is not a function". engines.node ">=20" is a promise
+      # about the published artifact - which tsdown compiles for node20.0.0 - so the
+      # floor leg builds here under 22 and drops back to 20 for the tests.
+      - name: Set node 22 to build on the node-20 leg
+        if: matrix.node == '20'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: pnpm
+
       # Build every workspace (core + react, vscode, github-action, playground)
       # so package build breakage is caught, not just the core library.
       - name: Build
         run: pnpm turbo run build
+
+      - name: Back to node ${{ matrix.node }} to run against the built output
+        if: matrix.node == '20'
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Assert the runner is on node ${{ matrix.node }}
+        run: |
+          ACTUAL="$(node -p "process.versions.node.split('.')[0]")"
+          EXPECTED='${{ matrix.node }}'
+          # lts/* resolves to whatever is current; only the pinned legs are checkable.
+          case "$EXPECTED" in
+            [0-9]*)
+              [ "$ACTUAL" = "$EXPECTED" ] || {
+                echo "::error::expected node $EXPECTED for the tests, got $ACTUAL"
+                exit 1
+              }
+              ;;
+            *) echo "node $ACTUAL (from $EXPECTED)" ;;
+          esac
 
       # The GitHub Action ships a committed dist bundle (see .gitignore negation).
       # The Build above rebuilds it; fail if the committed copy is stale so the
@@ -115,17 +154,19 @@ jobs:
           pnpm run validate
           pnpm --filter sfn-diagram-react run validate
 
-      # Install the packed tarball into an empty project and run the bin the
-      # way npm links it on Linux: as a symlink under node_modules/.bin. The
-      # CLI's entry guard compared the raw symlink path to import.meta.url and
-      # silently did nothing on that path from v0.5.1 to v1.6.0 - nothing in the
-      # suite spawned the bin, and Windows shims hid it locally.
+      # Install the packed tarball into an empty project and run the bin the way a
+      # package manager links it: a symlink under node_modules/.bin on Linux and
+      # macOS, a shim on Windows. The CLI's entry guard compared the raw symlink
+      # path to import.meta.url and silently did nothing from v0.5.1 to v1.6.0 -
+      # nothing in the suite spawned the bin, and Windows shims hid it locally.
       #
-      # Primary leg only: this asserts the *Linux* symlink shape specifically, and
-      # the same bin on Windows and macOS is already covered by the standalone
-      # binary jobs below.
+      # Runs on every leg, not just the primary one. The `binary-smoke` jobs below
+      # cover the *bun-compiled* binary on Linux and Windows and skip macOS
+      # entirely (codesign), so without this the npm-installed entry point is
+      # never spawned on macOS at all, and on Windows only in its compiled form.
+      # The node-20 leg is the point of the exercise: it runs the bin under the
+      # version engines.node claims to support.
       - name: Smoke test the packed tarball's bin
-        if: matrix.primary
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           WORK="$(mktemp -d)"
@@ -145,7 +186,17 @@ jobs:
           }
 
       - name: Test
+        if: matrix.node != '20'
         run: pnpm turbo run test
+
+      # `turbo run test` fans out to packages/sfn-diagram-react, whose own `test`
+      # script rebuilds with tsdown first - which cannot run on Node 20 (see the
+      # build note above). The root suite contains no tsdown, so the floor leg runs
+      # that against the dist built under 22, plus the tarball bin smoke above. The
+      # workspace fan-out is covered by all four other legs.
+      - name: Test (root suite; workspace fan-out needs a builder Node)
+        if: matrix.node == '20'
+        run: pnpm test
 
   # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
   # release time - a broken build stage (the missing `scripts/` COPY that broke

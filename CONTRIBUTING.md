@@ -6,10 +6,18 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
 
 ### Prerequisites
 
-- **Node.js >= 20** — the floor declared by `package.json#engines`. It covers core,
-  the CLI, and PNG export through the default `@resvg/resvg-js` rasterizer. Only the
-  opt-in `html-to-image` PNG engine raises the floor, to Node >= 22.12.0, because
-  `node-html-to-image` v6 requires it. See
+- **Node.js >= 22 to develop the repo.** `pnpm run build` runs `tsdown`, which declares
+  `engines.node: ^22.18.0 || ^24.11.0 || >=26` and calls `Promise.withResolvers`
+  (Node 22.0+), so on Node 20 the build fails outright with
+  `TypeError: Promise.withResolvers is not a function`.
+
+  That is a *toolchain* floor, higher than the package's own. The published package
+  declares **Node >= 20** in `package.json#engines` and means it: `tsdown` compiles
+  `dist/` for `node20.0.0`, and the `node: '20'` leg of `unit-test.yml` proves it by
+  building under 22, switching back to 20, and running the suite and the packed CLI
+  there. Node >= 20 covers core, the CLI, and PNG export through the default
+  `@resvg/resvg-js` rasterizer; only the opt-in `html-to-image` PNG engine raises the
+  runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6 requires it. See
   [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).
 - **pnpm** — this is a pnpm workspace whose packages depend on each other through the
   `workspace:*` protocol, so `npm install` at the root fails. The version is pinned in
