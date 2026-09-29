@@ -33,14 +33,35 @@ jobs:
         uses: lycheeverse/lychee-action@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Tuned from the first real run (95 errors, none of them a dead link):
+          #
+          # `--exclude '^/'` drops Starlight's root-relative links (`/quick-start/`).
+          # They resolve against the built site, not the filesystem, so lychee reported
+          # all 74 of them as unresolvable while reading the markdown. Nothing else
+          # validates them either (see the follow-up issue), but this job exists for
+          # outbound rot and 74 false errors a week would bury it.
+          #
+          # The CHANGELOG.md files are release-please's output: their `compare/` links
+          # point at tags from before the current naming scheme, several of which never
+          # existed. Rewriting generated history is not the point here.
+          #
+          # README.marketplace.md is built for the Marketplace mirror repo, where
+          # scripts/sync-action-mirror.sh puts a LICENSE beside it - its relative links
+          # are correct there and unresolvable in this repo.
           args: >-
             --no-progress
             --max-retries 3
             --retry-wait-time 10
             --timeout 30
             --accept 200,204,206
+            --exclude '^/'
             --exclude-path site/dist
             --exclude-path node_modules
+            --exclude-path CHANGELOG.md
+            --exclude-path packages/github-action-sfn-diagram/CHANGELOG.md
+            --exclude-path packages/sfn-diagram-react/CHANGELOG.md
+            --exclude-path packages/vscode-sfn-diagram/CHANGELOG.md
+            --exclude-path packages/github-action-sfn-diagram/README.marketplace.md
             '**/*.md'
             'site/src/content/**/*.md'
             'site/src/content/**/*.mdx'

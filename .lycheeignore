@@ -8,6 +8,11 @@
 # broken regardless of whether the extension is published.
 https://marketplace\.visualstudio\.com/.*
 
+# npmjs.com answers CI clients with 403 for every package page, the same way the
+# Marketplace does. The first real run rejected 11 of these, including this
+# package's own, all of which are live.
+https://www\.npmjs\.com/package/.*
+
 # Placeholders in fenced code blocks, which lychee linkifies anyway: the example
 # icon host in site/src/content/docs/guides/configuration.md, and the fork URL in
 # CONTRIBUTING.md's clone instructions. Both would fail every run.
