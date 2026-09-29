@@ -226,37 +226,11 @@ jobs:
       - name: Build image
         run: docker build -t sfn-diagram-ci-check .
 
+      # Same script docker.yml runs against the published image, so the two cannot
+      # drift (#230). It takes the font path from scripts/font-probes.mjs rather
+      # than restating it.
       - name: Smoke test the built image
-        run: |
-          docker run --rm sfn-diagram-ci-check --version
-          docker run --rm -i sfn-diagram-ci-check - --format svg \
-            < tests/fixtures/simple.asl.json | grep -q '<svg' || {
-            echo "::error::Docker image did not render a valid SVG from stdin"
-            exit 1
-          }
-
-          # resvg renders no text at all without real font files on disk. This is
-          # the exact path src/exporters/pngFonts.ts probes first on linux.
-          docker run --rm --entrypoint sh sfn-diagram-ci-check -c \
-            'test -f /usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' || {
-            echo "::error::Liberation Sans is missing - resvg would render text-free diagrams"
-            exit 1
-          }
-
-          # #153: the image advertised --format png for three releases while the
-          # PNG engine was absent from node_modules. Assert real PNG bytes.
-          mkdir -p docker-smoke
-          docker run --rm -i sfn-diagram-ci-check - --format png -o /dev/stdout \
-            < tests/fixtures/simple.asl.json > docker-smoke/diagram.png
-          head -c 8 docker-smoke/diagram.png | od -An -tx1 | tr -d ' \n' \
-            | grep -qx '89504e470d0a1a0a' || {
-            echo "::error::Docker image did not render a valid PNG (bad signature)"
-            exit 1
-          }
-          [ "$(wc -c < docker-smoke/diagram.png)" -gt 1000 ] || {
-            echo "::error::PNG from the Docker image is implausibly small"
-            exit 1
-          }
+        run: bash scripts/docker-smoke.sh --image sfn-diagram-ci-check --png-out docker-smoke/diagram.png
 
       # The byte checks prove a PNG came out, not that it has anything in it.
       # Keep the render downloadable so a human can eyeball text rendering.

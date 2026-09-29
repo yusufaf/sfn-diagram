@@ -22,8 +22,7 @@
 // with no .gitattributes forcing LF) breaks esbuild's shebang-stripping
 // regex during that import - it is never invoked as an executable itself.
 import { appendFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
+import { runAsScript } from './lib/cliScript.mjs';
 
 const LEGACY_TAGS = new Set(['v0.2.0', 'v0.3.0', 'v0.4.0', 'v0.4.1']);
 const SEMVER = /^\d+\.\d+\.\d+(?:-[\w.]+)?$/;
@@ -73,27 +72,20 @@ export function resolveDockerTag(params) {
     return { major, minor, version };
 }
 
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-    const { values } = parseArgs({
-        options: { tag: { type: 'string' } },
-        strict: true,
-    });
-
-    if (!values.tag) {
-        console.error('usage: resolve-docker-tag.mjs --tag <release-tag>');
-        process.exit(1);
-    }
-
-    try {
-        const { major, minor, version } = resolveDockerTag({ tag: values.tag });
+await runAsScript({
+    importMetaUrl: import.meta.url,
+    options: { tag: { type: 'string' } },
+    required: ['tag'],
+    usage: 'resolve-docker-tag.mjs --tag <release-tag>',
+    main: ({ tag }) => {
+        const { major, minor, version } = resolveDockerTag({ tag });
         const githubOutput = process.env.GITHUB_OUTPUT;
         if (githubOutput) {
-            appendFileSync(githubOutput, `version=${version}\nmajor=${major}\nminor=${minor}\n`);
+            appendFileSync(
+                githubOutput,
+                `version=${version}\nmajor=${major}\nminor=${minor}\n`,
+            );
         }
         console.log(`version=${version} major=${major} minor=${minor}`);
-    } catch (error) {
-        console.error(`::error::${error instanceof Error ? error.message : String(error)}`);
-        process.exit(1);
-    }
-}
+    },
+});
