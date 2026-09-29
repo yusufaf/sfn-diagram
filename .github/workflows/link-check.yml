@@ -22,14 +22,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # No --accept for 429: a rate-limited host is exactly how a dead link would
-      # hide, so a persistent 429 after the retries is reported rather than passed.
-      # Which makes the token load-bearing - the checked markdown holds 353
-      # github.com URLs (140 in CHANGELOG.md alone), and unauthenticated requests at
-      # that volume are rate-limited well inside three retries, so without it the
-      # weekly run would file an issue every Monday about links that are fine.
-      - name: Run lychee
-        id: lychee
+      # Two passes, because a base URL is all-or-nothing. The site's docs use
+      # root-relative links (`/quick-start/`), which lychee cannot resolve from the
+      # markdown at all - measured against lycheeverse/lychee, they fail while the
+      # request is built, before any --exclude pattern is consulted, so they cannot
+      # be filtered out. `--base-url` resolves them against the deployed site, which
+      # both silences the noise *and* checks them for real. But it also rewrites
+      # ordinary relative links, so `[LICENSE](LICENSE)` in README.md would become an
+      # HTTP 404. The repo's markdown has 3 relative links and no root-relative ones;
+      # the site's content has 33 root-relative links and no relative ones. One pass
+      # each, and neither has to compromise.
+      #
+      # No --accept for 429 in either: a rate-limited host is exactly how a dead link
+      # would hide, so a persistent 429 after the retries is reported rather than
+      # passed. Which makes the token load-bearing - there are 353 github.com URLs in
+      # the checked files, 140 of them in CHANGELOG.md alone, and unauthenticated
+      # requests at that volume are rate-limited well inside three retries.
+      #
+      # Two targeted exclusions, both verified against the first real run's report:
+      #
+      # - npmjs.com answers CI clients with 403 for every package page, so those URLs
+      #   are remapped to the registry API instead of ignored. A renamed or
+      #   unpublished package still 404s, which is half of what this job is for.
+      # - README.marketplace.md links to a LICENSE that sync-action-mirror.sh places
+      #   beside it in the Marketplace mirror repo. Correct there, unresolvable here,
+      #   and only that one link is excluded so the rest of the file stays checked.
+      - name: Check links in the repo's markdown
+        id: repo-links
         uses: lycheeverse/lychee-action@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -39,20 +58,43 @@ jobs:
             --retry-wait-time 10
             --timeout 30
             --accept 200,204,206
-            --exclude-path site/dist
+            --remap 'https://www\.npmjs\.com/package/(.*) https://registry.npmjs.org/$1'
+            --exclude 'github-action-sfn-diagram/LICENSE$'
+            --exclude-path site
             --exclude-path node_modules
             '**/*.md'
-            'site/src/content/**/*.md'
-            'site/src/content/**/*.mdx'
-          output: lychee-report.md
+          output: lychee-repo.md
           fail: true
 
-      - name: Upload the report
+      # if: always() so a failure in the pass above still lets this one report; the
+      # job fails either way.
+      - name: Check links in the site's content
+        id: site-links
+        if: always()
+        uses: lycheeverse/lychee-action@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: >-
+            --no-progress
+            --max-retries 3
+            --retry-wait-time 10
+            --timeout 30
+            --accept 200,204,206
+            --base-url https://sfn.yusufaf.dev
+            --remap 'https://www\.npmjs\.com/package/(.*) https://registry.npmjs.org/$1'
+            'site/src/content/**/*.md'
+            'site/src/content/**/*.mdx'
+          output: lychee-site.md
+          fail: true
+
+      - name: Upload the reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: lychee-report
-          path: lychee-report.md
+          path: |
+            lychee-repo.md
+            lychee-site.md
           if-no-files-found: warn
 
   # This workflow runs unattended on a schedule, so a failure has no human to
@@ -92,8 +134,14 @@ jobs:
             echo
             echo "Run: $RUN_URL"
             echo
-            if [ -f lychee-report.md ]; then
-              cat lychee-report.md
+            if [ -f lychee-repo.md ] || [ -f lychee-site.md ]; then
+              for report in lychee-repo.md lychee-site.md; do
+                [ -f "$report" ] || continue
+                echo "## $report"
+                echo
+                cat "$report"
+                echo
+              done
             else
               echo "No report was produced - the check failed before writing one."
               echo "Read the run log linked above."

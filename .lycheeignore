@@ -2,6 +2,10 @@
 # speculatively: an entry here means the checker cannot resolve the URL for a reason
 # unrelated to whether the link is good, not that fixing it is inconvenient.
 # Entries are regexes.
+#
+# npmjs.com is deliberately *not* here. Those pages 403 from CI, but the workflow
+# remaps them to registry.npmjs.org instead of ignoring them, so an unpublished or
+# renamed package still fails - which is half of what this check exists for.
 
 # The Microsoft Marketplace serves a JS shell to non-browser clients and answers
 # HEAD/GET from CI with 403, so every marketplace.visualstudio.com link reads as
@@ -13,3 +17,22 @@ https://marketplace\.visualstudio\.com/.*
 # CONTRIBUTING.md's clone instructions. Both would fail every run.
 https://my-cdn\.com/.*
 https://github\.com/YOUR_USERNAME/.*
+
+# release-please writes a `compare/<previous tag>...<this tag>` link for every
+# release, and for each component's *first* release the previous tag does not exist.
+# These nine are that fixed, historical set - verified with `git tag -l`: none of
+# sfn-diagram-react-v0.1.0, -v0.3.0, vscode-sfn-diagram-v0.1.0,
+# github-action-sfn-diagram-v1.0.0, v0.1.0, v0.1.1 or sfn-diagram-v0.4.1 was ever
+# created (core's pre-scheme tags start at v0.2.0, and v0.4.1 predates the
+# sfn-diagram-v prefix). Listed one by one rather than excluding the CHANGELOGs
+# wholesale, so a *future* release whose tag failed to be created still fails here -
+# which has happened to this repo's publish jobs before.
+https://github\.com/yusufaf/sfn-diagram/compare/v0\.1\.0\.\.\.v0\.1\.1
+https://github\.com/yusufaf/sfn-diagram/compare/v0\.1\.1\.\.\.v0\.2\.0
+https://github\.com/yusufaf/sfn-diagram/compare/sfn-diagram-v0\.4\.1\.\.\.sfn-diagram-v0\.5\.0
+https://github\.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0\.1\.0\.\.\.sfn-diagram-react-v0\.2\.0
+https://github\.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0\.2\.0\.\.\.sfn-diagram-react-v0\.3\.0
+https://github\.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0\.3\.0\.\.\.sfn-diagram-react-v0\.4\.0
+https://github\.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0\.1\.0\.\.\.vscode-sfn-diagram-v0\.1\.1
+https://github\.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1\.0\.0\.\.\.github-action-sfn-diagram-v1\.1\.0
+https://github\.com/yusufaf/sfn-diagram/releases/tag/v0\.1\.0
