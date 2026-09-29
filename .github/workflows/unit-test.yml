@@ -185,18 +185,31 @@ jobs:
             exit 1
           }
 
+      # Two commands rather than one `pnpm turbo run test`: in a single invocation
+      # turbo schedules sfn-diagram#build - pulled in by the other workspaces'
+      # `dependsOn: ["^build"]` - concurrently with sfn-diagram#test, whose very
+      # first step is `build-viewer-script.mjs --check` reading the two generated
+      # files that build rewrites. A torn read there reports a stale bundle that is
+      # not stale. Splitting the two removes the overlap.
       - name: Test
         if: matrix.node != '20'
-        run: pnpm turbo run test
+        run: |
+          pnpm test
+          pnpm turbo run test --filter='!sfn-diagram'
 
-      # `turbo run test` fans out to packages/sfn-diagram-react, whose own `test`
-      # script rebuilds with tsdown first - which cannot run on Node 20 (see the
-      # build note above). The root suite contains no tsdown, so the floor leg runs
-      # that against the dist built under 22, plus the tarball bin smoke above. The
-      # workspace fan-out is covered by all four other legs.
-      - name: Test (root suite; workspace fan-out needs a builder Node)
+      # Two things in the workspace fan-out run tsdown, so neither works on Node 20
+      # (see the build note above): packages/sfn-diagram-react's `test` script
+      # rebuilds first, and the `element` project shells out to
+      # scripts/build-test-element-bundle.mjs to bundle a page for Puppeteer. Both
+      # are deliberately skipped on this leg and covered by the four others; the
+      # unit and perf projects contain no bundler and run here against the dist
+      # built under 22, as does the packed CLI in the step above.
+      - name: Test (unit + perf; element and the fan-out need a Node-22 bundler)
         if: matrix.node == '20'
-        run: pnpm test
+        run: |
+          node scripts/build-viewer-script.mjs --check
+          pnpm exec vitest run --project unit
+          pnpm exec vitest run --project perf
 
   # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
   # release time - a broken build stage (the missing `scripts/` COPY that broke
