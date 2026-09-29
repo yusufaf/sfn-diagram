@@ -75,6 +75,41 @@ export function manifestsMatch(params) {
 }
 
 /**
+ * Describe the first place two manifests differ, after normalization, as two
+ * windows of context.
+ *
+ * @param {ManifestsMatchParams} params - The two file contents.
+ * @returns {string} A human-readable report naming the offset and both snippets.
+ *
+ * @example
+ * ```javascript
+ * describeFirstDifference({ committed: '{"a":1}', regenerated: '{"a":2}' });
+ * // 'first difference at character 5 ...'
+ * ```
+ */
+export function describeFirstDifference(params) {
+    const committed = normalize(params.committed);
+    const regenerated = normalize(params.regenerated);
+
+    let index = 0;
+    while (
+        index < committed.length &&
+        index < regenerated.length &&
+        committed[index] === regenerated[index]
+    ) {
+        index += 1;
+    }
+
+    const window = (text) => JSON.stringify(text.slice(Math.max(0, index - 80), index + 120));
+
+    return [
+        `first difference at character ${index} of ${committed.length} (committed) / ${regenerated.length} (regenerated)`,
+        `  committed:   ${window(committed)}`,
+        `  regenerated: ${window(regenerated)}`,
+    ].join('\n');
+}
+
+/**
  * Run the analyzer into a throwaway directory and return what it produced.
  *
  * @returns {string} The generated manifest's contents.
@@ -130,8 +165,12 @@ await runAsScript({
     usage: 'check-manifest.mjs --check',
     main: () => {
         const committed = readFileSync(join(repoRoot, MANIFEST_FILE), 'utf-8');
+        const regenerated = regenerateManifest();
 
-        if (!manifestsMatch({ committed, regenerated: regenerateManifest() })) {
+        if (!manifestsMatch({ committed, regenerated })) {
+            // Print where they part company. "It is stale" alone leaves the reader
+            // guessing whether the committed file is behind or the check is wrong.
+            console.error(describeFirstDifference({ committed, regenerated }));
             throw new Error(
                 `${MANIFEST_FILE} is stale - run 'pnpm run build:manifest' and commit the result.`
             );
