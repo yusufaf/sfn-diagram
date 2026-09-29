@@ -1,0 +1,100 @@
+name: Link Check
+
+# Deliberately not on pull_request. External links rate-limit and flake, and a
+# host having a bad afternoon must not block someone's PR - #199 asks for link
+# checking because stale *outbound* claims (Marketplace parity, the Homebrew tap,
+# Open VSX, jsr.io) survived undetected, and a weekly sweep catches those. Internal
+# relative links already fail the site build, so they need nothing here.
+on:
+  schedule:
+    # Mondays, 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: Check links
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # No --accept for 429: a rate-limited host is exactly how a dead link would
+      # hide, so a persistent 429 after the retries is reported rather than passed.
+      - name: Run lychee
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-retries 3
+            --retry-wait-time 10
+            --timeout 30
+            --accept 200,204,206
+            --exclude-path site/dist
+            --exclude-path node_modules
+            '**/*.md'
+            'site/src/content/**/*.md'
+            'site/src/content/**/*.mdx'
+          output: lychee-report.md
+          fail: true
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lychee-report
+          path: lychee-report.md
+          if-no-files-found: warn
+
+  # This workflow runs unattended on a schedule, so a failure has no human to
+  # notify - the same reason docker.yml files an issue when its publish fails. One
+  # tracking issue, reused: a weekly cron would otherwise open 52 a year.
+  report-failure:
+    name: Report broken links
+    needs: links
+    if: always() && needs.links.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Download the report
+        uses: actions/download-artifact@v6
+        with:
+          name: lychee-report
+
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: Broken links found by the weekly link check
+        run: |
+          BODY_FILE="$(mktemp)"
+          {
+            echo "The scheduled link check found links that did not resolve."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            cat lychee-report.md
+          } > "$BODY_FILE"
+
+          # --force is create-or-update, so this is idempotent and keeps the
+          # workflow from failing on a repo where the label does not exist yet.
+          gh label create link-check --repo "$REPO" --force \
+            --color ededed --description "Raised by the scheduled link check"
+
+          EXISTING="$(gh issue list --repo "$REPO" --state open --label link-check \
+            --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body-file "$BODY_FILE"
+            echo "commented on #$EXISTING"
+          else
+            gh issue create --repo "$REPO" --title "$TITLE" --label link-check \
+              --body-file "$BODY_FILE"
+          fi

@@ -7,8 +7,21 @@ export default defineConfig({
             provider: 'v8',
             reporter: ['text', 'html', 'lcov'],
             include: ['src/**/*.ts'],
-            // Type-only files and ambient declarations have no runtime to cover.
-            exclude: ['src/**/*.d.ts', 'src/types/**'],
+            exclude: [
+                // Type-only files and ambient declarations have no runtime to cover.
+                'src/**/*.d.ts',
+                'src/types/**',
+                // The viewer's modules run inside a real Chromium page, driven by
+                // tests/viewer/** and tests/element/**, where the v8 provider cannot
+                // see them at all. Counting them measures instrumentation rather than
+                // testing: including them puts the total at 70% instead of 94%, which
+                // would force the thresholds below down to a level nothing can trip.
+                'src/renderers/viewer/**',
+            ],
+            // Set just under what the unit suite reaches today (94.05 statements,
+            // 88.31 branches, 93.26 functions, 94.67 lines), so a real regression
+            // fails and ordinary churn does not. Raise them when the real numbers do.
+            thresholds: { branches: 85, functions: 90, lines: 90, statements: 90 },
         },
         projects: [
             {
