@@ -282,19 +282,6 @@ jobs:
           load: true
           tags: sfn-diagram-ci-check
 
-      # TEMPORARY - removed before this PR merges. docker.yml's multi-platform build
-      # only ever runs at release time, and arm64 cannot be emulated on the machine
-      # this was written on (WSL has no binfmt_misc), so this proves the arm64 build
-      # works at least once, on a real runner, before the change ships.
-      - name: (temporary) Build linux/amd64 and linux/arm64
-        uses: docker/build-push-action@v7
-        with:
-          cache-from: type=gha,scope=docker-check-multiarch
-          cache-to: type=gha,mode=min,scope=docker-check-multiarch
-          context: .
-          outputs: type=cacheonly
-          platforms: linux/amd64,linux/arm64
-
       # Same script docker.yml runs against the published image, so the two cannot
       # drift (#230). It takes the font path from scripts/font-probes.mjs rather
       # than restating it.
