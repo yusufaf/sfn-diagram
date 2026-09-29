@@ -132,6 +132,23 @@ jobs:
             exit 1
           fi
 
+      # The same shape, and for the same reason. `scripts/check-manifest.mjs --check`
+      # runs from `pnpm test` below, but by then the Build step has already
+      # regenerated custom-elements.json in the working tree (sfn-diagram#build is
+      # build:viewer-script && build:manifest && tsdown), so in CI that check can only
+      # ever pass. This is what actually catches a stale committed manifest here; the
+      # script is what catches it before a push.
+      #
+      # Primary leg only: git's eol conversion makes the rebuilt file differ from the
+      # committed one on a Windows checkout with no content change.
+      - name: Verify custom-elements.json is up to date
+        if: matrix.primary
+        run: |
+          if ! git diff --exit-code -- custom-elements.json; then
+            echo "::error::Committed custom-elements.json is stale. Run 'pnpm run build:manifest' and commit the result."
+            exit 1
+          fi
+
       # Budgets are bytes, so they cannot differ by runner - and this needs the
       # Build above, which is why it sits here rather than beside the test steps.
       # It prints every entry's headroom, not just failures, so a PR that grows a

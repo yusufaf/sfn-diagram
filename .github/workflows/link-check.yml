@@ -24,10 +24,15 @@ jobs:
 
       # No --accept for 429: a rate-limited host is exactly how a dead link would
       # hide, so a persistent 429 after the retries is reported rather than passed.
+      # Which makes the token load-bearing - the checked markdown holds 353
+      # github.com URLs (140 in CHANGELOG.md alone), and unauthenticated requests at
+      # that volume are rate-limited well inside three retries, so without it the
+      # weekly run would file an issue every Monday about links that are fine.
       - name: Run lychee
         id: lychee
         uses: lycheeverse/lychee-action@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           args: >-
             --no-progress
             --max-retries 3
@@ -62,8 +67,15 @@ jobs:
       contents: read
       issues: write
     steps:
+      # v8 pairs with upload-artifact@v7 above, the same pairing release-please.yml
+      # already uses. continue-on-error because this job exists to notify a human
+      # about an unattended failure: if lychee died before writing a report, the
+      # download hard-errors with "Unable to find any artifacts" and the issue would
+      # never be filed - the one case where silence is worst.
       - name: Download the report
-        uses: actions/download-artifact@v6
+        id: report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
         with:
           name: lychee-report
 
@@ -80,7 +92,12 @@ jobs:
             echo
             echo "Run: $RUN_URL"
             echo
-            cat lychee-report.md
+            if [ -f lychee-report.md ]; then
+              cat lychee-report.md
+            else
+              echo "No report was produced - the check failed before writing one."
+              echo "Read the run log linked above."
+            fi
           } > "$BODY_FILE"
 
           # --force is create-or-update, so this is idempotent and keeps the

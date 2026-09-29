@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import {
     BUNDLE_BUDGETS,
     compareBundleSizes,
     measureDist,
 } from '../../scripts/check-bundle-size.mjs';
+
+const repoRoot = resolve(__dirname, '../..');
 
 describe('compareBundleSizes', () => {
     it('reports nothing over budget when every entry fits', () => {
@@ -78,26 +80,27 @@ describe('measureDist', () => {
 });
 
 describe('BUNDLE_BUDGETS', () => {
-    it('budgets every entry the package publishes', () => {
-        // dist/cli.js is deliberately absent: package.json#files excludes it, so it
-        // ships to nobody. dist/bin.js is the CLI consumers get, and it is budgeted.
-        expect(Object.keys(BUNDLE_BUDGETS).sort()).toEqual([
-            'aws.cjs',
-            'aws.js',
-            'bin.js',
-            'cfn.cjs',
-            'cfn.js',
-            'ci.cjs',
-            'ci.js',
-            'element-auto.cjs',
-            'element-auto.js',
-            'element.cjs',
-            'element.js',
-            'index.cjs',
-            'index.js',
-            'png.cjs',
-            'png.js',
-        ]);
+    it('budgets every file package.json points consumers at', () => {
+        // Derived from package.json rather than restated: a hardcoded list only
+        // notices an edit to BUNDLE_BUDGETS itself, so adding a new subpath (a new
+        // tsdown entry plus an `exports` entry) would ship an unbudgeted bundle with
+        // nothing failing. dist/cli.js is excluded by package.json#files, so it ships
+        // to nobody; dist/bin.js is the CLI consumers get, and is budgeted via `bin`.
+        const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8')) as {
+            bin: Record<string, string>;
+            exports: Record<string, { import: { default: string }; require: { default: string } }>;
+        };
+
+        const published = new Set<string>();
+        for (const entry of Object.values(packageJson.exports)) {
+            published.add(basename(entry.import.default));
+            published.add(basename(entry.require.default));
+        }
+        for (const entry of Object.values(packageJson.bin)) {
+            published.add(basename(entry));
+        }
+
+        expect(Object.keys(BUNDLE_BUDGETS).sort()).toEqual([...published].sort());
     });
 
     it('budgets gzip below raw for every entry, so neither column is a typo', () => {
