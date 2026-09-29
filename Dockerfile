@@ -1,7 +1,14 @@
 # syntax=docker/dockerfile:1.7
 
 # Stage 1: build the package (dist/)
-FROM node:24-slim AS build
+#
+# Pinned to the *build* platform rather than the target: `dist/` is plain JavaScript
+# and byte-identical for every architecture, while the tooling that produces it
+# (tsdown, i.e. rolldown) is a multi-threaded native Rust binary. Emulating that under
+# QEMU for the arm64 leg costs minutes and is a known source of crashes - at release
+# time, which is the only time the multi-platform build runs. The `deps` stage below
+# stays target-arch, because @resvg/resvg-js does ship a per-architecture binary.
+FROM --platform=$BUILDPLATFORM node:24-slim AS build
 WORKDIR /app
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     CI=true
