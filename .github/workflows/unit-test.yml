@@ -261,8 +261,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # buildx rather than plain `docker build`, for the GitHub Actions layer cache:
+      # this job runs on every PR, and most PRs change nothing the image depends on.
+      # `load: true` keeps the image in the runner's daemon so the smoke test below
+      # can run it - which is also why this build stays single-platform.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build image
-        run: docker build -t sfn-diagram-ci-check .
+        uses: docker/build-push-action@v7
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          context: .
+          load: true
+          tags: sfn-diagram-ci-check
+
+      # TEMPORARY - removed before this PR merges. docker.yml's multi-platform build
+      # only ever runs at release time, and arm64 cannot be emulated on the machine
+      # this was written on (WSL has no binfmt_misc), so this proves the arm64 build
+      # works at least once, on a real runner, before the change ships.
+      - name: (temporary) Build linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v7
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          context: .
+          outputs: type=cacheonly
+          platforms: linux/amd64,linux/arm64
 
       # Same script docker.yml runs against the published image, so the two cannot
       # drift (#230). It takes the font path from scripts/font-probes.mjs rather

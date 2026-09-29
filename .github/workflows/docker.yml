@@ -46,6 +46,14 @@ jobs:
           fi
           node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
+      # QEMU for the linux/arm64 leg, buildx because the default docker driver
+      # cannot emit a multi-platform image or use the GitHub Actions cache.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
@@ -67,13 +75,48 @@ jobs:
             type=raw,value=${{ steps.version.outputs.minor }}
             type=raw,value=latest
 
+      # arm64 is built here and nowhere else: unit-test.yml's docker-build-check
+      # *runs* the image it builds, and a multi-platform build cannot be loaded into
+      # the runner's daemon at all. arm64 under QEMU costs several minutes, which is
+      # worth paying a few times a year rather than on every PR - the price is that
+      # a cross-arch build break surfaces at release time, which is what the
+      # manifest assertion and the report-failure job below exist to make loud.
+      #
+      # provenance/sbom describe a published artifact, so they belong on this push
+      # and would attest nothing in the PR check. The GHA cache is shared with that
+      # check, which is the job that runs often enough to benefit from it.
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          provenance: mode=max
+          push: true
+          sbom: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      # A multi-platform build that silently produced one platform is the shape of
+      # failure that shipped a broken image for three releases (#153, v1.4.0-v1.5.0):
+      # the build log looks right and nothing checks the result. Read the platforms
+      # back out of the pushed manifest instead of trusting the build.
+      - name: Verify the published manifest lists both platforms
+        run: |
+          IMAGE="ghcr.io/yusufaf/sfn-diagram:${{ steps.meta.outputs.version }}"
+          PLATFORMS="$(docker buildx imagetools inspect "$IMAGE" \
+            --format '{{range .Manifest.Manifests}}{{if .Platform}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}{{end}}')"
+          echo "manifest platforms: $PLATFORMS"
+          for want in linux/amd64 linux/arm64; do
+            case " $PLATFORMS " in
+              *" $want "*) ;;
+              *)
+                echo "::error::published manifest is missing $want (got: $PLATFORMS)"
+                exit 1
+                ;;
+            esac
+          done
 
       # A successful push only means the registry accepted the layers - it does
       # not mean the image runs. Pull it back from ghcr.io (not the local build
