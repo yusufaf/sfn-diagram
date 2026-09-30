@@ -526,6 +526,23 @@ function parseCollapseNames(value: string): string[] {
  */
 const BARE_COLLAPSE_SENTINEL = '\u0000';
 /**
+ * Whether this invocation would reach AWS at all, by any flag.
+ *
+ * `--from-aws` is the obvious route; `--diff <arn>` is the other one, and a guard
+ * that only knows about the first is a guard with a hole in it.
+ *
+ * @param args - The parsed command line.
+ *
+ * @returns `true` when running this would call `DescribeStateMachine`.
+ */
+function readsFromAws(args: CliArgs): boolean {
+    return (
+        args.fromAws.length > 0 ||
+        (args.diff !== null && isStateMachineArn(args.diff))
+    );
+}
+
+/**
  * Re-raise a {@link CliAwsError} from ARN parsing as a usage error.
  *
  * ARN parsing lives in cliAws.ts, which knows nothing about exit codes; a
@@ -1243,6 +1260,15 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
 interface RenderOneInputParams {
     /** The parsed command line, for the flags that are not diagram options. */
     args: CliArgs;
+    /**
+     * Whether the `--diff` baseline was fetched from AWS rather than read from disk.
+     *
+     * `--resolve-cfn` must not apply to it: a live definition is already ASL, and
+     * `template.yaml --resolve-cfn --diff <arn>` — the natural "my template vs. what
+     * is deployed" check — otherwise fed live ASL to the template extractor and
+     * failed with a message about a missing CloudFormation resource.
+     */
+    baselineIsLive: boolean;
     /** Contents of `--diff`'s baseline, already read, or `null`. */
     baselineSource: string | null;
     /** Contents of `--execution`'s history, already read, or `null`. */
@@ -1280,6 +1306,7 @@ interface RenderOneInputParams {
 async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     const {
         args,
+        baselineIsLive,
         baselineSource,
         historySource,
         labelInput,
@@ -1318,8 +1345,9 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         });
         if (baselineSource !== null) {
             baselineDefinition = resolveDefinitionSource({
-                resolveCfn: args.resolveCfn,
-                resource: args.resource,
+                // A live baseline is already ASL; only the head can be a template.
+                resolveCfn: args.resolveCfn && !baselineIsLive,
+                resource: baselineIsLive ? null : args.resource,
                 source: baselineSource,
             });
         }
@@ -1640,7 +1668,11 @@ export async function run(argv: string[]): Promise<number> {
     // honour it. A compiled binary has no node_modules to load an optional peer
     // from, and bundling the AWS SDK into all five platform binaries to serve one
     // flag is a cost every user pays and few would use.
-    if (args.fromAws.length > 0 && readBuildInfo()?.standalone) {
+    // `--diff <arn>` is the same AWS call by another flag, so it has to be refused
+    // here too. Left out, the binary contradicted both its own --from-aws refusal and
+    // the documented limitation, and — since the SDK is bundled into the binary today
+    // (see #341) — actually reached AWS.
+    if (readsFromAws(args) && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--from-aws is not available in the standalone binary: the AWS SDK it ' +
                 'needs cannot be bundled into a single-file executable. Use the npm ' +
@@ -1791,7 +1823,7 @@ export async function run(argv: string[]): Promise<number> {
                     // state machine, since an ARN's colons cannot be a filename.
                     nameSource:
                         source.kind === 'aws'
-                            ? source.arn.name
+                            ? source.arn.outputName
                             : describeSource(source),
                 })),
             });
@@ -1856,6 +1888,7 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     let baselineSource: string | null = null;
+    const baselineIsLive = args.diff !== null && isStateMachineArn(args.diff);
     if (args.diff !== null) {
         try {
             // An ARN and a path are distinguishable with no ambiguity: no path
@@ -1915,6 +1948,7 @@ export async function run(argv: string[]): Promise<number> {
         // rest, which is the opposite of what a batch is for.
         const code = await renderOneInput({
             args,
+            baselineIsLive,
             baselineSource,
             historySource,
             labelInput,

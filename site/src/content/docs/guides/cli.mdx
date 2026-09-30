@@ -308,7 +308,7 @@ a region flag that the ARN form makes unnecessary:
 
 ```
 $ sfn-diagram --from-aws Orders
---from-aws expects a state machine ARN (arn:aws:states:<region>:<account>:stateMachine:<name>); got "Orders" (--from-aws)
+--from-aws expects a state machine ARN (arn:aws:states:<region>:<account>:stateMachine:<name>); got "Orders"
 ```
 
 That is exit 2, like any other bad flag value — nothing is fetched.
@@ -325,6 +325,9 @@ sfn-diagram \
   --out-dir diagrams
 # diagrams/Orders.svg, diagrams/Refunds.svg
 ```
+
+A version or alias qualifier is part of that name, so `Orders` and `Orders:PROD` write
+`Orders.svg` and `Orders-PROD.svg` rather than fighting over one file.
 
 Two ARNs whose state machines share a name — the same machine in two accounts or two
 regions — collide on that filename and are refused before anything is written, the same
@@ -347,8 +350,16 @@ A failing ARN does not stop the batch: the others still render and the run exits
 - **`--check`** lints what is deployed without drawing it.
 - **`--out-dir`**, as above.
 
-`--resolve-cfn` and `--resource` are refused (exit 2): `DescribeStateMachine` returns ASL,
-never a CloudFormation template, so there is nothing to unwrap.
+`--resolve-cfn` and `--resource` are refused alongside `--from-aws` (exit 2):
+`DescribeStateMachine` returns ASL, never a CloudFormation template, so there is nothing
+to unwrap. They do still work on the *head* of a diff whose **baseline** is an ARN, which
+is the drift check most people want:
+
+```bash
+sfn-diagram template.yaml --resolve-cfn --diff arn:...:stateMachine:Orders --format mermaid
+```
+
+There, the template is unwrapped and the live baseline is left alone.
 
 `--from-aws` is **not available in the [standalone binary](#standalone-binary)** — a
 single-file executable has no `node_modules` to load an optional peer from. Use the npm
@@ -557,7 +568,19 @@ PNG text is rendered with Liberation Sans, which the image ships. To use your ow
 ## Standalone binary
 
 Each GitHub release also attaches single-file executables for Linux (x64, arm64),
-macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js:
+macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js.
+
+Two flags are unavailable there, both because a single-file executable has no
+`node_modules` to load an optional peer dependency from. Each exits 2 with a pointer
+rather than failing obscurely:
+
+| Flag | Needs | Instead |
+|---|---|---|
+| `--format png` | `@resvg/resvg-js` (a native rasterizer) | `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …` |
+| `--from-aws`, and `--diff <arn>` | `@aws-sdk/client-sfn` | `npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram …` |
+
+Everything else works, including SVG, Mermaid and HTML output, `--diff` against a local
+file, `--execution`, `--check`, templates and `--out-dir`.
 
 ```bash
 brew install yusufaf/tap/sfn-diagram

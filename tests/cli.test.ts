@@ -1261,6 +1261,23 @@ describe('standalone binary build info', () => {
         expect(sfnSendMock).not.toHaveBeenCalled();
     });
 
+    it('refuses an ARN --diff baseline too, not only --from-aws', async () => {
+        // Same AWS call by another flag. Without this the binary contradicted both
+        // its own --from-aws refusal and the docs, and (since the SDK is bundled
+        // today) actually reached AWS.
+        sfnSendMock.mockReset();
+        const code = await run([
+            simpleFixture,
+            '--diff',
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(2);
+        expect(stderrData).toContain('not available in the standalone binary');
+        expect(sfnSendMock).not.toHaveBeenCalled();
+    });
+
     it('still renders SVG', async () => {
         const code = await run([simpleFixture]);
         expect(code).toBe(0);
@@ -3506,9 +3523,13 @@ describe('run --from-aws', () => {
     });
 
     it('exits 1 when a --diff baseline ARN fails', async () => {
+        // run() resolves the baseline before the render loop, so the baseline is
+        // the FIRST send; a head-first ordering here would pass for the wrong
+        // reason. Rejecting the first call and asserting the head never ran pins
+        // the order rather than assuming it.
         sfnSendMock
-            .mockResolvedValueOnce({ definition: liveDefinition })
-            .mockRejectedValueOnce(new Error('AccessDenied'));
+            .mockRejectedValueOnce(new Error('AccessDenied'))
+            .mockResolvedValueOnce({ definition: liveDefinition });
         expect(
             await run([
                 '--from-aws',
@@ -3519,6 +3540,47 @@ describe('run --from-aws', () => {
                 'mermaid',
             ]),
         ).toBe(1);
+        // A failed baseline stops the run before anything is rendered.
+        expect(sfnSendMock).toHaveBeenCalledTimes(1);
+        expect(errors.join('')).toContain(other);
+    });
+
+    it('names an --out-dir output after the qualifier too', async () => {
+        // Orders and Orders:PROD are different definitions; both wanting Orders.svg
+        // made the pair unrenderable in one batch.
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--from-aws',
+                `${arn}:PROD`,
+                '--out-dir',
+                tempDir,
+            ]),
+        ).toBe(0);
+        expect(existsSync(join(tempDir, 'Orders.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'Orders-PROD.svg'))).toBe(true);
+    });
+
+    it('does not send a live ARN baseline through the CFN extractor', async () => {
+        // "my template vs. what is deployed" is the natural drift check. --resolve-cfn
+        // applies to the head only: a live definition is already ASL, and feeding it
+        // to extractAslFromTemplate failed with a message about templates that named
+        // nothing the caller typed.
+        const template = join(__dirname, 'fixtures', 'cfn', 'sam-template.yaml');
+        expect(
+            await run([
+                template,
+                '--resolve-cfn',
+                '--diff',
+                arn,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        expect(errors.join('')).not.toContain(
+            'no AWS::StepFunctions::StateMachine',
+        );
     });
 
     it('still reads a --diff baseline off disk when it is a path', async () => {

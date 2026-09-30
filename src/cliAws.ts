@@ -23,8 +23,15 @@ export class CliAwsError extends Error {}
 export interface ParsedStateMachineArn {
     /** The ARN exactly as given, for messages and for the API call. */
     arn: string;
-    /** The state machine name — used to derive an output filename under `--out-dir`. */
+    /** The state machine name, without any version or alias qualifier. */
     name: string;
+    /**
+     * The stem an output filename is derived from under `--out-dir`: the name, with
+     * any qualifier appended after a hyphen. A machine and its own alias are
+     * different definitions and comparing them is what qualifier support is for, so
+     * they must not both want `Orders.svg`.
+     */
+    outputName: string;
     /** The version number or alias after the name, or `null` when absent. */
     qualifier: string | null;
     /** The region the SFN client is constructed for. */
@@ -90,7 +97,8 @@ export interface ParseStateMachineArnParams {
  * parseStateMachineArn({
  *     value: 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
  * });
- * // { arn: 'arn:…:Orders', name: 'Orders', qualifier: null, region: 'us-east-1' }
+ * // { arn: 'arn:…:Orders', name: 'Orders', outputName: 'Orders',
+ * //   qualifier: null, region: 'us-east-1' }
  * ```
  */
 export function parseStateMachineArn(
@@ -113,11 +121,16 @@ export function parseStateMachineArn(
     if (prefix !== 'arn' || service !== 'states') reject();
     if (resourceType !== 'stateMachine') reject();
     if (!partition || !region || !name) reject();
+    // A trailing colon is a typo, not a qualifier. Read as one it produced an empty
+    // string, which then hyphenated an output filename into `Orders-`.
+    const qualifier = segments.length === 8 ? segments[7] : null;
+    if (qualifier === '') reject();
 
     return {
         arn: value,
         name,
-        qualifier: segments.length === 8 ? segments[7] : null,
+        outputName: qualifier === null ? name : `${name}-${qualifier}`,
+        qualifier,
         region,
     };
 }

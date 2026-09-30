@@ -54,9 +54,27 @@ describe('parseStateMachineArn', () => {
         expect(parseStateMachineArn({ value: plainArn })).toEqual({
             arn: plainArn,
             name: 'OrderProcessing',
+            outputName: 'OrderProcessing',
             qualifier: null,
             region: 'us-east-1',
         });
+    });
+
+    it('folds a qualifier into the output name, so two versions do not collide', () => {
+        // Comparing a machine against its own alias is exactly what version/alias
+        // support is for, and under --out-dir both would otherwise want Orders.svg.
+        expect(
+            parseStateMachineArn({ value: `${plainArn}:PROD` }).outputName,
+        ).toBe('OrderProcessing-PROD');
+        expect(
+            parseStateMachineArn({ value: `${plainArn}:3` }).outputName,
+        ).toBe('OrderProcessing-3');
+    });
+
+    it('rejects a trailing colon rather than reading it as an empty qualifier', () => {
+        expect(() =>
+            parseStateMachineArn({ value: `${plainArn}:` }),
+        ).toThrow(CliAwsError);
     });
 
     it('accepts a non-standard partition', () => {
