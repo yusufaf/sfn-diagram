@@ -1,24 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     CliAwsError,
+    fetchExecutionHistoryForArn,
     fetchStateMachineDefinition,
     isStateMachineArn,
+    parseExecutionArn,
     parseStateMachineArn,
 } from '../src/cliAws';
 
 const plainArn =
     'arn:aws:states:us-east-1:123456789012:stateMachine:OrderProcessing';
 
-const { clientConfigs, describeInputs, sendMock } = vi.hoisted(() => ({
-    clientConfigs: [] as unknown[],
-    describeInputs: [] as unknown[],
-    sendMock: vi.fn(),
-}));
+const { clientConfigs, describeInputs, historyInputs, sendMock } = vi.hoisted(
+    () => ({
+        clientConfigs: [] as unknown[],
+        describeInputs: [] as unknown[],
+        historyInputs: [] as unknown[],
+        sendMock: vi.fn(),
+    }),
+);
 
 vi.mock('@aws-sdk/client-sfn', () => ({
     DescribeStateMachineCommand: class {
         constructor(input: unknown) {
             describeInputs.push(input);
+        }
+    },
+    GetExecutionHistoryCommand: class {
+        constructor(input: unknown) {
+            historyInputs.push(input);
         }
     },
     SFNClient: class {
@@ -273,5 +283,137 @@ describe('fetchStateMachineDefinition', () => {
         await expect(
             fetchStateMachineDefinition({ arn }),
         ).rejects.toBeInstanceOf(CliAwsError);
+    });
+});
+
+const executionArn =
+    'arn:aws:states:us-east-1:123456789012:execution:OrderProcessing:run-1';
+
+describe('parseExecutionArn', () => {
+    it('extracts the region, state machine name and execution name', () => {
+        expect(parseExecutionArn({ value: executionArn })).toEqual({
+            arn: executionArn,
+            executionName: 'run-1',
+            outputName: 'OrderProcessing-run-1',
+            region: 'us-east-1',
+            stateMachineName: 'OrderProcessing',
+        });
+    });
+
+    it('accepts a non-standard partition', () => {
+        expect(
+            parseExecutionArn({
+                value: 'arn:aws-cn:states:cn-north-1:1:execution:M:r',
+            }),
+        ).toMatchObject({ region: 'cn-north-1', stateMachineName: 'M' });
+    });
+
+    it('rejects a state machine ARN, naming the execution shape', () => {
+        expect(() =>
+            parseExecutionArn({
+                value:
+                    'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
+            }),
+        ).toThrow(/execution:<state-machine>:<execution>/);
+    });
+
+    it('rejects an express execution ARN, which has no retrievable history', () => {
+        // GetExecutionHistory does not serve Express workflows at all, so accepting
+        // the ARN would only move the failure to the API call.
+        expect(() =>
+            parseExecutionArn({
+                value: 'arn:aws:states:us-east-1:1:express:M:r:shard',
+            }),
+        ).toThrow(/Express/);
+    });
+
+    it('rejects an empty execution name', () => {
+        expect(() =>
+            parseExecutionArn({
+                value: 'arn:aws:states:us-east-1:1:execution:M:',
+            }),
+        ).toThrow(CliAwsError);
+    });
+
+    it('rejects an empty state machine name', () => {
+        expect(() =>
+            parseExecutionArn({
+                value: 'arn:aws:states:us-east-1:1:execution::r',
+            }),
+        ).toThrow(CliAwsError);
+    });
+
+    it('rejects too few segments', () => {
+        expect(() =>
+            parseExecutionArn({ value: 'arn:aws:states:us-east-1:1:execution' }),
+        ).toThrow(CliAwsError);
+    });
+
+    it('names the flag that supplied the value', () => {
+        expect(() =>
+            parseExecutionArn({ flag: '--execution', value: 'run-1' }),
+        ).toThrow(/^--execution expects an execution ARN/);
+    });
+});
+
+describe('fetchExecutionHistoryForArn', () => {
+    const arn = parseExecutionArn({ value: executionArn });
+
+    beforeEach(() => {
+        sendMock.mockReset();
+        clientConfigs.length = 0;
+        historyInputs.length = 0;
+    });
+
+    it('returns every event, following nextToken', async () => {
+        sendMock
+            .mockResolvedValueOnce({
+                events: [{ id: 1 }, { id: 2 }],
+                nextToken: 'more',
+            })
+            .mockResolvedValueOnce({ events: [{ id: 3 }] });
+
+        await expect(fetchExecutionHistoryForArn({ arn })).resolves.toEqual([
+            { id: 1 },
+            { id: 2 },
+            { id: 3 },
+        ]);
+    });
+
+    it('constructs the client for the ARN region', async () => {
+        sendMock.mockResolvedValue({ events: [] });
+        await fetchExecutionHistoryForArn({ arn });
+        expect(clientConfigs).toEqual([{ region: 'us-east-1' }]);
+    });
+
+    it('asks for the execution it was given', async () => {
+        sendMock.mockResolvedValue({ events: [] });
+        await fetchExecutionHistoryForArn({ arn });
+        expect(historyInputs[0]).toMatchObject({
+            executionArn,
+        });
+    });
+
+    it('wraps an API failure in a CliAwsError naming the ARN', async () => {
+        sendMock.mockRejectedValue(
+            Object.assign(new Error('Execution Does Not Exist'), {
+                name: 'ExecutionDoesNotExist',
+            }),
+        );
+        await expect(
+            fetchExecutionHistoryForArn({ arn }),
+        ).rejects.toBeInstanceOf(CliAwsError);
+        await expect(fetchExecutionHistoryForArn({ arn })).rejects.toThrow(
+            executionArn,
+        );
+    });
+
+    it('appends the credentials pointer to a credentials failure', async () => {
+        sendMock.mockRejectedValue(
+            new Error('Could not load credentials from any providers'),
+        );
+        await expect(fetchExecutionHistoryForArn({ arn })).rejects.toThrow(
+            /aws configure/,
+        );
     });
 });

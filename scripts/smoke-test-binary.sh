@@ -102,6 +102,18 @@ set -e
 echo "$diff_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected ARN --diff stderr: $diff_stderr"
 
+# The third route to an AWS call. Same guard, same message; asserted so none of the
+# three can regress silently.
+echo "== an ARN --execution is refused too"
+set +e
+exec_stderr="$("$binary" "$fixture" --format mermaid     --execution arn:aws:states:us-east-1:123456789012:execution:Orders:run-1     2>&1 >/dev/null)"
+exec_status=$?
+set -e
+[ "$exec_status" -eq 2 ] ||
+    fail "expected exit 2 for an ARN --execution, got $exec_status"
+echo "$exec_stderr" | grep -q 'not available in the standalone binary' ||
+    fail "unexpected ARN --execution stderr: $exec_stderr"
+
 # The binary is the one surface `pnpm test` cannot reach, and the exit-code
 # convention is the sort of contract that breaks silently there. Asserting one code
 # of each class keeps that from happening again.

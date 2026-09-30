@@ -10,11 +10,14 @@ import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import {
     CliAwsError,
+    fetchExecutionHistoryForArn,
     fetchStateMachineDefinition,
     isStateMachineArn,
+    parseExecutionArn,
     parseStateMachineArn,
 } from './cliAws';
-import type { ParsedStateMachineArn } from './cliAws';
+import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
+import { followExecution } from './cliFollow';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
@@ -30,6 +33,7 @@ import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
+import { renameSync, rmSync } from 'node:fs';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
 import { lintAsl } from './lint';
 import { exportPng } from './png';
@@ -75,6 +79,13 @@ export interface CliArgs {
      */
     format: DiagramFormat | null;
     /**
+     * `--follow`: keep polling `--execution`'s ARN and re-rendering until the run
+     * reaches a terminal status. Requires an execution ARN and an output destination.
+     */
+    follow: boolean;
+    /** `--follow-timeout` in seconds, or `null` for no wall-clock budget. */
+    followTimeout: number | null;
+    /**
      * Every `--from-aws` value, in the order given, each already validated as a
      * state machine ARN. Empty when the flag was absent. These stand in for
      * positional inputs: the two cannot be combined, because one run reads from
@@ -99,6 +110,8 @@ export interface CliArgs {
     outDir: string | null;
     output: string | null;
     padding: number | null;
+    /** `--poll-interval` in seconds, or `null` to use the default. */
+    pollInterval: number | null;
     rankSeparation: number | null;
     resolveCfn: boolean;
     resource: string | null;
@@ -193,7 +206,15 @@ Options:
                                    transparent; light and dark paint over it.
   --diff <baseline>                Compare the input (head) against a baseline definition;
                                    added/modified/removed states are highlighted
-  --execution <history.json>       Overlay a GetExecutionHistory result on the diagram
+  --execution <history.json|arn>   Overlay a run on the diagram: a saved
+                                   GetExecutionHistory result, or an execution ARN
+                                   fetched live (needs @aws-sdk/client-sfn)
+  --follow                         With --execution <arn>, keep polling and rewriting
+                                   the output file until the run reaches a terminal
+                                   status. Needs -o or --out-dir; Ctrl-C to stop.
+  --poll-interval <seconds>        How often --follow polls (default: 2)
+  --follow-timeout <seconds>       Give up after this long and exit 1, so a CI job
+                                   cannot wait forever on a run that never ends
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
                                    (JSON templates are detected automatically)
   --resource <logicalId>           State machine to extract when the template has several
@@ -215,6 +236,15 @@ Notes:
   searched upward from the working directory and stopping at the repository root.
   --config <path> reads that file instead of searching. Any explicit flag overrides
   the file, and "comment gitlab" does not read it.
+
+  --execution takes a saved history file or an execution ARN
+  (arn:aws:states:<region>:<account>:execution:<state-machine>:<execution>). An ARN
+  is fetched live; Express workflow ARNs are refused, since GetExecutionHistory
+  serves Standard workflows only. --follow needs an ARN — a file on disk does not
+  progress, and a finished one is already whatever the run ended as. Each tick
+  re-fetches the whole history and rewrites the one output file atomically, so a
+  reader never sees a partial document and Ctrl-C leaves the last complete render in
+  place. A browser showing the HTML needs a manual reload; there is no live push.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
@@ -249,6 +279,8 @@ Examples:
   sfn-diagram state.asl.json --show-icons --icon-position top -o diagram.svg
   sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
   sfn-diagram state.asl.json --execution history.json -o run.svg
+  sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 -o run.svg
+  sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
   sfn-diagram state.asl.json --check
@@ -342,6 +374,8 @@ const OPTION_SPEC = {
     diff: { type: 'string' },
     'edge-style': { type: 'string' },
     execution: { type: 'string' },
+    follow: { type: 'boolean' },
+    'follow-timeout': { type: 'string' },
     format: { type: 'string' },
     'from-aws': { multiple: true, type: 'string' },
     help: { short: 'h', type: 'boolean' },
@@ -360,6 +394,7 @@ const OPTION_SPEC = {
     'out-dir': { type: 'string' },
     output: { short: 'o', type: 'string' },
     padding: { type: 'string' },
+    'poll-interval': { type: 'string' },
     'rank-separation': { type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
@@ -525,11 +560,58 @@ function parseCollapseNames(value: string): string[] {
  * see the `collapse` mapping below). Not a character a real flag value would contain.
  */
 const BARE_COLLAPSE_SENTINEL = '\u0000';
+/** How long `--follow` waits between polls when `--poll-interval` is absent. */
+const DEFAULT_POLL_INTERVAL_SECONDS = 2;
+
+/** Parameters for {@link expectSeconds}. */
+interface ExpectSecondsParams {
+    /** Flag name, used in the error message. */
+    flag: string;
+    /** Smallest value that makes sense for this flag. */
+    minimum: number;
+    /** Raw flag value as it arrived on the command line. */
+    value: string;
+}
+
+/**
+ * Read a whole number of seconds from a flag value.
+ *
+ * Sub-minimum and non-numeric values are usage errors rather than being clamped: a
+ * `--poll-interval 0` that quietly became 2 would leave the caller believing they had
+ * asked for something the tool never agreed to.
+ *
+ * @param params - The flag, its minimum, and the raw value.
+ *
+ * @returns The value as a number of seconds.
+ *
+ * @throws {CliError} With exit code 2 when the value is not an integer at or above
+ *   the minimum.
+ *
+ * @example
+ * ```typescript
+ * expectSeconds({ flag: '--poll-interval', minimum: 1, value: '10' }); // 10
+ * expectSeconds({ flag: '--poll-interval', minimum: 1, value: '0' });  // throws
+ * ```
+ */
+function expectSeconds(params: ExpectSecondsParams): number {
+    const { flag, minimum, value } = params;
+    const seconds = Number(value);
+    if (!Number.isInteger(seconds) || seconds < minimum) {
+        throw new CliError(
+            `Invalid ${flag}: expected a whole number of seconds >= ${minimum}, got ${JSON.stringify(value)}`,
+            EXIT_USAGE,
+        );
+    }
+    return seconds;
+}
+
 /**
  * Whether this invocation would reach AWS at all, by any flag.
  *
- * `--from-aws` is the obvious route; `--diff <arn>` is the other one, and a guard
- * that only knows about the first is a guard with a hole in it.
+ * `--from-aws` is the obvious route; `--diff <arn>` and `--execution <arn>` are the
+ * others, and a guard that only knows about the first is a guard with a hole in it.
+ * `isStateMachineArn` is the right test for all three: it asks only whether the value
+ * is an ARN at all, which is what decides whether AWS gets called.
  *
  * @param args - The parsed command line.
  *
@@ -538,8 +620,27 @@ const BARE_COLLAPSE_SENTINEL = '\u0000';
 function readsFromAws(args: CliArgs): boolean {
     return (
         args.fromAws.length > 0 ||
-        (args.diff !== null && isStateMachineArn(args.diff))
+        (args.diff !== null && isStateMachineArn(args.diff)) ||
+        (args.execution !== null && isStateMachineArn(args.execution))
     );
+}
+
+/** Parameters for {@link readArn}. */
+interface ReadArnParams {
+    /** The parser for this flag's ARN kind; it throws {@link CliAwsError} on a bad one. */
+    parse: (value: string) => unknown;
+    /** A value already known to be an ARN. */
+    value: string;
+}
+
+/** Parameters for {@link readArnOrPath}. */
+interface ReadArnOrPathParams {
+    /** The flag the value came from, kept for readability at the call site. */
+    flag: string;
+    /** The parser for this flag's ARN kind. */
+    parse: (value: string) => unknown;
+    /** The raw flag value, or `undefined` when the flag was absent. */
+    value: string | undefined;
 }
 
 /**
@@ -549,16 +650,16 @@ function readsFromAws(args: CliArgs): boolean {
  * malformed ARN is a mistake in the command line, so it exits 2 like every other
  * bad flag value rather than 1 like an unreadable file.
  *
- * @param flag - The flag the value came from, for the caller's context.
- * @param value - A value already known to be an ARN.
+ * @param params - The parser to run and the value to run it on.
  *
  * @returns The value as given.
  *
  * @throws {CliError} With exit code 2 when the ARN cannot be parsed.
  */
-function readArn(flag: string, value: string): string {
+function readArn(params: ReadArnParams): string {
+    const { parse, value } = params;
     try {
-        parseStateMachineArn({ flag, value });
+        parse(value);
     } catch (error) {
         if (!(error instanceof CliAwsError)) throw error;
         throw new CliError(error.message, EXIT_USAGE);
@@ -572,16 +673,16 @@ function readArn(flag: string, value: string): string {
  * Used for `--diff`, whose baseline may be either. The two are distinguishable with
  * no ambiguity: no path on any platform begins `arn:`.
  *
- * @param flag - The flag the value came from, for the error message.
- * @param value - The raw flag value, or `undefined` when the flag was absent.
+ * @param params - The parser to run, the value, and the flag it came from.
  *
  * @returns The value as given, or `null` when the flag was absent.
  *
  * @throws {CliError} With exit code 2 when an ARN-looking value cannot be parsed.
  */
-function readArnOrPath(flag: string, value: string | undefined): string | null {
+function readArnOrPath(params: ReadArnOrPathParams): string | null {
+    const { parse, value } = params;
     if (value === undefined) return null;
-    return isStateMachineArn(value) ? readArn(flag, value) : value;
+    return isStateMachineArn(value) ? readArn({ parse, value }) : value;
 }
 
 export function parseArgs(argv: string[]): CliArgs {
@@ -743,7 +844,11 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--diagram-title',
                       value: values['diagram-title'] as string,
                   }),
-        diff: readArnOrPath('--diff', values.diff as string | undefined),
+        diff: readArnOrPath({
+            flag: '--diff',
+            parse: (value) => parseStateMachineArn({ flag: '--diff', value }),
+            value: values.diff as string | undefined,
+        }),
         edgeStyle:
             values['edge-style'] === undefined
                 ? null
@@ -752,7 +857,20 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--edge-style',
                       value: values['edge-style'] as string,
                   }),
-        execution: (values.execution as string | undefined) ?? null,
+        execution: readArnOrPath({
+            flag: '--execution',
+            parse: (value) => parseExecutionArn({ flag: '--execution', value }),
+            value: values.execution as string | undefined,
+        }),
+        follow: values.follow === true,
+        followTimeout:
+            values['follow-timeout'] === undefined
+                ? null
+                : expectSeconds({
+                      flag: '--follow-timeout',
+                      minimum: 1,
+                      value: values['follow-timeout'] as string,
+                  }),
         format:
             values.format === undefined
                 ? null
@@ -764,7 +882,14 @@ export function parseArgs(argv: string[]): CliArgs {
         fromAws: ((values['from-aws'] as string[] | undefined) ?? []).map(
             (value) => {
                 const arn = expectNonBlank({ flag: '--from-aws', value });
-                return readArn('--from-aws', arn);
+                return readArn({
+                    parse: (candidate) =>
+                        parseStateMachineArn({
+                            flag: '--from-aws',
+                            value: candidate,
+                        }),
+                    value: arn,
+                });
             },
         ),
         iconPosition:
@@ -803,6 +928,14 @@ export function parseArgs(argv: string[]): CliArgs {
                   }),
         output: (values.output as string | undefined) ?? null,
         padding: readPixels('padding', true),
+        pollInterval:
+            values['poll-interval'] === undefined
+                ? null
+                : expectSeconds({
+                      flag: '--poll-interval',
+                      minimum: 1,
+                      value: values['poll-interval'] as string,
+                  }),
         rankSeparation: readPixels('rank-separation', true),
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
@@ -1286,6 +1419,11 @@ interface RenderOneInputParams {
     outputPath: string | null;
     /** Where this render's definition comes from. */
     source: CliInputSource;
+    /**
+     * Whether writes go through a temporary file and a rename. True under `--follow`,
+     * which overwrites one path repeatedly while a reader may hold it open.
+     */
+    writeAtomically: boolean;
     /** The resolved theme, after any `--theme` file. */
     theme: ThemeOption;
 }
@@ -1314,7 +1452,11 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         outputPath,
         source,
         theme,
+        writeAtomically,
     } = params;
+    /** Write this render's output, honouring the atomic-write choice once. */
+    const emit = (content: string): void =>
+        writeOutput({ atomic: writeAtomically, content, outputPath });
     /** The source's label when a batch needs it named, otherwise an empty string. */
     const inputLabel = labelInput ? describeSource(source) : '';
 
@@ -1437,7 +1579,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                     theme,
                 });
                 writeDiffSummary(result.metadata);
-                writeOutput(result.code, outputPath);
+                emit(result.code);
                 return 0;
             }
 
@@ -1451,7 +1593,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 });
                 if (result.metadata.diff)
                     writeDiffSummary(result.metadata.diff);
-                writeOutput(result.html, outputPath);
+                emit(result.html);
                 return 0;
             }
 
@@ -1461,7 +1603,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ...svgOptions,
             });
             writeDiffSummary(result.metadata);
-            writeOutput(result.svg, outputPath);
+            emit(result.svg);
             return 0;
         }
 
@@ -1474,7 +1616,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                     theme,
                 });
                 writeExecutionSummary(result.metadata);
-                writeOutput(result.code, outputPath);
+                emit(result.code);
                 return 0;
             }
 
@@ -1486,7 +1628,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 });
                 if (result.metadata.execution)
                     writeExecutionSummary(result.metadata.execution);
-                writeOutput(result.html, outputPath);
+                emit(result.html);
                 return 0;
             }
 
@@ -1496,7 +1638,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ...svgOptions,
             });
             writeExecutionSummary(result.metadata);
-            writeOutput(result.svg, outputPath);
+            emit(result.svg);
             return 0;
         }
 
@@ -1507,7 +1649,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 layout: options.layout,
                 theme,
             });
-            writeOutput(result.code, outputPath);
+            emit(result.code);
             return 0;
         }
 
@@ -1516,7 +1658,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 aslDefinition: definitionSource,
                 ...svgOptions,
             });
-            writeOutput(result.svg, outputPath);
+            emit(result.svg);
             return 0;
         }
 
@@ -1525,7 +1667,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 aslDefinition: definitionSource,
                 ...svgOptions,
             });
-            writeOutput(result.html, outputPath);
+            emit(result.html);
             return 0;
         }
 
@@ -1583,6 +1725,31 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
+    // `--follow` is meaningless without something that changes over time.
+    if (args.follow && args.execution === null) {
+        process.stderr.write(
+            '--follow needs --execution <arn>: there is nothing to follow without one\n',
+        );
+        return EXIT_USAGE;
+    }
+    // A file on disk does not progress on its own, so there is nothing for a poll
+    // loop to observe: a saved history is already whatever the run ended as.
+    if (args.follow && args.execution !== null && !isStateMachineArn(args.execution)) {
+        process.stderr.write(
+            '--follow needs an execution ARN; a history file does not progress, ' +
+                'so there is nothing to poll for\n',
+        );
+        return EXIT_USAGE;
+    }
+    // Both only pace or bound the loop, so without it they do nothing at all, and a
+    // flag that silently does nothing is worse than one that is refused.
+    if (!args.follow && (args.pollInterval !== null || args.followTimeout !== null)) {
+        process.stderr.write(
+            '--poll-interval and --follow-timeout only apply with --follow\n',
+        );
+        return EXIT_USAGE;
+    }
+
     // `--from-aws` stands in for the positional inputs; one run reads from one kind
     // of source. Left unchecked, a file input plus an ARN rendered the file and
     // silently ignored the ARN.
@@ -1706,6 +1873,16 @@ export async function run(argv: string[]): Promise<number> {
         process.stdin.isTTY
     ) {
         process.stderr.write(HELP_TEXT);
+        return EXIT_USAGE;
+    }
+
+    // There is no coherent "re-render to stdout": a pipe consumer would get one
+    // diagram per tick concatenated, with no way to tell where one ended.
+    if (args.follow && args.output === null && args.outDir === null) {
+        process.stderr.write(
+            '--follow needs --output or --out-dir: it rewrites one file as the ' +
+                'execution progresses, and stdout cannot be rewritten\n',
+        );
         return EXIT_USAGE;
     }
 
@@ -1915,16 +2092,33 @@ export async function run(argv: string[]): Promise<number> {
         }
     }
 
+    // Resolved once for the snapshot case. Under --follow it is re-fetched per tick
+    // instead, so the loop owns the fetching and this stays null.
+    const executionArn =
+        args.execution !== null && isStateMachineArn(args.execution)
+            ? parseExecutionArn({ flag: '--execution', value: args.execution })
+            : null;
+
     let historySource: string | null = null;
-    if (args.execution !== null) {
+    if (args.execution !== null && !args.follow) {
         try {
-            historySource = readFileSync(resolve(args.execution), 'utf-8');
+            historySource =
+                executionArn === null
+                    ? readFileSync(resolve(args.execution), 'utf-8')
+                    : JSON.stringify({
+                          events: await fetchExecutionHistoryForArn({
+                              arn: executionArn,
+                          }),
+                      });
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Failed to read --execution history: ${message}\n`,
-            );
+            // A CliAwsError already names the ARN and says it was a fetch.
+            const prefix =
+                error instanceof CliAwsError
+                    ? ''
+                    : 'Failed to read --execution history: ';
+            process.stderr.write(`${prefix}${message}\n`);
             return EXIT_FAILURE;
         }
     }
@@ -1942,6 +2136,22 @@ export async function run(argv: string[]): Promise<number> {
     const labelInput =
         work.length > 1 || args.inputs.some((pattern) => hasGlobMagic(pattern));
 
+    // --follow owns its own render loop: one source, one destination, re-rendered
+    // until the execution ends. Guards above have already established that
+    // `executionArn` is non-null and that there is exactly one output path.
+    if (args.follow && executionArn !== null) {
+        return runFollow({
+            args,
+            arn: executionArn,
+            baselineIsLive,
+            baselineSource,
+            options,
+            outputPath: work[0].outputPath,
+            source: work[0].source,
+            theme,
+        });
+    }
+
     let worstCode = EXIT_OK;
     for (const item of work) {
         // A failing input does not stop the batch: stopping at the first would hide the
@@ -1956,19 +2166,190 @@ export async function run(argv: string[]): Promise<number> {
             outputPath: item.outputPath,
             source: item.source,
             theme,
+            writeAtomically: false,
         });
         if (code !== EXIT_OK) worstCode = code;
     }
     return worstCode;
 }
 
-function writeOutput(content: string, outputPath: string | null): void {
-    if (outputPath) {
-        writeFileSync(resolve(outputPath), content, 'utf-8');
-    } else {
+/** Parameters for {@link runFollow}. */
+interface RunFollowParams {
+    /** The parsed command line, for `--poll-interval` and `--follow-timeout`. */
+    args: CliArgs;
+    /** The execution to poll. */
+    arn: ParsedExecutionArn;
+    /** Whether the `--diff` baseline came from AWS. */
+    baselineIsLive: boolean;
+    /** Contents of `--diff`'s baseline, already read, or `null`. */
+    baselineSource: string | null;
+    /** The effective diagram options for this run. */
+    options: ResolvedCliOptions;
+    /** The single file every tick rewrites. */
+    outputPath: string | null;
+    /** Where the definition comes from — read once, not per tick. */
+    source: CliInputSource;
+    /** The resolved theme. */
+    theme: ThemeOption;
+}
+
+/**
+ * Poll one execution, rewriting one output file until the run finishes.
+ *
+ * Ctrl-C aborts the loop between ticks rather than tearing the process down, because
+ * `src/bin.ts` deliberately lets Node unwind on its own — a `process.exit()` here
+ * would reintroduce the libuv exit-9 assertion that note exists to avoid, and could
+ * truncate a write in flight. Writes are atomic for the same reason: whatever is
+ * reading the file always sees a complete document.
+ *
+ * @param params - The execution, the destination, and the render inputs.
+ *
+ * @returns `EXIT_OK` when the execution reached a terminal status or the user stopped
+ *   it, and `EXIT_FAILURE` when a render failed, the fetch failed, or
+ *   `--follow-timeout` elapsed first.
+ */
+async function runFollow(params: RunFollowParams): Promise<number> {
+    const {
+        args,
+        arn,
+        baselineIsLive,
+        baselineSource,
+        options,
+        outputPath,
+        source,
+        theme,
+    } = params;
+
+    const intervalSeconds = args.pollInterval ?? DEFAULT_POLL_INTERVAL_SECONDS;
+    const controller = new AbortController();
+    const onInterrupt = (): void => controller.abort();
+    process.on('SIGINT', onInterrupt);
+
+    process.stderr.write(
+        `following ${arn.arn} every ${intervalSeconds}s (Ctrl-C to stop)
+`,
+    );
+
+    let ticks = 0;
+    try {
+        const result = await followExecution({
+            fetchHistory: () => fetchExecutionHistoryForArn({ arn }),
+            intervalMs: intervalSeconds * 1000,
+            render: async ({ events }) => {
+                ticks += 1;
+                return renderOneInput({
+                    args,
+                    baselineIsLive,
+                    baselineSource,
+                    historySource: JSON.stringify({ events }),
+                    // One source, and the reader chose the ARN, so there is nothing
+                    // ambiguous for a label to disambiguate.
+                    labelInput: false,
+                    options,
+                    outputPath,
+                    source,
+                    theme,
+                    writeAtomically: true,
+                });
+            },
+            signal: controller.signal,
+            sleep: ({ ms }) =>
+                new Promise<void>((done) => {
+                    const timer = setTimeout(done, ms);
+                    // Resolve early on Ctrl-C so the process does not sit out a long
+                    // interval before noticing, and clear the timer either way.
+                    controller.signal.addEventListener(
+                        'abort',
+                        () => {
+                            clearTimeout(timer);
+                            done();
+                        },
+                        { once: true },
+                    );
+                }),
+            timeoutMs:
+                args.followTimeout === null ? null : args.followTimeout * 1000,
+        });
+
+        if (result.outcome === 'timedOut') {
+            process.stderr.write(
+                `--follow-timeout reached after ${args.followTimeout}s; ` +
+                    `${arn.arn} was still ${result.status}
+`,
+            );
+            return EXIT_FAILURE;
+        }
+        if (result.exitCode !== EXIT_OK) return result.exitCode;
+        process.stderr.write(
+            result.outcome === 'aborted'
+                ? `stopped after ${ticks} update(s); ${arn.arn} was ${result.status}
+`
+                : `${arn.arn} ${result.status} after ${ticks} update(s)
+`,
+        );
+        return EXIT_OK;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // A CliAwsError already names the ARN and says it was a fetch.
+        const prefix =
+            error instanceof CliAwsError
+                ? ''
+                : 'Failed to read --execution history: ';
+        process.stderr.write(`${prefix}${message}
+`);
+        return EXIT_FAILURE;
+    } finally {
+        process.off('SIGINT', onInterrupt);
+    }
+}
+
+/** Parameters for {@link writeOutput}. */
+interface WriteOutputParams {
+    /**
+     * Write through a temporary file and rename over the target, so a reader never
+     * sees a half-written document. Used by `--follow`, which rewrites the same path
+     * every couple of seconds while something may well be reading it, and where a
+     * Ctrl-C mid-write would otherwise leave a truncated file behind.
+     */
+    atomic: boolean;
+    /** The rendered diagram. */
+    content: string;
+    /** Destination, or `null` for stdout. */
+    outputPath: string | null;
+}
+
+/**
+ * Write one rendered diagram to its destination.
+ *
+ * @param params - The content, the destination, and whether to write atomically.
+ */
+function writeOutput(params: WriteOutputParams): void {
+    const { atomic, content, outputPath } = params;
+    if (outputPath === null) {
         process.stdout.write(content);
         if (!content.endsWith('\n')) {
             process.stdout.write('\n');
         }
+        return;
+    }
+
+    const target = resolve(outputPath);
+    if (!atomic) {
+        writeFileSync(target, content, 'utf-8');
+        return;
+    }
+    // Same directory as the target, so the rename stays on one filesystem and is
+    // therefore atomic; a temp dir elsewhere would degrade to a copy.
+    const temporary = `${target}.sfn-${process.pid}.tmp`;
+    try {
+        writeFileSync(temporary, content, 'utf-8');
+        renameSync(temporary, target);
+    } catch (error) {
+        try {
+            rmSync(temporary, { force: true });
+        } catch {
+            // The cleanup is best-effort; the original failure is what matters.
+        }
+        throw error;
     }
 }
