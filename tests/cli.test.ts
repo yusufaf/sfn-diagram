@@ -1,4 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { sfnSendMock } = vi.hoisted(() => ({ sfnSendMock: vi.fn() }));
+
+vi.mock('@aws-sdk/client-sfn', () => ({
+    DescribeStateMachineCommand: class {
+        constructor(public input: unknown) {}
+    },
+    SFNClient: class {
+        send = sfnSendMock;
+    },
+}));
 import {
     existsSync,
     mkdirSync,
@@ -3141,5 +3152,367 @@ describe('run: multiple inputs', () => {
         process.chdir(tempDir);
         expect(await run(['order.asl.json', '--out-dir', 'out'])).toBe(0);
         expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
+    });
+});
+
+describe('parseArgs --from-aws', () => {
+    const arn = 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+
+    it('defaults to an empty list', () => {
+        expect(parseArgs(['state.asl.json']).fromAws).toEqual([]);
+    });
+
+    it('collects one ARN', () => {
+        expect(parseArgs(['--from-aws', arn]).fromAws).toEqual([arn]);
+    });
+
+    it('collects several, in the order given', () => {
+        const other = arn.replace('Orders', 'Payments');
+        expect(
+            parseArgs(['--from-aws', arn, '--from-aws', other]).fromAws,
+        ).toEqual([arn, other]);
+    });
+
+    it('rejects a bare name as a usage error', () => {
+        // The message matters as much as the code: an unrecognised flag is also
+        // exit 2, so a code-only assertion would pass before the flag existed.
+        expect(() => parseArgs(['--from-aws', 'Orders'])).toThrow(
+            /expects a state machine ARN/,
+        );
+        try {
+            parseArgs(['--from-aws', 'Orders']);
+            expect.unreachable('a bare name is not an ARN');
+        } catch (error) {
+            expect((error as CliError).exitCode).toBe(2);
+        }
+    });
+
+    it('rejects an empty value', () => {
+        expect(() => parseArgs(['--from-aws', ''])).toThrow(
+            /Invalid --from-aws/,
+        );
+    });
+
+    it('rejects a malformed --diff baseline ARN as a usage error', () => {
+        // A path that cannot be read is exit 1; an ARN that cannot be parsed is
+        // a mistake in the invocation, so it belongs with the other exit-2 cases.
+        expect(() =>
+            parseArgs([
+                'in.json',
+                '--diff',
+                'arn:aws:states:us-east-1:123:activity:Orders',
+            ]),
+        ).toThrow(CliError);
+    });
+
+    it('leaves a --diff path alone', () => {
+        expect(parseArgs(['in.json', '--diff', 'base.asl.json']).diff).toBe(
+            'base.asl.json',
+        );
+    });
+});
+
+describe('run --from-aws refusals', () => {
+    const arn = 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+    const other = arn.replace('Orders', 'Payments');
+    let errors: string[];
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        errors = [];
+        stderrSpy = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk: unknown) => {
+                errors.push(String(chunk));
+                return true;
+            });
+    });
+
+    afterEach(() => {
+        stderrSpy.mockRestore();
+    });
+
+    /**
+     * Assert on the refusal's own wording, not only on exit 2. An unrecognised flag
+     * is already exit 2, so a code-only assertion would pass before the guard exists.
+     */
+    const expectRefusal = async (argv: string[], fragment: string) => {
+        expect(await run(argv)).toBe(2);
+        expect(errors.join('')).toContain(fragment);
+    };
+
+    it('refuses --from-aws together with a file input', async () => {
+        await expectRefusal(
+            [simpleFixture, '--from-aws', arn],
+            '--from-aws replaces the file input',
+        );
+    });
+
+    it('refuses --from-aws together with an explicit stdin input', async () => {
+        await expectRefusal(
+            ['-', '--from-aws', arn],
+            '--from-aws replaces the file input',
+        );
+    });
+
+    it('refuses --resolve-cfn, whose definition is already ASL', async () => {
+        await expectRefusal(
+            ['--from-aws', arn, '--resolve-cfn'],
+            'already ASL',
+        );
+    });
+
+    it('refuses --resource for the same reason', async () => {
+        await expectRefusal(
+            ['--from-aws', arn, '--resource', 'MyMachine'],
+            'already ASL',
+        );
+    });
+
+    it('refuses several ARNs with -o', async () => {
+        await expectRefusal(
+            ['--from-aws', arn, '--from-aws', other, '-o', 'x.svg'],
+            '-o takes a single output file',
+        );
+    });
+
+    it('refuses several ARNs with neither --out-dir nor --check', async () => {
+        await expectRefusal(
+            ['--from-aws', arn, '--from-aws', other],
+            '--out-dir is required for more than one input',
+        );
+    });
+
+    it('refuses several ARNs with --diff', async () => {
+        await expectRefusal(
+            [
+                '--from-aws',
+                arn,
+                '--from-aws',
+                other,
+                '--out-dir',
+                'out',
+                '--diff',
+                simpleFixture,
+            ],
+            '--diff compares one definition against one baseline',
+        );
+    });
+
+    it('refuses several ARNs with --execution', async () => {
+        await expectRefusal(
+            [
+                '--from-aws',
+                arn,
+                '--from-aws',
+                other,
+                '--out-dir',
+                'out',
+                '--execution',
+                'history.json',
+            ],
+            '--execution overlays one run on one definition',
+        );
+    });
+});
+
+describe('run --from-aws', () => {
+    const arn = 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+    const other = arn.replace('Orders', 'Payments');
+    const liveDefinition = JSON.stringify({
+        StartAt: 'Fetched',
+        States: { Fetched: { End: true, Type: 'Pass' } },
+    });
+    let tempDir: string;
+    let errors: string[];
+    let output: string[];
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        sfnSendMock.mockReset();
+        sfnSendMock.mockResolvedValue({ definition: liveDefinition });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-from-aws-'));
+        errors = [];
+        output = [];
+        stderrSpy = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk: unknown) => {
+                errors.push(String(chunk));
+                return true;
+            });
+        stdoutSpy = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk: unknown) => {
+                output.push(String(chunk));
+                return true;
+            });
+    });
+
+    afterEach(() => {
+        stderrSpy.mockRestore();
+        stdoutSpy.mockRestore();
+        rmSync(tempDir, { force: true, recursive: true });
+    });
+
+    it('renders the fetched definition to an output file', async () => {
+        const target = join(tempDir, 'live.svg');
+        expect(await run(['--from-aws', arn, '-o', target])).toBe(0);
+        const svg = readFileSync(target, 'utf-8');
+        expect(svg).toContain('<svg');
+        expect(svg).toContain('Fetched');
+    });
+
+    it('writes to stdout with no -o', async () => {
+        expect(await run(['--from-aws', arn, '--format', 'mermaid'])).toBe(0);
+        expect(output.join('')).toContain('Fetched');
+    });
+
+    it('names an --out-dir output after the state machine, not the ARN', async () => {
+        expect(await run(['--from-aws', arn, '--out-dir', tempDir])).toBe(0);
+        expect(existsSync(join(tempDir, 'Orders.svg'))).toBe(true);
+    });
+
+    it('renders several ARNs into --out-dir', async () => {
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--from-aws',
+                other,
+                '--out-dir',
+                tempDir,
+            ]),
+        ).toBe(0);
+        expect(existsSync(join(tempDir, 'Orders.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'Payments.svg'))).toBe(true);
+        expect(sfnSendMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('lints a live definition with --check', async () => {
+        expect(await run(['--from-aws', arn, '--check'])).toBe(0);
+        expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('diffs a live definition against a local baseline', async () => {
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--diff',
+                simpleFixture,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        // The live definition is the head, so its one state must be in the diff.
+        expect(output.join('')).toContain('Fetched');
+        // Only the head was fetched; the baseline came off disk.
+        expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('diffs one live definition against another', async () => {
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--diff',
+                other,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        // Head and baseline are one fetch each.
+        expect(sfnSendMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('overlays a local execution history on a live definition', async () => {
+        // The history is for simple.asl.json, so the live definition has to be it
+        // for the overlay to colour anything.
+        sfnSendMock.mockResolvedValue({
+            definition: readFileSync(simpleFixture, 'utf-8'),
+        });
+        const target = join(tempDir, 'run.svg');
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--execution',
+                join(__dirname, 'fixtures', 'execution-success.json'),
+                '-o',
+                target,
+            ]),
+        ).toBe(0);
+        // Succeeded states are green; without the overlay applying they would not be.
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
+    it('exits 1 when the AWS call fails, naming the ARN', async () => {
+        sfnSendMock.mockRejectedValue(
+            Object.assign(new Error('State Machine Does Not Exist'), {
+                name: 'StateMachineDoesNotExist',
+            }),
+        );
+        expect(
+            await run(['--from-aws', arn, '-o', join(tempDir, 'x.svg')]),
+        ).toBe(1);
+        expect(errors.join('')).toContain(arn);
+    });
+
+    it('does not prefix an AWS failure with "Failed to read input"', async () => {
+        // The fetch error already names the ARN and says it was a fetch; the file
+        // wording would contradict it.
+        sfnSendMock.mockRejectedValue(new Error('Throttling'));
+        await run(['--from-aws', arn, '-o', join(tempDir, 'x.svg')]);
+        expect(errors.join('')).not.toContain('Failed to read input');
+        expect(errors.join('')).toContain('Failed to fetch state machine');
+    });
+
+    it('does not stop a batch at the first failing ARN', async () => {
+        sfnSendMock
+            .mockRejectedValueOnce(new Error('Throttling'))
+            .mockResolvedValueOnce({ definition: liveDefinition });
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--from-aws',
+                other,
+                '--out-dir',
+                tempDir,
+            ]),
+        ).toBe(1);
+        // The second ARN still rendered.
+        expect(existsSync(join(tempDir, 'Payments.svg'))).toBe(true);
+    });
+
+    it('exits 1 when a --diff baseline ARN fails', async () => {
+        sfnSendMock
+            .mockResolvedValueOnce({ definition: liveDefinition })
+            .mockRejectedValueOnce(new Error('AccessDenied'));
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--diff',
+                other,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(1);
+    });
+
+    it('still reads a --diff baseline off disk when it is a path', async () => {
+        expect(
+            await run([
+                '--from-aws',
+                arn,
+                '--diff',
+                join(tempDir, 'missing.asl.json'),
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(1);
+        expect(errors.join('')).toContain('Failed to read --diff baseline');
     });
 });

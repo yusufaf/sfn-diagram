@@ -8,6 +8,13 @@ import {
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
+import {
+    CliAwsError,
+    fetchStateMachineDefinition,
+    isStateMachineArn,
+    parseStateMachineArn,
+} from './cliAws';
+import type { ParsedStateMachineArn } from './cliAws';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
@@ -67,6 +74,13 @@ export interface CliArgs {
      * so that `--format svg` can still override a config file asking for something else.
      */
     format: DiagramFormat | null;
+    /**
+     * Every `--from-aws` value, in the order given, each already validated as a
+     * state machine ARN. Empty when the flag was absent. These stand in for
+     * positional inputs: the two cannot be combined, because one run reads from
+     * one kind of source.
+     */
+    fromAws: string[];
     iconPosition: IconPosition | null;
     iconSize: number | null;
     /** `false` from `--hide-comments`, `true` from `--show-comments`, `null` if neither. */
@@ -131,6 +145,12 @@ Options:
   -o, --output <path>              Output file path (required for png; stdout otherwise)
   --out-dir <dir>                  Write one output file per input into this directory,
                                    named after each input (required for several inputs)
+  --from-aws <arn>                 Fetch the definition live from AWS instead of
+                                   reading a file: pass a state machine ARN.
+                                   Repeatable, with --out-dir, for several machines.
+                                   Needs @aws-sdk/client-sfn installed; region comes
+                                   from the ARN and credentials from the AWS SDK's
+                                   default chain (AWS_PROFILE, SSO, instance role).
   --config <path>                  Read defaults from this config file instead of
                                    searching for one
   --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
@@ -196,6 +216,12 @@ Notes:
   --config <path> reads that file instead of searching. Any explicit flag overrides
   the file, and "comment gitlab" does not read it.
 
+  --from-aws takes a state machine, version or alias ARN, never a bare name, and
+  replaces the file input rather than adding to it. It cannot be combined with
+  --resolve-cfn or --resource, since a live definition is already ASL. It does work
+  with --diff (whose baseline may itself be an ARN), --execution, --check and
+  --out-dir. It is unavailable in the standalone binary.
+
   Several inputs can be given as separate arguments or as a quoted glob
   ("machines/**/*.asl.json"), which is expanded even where the shell does not.
   Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
@@ -226,6 +252,8 @@ Examples:
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
   sfn-diagram state.asl.json --check
+  sfn-diagram --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders -o live.svg
+  sfn-diagram --from-aws arn:...:stateMachine:Orders --diff local.asl.json --format mermaid
 `;
 
 const COMMENT_GITLAB_HELP_TEXT = `sfn-diagram comment gitlab — post a Step Functions diagram/diff to a GitLab merge request
@@ -315,6 +343,7 @@ const OPTION_SPEC = {
     'edge-style': { type: 'string' },
     execution: { type: 'string' },
     format: { type: 'string' },
+    'from-aws': { multiple: true, type: 'string' },
     help: { short: 'h', type: 'boolean' },
     'hide-catch': { type: 'boolean' },
     'hide-comments': { type: 'boolean' },
@@ -496,6 +525,48 @@ function parseCollapseNames(value: string): string[] {
  * see the `collapse` mapping below). Not a character a real flag value would contain.
  */
 const BARE_COLLAPSE_SENTINEL = '\u0000';
+/**
+ * Re-raise a {@link CliAwsError} from ARN parsing as a usage error.
+ *
+ * ARN parsing lives in cliAws.ts, which knows nothing about exit codes; a
+ * malformed ARN is a mistake in the command line, so it exits 2 like every other
+ * bad flag value rather than 1 like an unreadable file.
+ *
+ * @param flag - The flag the value came from, for the caller's context.
+ * @param value - A value already known to be an ARN.
+ *
+ * @returns The value as given.
+ *
+ * @throws {CliError} With exit code 2 when the ARN cannot be parsed.
+ */
+function readArn(flag: string, value: string): string {
+    try {
+        parseStateMachineArn({ value });
+    } catch (error) {
+        if (!(error instanceof CliAwsError)) throw error;
+        throw new CliError(`${error.message} (${flag})`, EXIT_USAGE);
+    }
+    return value;
+}
+
+/**
+ * Pass a flag value through, validating it only when it is an ARN rather than a path.
+ *
+ * Used for `--diff`, whose baseline may be either. The two are distinguishable with
+ * no ambiguity: no path on any platform begins `arn:`.
+ *
+ * @param flag - The flag the value came from, for the error message.
+ * @param value - The raw flag value, or `undefined` when the flag was absent.
+ *
+ * @returns The value as given, or `null` when the flag was absent.
+ *
+ * @throws {CliError} With exit code 2 when an ARN-looking value cannot be parsed.
+ */
+function readArnOrPath(flag: string, value: string | undefined): string | null {
+    if (value === undefined) return null;
+    return isStateMachineArn(value) ? readArn(flag, value) : value;
+}
+
 export function parseArgs(argv: string[]): CliArgs {
     // A bare `--collapse` declared as a string option would otherwise swallow the
     // next token — including the input path — as its value. Rewriting it to an
@@ -513,7 +584,9 @@ export function parseArgs(argv: string[]): CliArgs {
             : arg,
     );
 
-    let values: Partial<Record<keyof typeof OPTION_SPEC, string | boolean>>;
+    let values: Partial<
+        Record<keyof typeof OPTION_SPEC, string | boolean | string[]>
+    >;
     let positionals: string[];
     try {
         ({ positionals, values } = parseArgsFromNode({
@@ -653,7 +726,7 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--diagram-title',
                       value: values['diagram-title'] as string,
                   }),
-        diff: (values.diff as string | undefined) ?? null,
+        diff: readArnOrPath('--diff', values.diff as string | undefined),
         edgeStyle:
             values['edge-style'] === undefined
                 ? null
@@ -671,6 +744,12 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--format',
                       value: values.format as string,
                   }),
+        fromAws: ((values['from-aws'] as string[] | undefined) ?? []).map(
+            (value) => {
+                const arn = expectNonBlank({ flag: '--from-aws', value });
+                return readArn('--from-aws', arn);
+            },
+        ),
         iconPosition:
             values['icon-position'] === undefined
                 ? null
@@ -874,11 +953,55 @@ function isCfnTemplate(source: string): boolean {
     }
 }
 
-async function loadAsl(input: string | null): Promise<string> {
-    if (input === null || input === '-') {
-        return readStdin();
+/**
+ * Where one render's ASL definition comes from.
+ *
+ * A discriminated union rather than a nullable path, because `--from-aws` adds a
+ * third origin with its own failure wording: "could not read that file" and "could
+ * not fetch that state machine" are different sentences, and a batch's stderr is
+ * only useful if it says which.
+ */
+type CliInputSource =
+    | { arn: ParsedStateMachineArn; kind: 'aws' }
+    | { kind: 'file'; path: string }
+    | { kind: 'stdin' };
+
+/**
+ * How a source is named in messages: its path, its ARN, or `stdin`.
+ *
+ * @param source - The source to describe.
+ *
+ * @returns A short label for stderr.
+ */
+function describeSource(source: CliInputSource): string {
+    switch (source.kind) {
+        case 'aws':
+            return source.arn.arn;
+        case 'file':
+            return source.path;
+        case 'stdin':
+            return 'stdin';
     }
-    return readFileSync(resolve(input), 'utf-8');
+}
+
+/**
+ * Read one source's raw definition: a file, stdin, or a live state machine.
+ *
+ * @param source - The source to load.
+ *
+ * @returns The raw ASL (or CloudFormation template) text.
+ *
+ * @throws {CliAwsError} When an `aws` source could not be fetched.
+ */
+async function loadSource(source: CliInputSource): Promise<string> {
+    switch (source.kind) {
+        case 'aws':
+            return fetchStateMachineDefinition({ arn: source.arn });
+        case 'file':
+            return readFileSync(resolve(source.path), 'utf-8');
+        case 'stdin':
+            return readStdin();
+    }
 }
 
 interface ResolveDefinitionSourceParams {
@@ -1124,8 +1247,6 @@ interface RenderOneInputParams {
     baselineSource: string | null;
     /** Contents of `--execution`'s history, already read, or `null`. */
     historySource: string | null;
-    /** The input to render: a path, or `null`/`'-'` for stdin. */
-    input: string | null;
     /**
      * Whether messages should name the input.
      *
@@ -1137,6 +1258,8 @@ interface RenderOneInputParams {
     options: ResolvedCliOptions;
     /** Where this input's output goes, or `null` for stdout. */
     outputPath: string | null;
+    /** Where this render's definition comes from. */
+    source: CliInputSource;
     /** The resolved theme, after any `--theme` file. */
     theme: ThemeOption;
 }
@@ -1159,24 +1282,29 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         args,
         baselineSource,
         historySource,
-        input,
         labelInput,
         options,
         outputPath,
+        source,
         theme,
     } = params;
-    /** The input's path when a batch needs it named, otherwise an empty string. */
-    const inputLabel = labelInput && input !== null ? input : '';
+    /** The source's label when a batch needs it named, otherwise an empty string. */
+    const inputLabel = labelInput ? describeSource(source) : '';
 
     let aslSource: string;
     try {
-        aslSource = await loadAsl(input);
+        aslSource = await loadSource(source);
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        // A batch's stderr is useless if a failure does not say which file.
-        process.stderr.write(
-            `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: ${message}\n`,
-        );
+        // An AWS failure already reads "Failed to fetch state machine <arn> from
+        // AWS: ..." and names the ARN itself; prefixing it with "Failed to read
+        // input" would contradict it. A batch's stderr is useless if a file failure
+        // does not say which file.
+        const prefix =
+            source.kind === 'aws'
+                ? ''
+                : `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: `;
+        process.stderr.write(`${prefix}${message}\n`);
         return EXIT_FAILURE;
     }
 
@@ -1427,6 +1555,29 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
+    // `--from-aws` stands in for the positional inputs; one run reads from one kind
+    // of source. Left unchecked, a file input plus an ARN rendered the file and
+    // silently ignored the ARN.
+    if (args.fromAws.length > 0 && args.inputs.length > 0) {
+        process.stderr.write(
+            '--from-aws replaces the file input; pass one or the other, not both\n',
+        );
+        return EXIT_USAGE;
+    }
+    // DescribeStateMachine returns an ASL definition, never a template, so both
+    // template flags are contradictions rather than no-ops. Left unchecked,
+    // --resolve-cfn sent live ASL through extractAslFromTemplate and failed with a
+    // message about templates that named nothing the caller typed.
+    if (
+        args.fromAws.length > 0 &&
+        (args.resolveCfn || args.resource !== null)
+    ) {
+        process.stderr.write(
+            '--resolve-cfn and --resource cannot be combined with --from-aws: ' +
+                "a live state machine's definition is already ASL\n",
+        );
+        return EXIT_USAGE;
+    }
     if (
         args.check &&
         (args.diff !== null || args.execution !== null || args.output !== null)
@@ -1500,10 +1651,15 @@ export async function run(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
-    // With no input argument, loadAsl falls through to readStdin(). On a terminal
+    // With no input argument, loadSource falls through to readStdin(). On a terminal
     // that stdin never ends, so a bare invocation would block forever - print usage
-    // instead. An explicit `-` still reads stdin: the user asked for it.
-    if (args.inputs.length === 0 && process.stdin.isTTY) {
+    // instead. An explicit `-` still reads stdin: the user asked for it, and
+    // `--from-aws` means there is nothing to read from stdin at all.
+    if (
+        args.inputs.length === 0 &&
+        args.fromAws.length === 0 &&
+        process.stdin.isTTY
+    ) {
         process.stderr.write(HELP_TEXT);
         return EXIT_USAGE;
     }
@@ -1525,12 +1681,45 @@ export async function run(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
+    // Globs are expanded before the count-dependent checks below, so a pattern matching
+    // two files is treated the same as two positionals.
+    let sources: CliInputSource[];
+    if (args.fromAws.length > 0) {
+        // Already validated in parseArgs, so this cannot throw here.
+        sources = args.fromAws.map((value) => ({
+            arn: parseStateMachineArn({ value }),
+            kind: 'aws' as const,
+        }));
+    } else if (args.inputs.length === 0) {
+        sources = [{ kind: 'stdin' as const }];
+    } else {
+        let expanded: string[];
+        try {
+            expanded = expandInputs({
+                cwd: process.cwd(),
+                patterns: args.inputs,
+            });
+        } catch (error) {
+            if (!(error instanceof CliInputError)) throw error;
+            // A pattern that matched nothing is about the filesystem, not the
+            // command line.
+            process.stderr.write(`Error: ${error.message}\n`);
+            return EXIT_FAILURE;
+        }
+        sources = expanded.map((path) =>
+            path === '-'
+                ? ({ kind: 'stdin' } as const)
+                : ({ kind: 'file', path } as const),
+        );
+    }
+
     // There is no filename to derive an output name from when the definition arrives
     // on stdin. Left unchecked, a bare `-` wrote a file called `-.svg` and a piped
-    // invocation ignored --out-dir while still creating the directory.
+    // invocation ignored --out-dir while still creating the directory. An ARN
+    // satisfies this: its state machine name is the filename.
     if (
         args.outDir !== null &&
-        (args.inputs.length === 0 || args.inputs.includes('-'))
+        sources.some((source) => source.kind === 'stdin')
     ) {
         process.stderr.write(
             '--out-dir needs a named input; stdin has no filename to derive one from\n',
@@ -1538,23 +1727,8 @@ export async function run(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
-    // Globs are expanded before the count-dependent checks below, so a pattern matching
-    // two files is treated the same as two positionals.
-    let inputs: string[];
-    try {
-        inputs =
-            args.inputs.length === 0
-                ? [] // stdin
-                : expandInputs({ cwd: process.cwd(), patterns: args.inputs });
-    } catch (error) {
-        if (!(error instanceof CliInputError)) throw error;
-        // A pattern that matched nothing is about the filesystem, not the command line.
-        process.stderr.write(`Error: ${error.message}\n`);
-        return EXIT_FAILURE;
-    }
-
-    if (inputs.length > 1) {
-        if (inputs.includes('-')) {
+    if (sources.length > 1) {
+        if (sources.some((source) => source.kind === 'stdin')) {
             process.stderr.write(
                 'stdin cannot be one of several inputs; there is only one stdin\n',
             );
@@ -1598,9 +1772,14 @@ export async function run(argv: string[]): Promise<number> {
             planned = planOutputPaths({
                 format: options.format,
                 outDir: args.outDir,
-                sources: inputs.map((input) => ({
-                    label: input,
-                    nameSource: input,
+                sources: sources.map((source) => ({
+                    label: describeSource(source),
+                    // A file names its output after its path; an ARN after the
+                    // state machine, since an ARN's colons cannot be a filename.
+                    nameSource:
+                        source.kind === 'aws'
+                            ? source.arn.name
+                            : describeSource(source),
                 })),
             });
         } catch (error) {
@@ -1666,13 +1845,23 @@ export async function run(argv: string[]): Promise<number> {
     let baselineSource: string | null = null;
     if (args.diff !== null) {
         try {
-            baselineSource = readFileSync(resolve(args.diff), 'utf-8');
+            // An ARN and a path are distinguishable with no ambiguity: no path
+            // begins `arn:`. This is what makes live-against-live drift work
+            // without a second flag.
+            baselineSource = isStateMachineArn(args.diff)
+                ? await fetchStateMachineDefinition({
+                      arn: parseStateMachineArn({ value: args.diff }),
+                  })
+                : readFileSync(resolve(args.diff), 'utf-8');
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Failed to read --diff baseline: ${message}\n`,
-            );
+            // A CliAwsError already names the ARN and says it was a fetch.
+            const prefix =
+                error instanceof CliAwsError
+                    ? ''
+                    : 'Failed to read --diff baseline: ';
+            process.stderr.write(`${prefix}${message}\n`);
             return EXIT_FAILURE;
         }
     }
@@ -1691,15 +1880,12 @@ export async function run(argv: string[]): Promise<number> {
         }
     }
 
-    // One entry per input, so the single-input path is the same code as a batch of one.
-    const work: Array<{ input: string | null; outputPath: string | null }> =
-        inputs.length === 0
-            ? [{ input: null, outputPath: args.output }]
-            : inputs.map((input, index) => ({
-                  input,
-                  outputPath:
-                      planned === null ? args.output : planned[index].output,
-              }));
+    // One entry per source, so the single-input path is the same code as a batch of one.
+    const work: Array<{ outputPath: string | null; source: CliInputSource }> =
+        sources.map((source, index) => ({
+            outputPath: planned === null ? args.output : planned[index].output,
+            source,
+        }));
     // A batch names its files, and so does a glob even when it expanded to one: the
     // caller chose a pattern rather than a path, so which file was selected is
     // exactly what they do not know. A single literal input needs no label - the
@@ -1715,10 +1901,10 @@ export async function run(argv: string[]): Promise<number> {
             args,
             baselineSource,
             historySource,
-            input: item.input,
             labelInput,
             options,
             outputPath: item.outputPath,
+            source: item.source,
             theme,
         });
         if (code !== EXIT_OK) worstCode = code;

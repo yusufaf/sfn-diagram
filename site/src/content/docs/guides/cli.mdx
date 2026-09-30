@@ -21,6 +21,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
 | `--out-dir <dir>` | Write one output file per input into this directory — see [Rendering several files](#rendering-several-files) |
+| `--from-aws <arn>` | Fetch the definition live from AWS instead of reading a file — see [Rendering a live state machine](#rendering-a-live-state-machine) |
 | `--config <path>` | Read defaults from this [config file](#configuration-file) instead of searching for one |
 | `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
@@ -263,6 +264,99 @@ nothing. See [Exit codes](#exit-codes).
 
 `--check` works over several inputs too, printing each file's diagnostics under its name
 and exiting `1` if any input has an error.
+
+## Rendering a live state machine
+
+`--from-aws` fetches a definition from AWS with `DescribeStateMachine` instead of reading
+it from disk:
+
+```bash
+sfn-diagram --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders -o live.svg
+```
+
+It needs the optional peer dependency:
+
+```bash
+pnpm add @aws-sdk/client-sfn
+```
+
+### Region and credentials
+
+The **region comes from the ARN** — there is no separate region flag, because the ARN
+already says which region the state machine is in. Credentials come from the AWS SDK's default
+provider chain, so `AWS_PROFILE`, `AWS_REGION`, SSO, an EC2/ECS instance role and
+`~/.aws/credentials` all work the way they do for the AWS CLI:
+
+```bash
+AWS_PROFILE=prod sfn-diagram --from-aws arn:aws:states:eu-west-1:111122223333:stateMachine:Orders -o prod.svg
+```
+
+With no usable credentials the run exits 1 and says where to look:
+
+```
+$ sfn-diagram --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders
+Failed to fetch state machine arn:aws:states:us-east-1:111122223333:stateMachine:Orders from AWS: Could not load credentials from any providers
+Set AWS_PROFILE / AWS_REGION, or configure the AWS CLI (aws configure).
+```
+
+### An ARN, not a name
+
+`--from-aws` takes a state machine ARN, a version ARN (`…:stateMachine:Orders:3`) or an
+alias ARN (`…:stateMachine:Orders:PROD`) — the three `DescribeStateMachine` itself
+accepts. A bare name is refused, because resolving one would take a second API call and
+a region flag that the ARN form makes unnecessary:
+
+```
+$ sfn-diagram --from-aws Orders
+--from-aws expects a state machine ARN (arn:aws:states:<region>:<account>:stateMachine:<name>); got "Orders" (--from-aws)
+```
+
+That is exit 2, like any other bad flag value — nothing is fetched.
+
+### Several state machines
+
+`--from-aws` is repeatable. With `--out-dir`, each output is named after the **state
+machine**, not the ARN:
+
+```bash
+sfn-diagram \
+  --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders \
+  --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Refunds \
+  --out-dir diagrams
+# diagrams/Orders.svg, diagrams/Refunds.svg
+```
+
+Two ARNs whose state machines share a name — the same machine in two accounts or two
+regions — collide on that filename and are refused before anything is written, the same
+way [two colliding file inputs](#output-filenames) are.
+
+A failing ARN does not stop the batch: the others still render and the run exits 1.
+
+### What it combines with
+
+- **`--diff`** compares a live definition against a baseline, and the baseline may
+  itself be an ARN — so live-against-live drift needs no extra flag:
+  ```bash
+  # deployed vs. the repo
+  sfn-diagram --from-aws arn:...:stateMachine:Orders --diff machines/order.asl.json --format mermaid
+  # staging vs. production
+  sfn-diagram --from-aws arn:aws:states:us-east-1:1:stateMachine:Orders \
+              --diff arn:aws:states:eu-west-1:2:stateMachine:Orders --format mermaid
+  ```
+- **`--execution <history.json>`** overlays a run on a live definition.
+- **`--check`** lints what is deployed without drawing it.
+- **`--out-dir`**, as above.
+
+`--resolve-cfn` and `--resource` are refused (exit 2): `DescribeStateMachine` returns ASL,
+never a CloudFormation template, so there is nothing to unwrap.
+
+`--from-aws` is **not available in the [standalone binary](#standalone-binary)** — a
+single-file executable has no `node_modules` to load an optional peer from. Use the npm
+package instead:
+
+```bash
+npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram --from-aws arn:...
+```
 
 ## Custom theme files
 
