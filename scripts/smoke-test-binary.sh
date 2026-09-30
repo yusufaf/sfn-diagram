@@ -4,7 +4,8 @@
 #
 # Checks that the binary reports the package.json version, renders the same
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
-# `--format png` with the standalone pointer instead of a missing-module error.
+# `--format png` and `--from-aws` with the standalone pointer instead of a
+# missing-module error.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only, and only when
 # the host CPU matches the binary - an arm64 binary cannot run in an x64
@@ -67,6 +68,39 @@ set -e
 [ "$png_status" -eq 2 ] || fail "expected exit 2 for --format png, got $png_status"
 echo "$png_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected --format png stderr: $png_stderr"
+
+# --from-aws is refused because a compiled binary has no node_modules to load an
+# optional peer from. The SDK is in fact bundled into the binary today (see #341),
+# so without this guard the flag does NOT fail as an unresolved import - it makes a
+# real DescribeStateMachine call. The guard is therefore the only reason this check
+# is safe offline, which is exactly why it is asserted here.
+echo "== --from-aws is refused with a pointer"
+set +e
+aws_stderr="$("$binary" \
+    --from-aws arn:aws:states:us-east-1:123456789012:stateMachine:Orders \
+    2>&1 >/dev/null)"
+aws_status=$?
+set -e
+[ "$aws_status" -eq 2 ] || fail "expected exit 2 for --from-aws, got $aws_status"
+echo "$aws_stderr" | grep -q 'not available in the standalone binary' ||
+    fail "unexpected --from-aws stderr: $aws_stderr"
+echo "$aws_stderr" | grep -q '@aws-sdk/client-sfn' ||
+    fail "--from-aws refusal did not name the package to install: $aws_stderr"
+
+# `--diff <arn>` is the same AWS call by another flag. A guard that only knew about
+# --from-aws left the binary contradicting its own refusal and the docs, so both
+# routes are asserted here.
+echo "== an ARN --diff baseline is refused too"
+set +e
+diff_stderr="$("$binary" "$fixture" --format mermaid \
+    --diff arn:aws:states:us-east-1:123456789012:stateMachine:Orders \
+    2>&1 >/dev/null)"
+diff_status=$?
+set -e
+[ "$diff_status" -eq 2 ] ||
+    fail "expected exit 2 for an ARN --diff baseline, got $diff_status"
+echo "$diff_stderr" | grep -q 'not available in the standalone binary' ||
+    fail "unexpected ARN --diff stderr: $diff_stderr"
 
 # The binary is the one surface `pnpm test` cannot reach, and the exit-code
 # convention is the sort of contract that breaks silently there. Asserting one code

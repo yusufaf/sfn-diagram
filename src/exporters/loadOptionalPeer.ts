@@ -1,5 +1,11 @@
 /** Parameters for {@link loadOptionalPeer}. */
 export interface LoadOptionalPeerParams<T> {
+    /**
+     * What needed the peer, named at the start of the "missing peer" error, e.g.
+     * `'PNG export'` or `'--from-aws'`. Defaults to `'PNG export'`, which is what
+     * the two rasterizer engines want.
+     */
+    feature?: string;
     /** Appended to the "missing peer" error, e.g. pointing at an alternative engine. */
     hint?: string;
     /** How to load the module once found, e.g. unwrapping a CJS default export. */
@@ -18,7 +24,7 @@ export interface LoadOptionalPeerParams<T> {
  * @returns The loaded module.
  */
 export async function loadOptionalPeer<T>(params: LoadOptionalPeerParams<T>): Promise<T> {
-    const { hint = '', load, packageName } = params;
+    const { feature = 'PNG export', hint = '', load, packageName } = params;
     try {
         return await load();
     } catch (error) {
@@ -26,7 +32,7 @@ export async function loadOptionalPeer<T>(params: LoadOptionalPeerParams<T>): Pr
             throw new Error(`Failed to load '${packageName}': ${error.message}`, { cause: error });
         }
         throw new Error(
-            `PNG export requires the optional peer dependency '${packageName}'. ` +
+            `${feature} requires the optional peer dependency '${packageName}'. ` +
                 `Install it with: npm install ${packageName}${hint}`
         );
     }
