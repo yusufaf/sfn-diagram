@@ -1636,6 +1636,19 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
+    // Same reasoning as --format png above: the flag is valid and this build cannot
+    // honour it. A compiled binary has no node_modules to load an optional peer
+    // from, and bundling the AWS SDK into all five platform binaries to serve one
+    // flag is a cost every user pays and few would use.
+    if (args.fromAws.length > 0 && readBuildInfo()?.standalone) {
+        process.stderr.write(
+            '--from-aws is not available in the standalone binary: the AWS SDK it ' +
+                'needs cannot be bundled into a single-file executable. Use the npm ' +
+                'package instead (npx --package sfn-diagram --package ' +
+                '@aws-sdk/client-sfn sfn-diagram --from-aws …).\n',
+        );
+        return EXIT_USAGE;
+    }
     // `--out-dir` names the destination just as well as `-o` does, and PNG is one of
     // the formats OUTPUT_EXTENSIONS covers, so demanding `-o` here made batch PNG
     // impossible while the extension map, a unit test and the guide all offered it.

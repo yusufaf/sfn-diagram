@@ -1242,6 +1242,25 @@ describe('standalone binary build info', () => {
         expect(stderrData).toContain('@resvg/resvg-js');
     });
 
+    it('refuses --from-aws with a pointer to the npm package', async () => {
+        const code = await run([
+            '--from-aws',
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
+        ]);
+        expect(code).toBe(2);
+        expect(stderrData).toContain('not available in the standalone binary');
+        expect(stderrData).toContain('@aws-sdk/client-sfn');
+    });
+
+    it('refuses --from-aws before attempting any AWS call', async () => {
+        sfnSendMock.mockReset();
+        await run([
+            '--from-aws',
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
+        ]);
+        expect(sfnSendMock).not.toHaveBeenCalled();
+    });
+
     it('still renders SVG', async () => {
         const code = await run([simpleFixture]);
         expect(code).toBe(0);

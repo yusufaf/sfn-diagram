@@ -4,7 +4,8 @@
 #
 # Checks that the binary reports the package.json version, renders the same
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
-# `--format png` with the standalone pointer instead of a missing-module error.
+# `--format png` and `--from-aws` with the standalone pointer instead of a
+# missing-module error.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only, and only when
 # the host CPU matches the binary - an arm64 binary cannot run in an x64
@@ -67,6 +68,23 @@ set -e
 [ "$png_status" -eq 2 ] || fail "expected exit 2 for --format png, got $png_status"
 echo "$png_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected --format png stderr: $png_stderr"
+
+# --from-aws is refused for the same reason and must not reach the AWS SDK: a
+# compiled binary has no node_modules to load an optional peer from, so without
+# this guard the flag would fail as an unresolved dynamic import rather than as
+# a usage error. No network call happens either way, so this is safe offline.
+echo "== --from-aws is refused with a pointer"
+set +e
+aws_stderr="$("$binary" \
+    --from-aws arn:aws:states:us-east-1:123456789012:stateMachine:Orders \
+    2>&1 >/dev/null)"
+aws_status=$?
+set -e
+[ "$aws_status" -eq 2 ] || fail "expected exit 2 for --from-aws, got $aws_status"
+echo "$aws_stderr" | grep -q 'not available in the standalone binary' ||
+    fail "unexpected --from-aws stderr: $aws_stderr"
+echo "$aws_stderr" | grep -q '@aws-sdk/client-sfn' ||
+    fail "--from-aws refusal did not name the package to install: $aws_stderr"
 
 # The binary is the one surface `pnpm test` cannot reach, and the exit-code
 # convention is the sort of contract that breaks silently there. Asserting one code
