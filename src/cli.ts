@@ -541,10 +541,10 @@ const BARE_COLLAPSE_SENTINEL = '\u0000';
  */
 function readArn(flag: string, value: string): string {
     try {
-        parseStateMachineArn({ value });
+        parseStateMachineArn({ flag, value });
     } catch (error) {
         if (!(error instanceof CliAwsError)) throw error;
-        throw new CliError(`${error.message} (${flag})`, EXIT_USAGE);
+        throw new CliError(error.message, EXIT_USAGE);
     }
     return value;
 }
@@ -1700,7 +1700,7 @@ export async function run(argv: string[]): Promise<number> {
     if (args.fromAws.length > 0) {
         // Already validated in parseArgs, so this cannot throw here.
         sources = args.fromAws.map((value) => ({
-            arn: parseStateMachineArn({ value }),
+            arn: parseStateMachineArn({ flag: '--from-aws', value }),
             kind: 'aws' as const,
         }));
     } else if (args.inputs.length === 0) {
@@ -1863,7 +1863,10 @@ export async function run(argv: string[]): Promise<number> {
             // without a second flag.
             baselineSource = isStateMachineArn(args.diff)
                 ? await fetchStateMachineDefinition({
-                      arn: parseStateMachineArn({ value: args.diff }),
+                      arn: parseStateMachineArn({
+                          flag: '--diff',
+                          value: args.diff,
+                      }),
                   })
                 : readFileSync(resolve(args.diff), 'utf-8');
         } catch (error) {

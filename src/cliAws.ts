@@ -58,6 +58,12 @@ export function isStateMachineArn(value: string): boolean {
 
 /** Parameters for {@link parseStateMachineArn}. */
 export interface ParseStateMachineArnParams {
+    /**
+     * The flag the value came from, named at the start of a rejection. Defaults to
+     * `'--from-aws'`. `--diff` accepts an ARN too, and telling its user about
+     * `--from-aws` would send them to the wrong flag.
+     */
+    flag?: string;
     /** The raw `--from-aws` (or `--diff`) value. */
     value: string;
 }
@@ -76,7 +82,8 @@ export interface ParseStateMachineArnParams {
  * @returns The ARN's region, name and optional qualifier.
  *
  * @throws {CliAwsError} When the value is not a Step Functions state machine ARN,
- *   quoting the value and the shape expected. Callers map this to exit 2.
+ *   naming the flag it came from and quoting the value and the shape expected.
+ *   Callers map this to exit 2.
  *
  * @example
  * ```typescript
@@ -89,13 +96,13 @@ export interface ParseStateMachineArnParams {
 export function parseStateMachineArn(
     params: ParseStateMachineArnParams,
 ): ParsedStateMachineArn {
-    const { value } = params;
+    const { flag = '--from-aws', value } = params;
     const segments = value.split(':');
     const [prefix, partition, service, region, , resourceType, name] = segments;
 
     const reject = (): never => {
         throw new CliAwsError(
-            `--from-aws expects a state machine ARN (${ARN_SHAPE}); got ${JSON.stringify(value)}`,
+            `${flag} expects a state machine ARN (${ARN_SHAPE}); got ${JSON.stringify(value)}`,
         );
     };
 

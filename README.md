@@ -55,8 +55,24 @@ Prefer the command line:
 npx sfn-diagram my-workflow.asl.json --format svg -o diagram.svg
 ```
 
-It exits `0` on success, `1` when something goes wrong while running, and `2` when the
-invocation itself was wrong — so a CI job can tell a bad flag from a bad definition. See
+Or render what is actually deployed, with `--from-aws`:
+
+```bash
+pnpm add @aws-sdk/client-sfn   # optional peer, only needed for --from-aws
+sfn-diagram --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders -o live.svg
+```
+
+The region comes from the ARN and credentials from the AWS SDK's default chain, so
+`AWS_PROFILE`, SSO and instance roles work as they do for the AWS CLI. The flag takes a
+state machine, version or alias ARN — not a bare name — is repeatable with `--out-dir`,
+and combines with `--diff` (whose baseline may itself be an ARN, for live-against-live
+drift), `--execution` and `--check`. It needs the optional peer above, so it is
+unavailable in the [standalone binary](https://sfn.yusufaf.dev/guides/cli/#standalone-binary).
+See [Rendering a live state machine](https://sfn.yusufaf.dev/guides/cli/#rendering-a-live-state-machine).
+
+It exits `0` on success, `1` when something goes wrong while running — including a failed
+AWS call — and `2` when the invocation itself was wrong, so a CI job can tell a bad flag
+from a bad definition. See
 [Exit codes](https://sfn.yusufaf.dev/guides/cli/#exit-codes).
 
 ## Why sfn-diagram
@@ -86,7 +102,7 @@ In short: reach for the AWS Console visualizer to eyeball a state machine you al
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
-- **AWS SDK Integration**: Direct integration with AWS Step Functions API
+- **AWS SDK Integration**: Direct integration with AWS Step Functions API, from the API (`generateFromAwsResponse`) or the CLI (`--from-aws <arn>`)
 - **Dual APIs**: Function-based and class-based interfaces
 - **Runs Anywhere**: SVG and Mermaid generation has zero platform dependencies — works in Node, the browser, and edge runtimes
 - **Collapse Large Diagrams**: Replace Parallel/Map containers with placeholder nodes before layout so huge diagrams stay readable, with a live toggle in the interactive HTML viewer. See the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/) for `collapse` and every other option.

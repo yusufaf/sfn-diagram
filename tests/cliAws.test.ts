@@ -142,6 +142,20 @@ describe('parseStateMachineArn', () => {
         ).toThrow(CliAwsError);
     });
 
+    it('names the flag that supplied the value, not always --from-aws', () => {
+        // --diff accepts an ARN too; telling its user about --from-aws sends them
+        // to the wrong flag.
+        expect(() =>
+            parseStateMachineArn({ flag: '--diff', value: 'Orders' }),
+        ).toThrow(/--diff expects a state machine ARN/);
+    });
+
+    it('defaults to naming --from-aws', () => {
+        expect(() => parseStateMachineArn({ value: 'Orders' })).toThrow(
+            /--from-aws expects a state machine ARN/,
+        );
+    });
+
     it('echoes the value it was given, so the message is actionable', () => {
         expect(() => parseStateMachineArn({ value: 'Orders' })).toThrow(
             /"Orders"/,
