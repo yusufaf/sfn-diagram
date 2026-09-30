@@ -10,6 +10,12 @@
  * so a malformed ARN is a usage error reported before any client is constructed.
  */
 
+import { loadOptionalPeer } from './exporters/loadOptionalPeer';
+import type {
+    DescribeStateMachineCommandOutput,
+    SFNClient,
+} from '@aws-sdk/client-sfn';
+
 /** Raised for an ARN the CLI cannot use, or an AWS call it could not complete. */
 export class CliAwsError extends Error {}
 
@@ -107,4 +113,107 @@ export function parseStateMachineArn(
         qualifier: segments.length === 8 ? segments[7] : null,
         region,
     };
+}
+
+/**
+ * The subset of `@aws-sdk/client-sfn` this module uses, so the dynamic import's
+ * result can be typed without a static dependency on the package's shape.
+ */
+interface SfnModule {
+    DescribeStateMachineCommand: new (input: {
+        stateMachineArn: string;
+    }) => object;
+    SFNClient: new (config: { region: string }) => SFNClient;
+}
+
+/** Error names and message fragments that mean "no usable credentials". */
+const CREDENTIAL_FAILURE_MARKERS = [
+    'CredentialsProviderError',
+    'Could not load credentials',
+];
+
+/** Appended to a credentials failure, and to nothing else. */
+const CREDENTIALS_HINT =
+    '\nSet AWS_PROFILE / AWS_REGION, or configure the AWS CLI (aws configure).';
+
+/** Parameters for {@link fetchStateMachineDefinition}. */
+export interface FetchStateMachineDefinitionParams {
+    /**
+     * The already-parsed ARN. Callers parse first so that a malformed ARN is a
+     * usage error reported before any client is constructed or peer loaded.
+     */
+    arn: ParsedStateMachineArn;
+}
+
+/**
+ * Fetch a live state machine's ASL definition with `DescribeStateMachine`.
+ *
+ * `@aws-sdk/client-sfn` is loaded with a dynamic import so that neither the core
+ * entry nor `dist/bin.js` carries AWS code: an install that never uses
+ * `--from-aws` never pays for the SDK. The definition is returned as the JSON
+ * string AWS sends, unparsed, because that is what `resolveDefinitionSource`
+ * already accepts.
+ *
+ * @param params - The parsed ARN to describe.
+ *
+ * @returns The state machine's ASL definition, as a JSON string.
+ *
+ * @throws {CliAwsError} When the optional peer is missing, the API call fails
+ *   (credentials, permissions, not found, throttling, network), or a successful
+ *   response carries no definition. Callers map this to exit 1.
+ *
+ * @example
+ * ```typescript
+ * const arn = parseStateMachineArn({ value: process.argv[2] });
+ * const definition = await fetchStateMachineDefinition({ arn });
+ * ```
+ */
+export async function fetchStateMachineDefinition(
+    params: FetchStateMachineDefinitionParams,
+): Promise<string> {
+    const { arn } = params;
+
+    let sfn: SfnModule;
+    try {
+        sfn = await loadOptionalPeer<SfnModule>({
+            feature: '--from-aws',
+            load: async () =>
+                (await import('@aws-sdk/client-sfn')) as unknown as SfnModule,
+            packageName: '@aws-sdk/client-sfn',
+        });
+    } catch (error) {
+        throw new CliAwsError(
+            error instanceof Error ? error.message : String(error),
+            { cause: error },
+        );
+    }
+
+    let response: DescribeStateMachineCommandOutput;
+    try {
+        const client = new sfn.SFNClient({ region: arn.region });
+        response = (await client.send(
+            new sfn.DescribeStateMachineCommand({
+                stateMachineArn: arn.arn,
+            }) as Parameters<SFNClient['send']>[0],
+        )) as DescribeStateMachineCommandOutput;
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        const name = error instanceof Error ? error.name : '';
+        const isCredentialFailure = CREDENTIAL_FAILURE_MARKERS.some(
+            (marker) => name === marker || reason.includes(marker),
+        );
+        throw new CliAwsError(
+            `Failed to fetch state machine ${arn.arn} from AWS: ${reason}` +
+                (isCredentialFailure ? CREDENTIALS_HINT : ''),
+            { cause: error },
+        );
+    }
+
+    if (response.definition === undefined) {
+        throw new CliAwsError(
+            `AWS returned no definition for ${arn.arn}. ` +
+                'DescribeStateMachine succeeded but the response was empty.',
+        );
+    }
+    return response.definition;
 }

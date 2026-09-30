@@ -1,12 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     CliAwsError,
+    fetchStateMachineDefinition,
     isStateMachineArn,
     parseStateMachineArn,
 } from '../src/cliAws';
 
 const plainArn =
     'arn:aws:states:us-east-1:123456789012:stateMachine:OrderProcessing';
+
+const { clientConfigs, describeInputs, sendMock } = vi.hoisted(() => ({
+    clientConfigs: [] as unknown[],
+    describeInputs: [] as unknown[],
+    sendMock: vi.fn(),
+}));
+
+vi.mock('@aws-sdk/client-sfn', () => ({
+    DescribeStateMachineCommand: class {
+        constructor(input: unknown) {
+            describeInputs.push(input);
+        }
+    },
+    SFNClient: class {
+        send = sendMock;
+        constructor(config: unknown) {
+            clientConfigs.push(config);
+        }
+    },
+}));
 
 describe('isStateMachineArn', () => {
     it('recognises a state machine ARN', () => {
@@ -125,5 +146,100 @@ describe('parseStateMachineArn', () => {
         expect(() => parseStateMachineArn({ value: 'Orders' })).toThrow(
             /"Orders"/,
         );
+    });
+});
+
+describe('fetchStateMachineDefinition', () => {
+    const arn = parseStateMachineArn({ value: plainArn });
+
+    beforeEach(() => {
+        sendMock.mockReset();
+        clientConfigs.length = 0;
+        describeInputs.length = 0;
+    });
+
+    it('returns the definition string verbatim', async () => {
+        const definition =
+            '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}';
+        sendMock.mockResolvedValue({ definition, name: 'OrderProcessing' });
+
+        await expect(fetchStateMachineDefinition({ arn })).resolves.toBe(
+            definition,
+        );
+    });
+
+    it('constructs the client for the ARN region', async () => {
+        sendMock.mockResolvedValue({ definition: '{}' });
+        await fetchStateMachineDefinition({ arn });
+        expect(clientConfigs).toEqual([{ region: 'us-east-1' }]);
+    });
+
+    it('asks for the full ARN, qualifier included', async () => {
+        sendMock.mockResolvedValue({ definition: '{}' });
+        const versioned = parseStateMachineArn({ value: `${plainArn}:3` });
+        await fetchStateMachineDefinition({ arn: versioned });
+        expect(describeInputs).toEqual([
+            { stateMachineArn: `${plainArn}:3` },
+        ]);
+    });
+
+    it('rejects when a successful call carries no definition', async () => {
+        // DescribeStateMachineOutput.definition is `string | undefined`.
+        sendMock.mockResolvedValue({ name: 'OrderProcessing' });
+        await expect(fetchStateMachineDefinition({ arn })).rejects.toThrow(
+            /returned no definition/,
+        );
+    });
+
+    it('names the ARN in an API failure', async () => {
+        sendMock.mockRejectedValue(
+            Object.assign(new Error('State Machine Does Not Exist'), {
+                name: 'StateMachineDoesNotExist',
+            }),
+        );
+
+        await expect(fetchStateMachineDefinition({ arn })).rejects.toThrow(
+            plainArn,
+        );
+    });
+
+    it('does not add a credentials hint to a not-found failure', async () => {
+        sendMock.mockRejectedValue(
+            Object.assign(new Error('State Machine Does Not Exist'), {
+                name: 'StateMachineDoesNotExist',
+            }),
+        );
+        await expect(
+            fetchStateMachineDefinition({ arn }),
+        ).rejects.not.toThrow(/aws configure/);
+    });
+
+    it('appends an AWS_PROFILE pointer to a credentials failure', async () => {
+        sendMock.mockRejectedValue(
+            Object.assign(
+                new Error('Could not load credentials from any providers'),
+                { name: 'CredentialsProviderError' },
+            ),
+        );
+        await expect(fetchStateMachineDefinition({ arn })).rejects.toThrow(
+            /AWS_PROFILE[\s\S]*aws configure/,
+        );
+    });
+
+    it('appends the pointer when only the message identifies the failure', async () => {
+        // Some credential providers throw a plain Error with no distinctive name.
+        sendMock.mockRejectedValue(
+            new Error('Could not load credentials from any providers'),
+        );
+        await expect(fetchStateMachineDefinition({ arn })).rejects.toThrow(
+            /aws configure/,
+        );
+    });
+
+    it('throws CliAwsError, so the CLI can map it to one exit code', async () => {
+        sendMock.mockRejectedValue(new Error('Throttling'));
+        await expect(
+            fetchStateMachineDefinition({ arn }),
+        ).rejects.toBeInstanceOf(CliAwsError);
     });
 });
