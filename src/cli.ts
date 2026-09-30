@@ -1597,8 +1597,11 @@ export async function run(argv: string[]): Promise<number> {
         try {
             planned = planOutputPaths({
                 format: options.format,
-                inputs,
                 outDir: args.outDir,
+                sources: inputs.map((input) => ({
+                    label: input,
+                    nameSource: input,
+                })),
             });
         } catch (error) {
             if (!(error instanceof CliInputError)) throw error;

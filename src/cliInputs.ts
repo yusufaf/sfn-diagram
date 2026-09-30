@@ -280,10 +280,22 @@ export function deriveOutputName(params: DeriveOutputNameParams): string {
     return `${stem}${OUTPUT_EXTENSIONS[format]}`;
 }
 
-/** One input and the file its output goes to. */
+/** One source and the name its output file is derived from. */
+export interface OutputNamingSource {
+    /** How this source is named in errors: a file path, or an ARN. */
+    label: string;
+    /**
+     * The string the output filename is derived from — a path for a file input, a
+     * state machine name for an ARN. Kept separate from {@link OutputNamingSource.label}
+     * because an ARN has no basename and its colons cannot be part of a filename.
+     */
+    nameSource: string;
+}
+
+/** One source and the file its output goes to. */
 export interface PlannedOutput {
-    /** The input path, as it will be read. */
-    input: string;
+    /** How the source is named in errors: a file path, or an ARN. */
+    label: string;
     /** The output path, inside the requested output directory. */
     output: string;
 }
@@ -292,14 +304,14 @@ export interface PlannedOutput {
 export interface PlanOutputPathsParams {
     /** The output format, which decides each extension. */
     format: DiagramFormat;
-    /** The inputs, in the order they will be rendered. */
-    inputs: string[];
     /** Directory every output is written into. */
     outDir: string;
+    /** The sources, in the order they will be rendered. */
+    sources: OutputNamingSource[];
 }
 
 /**
- * Pair every input with its output path, refusing the whole batch if two collide.
+ * Pair every source with its output path, refusing the whole batch if two collide.
  *
  * Collisions are found before anything is written, so a rejected batch leaves no
  * half-populated output directory behind. Every colliding group is reported, not just
@@ -308,43 +320,47 @@ export interface PlanOutputPathsParams {
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
- * @param params.inputs - The inputs, in the order they will be rendered
  * @param params.outDir - Directory every output is written into
+ * @param params.sources - The sources, in the order they will be rendered
  *
- * @returns One entry per input, in the order given.
+ * @returns One entry per source, in the order given.
  *
- * @throws {CliInputError} When two or more inputs derive the same output name.
+ * @throws {CliInputError} When two or more sources derive the same output name.
  *
  * @example
  * ```typescript
- * planOutputPaths({ format: 'svg', inputs: ['a/order.asl.json'], outDir: 'out' });
- * // [{ input: 'a/order.asl.json', output: 'out/order.svg' }]
+ * planOutputPaths({
+ *     format: 'svg',
+ *     outDir: 'out',
+ *     sources: [{ label: 'a/order.asl.json', nameSource: 'a/order.asl.json' }],
+ * });
+ * // [{ label: 'a/order.asl.json', output: 'out/order.svg' }]
  * ```
  */
 export function planOutputPaths(
     params: PlanOutputPathsParams,
 ): PlannedOutput[] {
-    const { format, inputs, outDir } = params;
+    const { format, outDir, sources } = params;
     const byName = new Map<string, string[]>();
 
-    for (const input of inputs) {
-        const name = deriveOutputName({ format, input });
+    for (const source of sources) {
+        const name = deriveOutputName({ format, input: source.nameSource });
         const existing = byName.get(name);
         if (existing === undefined) {
-            byName.set(name, [input]);
+            byName.set(name, [source.label]);
         } else {
-            existing.push(input);
+            existing.push(source.label);
         }
     }
 
     const collisions = [...byName.entries()].filter(
-        ([, sources]) => sources.length > 1,
+        ([, labels]) => labels.length > 1,
     );
     if (collisions.length > 0) {
         const detail = collisions
             .map(
-                ([name, sources]) =>
-                    `  ${join(outDir, name)} <- ${sources.join(', ')}`,
+                ([name, labels]) =>
+                    `  ${join(outDir, name)} <- ${labels.join(', ')}`,
             )
             .join('\n');
         throw new CliInputError(
@@ -353,8 +369,11 @@ export function planOutputPaths(
         );
     }
 
-    return inputs.map((input) => ({
-        input,
-        output: join(outDir, deriveOutputName({ format, input })),
+    return sources.map((source) => ({
+        label: source.label,
+        output: join(
+            outDir,
+            deriveOutputName({ format, input: source.nameSource }),
+        ),
     }));
 }

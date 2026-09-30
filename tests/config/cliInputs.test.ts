@@ -338,16 +338,20 @@ describe('deriveOutputName', () => {
 });
 
 describe('planOutputPaths', () => {
+    /** A file input names its output after its own path, so both roles are the path. */
+    const fileSources = (...paths: string[]) =>
+        paths.map((path) => ({ label: path, nameSource: path }));
+
     it('pairs each input with a flattened output path', () => {
         expect(
             planOutputPaths({
                 format: 'svg',
-                inputs: ['a/order.asl.json', 'b/refund.asl.json'],
                 outDir: 'out',
+                sources: fileSources('a/order.asl.json', 'b/refund.asl.json'),
             }),
         ).toEqual([
-            { input: 'a/order.asl.json', output: join('out', 'order.svg') },
-            { input: 'b/refund.asl.json', output: join('out', 'refund.svg') },
+            { label: 'a/order.asl.json', output: join('out', 'order.svg') },
+            { label: 'b/refund.asl.json', output: join('out', 'refund.svg') },
         ]);
     });
 
@@ -356,8 +360,8 @@ describe('planOutputPaths', () => {
         try {
             planOutputPaths({
                 format: 'svg',
-                inputs: ['a/order.asl.json', 'b/order.asl.json'],
                 outDir: 'out',
+                sources: fileSources('a/order.asl.json', 'b/order.asl.json'),
             });
             expect.unreachable('two inputs map to the same output');
         } catch (error) {
@@ -374,13 +378,13 @@ describe('planOutputPaths', () => {
         try {
             planOutputPaths({
                 format: 'svg',
-                inputs: [
+                outDir: 'out',
+                sources: fileSources(
                     'a/order.asl.json',
                     'b/order.asl.json',
                     'a/refund.asl.json',
                     'b/refund.asl.json',
-                ],
-                outDir: 'out',
+                ),
             });
             expect.unreachable('two pairs collide');
         } catch (error) {
@@ -395,8 +399,8 @@ describe('planOutputPaths', () => {
         expect(() =>
             planOutputPaths({
                 format: 'svg',
-                inputs: ['order.asl.json', 'order.asl'],
                 outDir: 'out',
+                sources: fileSources('order.asl.json', 'order.asl'),
             }),
         ).toThrowError(/order\.svg/);
     });
@@ -405,11 +409,11 @@ describe('planOutputPaths', () => {
         expect(
             planOutputPaths({
                 format: 'mermaid',
-                inputs: ['order.asl.json'],
                 outDir: 'out',
+                sources: fileSources('order.asl.json'),
             }),
         ).toEqual([
-            { input: 'order.asl.json', output: join('out', 'order.mmd') },
+            { label: 'order.asl.json', output: join('out', 'order.mmd') },
         ]);
     });
 
@@ -420,13 +424,50 @@ describe('planOutputPaths', () => {
         try {
             planOutputPaths({
                 format: 'svg',
-                inputs: ['a/order.asl.json', 'b/order.asl.json'],
                 outDir: 'out',
+                sources: fileSources('a/order.asl.json', 'b/order.asl.json'),
             });
             expect.unreachable('two inputs map to the same output');
         } catch (error) {
             message = (error as Error).message;
         }
         expect(message).not.toContain('--preserve-tree');
+    });
+
+    it('derives an ARN output name from the state machine name, not the ARN', () => {
+        // An ARN has no basename and its colons are illegal in a Windows filename,
+        // so the name it is written under has to come from somewhere else.
+        const arn =
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+        expect(
+            planOutputPaths({
+                format: 'svg',
+                outDir: 'out',
+                sources: [{ label: arn, nameSource: 'Orders' }],
+            }),
+        ).toEqual([{ label: arn, output: join('out', 'Orders.svg') }]);
+    });
+
+    it('refuses two ARNs whose state machine names collide, naming both ARNs', () => {
+        const first =
+            'arn:aws:states:us-east-1:111111111111:stateMachine:Orders';
+        const second =
+            'arn:aws:states:eu-west-1:222222222222:stateMachine:Orders';
+        const sources = [
+            { label: first, nameSource: 'Orders' },
+            { label: second, nameSource: 'Orders' },
+        ];
+
+        let message = '';
+        try {
+            planOutputPaths({ format: 'svg', outDir: 'out', sources });
+            expect.unreachable('two ARNs map to the same output');
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliInputError);
+            message = (error as Error).message;
+        }
+        expect(message).toContain(first);
+        expect(message).toContain(second);
+        expect(message).toContain(join('out', 'Orders.svg'));
     });
 });
