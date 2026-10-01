@@ -728,6 +728,34 @@ jobs:
           # branch with no upstream, and a bare `git push` fails there.
           git push -u origin HEAD
 
+  # `homebrew-tap` above is opt-in and *skips* when HOMEBREW_TAP_REPO is unset. A skip
+  # is not a failure, so `report-publish-failure` below never fires for it - the formula
+  # would quietly stop tracking releases while README.md keeps telling people to run
+  # `brew install yusufaf/tap/sfn-diagram`. This job always runs and says which of the
+  # three things happened, so the answer is on the run summary either way.
+  homebrew-tap-status:
+    name: Report Homebrew status
+    needs: [binaries-verify, homebrew-tap]
+    if: always() && needs.binaries-verify.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Summarise the formula's publish status
+        env:
+          TAP_OWNER: ${{ github.repository_owner }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          TAP_RESULT: ${{ needs.homebrew-tap.result }}
+        run: |
+          if [ -z "$TAP_REPO" ]; then
+            echo "::warning title=Homebrew formula not updated::The HOMEBREW_TAP_REPO repository variable is unset, so the homebrew-tap job was skipped and the formula still points at the previous release. README.md documents 'brew install yusufaf/tap/sfn-diagram', so that instruction is now stale."
+            echo "- **Homebrew formula:** skipped - the \`HOMEBREW_TAP_REPO\` repository variable is unset, so the tap was not updated and \`brew install\` still resolves to the previous release." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAP_RESULT" = "success" ]; then
+            echo "- **Homebrew formula:** pushed to \`$TAP_OWNER/$TAP_REPO\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Homebrew formula:** the \`homebrew-tap\` job finished as \`$TAP_RESULT\`; the publish-failure reporter covers that case." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # None of the publish jobs above are triggered by a human clicking something -
   # a failure has no "actor" to notify. File an issue so a broken publish to any
   # registry can't silently sit in the Actions tab unnoticed the way the Docker

@@ -15,11 +15,13 @@ Search for **Step Functions Diagram** in the Extensions panel, or:
 code --install-extension yusufaf.vscode-sfn-diagram
 ```
 
-The same build is published to [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram), which is the default registry for **Cursor, Windsurf, VSCodium, Gitpod, and Eclipse Theia** — searching the Extensions panel works there too:
+It is also published to [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram), the default registry for **Cursor, Windsurf, VSCodium, Gitpod, and Eclipse Theia** — searching the Extensions panel works there too:
 
 ```bash
 codium --install-extension yusufaf.vscode-sfn-diagram
 ```
+
+Open VSX is published automatically on every release, so it always carries the current version. The VS Code Marketplace is still published by hand, so that listing can trail a release or two behind — the two version badges above report what each registry has right now. [Issue #40](https://github.com/yusufaf/sfn-diagram/issues/40) tracks automating it.
 
 ## Features
 
