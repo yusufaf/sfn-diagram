@@ -6,6 +6,9 @@ vi.mock('@aws-sdk/client-sfn', () => ({
     DescribeStateMachineCommand: class {
         constructor(public input: unknown) {}
     },
+    GetExecutionHistoryCommand: class {
+        constructor(public input: unknown) {}
+    },
     SFNClient: class {
         send = sfnSendMock;
     },
@@ -14,6 +17,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -1272,6 +1276,18 @@ describe('standalone binary build info', () => {
             'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
             '--format',
             'mermaid',
+        ]);
+        expect(code).toBe(2);
+        expect(stderrData).toContain('not available in the standalone binary');
+        expect(sfnSendMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses an ARN --execution too, the third route to an AWS call', async () => {
+        sfnSendMock.mockReset();
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            'arn:aws:states:us-east-1:123456789012:execution:Orders:run-1',
         ]);
         expect(code).toBe(2);
         expect(stderrData).toContain('not available in the standalone binary');
@@ -3595,5 +3611,392 @@ describe('run --from-aws', () => {
             ]),
         ).toBe(1);
         expect(errors.join('')).toContain('Failed to read --diff baseline');
+    });
+});
+
+describe('--execution <arn> and --follow', () => {
+    const executionArn =
+        'arn:aws:states:us-east-1:123456789012:execution:Simple:run-1';
+    let tempDir: string;
+    let errors: string[];
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+    /** The history fixture that matches simple.asl.json, as HistoryEvent-ish JSON. */
+    const events = () =>
+        JSON.parse(
+            readFileSync(
+                join(__dirname, 'fixtures', 'execution-success.json'),
+                'utf-8',
+            ),
+        ).events as unknown[];
+
+    /** A history with no terminal event, so --follow keeps going. */
+    const runningEvents = () =>
+        events().filter(
+            (event) =>
+                !/^Execution(Succeeded|Failed|Aborted|TimedOut)$/.test(
+                    (event as { type: string }).type,
+                ),
+        );
+
+    beforeEach(() => {
+        sfnSendMock.mockReset();
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-follow-'));
+        errors = [];
+        stderrSpy = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk: unknown) => {
+                errors.push(String(chunk));
+                return true;
+            });
+        stdoutSpy = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+        stderrSpy.mockRestore();
+        stdoutSpy.mockRestore();
+        rmSync(tempDir, { force: true, recursive: true });
+    });
+
+    describe('parseArgs', () => {
+        it('defaults --follow off and its two timings absent', () => {
+            const args = parseArgs(['in.json']);
+            expect(args).toMatchObject({
+                follow: false,
+                followTimeout: null,
+                pollInterval: null,
+            });
+        });
+
+        it('reads --poll-interval and --follow-timeout as seconds', () => {
+            const args = parseArgs([
+                'in.json',
+                '--poll-interval',
+                '10',
+                '--follow-timeout',
+                '600',
+            ]);
+            expect(args).toMatchObject({ followTimeout: 600, pollInterval: 10 });
+        });
+
+        it('rejects a sub-second poll interval', () => {
+            expect(() =>
+                parseArgs(['in.json', '--poll-interval', '0']),
+            ).toThrow(CliError);
+        });
+
+        it('rejects a non-numeric poll interval', () => {
+            expect(() =>
+                parseArgs(['in.json', '--poll-interval', 'soon']),
+            ).toThrow(CliError);
+        });
+
+        it('rejects a malformed --execution ARN as a usage error', () => {
+            expect(() =>
+                parseArgs([
+                    'in.json',
+                    '--execution',
+                    'arn:aws:states:us-east-1:1:stateMachine:Orders',
+                ]),
+            ).toThrow(/--execution expects an execution ARN/);
+        });
+
+        it('leaves an --execution path alone', () => {
+            expect(
+                parseArgs(['in.json', '--execution', 'history.json']).execution,
+            ).toBe('history.json');
+        });
+    });
+
+    describe('refusals', () => {
+        const expectRefusal = async (argv: string[], fragment: string) => {
+            expect(await run(argv)).toBe(2);
+            expect(errors.join('')).toContain(fragment);
+        };
+
+        it('refuses --follow without --execution', async () => {
+            await expectRefusal(
+                [simpleFixture, '--follow', '-o', join(tempDir, 'o.svg')],
+                '--follow needs --execution',
+            );
+        });
+
+        it('refuses --follow on a history file, which does not progress', async () => {
+            await expectRefusal(
+                [
+                    simpleFixture,
+                    '--execution',
+                    join(__dirname, 'fixtures', 'execution-success.json'),
+                    '--follow',
+                    '-o',
+                    join(tempDir, 'o.svg'),
+                ],
+                'a history file does not progress',
+            );
+        });
+
+        it('refuses --follow with no output destination', async () => {
+            await expectRefusal(
+                [simpleFixture, '--execution', executionArn, '--follow'],
+                '--follow needs --output or --out-dir',
+            );
+        });
+
+        it('refuses --poll-interval without --follow', async () => {
+            await expectRefusal(
+                [simpleFixture, '--poll-interval', '5'],
+                '--poll-interval and --follow-timeout only apply with --follow',
+            );
+        });
+
+        it('refuses --follow-timeout without --follow', async () => {
+            await expectRefusal(
+                [simpleFixture, '--follow-timeout', '60'],
+                '--poll-interval and --follow-timeout only apply with --follow',
+            );
+        });
+    });
+
+    it('renders a snapshot from an execution ARN without --follow', async () => {
+        sfnSendMock.mockResolvedValue({ events: events() });
+        const target = join(tempDir, 'run.svg');
+        expect(
+            await run([simpleFixture, '--execution', executionArn, '-o', target]),
+        ).toBe(0);
+        // Succeeded states are green; the overlay applied.
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+        expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('exits 1 when the history cannot be fetched, naming the ARN', async () => {
+        sfnSendMock.mockRejectedValue(
+            Object.assign(new Error('Execution Does Not Exist'), {
+                name: 'ExecutionDoesNotExist',
+            }),
+        );
+        expect(
+            await run([
+                simpleFixture,
+                '--execution',
+                executionArn,
+                '-o',
+                join(tempDir, 'run.svg'),
+            ]),
+        ).toBe(1);
+        expect(errors.join('')).toContain(executionArn);
+    });
+
+    it('polls until the execution finishes, rewriting one file', async () => {
+        sfnSendMock
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: events() });
+        const target = join(tempDir, 'run.svg');
+
+        expect(
+            await run([
+                simpleFixture,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--poll-interval',
+                '1',
+                '-o',
+                target,
+            ]),
+        ).toBe(0);
+
+        expect(sfnSendMock).toHaveBeenCalledTimes(2);
+        // One file, and it holds the final state.
+        expect(readdirSync(tempDir)).toEqual(['run.svg']);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
+    it('leaves no temporary file behind, so the output directory stays clean', async () => {
+        sfnSendMock.mockResolvedValue({ events: events() });
+        await run([
+            simpleFixture,
+            '--execution',
+            executionArn,
+            '--follow',
+            '-o',
+            join(tempDir, 'run.svg'),
+        ]);
+        expect(readdirSync(tempDir)).toEqual(['run.svg']);
+    });
+
+    it('leaves no temporary file behind when the rename itself fails', async () => {
+        // A directory where the output file should go: the temp write succeeds and the
+        // rename cannot, which is the one path that could strand a .tmp sibling.
+        sfnSendMock.mockResolvedValue({ events: events() });
+        const blocked = join(tempDir, 'run.svg');
+        mkdirSync(blocked);
+
+        expect(
+            await run([
+                simpleFixture,
+                '--execution',
+                executionArn,
+                '--follow',
+                '-o',
+                blocked,
+            ]),
+        ).toBe(1);
+        expect(readdirSync(tempDir)).toEqual(['run.svg']);
+    });
+
+    it('reports each tick on stderr, so stdout stays a clean stream', async () => {
+        sfnSendMock
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: events() });
+        await run([
+            simpleFixture,
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            join(tempDir, 'run.svg'),
+        ]);
+        expect(errors.join('')).toContain('following');
+        expect(errors.join('')).toMatch(/succeeded/);
+    });
+
+    it('stops at once on an execution that has already finished', async () => {
+        sfnSendMock.mockResolvedValue({ events: events() });
+        expect(
+            await run([
+                simpleFixture,
+                '--execution',
+                executionArn,
+                '--follow',
+                '-o',
+                join(tempDir, 'run.svg'),
+            ]),
+        ).toBe(0);
+        // No second poll: --follow on a finished run degrades to a snapshot.
+        expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('exits 1 when --follow-timeout elapses on a run that never ends', async () => {
+        sfnSendMock.mockResolvedValue({ events: runningEvents() });
+        const code = await run([
+            simpleFixture,
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '--follow-timeout',
+            '1',
+            '-o',
+            join(tempDir, 'run.svg'),
+        ]);
+        expect(code).toBe(1);
+        expect(errors.join('')).toContain('--follow-timeout');
+        // The latest state is still on disk.
+        expect(existsSync(join(tempDir, 'run.svg'))).toBe(true);
+    });
+
+    it('reads the definition once, not once per tick', async () => {
+        // renderOneInput loads its source on every call, and the loop calls it per
+        // tick, so --from-aws --follow issued a DescribeStateMachine alongside every
+        // poll — thousands on a long run, any one of which could throttle and kill it.
+        const machineArn =
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
+        let describeCalls = 0;
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation((command: { input?: unknown }) => {
+            const input = (command.input ?? {}) as Record<string, string>;
+            if (input.stateMachineArn !== undefined) {
+                describeCalls += 1;
+                return Promise.resolve({
+                    definition: readFileSync(simpleFixture, 'utf-8'),
+                });
+            }
+            return Promise.resolve({
+                events: historyCalls++ === 0 ? runningEvents() : events(),
+            });
+        });
+
+        expect(
+            await run([
+                '--from-aws',
+                machineArn,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--poll-interval',
+                '1',
+                '-o',
+                join(tempDir, 'live.svg'),
+            ]),
+        ).toBe(0);
+
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(describeCalls).toBe(1);
+    });
+
+    it('follows a definition piped on stdin without draining it twice', async () => {
+        // stdin can only be read once; a second drain returns '', so tick 2 rendered
+        // an empty definition and died with "Unexpected end of JSON input".
+        const definition = readFileSync(simpleFixture, 'utf-8');
+        const stdinSpy = vi
+            .spyOn(process, 'stdin', 'get')
+            .mockReturnValue(Readable.from([Buffer.from(definition)]) as never);
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation(() =>
+            Promise.resolve({
+                events: historyCalls++ === 0 ? runningEvents() : events(),
+            }),
+        );
+
+        const target = join(tempDir, 'piped.svg');
+        const code = await run([
+            '-',
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            target,
+        ]);
+        stdinSpy.mockRestore();
+
+        expect(code).toBe(0);
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
+    it('works with --from-aws, fetching both the definition and the history', async () => {
+        const machineArn =
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
+        sfnSendMock.mockImplementation((command: { input?: unknown }) => {
+            const input = (command.input ?? {}) as Record<string, string>;
+            if (input.stateMachineArn !== undefined) {
+                return Promise.resolve({
+                    definition: readFileSync(simpleFixture, 'utf-8'),
+                });
+            }
+            return Promise.resolve({ events: events() });
+        });
+
+        const target = join(tempDir, 'live.svg');
+        expect(
+            await run([
+                '--from-aws',
+                machineArn,
+                '--execution',
+                executionArn,
+                '--follow',
+                '-o',
+                target,
+            ]),
+        ).toBe(0);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
     });
 });

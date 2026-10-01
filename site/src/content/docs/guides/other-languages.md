@@ -45,10 +45,10 @@ chmod +x sfn-diagram
 
 On Windows, download `sfn-diagram-windows-x64.exe`.
 
-The binaries render **SVG, Mermaid, and HTML**. `--from-aws` and an ARN `--diff`
-baseline are unavailable there — they need the optional `@aws-sdk/client-sfn` peer, which
-cannot be loaded from a single-file executable; see
-[Standalone binary](/guides/cli/#standalone-binary). `--format png` needs the native
+The binaries render **SVG, Mermaid, and HTML**. The flags that reach AWS — `--from-aws`,
+an ARN `--diff` baseline, and an ARN `--execution` — are unavailable there: they need the
+optional `@aws-sdk/client-sfn` peer, which cannot be loaded from a single-file
+executable; see [Standalone binary](/guides/cli/#standalone-binary). `--format png` needs the native
 rasterizer and is not available in the standalone build; use the
 [Docker image](/guides/cli/#docker), which ships the rasterizer, or the npm package with
 `@resvg/resvg-js` installed.

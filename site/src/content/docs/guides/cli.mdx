@@ -22,6 +22,9 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
 | `--out-dir <dir>` | Write one output file per input into this directory — see [Rendering several files](#rendering-several-files) |
 | `--from-aws <arn>` | Fetch the definition live from AWS instead of reading a file — see [Rendering a live state machine](#rendering-a-live-state-machine) |
+| `--follow` | With `--execution <arn>`, keep polling and re-rendering until the run finishes — see [Following a running execution](#following-a-running-execution) |
+| `--poll-interval <seconds>` | How often `--follow` polls (default: `2`) |
+| `--follow-timeout <seconds>` | Give up after this long and exit `1` |
 | `--config <path>` | Read defaults from this [config file](#configuration-file) instead of searching for one |
 | `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
@@ -369,6 +372,77 @@ package instead:
 npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram --from-aws arn:...
 ```
 
+## Following a running execution
+
+`--execution` takes a saved `GetExecutionHistory` result **or** an execution ARN, which
+is fetched live:
+
+```bash
+sfn-diagram order.asl.json \
+  --execution arn:aws:states:us-east-1:111122223333:execution:Orders:run-1 -o run.svg
+```
+
+Add `--follow` and it keeps going until the run does not:
+
+```bash
+sfn-diagram order.asl.json \
+  --execution arn:aws:states:us-east-1:111122223333:execution:Orders:run-1 \
+  --follow -o run.html
+```
+
+```
+following arn:aws:states:us-east-1:111122223333:execution:Orders:run-1 every 2s (Ctrl-C to stop)
+...
+arn:aws:states:us-east-1:111122223333:execution:Orders:run-1 succeeded after 14 update(s)
+```
+
+### What a tick does
+
+Each poll re-fetches the **whole** history and rewrites the one output file. The full
+re-fetch is deliberate rather than lazy: the overlay is built by a single forward pass
+that walks `previousEventId` back through earlier events and pairs each state's entry
+with its exit, so a partial history silently loses edges and durations. Histories are
+small; correctness is not.
+
+The rewrite goes through a temporary file and a rename, so a reader never sees a
+half-written document, and Ctrl-C leaves the last complete render in place rather than
+a truncated one.
+
+A browser with the HTML file open **needs a manual reload** — the CLI writes files and
+has no channel to a running page.
+
+### Stopping
+
+| | |
+|---|---|
+| The run reaches a terminal status | One final render, exit `0`. The status comes from the history itself, so no extra API call is made to ask. |
+| Ctrl-C | Stops between polls, leaving the latest complete file. Exit `0` — you asked it to stop. |
+| `--follow-timeout <seconds>` | Exit `1`, with the latest render still on disk, so a CI job cannot wait forever. |
+| The execution is already finished | Rendered once, exit `0`, never polled. `--follow` on a finished run is just `--execution`. |
+
+### Requirements and refusals
+
+`--follow` needs `-o` or `--out-dir`: there is no coherent way to re-render to stdout,
+since a pipe consumer would get one diagram per tick with no way to tell where one
+ended. It also needs an **ARN** — a history file on disk does not progress, and
+a saved history is already whatever the run ended as. `--poll-interval` and
+`--follow-timeout` are refused without `--follow`, rather than silently doing nothing.
+
+Express workflow ARNs are refused up front: `GetExecutionHistory` serves Standard
+workflows only, so accepting one would only move the failure to the API call.
+
+It pairs with `--from-aws`, which fetches the definition the run belongs to:
+
+```bash
+sfn-diagram --from-aws arn:...:stateMachine:Orders \
+            --execution arn:...:execution:Orders:run-1 --follow -o run.html
+```
+
+One caveat worth knowing: `--from-aws` returns the machine's **current** definition. If
+it was updated after the run started, the overlay paints a past run onto a newer shape.
+Point `--execution` at a local copy of the definition that actually ran when that
+matters.
+
 ## Custom theme files
 
 `--theme` takes a built-in name (`light` or `dark`) or a path to a JSON file holding a
@@ -577,10 +651,10 @@ rather than failing obscurely:
 | Flag | Needs | Instead |
 |---|---|---|
 | `--format png` | `@resvg/resvg-js` (a native rasterizer) | `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …` |
-| `--from-aws`, and `--diff <arn>` | `@aws-sdk/client-sfn` | `npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram …` |
+| `--from-aws`, `--diff <arn>`, `--execution <arn>` | `@aws-sdk/client-sfn` | `npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram …` |
 
 Everything else works, including SVG, Mermaid and HTML output, `--diff` against a local
-file, `--execution`, `--check`, templates and `--out-dir`.
+file, `--execution` against a saved history file, `--check`, templates and `--out-dir`.
 
 ```bash
 brew install yusufaf/tap/sfn-diagram
