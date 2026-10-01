@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WatchFactory } from '../src/cliWatch';
-import { watchPaths } from '../src/cliWatch';
+import { isIgnoredPath, watchPaths } from '../src/cliWatch';
 
 /**
  * A watcher that records what it was asked to watch and lets a test fire events by
@@ -52,6 +52,43 @@ const immediateDebounce = {
 async function settle(): Promise<void> {
     for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 }
+
+describe('isIgnoredPath', () => {
+    it('drops events inside node_modules and .git', () => {
+        // `walkFiles` skips these when expanding a glob; `fs.watch` has no equivalent,
+        // so a recursive watch over a project root sees every write in them. Ordinary
+        // git churn then re-arms the debounce indefinitely and can starve a real
+        // save's render.
+        expect(isIgnoredPath('node_modules/pkg/index.js')).toBe(true);
+        expect(isIgnoredPath('.git/index.lock')).toBe(true);
+        expect(isIgnoredPath('a/b/node_modules/c.json')).toBe(true);
+    });
+
+    it('accepts backslash-separated paths, which is what Windows reports', () => {
+        expect(isIgnoredPath('a\\.git\\index.lock')).toBe(true);
+        expect(isIgnoredPath('machines\\order.asl.json')).toBe(false);
+    });
+
+    it('keeps ordinary inputs', () => {
+        expect(isIgnoredPath('machines/order.asl.json')).toBe(false);
+        expect(isIgnoredPath('order.asl.json')).toBe(false);
+    });
+
+    it('does not match a partial segment', () => {
+        // `.gitignore` is a real file someone might render next to, and
+        // `my-node_modules` is a legitimate directory name.
+        expect(isIgnoredPath('.gitignore')).toBe(false);
+        expect(isIgnoredPath('my-node_modules/a.json')).toBe(false);
+    });
+
+    it('uses the same list the glob walk skips', async () => {
+        // Two copies of this list would drift, and the drift would be silent.
+        const { SKIPPED_DIRECTORIES } = await import('../src/cliInputs');
+        for (const directory of SKIPPED_DIRECTORIES) {
+            expect(isIgnoredPath(`${directory}/anything`)).toBe(true);
+        }
+    });
+});
 
 describe('watchPaths', () => {
     it('watches every target it is given', async () => {
@@ -351,6 +388,39 @@ describe('watchPaths', () => {
         await settle();
 
         expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('survives an onChange that throws synchronously', async () => {
+        // The type permits a non-async function, and one that throws before
+        // returning a promise would poison the chain: every later burst's `.then`
+        // is skipped, so nothing renders again, and the final await rejects out of
+        // watchPaths so --watch exits non-zero instead of 0.
+        const watcher = fakeWatcher();
+        const controller = new AbortController();
+        let calls = 0;
+        const onChange = ((): Promise<void> => {
+            calls += 1;
+            if (calls === 1) throw new Error('thrown, not rejected');
+            return Promise.resolve();
+        }) as (params: { paths: string[] }) => Promise<void>;
+
+        const watching = watchPaths({
+            ...immediateDebounce,
+            onChange,
+            signal: controller.signal,
+            targets: ['a.asl.json'],
+            watch: watcher.watch,
+        });
+
+        watcher.fire('a.asl.json', 'a.asl.json');
+        await settle();
+        watcher.fire('a.asl.json', 'a.asl.json');
+        await settle();
+        controller.abort();
+
+        // It neither rejected nor stopped calling onChange.
+        await expect(watching).resolves.toBeUndefined();
+        expect(calls).toBe(2);
     });
 
     it('survives a target that cannot be watched', async () => {

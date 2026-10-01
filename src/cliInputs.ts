@@ -7,7 +7,14 @@ import type { DiagramFormat } from './types';
 export class CliInputError extends Error {}
 
 /** Directory names the walk never descends into. */
-const SKIPPED_DIRECTORIES: readonly string[] = ['node_modules', '.git'];
+/**
+ * Directories never walked when expanding a glob, and never reported by `--watch`.
+ *
+ * Exported so `cliWatch.ts` filters events by the same list: `fs.watch` has no
+ * equivalent of this skip, so without it a recursive watch sees every `node_modules`
+ * and `.git` write.
+ */
+export const SKIPPED_DIRECTORIES: readonly string[] = ['node_modules', '.git'];
 
 /** Characters that make a positional a pattern rather than a path. */
 const GLOB_MAGIC = /[*?[\]{}]/;

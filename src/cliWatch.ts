@@ -13,6 +13,10 @@
  */
 import { statSync, watch } from 'node:fs';
 import { join } from 'node:path';
+import { SKIPPED_DIRECTORIES } from './cliInputs';
+
+/** Directory names whose contents never warrant a re-render. */
+const IGNORED_WATCH_SEGMENTS: readonly string[] = SKIPPED_DIRECTORIES;
 
 /** What a watcher hands back, so it can be shut down. */
 export interface WatchHandle {
@@ -33,6 +37,36 @@ export interface WatchFactoryParams {
  * recursive-directory case can be swapped per platform without touching this file.
  */
 export type WatchFactory = (params: WatchFactoryParams) => WatchHandle;
+
+/** Parameters for {@link createFsWatchFactory}. */
+export interface CreateFsWatchFactoryParams {
+    /**
+     * Called when a watcher emits `error` after it was established — a removed
+     * directory, or `max_user_watches` exhausted on Linux. Optional, but a caller
+     * that omits it gets silence, which is how a watch that never fires looks
+     * identical to one with nothing to report.
+     */
+    onError?: (params: { error: unknown; target: string }) => void;
+}
+
+/**
+ * Whether a path lies inside a directory no watch should report.
+ *
+ * Exported for tests: the alternative is a real recursive watch over a temp tree
+ * containing `node_modules`, which asserts the platform's event delivery rather than
+ * this rule.
+ *
+ * The same list `expandInputs` skips when walking, applied to events because
+ * `fs.watch` has no equivalent.
+ *
+ * @param path - The event path, in either separator style.
+ *
+ * @returns `true` when the event should be dropped.
+ */
+export function isIgnoredPath(path: string): boolean {
+    const segments = path.split(/[\\/]/);
+    return segments.some((segment) => IGNORED_WATCH_SEGMENTS.includes(segment));
+}
 
 /**
  * The real watcher, built on `node:fs`'s `watch`.
@@ -55,7 +89,10 @@ export type WatchFactory = (params: WatchFactoryParams) => WatchHandle;
  * await watchPaths({ …, watch: createFsWatchFactory() });
  * ```
  */
-export function createFsWatchFactory(): WatchFactory {
+export function createFsWatchFactory(
+    params: CreateFsWatchFactoryParams = {},
+): WatchFactory {
+    const { onError } = params;
     return ({ onEvent, target }) => {
         const isDirectory = statSyncIsDirectory(target);
         const watcher = watch(
@@ -65,17 +102,27 @@ export function createFsWatchFactory(): WatchFactory {
                 // `filename` is relative to `target` for a directory watch, and is the
                 // basename (or null) for a file watch, so the usable path is always
                 // derived from `target`.
-                onEvent({
-                    path:
-                        filename !== null && isDirectory
-                            ? join(target, filename.toString())
-                            : target,
-                });
+                const path =
+                    filename !== null && isDirectory
+                        ? join(target, filename.toString())
+                        : target;
+                // `walkFiles` skips these when expanding a glob, but `fs.watch` does
+                // not, so a recursive watch over a project root sees every
+                // `node_modules` and `.git` write. That matters twice: ordinary git
+                // churn re-arms the debounce indefinitely and can starve a real
+                // save's render, and on Linux the extra inotify watches bring
+                // `max_user_watches` within reach.
+                if (isIgnoredPath(path)) return;
+                onEvent({ path });
             },
         );
-        watcher.on('error', () => {
-            // A watched directory can be removed while the run is alive. Ending the
-            // process over it would be worse than quietly stopping that one watcher.
+        watcher.on('error', (error) => {
+            // A watched directory can be removed while the run is alive, and on Linux
+            // a recursive watch can exhaust `max_user_watches` outright. Ending the
+            // process over either would be worse than stopping one watcher - but
+            // swallowing it silently left `--watch` printing that it was watching and
+            // then never firing, which is the worst of the three.
+            onError?.({ error, target });
         });
         return { close: () => watcher.close() };
     };
@@ -180,12 +227,17 @@ export async function watchPaths(params: WatchPathsParams): Promise<void> {
         // Chained onto whatever is running, so renders are strictly sequential. The
         // catch is on the chain rather than the call so one failure cannot leave the
         // chain permanently rejected.
-        running = running.then(() =>
-            onChange({ paths }).catch(() => {
+        // The catch sits on the chain rather than on `onChange(...)`: the type
+        // permits a non-async function, and one that throws *synchronously* would
+        // make this `then` callback throw, leaving `running` permanently rejected -
+        // every later burst skipped, and the final await rejecting out of watchPaths
+        // so `--watch` exited non-zero instead of 0.
+        running = running
+            .then(() => onChange({ paths }))
+            .catch(() => {
                 // Reporting is the caller's business; here it only matters that a
                 // failed render does not end the watch.
-            }),
-        );
+            });
     };
 
     for (const target of targets) {

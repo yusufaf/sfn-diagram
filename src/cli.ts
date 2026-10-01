@@ -22,7 +22,11 @@ import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
 import { createAbortableSleep, followExecution } from './cliFollow';
 import { createFsWatchFactory, watchPaths } from './cliWatch';
 import type { CliConfig } from './cliConfig';
-import { CliConfigError, loadCliConfig } from './cliConfig';
+import {
+    CliConfigError,
+    discoverConfigPath,
+    loadCliConfig,
+} from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
 import {
     CliInputError,
@@ -1802,6 +1806,32 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
+    // The same objection, by the third route. Nothing batch-wide is cached between
+    // passes - deliberately, so a config edit is always picked up - so a live
+    // baseline would mean a DescribeStateMachine per keystroke-save.
+    if (args.watch && args.diff !== null && isStateMachineArn(args.diff)) {
+        process.stderr.write(
+            '--watch would re-fetch that --diff baseline from AWS on every file ' +
+                'change; pass a local baseline to watch against\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // Same objection --follow raises: re-rendering to stdout gives a pipe consumer
+    // one diagram per save with no way to tell where one ended. `--check` is exempt
+    // because it writes nothing to begin with.
+    if (
+        args.watch &&
+        !args.check &&
+        args.output === null &&
+        args.outDir === null
+    ) {
+        process.stderr.write(
+            '--watch needs --output or --out-dir: it rewrites a file as you edit, ' +
+                'and stdout cannot be rewritten\n',
+        );
+        return EXIT_USAGE;
+    }
 
     // stdin is consumed once and never changes afterwards, so there is nothing for
     // a watch to observe. An explicit `-` and a bare invocation both land here.
@@ -1910,13 +1940,44 @@ interface RunWatchParams {
 async function runWatch(params: RunWatchParams): Promise<number> {
     const { args } = params;
 
+    // Resolved from argv, before the first render, precisely so a file problem does
+    // not cost the watch. `renderResolvedBatch` collects its targets only after the
+    // config load, the theme read, the baseline read and the glob expansion, so a
+    // broken config, an unreadable theme or a glob matching nothing all returned an
+    // empty list - and `--watch` then exited 1 saying "nothing to watch", naming the
+    // wrong cause and refusing to do the one thing it exists for. The config path is
+    // discovered independently for the same reason: a config that fails to parse is
+    // exactly the file you need watched.
+    let configPath: string | null = null;
+    try {
+        configPath =
+            args.config ??
+            discoverConfigPath({ startDir: process.cwd() }) ??
+            null;
+    } catch {
+        // Discovery is best-effort; a config that cannot even be located is simply
+        // not watched, and the render below reports whatever the real problem is.
+    }
+    const plannedTargets = collectWatchTargets({
+        args,
+        configPath,
+        sources: args.inputs
+            .filter((pattern) => !hasGlobMagic(pattern) && pattern !== '-')
+            .map((pattern) => ({ kind: 'file' as const, path: pattern })),
+    });
+
     const first = await renderResolvedBatch({ args, only: null });
     // A usage error is about the command line, which watching cannot change. Every
-    // other failure is a file problem, and watching is how you fix those.
+    // other failure is a file problem, and watching is how you fix those - so only
+    // this one aborts.
     if (first.code === EXIT_USAGE) return EXIT_USAGE;
-    if (first.watchTargets.length === 0) {
+
+    // Whatever the pass resolved is additive: it knows the config file it actually
+    // loaded and the files a glob matched, which the argv-only pass above cannot.
+    const targets = [...new Set([...plannedTargets, ...first.watchTargets])];
+    if (targets.length === 0) {
         process.stderr.write(
-            'Nothing to watch: no input file was resolved\n',
+            'Nothing to watch: no input file was named\n',
         );
         return EXIT_FAILURE;
     }
@@ -1925,9 +1986,7 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     const onInterrupt = (): void => controller.abort();
     process.on('SIGINT', onInterrupt);
 
-    process.stderr.write(
-        `watching ${first.watchTargets.length} path(s); Ctrl-C to stop\n`,
-    );
+    process.stderr.write(`watching ${targets.length} path(s); Ctrl-C to stop\n`);
 
     try {
         await watchPaths({
@@ -1942,7 +2001,7 @@ async function runWatch(params: RunWatchParams): Promise<number> {
                     (path) =>
                         !isBatchWideTarget({
                             args,
-                            configPath: first.configPath,
+                            configPath: first.configPath ?? configPath,
                             path,
                         }),
                 );
@@ -1959,8 +2018,15 @@ async function runWatch(params: RunWatchParams): Promise<number> {
                 process.stderr.write(`  cannot watch ${target}; skipping it\n`);
             },
             signal: controller.signal,
-            targets: first.watchTargets,
-            watch: createFsWatchFactory(),
+            targets,
+            watch: createFsWatchFactory({
+                onError: ({ target }) => {
+                    process.stderr.write(
+                        `  watch on ${target} failed; it will not report further ` +
+                            'changes\n',
+                    );
+                },
+            }),
         });
     } finally {
         process.off('SIGINT', onInterrupt);
@@ -2016,6 +2082,31 @@ function isBatchWideTarget(params: IsBatchWideTargetParams): boolean {
     });
 }
 
+/** Parameters for {@link isUnderAnyRoot}. */
+interface IsUnderAnyRootParams {
+    /** The candidate path. */
+    path: string;
+    /** Directory roots already being watched recursively. */
+    roots: string[];
+}
+
+/**
+ * Whether a path is already covered by a directory being watched recursively.
+ *
+ * @param params - The path and the roots.
+ *
+ * @returns `true` when watching the path separately would be redundant.
+ */
+function isUnderAnyRoot(params: IsUnderAnyRootParams): boolean {
+    const { path, roots } = params;
+    const candidate = toPosix(path);
+    return roots.some((root) => {
+        if (root === '.') return true;
+        const prefix = toPosix(root);
+        return candidate === prefix || candidate.startsWith(`${prefix}/`);
+    });
+}
+
 /** Parameters for {@link collectWatchTargets}. */
 export interface CollectWatchTargetsParams {
     /** The parsed command line, for the patterns and the auxiliary file flags. */
@@ -2060,15 +2151,22 @@ export function collectWatchTargets(
     const targets: string[] = [];
 
     const globPatterns = args.inputs.filter((pattern) => hasGlobMagic(pattern));
+    const roots: string[] = [];
     for (const pattern of globPatterns) {
         const root = patternRoot(pattern);
-        targets.push(root === '' ? '.' : root);
+        roots.push(root === '' ? '.' : root);
     }
-    // Only the literal inputs: a glob's matches are covered by its root above, and
-    // listing both would render twice for one save.
-    if (globPatterns.length === 0) {
-        for (const source of sources) {
-            if (source.kind === 'file') targets.push(source.path);
+    targets.push(...roots);
+
+    // A source already covered by one of those roots is not listed again, or one save
+    // would render twice. The test is per source rather than per batch: suppressing
+    // every literal input because *some* pattern was a glob meant
+    // `sfn-diagram 'machines/*.asl.json' extra/other.asl.json --watch` silently
+    // stopped watching the literal.
+    for (const source of sources) {
+        if (source.kind !== 'file') continue;
+        if (!isUnderAnyRoot({ path: source.path, roots })) {
+            targets.push(source.path);
         }
     }
 
@@ -2504,6 +2602,20 @@ async function renderResolvedBatch(
                 const wanted = only.map((path) => toPosix(path));
                 return wanted.includes(toPosix(item.source.path));
             });
+
+    // The fallback the `--watch` path assumed existed. `only` can name something that
+    // is not an input at all: `fs.watch` is documented to report a `null` filename,
+    // in which case the event carries the watched *directory*, and a file created
+    // under a glob root may simply not match the pattern. Rendering nothing there
+    // meant a save that printed "changed" and produced no diagram.
+    const selected =
+        only !== null && work.length === 0
+            ? sources.map((source, index) => ({
+                  outputPath:
+                      planned === null ? args.output : planned[index].output,
+                  source,
+              }))
+            : work;
     // A batch names its files, and so does a glob even when it expanded to one: the
     // caller chose a pattern rather than a path, so which file was selected is
     // exactly what they do not know. A single literal input needs no label - the
@@ -2532,7 +2644,7 @@ async function renderResolvedBatch(
     }
 
     let worstCode = EXIT_OK;
-    for (const item of work) {
+    for (const item of selected) {
         // A failing input does not stop the batch: stopping at the first would hide the
         // rest, which is the opposite of what a batch is for.
         const code = await renderOneInput({
