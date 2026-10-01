@@ -8,8 +8,10 @@ import {
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
+import type { SFNClient } from '@aws-sdk/client-sfn';
 import {
     CliAwsError,
+    createSfnClient,
     fetchExecutionHistoryForArn,
     fetchStateMachineDefinition,
     isStateMachineArn,
@@ -17,7 +19,7 @@ import {
     parseStateMachineArn,
 } from './cliAws';
 import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
-import { followExecution } from './cliFollow';
+import { createAbortableSleep, followExecution } from './cliFollow';
 import type { CliConfig } from './cliConfig';
 import { CliConfigError, loadCliConfig } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
@@ -1146,7 +1148,10 @@ function describeSource(source: CliInputSource): string {
 async function loadSource(source: CliInputSource): Promise<string> {
     switch (source.kind) {
         case 'aws':
-            return fetchStateMachineDefinition({ arn: source.arn });
+            return fetchStateMachineDefinition({
+                arn: source.arn,
+                flag: '--from-aws',
+            });
         case 'file':
             return readFileSync(resolve(source.path), 'utf-8');
         case 'stdin':
@@ -1394,6 +1399,17 @@ interface RenderOneInputParams {
     /** The parsed command line, for the flags that are not diagram options. */
     args: CliArgs;
     /**
+     * The definition, already loaded, or `null` to load it from {@link
+     * RenderOneInputParams.source}.
+     *
+     * `--follow` passes it so the definition is read **once** rather than once per
+     * tick. That is not only waste: `source.kind === 'stdin'` can only be drained
+     * once, so a second read returned `''` and the tick died on empty JSON, and
+     * `source.kind === 'aws'` issued a `DescribeStateMachine` alongside every poll,
+     * any one of which could throttle and end the run.
+     */
+    definitionText: string | null;
+    /**
      * Whether the `--diff` baseline was fetched from AWS rather than read from disk.
      *
      * `--resolve-cfn` must not apply to it: a live definition is already ASL, and
@@ -1446,6 +1462,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         args,
         baselineIsLive,
         baselineSource,
+        definitionText,
         historySource,
         labelInput,
         options,
@@ -1462,7 +1479,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
 
     let aslSource: string;
     try {
-        aslSource = await loadSource(source);
+        aslSource = definitionText ?? (await loadSource(source));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         // An AWS failure already reads "Failed to fetch state machine <arn> from
@@ -2077,6 +2094,7 @@ export async function run(argv: string[]): Promise<number> {
                           flag: '--diff',
                           value: args.diff,
                       }),
+                      flag: '--diff',
                   })
                 : readFileSync(resolve(args.diff), 'utf-8');
         } catch (error) {
@@ -2160,6 +2178,7 @@ export async function run(argv: string[]): Promise<number> {
             args,
             baselineIsLive,
             baselineSource,
+            definitionText: null,
             historySource,
             labelInput,
             options,
@@ -2187,7 +2206,7 @@ interface RunFollowParams {
     options: ResolvedCliOptions;
     /** The single file every tick rewrites. */
     outputPath: string | null;
-    /** Where the definition comes from — read once, not per tick. */
+    /** Where the definition comes from. Read once, before the loop starts. */
     source: CliInputSource;
     /** The resolved theme. */
     theme: ThemeOption;
@@ -2221,19 +2240,42 @@ async function runFollow(params: RunFollowParams): Promise<number> {
     } = params;
 
     const intervalSeconds = args.pollInterval ?? DEFAULT_POLL_INTERVAL_SECONDS;
+
+    // Both of these are resolved once, before any polling. The definition because
+    // stdin can only be drained once and a live one would otherwise cost a
+    // DescribeStateMachine per tick; the client because each one carries its own
+    // keep-alive agent, so one per tick reuses no connection and strands sockets.
+    let definitionText: string;
+    let client: SFNClient;
+    try {
+        definitionText = await loadSource(source);
+        client = await createSfnClient({
+            flag: '--execution',
+            region: arn.region,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const prefix =
+            error instanceof CliAwsError
+                ? ''
+                : `Failed to read input ${describeSource(source)}: `;
+        process.stderr.write(`${prefix}${message}\n`);
+        return EXIT_FAILURE;
+    }
+
     const controller = new AbortController();
     const onInterrupt = (): void => controller.abort();
     process.on('SIGINT', onInterrupt);
 
     process.stderr.write(
-        `following ${arn.arn} every ${intervalSeconds}s (Ctrl-C to stop)
-`,
+        `following ${arn.arn} every ${intervalSeconds}s (Ctrl-C to stop)\n`,
     );
 
     let ticks = 0;
     try {
         const result = await followExecution({
-            fetchHistory: () => fetchExecutionHistoryForArn({ arn }),
+            fetchHistory: () =>
+                fetchExecutionHistoryForArn({ arn, client, flag: '--execution' }),
             intervalMs: intervalSeconds * 1000,
             render: async ({ events }) => {
                 ticks += 1;
@@ -2241,6 +2283,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     args,
                     baselineIsLive,
                     baselineSource,
+                    definitionText,
                     historySource: JSON.stringify({ events }),
                     // One source, and the reader chose the ARN, so there is nothing
                     // ambiguous for a label to disambiguate.
@@ -2253,20 +2296,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                 });
             },
             signal: controller.signal,
-            sleep: ({ ms }) =>
-                new Promise<void>((done) => {
-                    const timer = setTimeout(done, ms);
-                    // Resolve early on Ctrl-C so the process does not sit out a long
-                    // interval before noticing, and clear the timer either way.
-                    controller.signal.addEventListener(
-                        'abort',
-                        () => {
-                            clearTimeout(timer);
-                            done();
-                        },
-                        { once: true },
-                    );
-                }),
+            sleep: createAbortableSleep({ signal: controller.signal }),
             timeoutMs:
                 args.followTimeout === null ? null : args.followTimeout * 1000,
         });
@@ -2274,18 +2304,15 @@ async function runFollow(params: RunFollowParams): Promise<number> {
         if (result.outcome === 'timedOut') {
             process.stderr.write(
                 `--follow-timeout reached after ${args.followTimeout}s; ` +
-                    `${arn.arn} was still ${result.status}
-`,
+                    `${arn.arn} was still ${result.status}\n`,
             );
             return EXIT_FAILURE;
         }
         if (result.exitCode !== EXIT_OK) return result.exitCode;
         process.stderr.write(
             result.outcome === 'aborted'
-                ? `stopped after ${ticks} update(s); ${arn.arn} was ${result.status}
-`
-                : `${arn.arn} ${result.status} after ${ticks} update(s)
-`,
+                ? `stopped after ${ticks} update(s); ${arn.arn} was ${result.status}\n`
+                : `${arn.arn} ${result.status} after ${ticks} update(s)\n`,
         );
         return EXIT_OK;
     } catch (error) {

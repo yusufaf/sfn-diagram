@@ -189,17 +189,32 @@ const CREDENTIAL_FAILURE_MARKERS = [
 const CREDENTIALS_HINT =
     '\nSet AWS_PROFILE / AWS_REGION, or configure the AWS CLI (aws configure).';
 
+/** Parameters for {@link loadSfnModule}. */
+interface LoadSfnModuleParams {
+    /**
+     * The flag that needed the SDK, named in the "install this" error.
+     *
+     * Three flags reach the SDK through this one loader, so a hardcoded name told a
+     * `--execution <arn>` or `--diff <arn>` user to install a peer for `--from-aws`,
+     * which they never typed. The message is the one part of a shared policy that
+     * must not be shared.
+     */
+    flag: string;
+}
+
 /**
  * Load `@aws-sdk/client-sfn`, or fail with an actionable install command.
+ *
+ * @param params - The flag that needed it.
  *
  * @returns The subset of the SDK this module uses.
  *
  * @throws {CliAwsError} When the optional peer is not installed.
  */
-async function loadSfnModule(): Promise<SfnModule> {
+async function loadSfnModule(params: LoadSfnModuleParams): Promise<SfnModule> {
     try {
         return await loadOptionalPeer<SfnModule>({
-            feature: '--from-aws',
+            feature: params.flag,
             load: async () =>
                 (await import('@aws-sdk/client-sfn')) as unknown as SfnModule,
             packageName: '@aws-sdk/client-sfn',
@@ -251,6 +266,11 @@ export interface FetchStateMachineDefinitionParams {
      * usage error reported before any client is constructed or peer loaded.
      */
     arn: ParsedStateMachineArn;
+    /**
+     * The flag that asked for this, named if the optional peer is missing. Both
+     * `--from-aws` and an ARN `--diff` baseline come through here.
+     */
+    flag: string;
 }
 
 /**
@@ -273,15 +293,15 @@ export interface FetchStateMachineDefinitionParams {
  * @example
  * ```typescript
  * const arn = parseStateMachineArn({ value: process.argv[2] });
- * const definition = await fetchStateMachineDefinition({ arn });
+ * const definition = await fetchStateMachineDefinition({ arn, flag: '--from-aws' });
  * ```
  */
 export async function fetchStateMachineDefinition(
     params: FetchStateMachineDefinitionParams,
 ): Promise<string> {
-    const { arn } = params;
+    const { arn, flag } = params;
 
-    const sfn = await loadSfnModule();
+    const sfn = await loadSfnModule({ flag });
 
     let response: DescribeStateMachineCommandOutput;
     try {
@@ -392,6 +412,41 @@ export function parseExecutionArn(
     };
 }
 
+/** Parameters for {@link createSfnClient}. */
+export interface CreateSfnClientParams {
+    /** The flag that needed the SDK, named if the optional peer is missing. */
+    flag: string;
+    /** Region the client talks to, taken from the ARN. */
+    region: string;
+}
+
+/**
+ * Build one SFN client, loading the optional peer on the way.
+ *
+ * Exposed so a caller that will make many calls — the `--follow` poll loop — builds
+ * one client and reuses it. Each client carries its own keep-alive HTTP agent, so one
+ * per call means no connection is ever reused and discarded agents' idle sockets
+ * accumulate for the life of the process.
+ *
+ * @param params - The region and the flag that needed it.
+ *
+ * @returns A client ready to `send` commands.
+ *
+ * @throws {CliAwsError} When the optional peer is not installed.
+ *
+ * @example
+ * ```typescript
+ * const client = await createSfnClient({ flag: '--execution', region: arn.region });
+ * ```
+ */
+export async function createSfnClient(
+    params: CreateSfnClientParams,
+): Promise<SFNClient> {
+    const { flag, region } = params;
+    const sfn = await loadSfnModule({ flag });
+    return new sfn.SFNClient({ region });
+}
+
 /** Parameters for {@link fetchExecutionHistoryForArn}. */
 export interface FetchExecutionHistoryForArnParams {
     /**
@@ -399,6 +454,13 @@ export interface FetchExecutionHistoryForArnParams {
      * error reported before any client is constructed or peer loaded.
      */
     arn: ParsedExecutionArn;
+    /**
+     * A client to reuse. Omit it for a one-off fetch and one is built here; a poll
+     * loop passes the same client every tick so the connection is reused.
+     */
+    client?: SFNClient;
+    /** The flag that asked for this, named if the optional peer is missing. */
+    flag?: string;
 }
 
 /**
@@ -427,13 +489,14 @@ export interface FetchExecutionHistoryForArnParams {
 export async function fetchExecutionHistoryForArn(
     params: FetchExecutionHistoryForArnParams,
 ): Promise<HistoryEvent[]> {
-    const { arn } = params;
+    const { arn, client, flag = '--execution' } = params;
 
-    const sfn = await loadSfnModule();
+    const resolvedClient =
+        client ?? (await createSfnClient({ flag, region: arn.region }));
     try {
         const { fetchExecutionHistory } = await import('./aws');
         return await fetchExecutionHistory({
-            client: new sfn.SFNClient({ region: arn.region }),
+            client: resolvedClient,
             executionArn: arn.arn,
         });
     } catch (error) {

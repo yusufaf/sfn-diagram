@@ -3901,6 +3901,77 @@ describe('--execution <arn> and --follow', () => {
         expect(existsSync(join(tempDir, 'run.svg'))).toBe(true);
     });
 
+    it('reads the definition once, not once per tick', async () => {
+        // renderOneInput loads its source on every call, and the loop calls it per
+        // tick, so --from-aws --follow issued a DescribeStateMachine alongside every
+        // poll — thousands on a long run, any one of which could throttle and kill it.
+        const machineArn =
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
+        let describeCalls = 0;
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation((command: { input?: unknown }) => {
+            const input = (command.input ?? {}) as Record<string, string>;
+            if (input.stateMachineArn !== undefined) {
+                describeCalls += 1;
+                return Promise.resolve({
+                    definition: readFileSync(simpleFixture, 'utf-8'),
+                });
+            }
+            return Promise.resolve({
+                events: historyCalls++ === 0 ? runningEvents() : events(),
+            });
+        });
+
+        expect(
+            await run([
+                '--from-aws',
+                machineArn,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--poll-interval',
+                '1',
+                '-o',
+                join(tempDir, 'live.svg'),
+            ]),
+        ).toBe(0);
+
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(describeCalls).toBe(1);
+    });
+
+    it('follows a definition piped on stdin without draining it twice', async () => {
+        // stdin can only be read once; a second drain returns '', so tick 2 rendered
+        // an empty definition and died with "Unexpected end of JSON input".
+        const definition = readFileSync(simpleFixture, 'utf-8');
+        const stdinSpy = vi
+            .spyOn(process, 'stdin', 'get')
+            .mockReturnValue(Readable.from([Buffer.from(definition)]) as never);
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation(() =>
+            Promise.resolve({
+                events: historyCalls++ === 0 ? runningEvents() : events(),
+            }),
+        );
+
+        const target = join(tempDir, 'piped.svg');
+        const code = await run([
+            '-',
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            target,
+        ]);
+        stdinSpy.mockRestore();
+
+        expect(code).toBe(0);
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
     it('works with --from-aws, fetching both the definition and the history', async () => {
         const machineArn =
             'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';

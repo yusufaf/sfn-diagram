@@ -416,4 +416,18 @@ describe('fetchExecutionHistoryForArn', () => {
             /aws configure/,
         );
     });
+
+    it('reuses a client it is handed instead of building its own', async () => {
+        // A poll loop calls this once per tick; a fresh client per tick gets its own
+        // keep-alive agent, so nothing reuses a connection and idle sockets pile up.
+        sendMock.mockResolvedValue({ events: [] });
+        const client = { send: sendMock } as never;
+
+        await fetchExecutionHistoryForArn({ arn, client });
+        await fetchExecutionHistoryForArn({ arn, client });
+
+        expect(clientConfigs).toEqual([]);
+        expect(sendMock).toHaveBeenCalledTimes(2);
+    });
 });
+

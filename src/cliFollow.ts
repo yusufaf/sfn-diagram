@@ -20,6 +20,63 @@ import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type { ExecutionStatus } from './types';
 import { parseExecutionHistory } from './execution';
 
+/** Parameters for {@link createAbortableSleep}. */
+export interface CreateAbortableSleepParams {
+    /** Aborting it resolves any wait in flight, and any wait started afterwards. */
+    signal: AbortSignal;
+}
+
+/**
+ * Build the wait {@link followExecution} uses, which gives up the moment the signal
+ * aborts.
+ *
+ * Two mistakes are easy here and both were made before this was extracted and tested:
+ *
+ * - `addEventListener('abort', …)` on a signal that has **already** aborted never
+ *   fires. Ctrl-C lands during the fetch or the render — which is where the time
+ *   actually goes — so by the time the loop sleeps the signal is usually already
+ *   aborted, and a listener-only implementation waited out the whole interval with
+ *   Ctrl-C looking dead. Worse, installing a SIGINT handler suppresses Node's own
+ *   terminate, so pressing it again did nothing either. Hence the eager check.
+ * - `{ once: true }` only removes a listener that *fires*. On a wait that completes
+ *   normally the closure stayed attached, so a long run retained one per tick. Hence
+ *   the explicit `removeEventListener`.
+ *
+ * @param params - The signal that cancels waiting.
+ *
+ * @returns A sleep that resolves after `ms`, or immediately once aborted.
+ *
+ * @example
+ * ```typescript
+ * const sleep = createAbortableSleep({ signal: controller.signal });
+ * await sleep({ ms: 2000 });
+ * ```
+ */
+export function createAbortableSleep(
+    params: CreateAbortableSleepParams,
+): (waitParams: { ms: number }) => Promise<void> {
+    const { signal } = params;
+    return ({ ms }) =>
+        new Promise<void>((done) => {
+            if (signal.aborted) {
+                done();
+                return;
+            }
+            // Two paths, two responsibilities: `{ once: true }` retires the
+            // listener when abort fires, and the timer path retires it explicitly,
+            // because a wait that simply completes would otherwise keep its closure.
+            const onAbort = (): void => {
+                clearTimeout(timer);
+                done();
+            };
+            const timer = setTimeout(() => {
+                signal.removeEventListener('abort', onAbort);
+                done();
+            }, ms);
+            signal.addEventListener('abort', onAbort, { once: true });
+        });
+}
+
 /** Why the loop stopped. */
 export type FollowOutcome =
     /** The caller's signal fired — Ctrl-C between ticks. */
@@ -111,25 +168,39 @@ export async function followExecution(
 
     const startedAt = now();
     let status: ExecutionStatus = 'running';
+    let rendered = false;
 
     while (!signal.aborted) {
+        // Checked here rather than before the sleep, and the sleep below is capped to
+        // what is left, so the budget bounds the *fetching* and not just the waiting.
+        // Checking it only after a render let a long interval run one more fetch and
+        // render well past the deadline, which is the opposite of the guarantee.
+        // `rendered` keeps the first pass unconditional: a budget shorter than one
+        // tick should still draw the state once rather than produce nothing.
+        if (
+            rendered &&
+            timeoutMs !== null &&
+            now() - startedAt >= timeoutMs
+        ) {
+            return { exitCode: 0, outcome: 'timedOut', status };
+        }
+
         const events = await fetchHistory();
         status = parseExecutionHistory({ events }).executionStatus;
 
         const exitCode = await render({ events });
+        rendered = true;
         if (exitCode !== 0) return { exitCode, outcome: 'completed', status };
 
         if (status !== 'running') {
             return { exitCode: 0, outcome: 'completed', status };
         }
 
-        // Checked after the render, so a run that is already over is drawn once and
-        // never waits, and a timeout still leaves the latest state on disk.
-        if (timeoutMs !== null && now() - startedAt >= timeoutMs) {
-            return { exitCode: 0, outcome: 'timedOut', status };
-        }
-
-        await sleep({ ms: intervalMs });
+        const remaining =
+            timeoutMs === null
+                ? intervalMs
+                : Math.min(intervalMs, timeoutMs - (now() - startedAt));
+        await sleep({ ms: Math.max(0, remaining) });
     }
 
     return { exitCode: 0, outcome: 'aborted', status };

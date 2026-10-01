@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
-import { followExecution } from '../src/cliFollow';
+import { getEventListeners } from 'node:events';
+import { createAbortableSleep, followExecution } from '../src/cliFollow';
 
 /** A history whose last event is terminal, so the loop should stop on it. */
 const terminal: HistoryEvent[] = [
@@ -231,5 +232,104 @@ describe('followExecution', () => {
                 timeoutMs: null,
             }),
         ).rejects.toThrow('Throttling');
+    });
+});
+
+describe('followExecution --follow-timeout', () => {
+    const running = [
+        { id: 1, timestamp: new Date(0), type: 'ExecutionStarted' },
+    ] as never;
+
+    it('does not fetch again past the deadline', async () => {
+        // The deadline was only checked before the sleep and the sleep was never
+        // capped, so a long interval ran one more fetch and render after the budget
+        // had already gone — the opposite of what the flag promises.
+        let clock = 0;
+        const fetchHistory = vi.fn().mockResolvedValue(running);
+        const waits: number[] = [];
+
+        const result = await followExecution({
+            fetchHistory,
+            intervalMs: 300_000,
+            now: () => clock,
+            render: vi.fn().mockResolvedValue(0),
+            signal: new AbortController().signal,
+            sleep: async ({ ms }: { ms: number }) => {
+                waits.push(ms);
+                clock += ms;
+                await Promise.resolve();
+            },
+            timeoutMs: 30_000,
+        });
+
+        expect(result.outcome).toBe('timedOut');
+        // One render, then stop: not a second fetch 300s past the deadline.
+        expect(fetchHistory).toHaveBeenCalledTimes(1);
+        // And the wait was capped to what was left of the budget.
+        expect(waits).toEqual([30_000]);
+    });
+
+    it('still renders at least once when the budget is short', async () => {
+        let clock = 0;
+        const render = vi.fn().mockResolvedValue(0);
+        await followExecution({
+            fetchHistory: vi.fn().mockResolvedValue(running),
+            intervalMs: 1000,
+            now: () => clock,
+            render,
+            signal: new AbortController().signal,
+            sleep: async ({ ms }: { ms: number }) => {
+                clock += ms;
+                await Promise.resolve();
+            },
+            timeoutMs: 1,
+        });
+        expect(render).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('createAbortableSleep', () => {
+    it('resolves at once when the signal already aborted', async () => {
+        // Ctrl-C lands during the fetch or the render, so by the time the loop sleeps
+        // the signal is already aborted. addEventListener never fires for that, so a
+        // listener-only implementation waited out the whole interval with Ctrl-C
+        // looking dead — and the SIGINT handler suppresses Node's own terminate.
+        const controller = new AbortController();
+        controller.abort();
+        const sleep = createAbortableSleep({ signal: controller.signal });
+
+        const started = Date.now();
+        await sleep({ ms: 60_000 });
+        expect(Date.now() - started).toBeLessThan(1000);
+    });
+
+    it('resolves early when the signal aborts during the wait', async () => {
+        const controller = new AbortController();
+        const sleep = createAbortableSleep({ signal: controller.signal });
+
+        const started = Date.now();
+        const waiting = sleep({ ms: 60_000 });
+        controller.abort();
+        await waiting;
+        expect(Date.now() - started).toBeLessThan(1000);
+    });
+
+    it('waits the full interval when nothing aborts', async () => {
+        const controller = new AbortController();
+        const sleep = createAbortableSleep({ signal: controller.signal });
+        const started = Date.now();
+        await sleep({ ms: 30 });
+        expect(Date.now() - started).toBeGreaterThanOrEqual(20);
+    });
+
+    it('retains no abort listener after a completed wait', async () => {
+        // `{ once: true }` only removes a listener that fires, so a long run
+        // accumulated one retained closure per tick.
+        const controller = new AbortController();
+        const sleep = createAbortableSleep({ signal: controller.signal });
+
+        for (let tick = 0; tick < 5; tick += 1) await sleep({ ms: 1 });
+
+        expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
     });
 });
