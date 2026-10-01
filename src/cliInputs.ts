@@ -30,7 +30,7 @@ export function hasGlobMagic(pattern: string): boolean {
 }
 
 /** Rewrite a path or pattern with forward slashes, which is all minimatch matches. */
-function toPosix(pathOrPattern: string): string {
+export function toPosix(pathOrPattern: string): string {
     return pathOrPattern.split(sep).join('/').split('\\').join('/');
 }
 
