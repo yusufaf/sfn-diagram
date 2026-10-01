@@ -25,10 +25,31 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { CliError, parseArgs, reportUnexpectedError, run } from '../src/cli';
+import {
+    CliError,
+    collectWatchTargets,
+    parseArgs,
+    reportUnexpectedError,
+    run,
+} from '../src/cli';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
+
+/**
+ * Poll until `ready()` is true, for the two tests that drive a real `fs.watch`.
+ * Polling rather than a fixed sleep: the event latency differs per platform and a
+ * sleep long enough for the slowest would make the suite slow for everyone.
+ */
+async function waitFor(ready: () => boolean, timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (ready()) return;
+        await new Promise((done) => setTimeout(done, 25));
+    }
+    throw new Error('waitFor timed out');
+}
+
 
 // Two tests in this file run a real resvg PNG export rather than rejecting before
 // the render, and they are the only ones here that need more than vitest's 5s
@@ -3999,4 +4020,484 @@ describe('--execution <arn> and --follow', () => {
         ).toBe(0);
         expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
     });
+});
+
+describe('--watch', () => {
+    let tempDir: string;
+    let errors: string[];
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+    let stdoutSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+        sfnSendMock.mockReset();
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-watch-'));
+        errors = [];
+        stderrSpy = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk: unknown) => {
+                errors.push(String(chunk));
+                return true;
+            });
+        stdoutSpy = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+        stderrSpy.mockRestore();
+        stdoutSpy.mockRestore();
+        rmSync(tempDir, { force: true, recursive: true });
+    });
+
+    describe('parseArgs', () => {
+        it('defaults off', () => {
+            expect(parseArgs(['in.json']).watch).toBe(false);
+        });
+
+        it('is set by --watch', () => {
+            expect(parseArgs(['in.json', '--watch']).watch).toBe(true);
+        });
+    });
+
+    describe('refusals', () => {
+        const expectRefusal = async (argv: string[], fragment: string) => {
+            expect(await run(argv)).toBe(2);
+            expect(errors.join('')).toContain(fragment);
+        };
+
+        it('refuses --watch with --follow, since both own the process', async () => {
+            await expectRefusal(
+                [
+                    simpleFixture,
+                    '--execution',
+                    'arn:aws:states:us-east-1:1:execution:M:r',
+                    '--follow',
+                    '--watch',
+                    '-o',
+                    join(tempDir, 'o.svg'),
+                ],
+                '--watch and --follow cannot be combined',
+            );
+        });
+
+        it('refuses --watch on stdin, which cannot be watched', async () => {
+            await expectRefusal(
+                ['-', '--watch', '-o', join(tempDir, 'o.svg')],
+                '--watch needs a named input',
+            );
+        });
+
+        it('refuses --watch with --from-aws, which has no file to watch', async () => {
+            await expectRefusal(
+                [
+                    '--from-aws',
+                    'arn:aws:states:us-east-1:1:stateMachine:M',
+                    '--watch',
+                    '-o',
+                    join(tempDir, 'o.svg'),
+                ],
+                '--watch re-renders when a file changes',
+            );
+        });
+
+        it('refuses --watch with an ARN --diff baseline, the third AWS route', async () => {
+            // Refused for exactly the reason the --from-aws and --execution messages
+            // give: nothing batch-wide is cached, so every save would re-fetch.
+            await expectRefusal(
+                [
+                    simpleFixture,
+                    '--diff',
+                    'arn:aws:states:us-east-1:1:stateMachine:M',
+                    '--watch',
+                    '-o',
+                    join(tempDir, 'o.svg'),
+                ],
+                'would re-fetch',
+            );
+        });
+
+        it('refuses --watch with no output destination', async () => {
+            // Same reasoning --follow uses: a pipe consumer would get one diagram per
+            // save with no way to tell where one ended.
+            await expectRefusal(
+                [simpleFixture, '--watch'],
+                '--watch needs --output or --out-dir',
+            );
+        });
+
+        it('allows --watch --check without a destination, which writes nothing', async () => {
+            // --check lints rather than drawing, so it has no output file to need.
+            const watching = run([simpleFixture, '--check', '--watch']);
+            await waitFor(() => errors.join('').includes('watching'));
+            process.emit('SIGINT');
+            expect(await watching).toBe(0);
+        }, 20_000);
+
+        it('refuses --watch with an ARN --execution, which is not a file either', async () => {
+            await expectRefusal(
+                [
+                    simpleFixture,
+                    '--execution',
+                    'arn:aws:states:us-east-1:1:execution:M:r',
+                    '--watch',
+                    '-o',
+                    join(tempDir, 'o.svg'),
+                ],
+                'use --follow',
+            );
+        });
+    });
+
+    describe('collectWatchTargets', () => {
+        it('watches a literal input as a file', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it("watches a glob's root directory, not its matches", () => {
+            // A new file matching the pattern has to be picked up, and a watch on the
+            // three paths that matched at startup can never see a fourth.
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['machines/**/*.asl.json']),
+                    configPath: null,
+                    sources: [
+                        { kind: 'file', path: 'machines/a.asl.json' },
+                        { kind: 'file', path: 'machines/b.asl.json' },
+                    ],
+                }),
+            ).toEqual(['machines']);
+        });
+
+        it('watches the config file it actually loaded', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: '/repo/sfn-diagram.config.json',
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json', '/repo/sfn-diagram.config.json']);
+        });
+
+        it('watches a --theme file', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json', '--theme', 'mine.json']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json', 'mine.json']);
+        });
+
+        it('does not watch a built-in theme name', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json', '--theme', 'dark']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it('watches a --diff baseline file but not an ARN baseline', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json', '--diff', 'base.asl.json']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json', 'base.asl.json']);
+            expect(
+                collectWatchTargets({
+                    args: parseArgs([
+                        'a.asl.json',
+                        '--diff',
+                        'arn:aws:states:us-east-1:1:stateMachine:M',
+                    ]),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it('watches an --execution history file', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs([
+                        'a.asl.json',
+                        '--execution',
+                        'run.json',
+                    ]),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json', 'run.json']);
+        });
+
+        it('lists nothing twice', () => {
+            // `sfn-diagram a.asl.json --diff a.asl.json` is odd but legal, and
+            // watching one path twice would render twice per save.
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['a.asl.json', '--diff', 'a.asl.json']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'a.asl.json' }],
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it('watches a literal input alongside a glob', () => {
+            // Any glob used to suppress every literal input, so edits to the literal
+            // silently never re-rendered.
+            expect(
+                collectWatchTargets({
+                    args: parseArgs([
+                        'machines/*.asl.json',
+                        'extra/other.asl.json',
+                    ]),
+                    configPath: null,
+                    sources: [
+                        { kind: 'file', path: 'machines/a.asl.json' },
+                        { kind: 'file', path: 'extra/other.asl.json' },
+                    ],
+                }),
+            ).toEqual(['machines', 'extra/other.asl.json']);
+        });
+
+        it('does not list a glob match separately from its root', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['machines/*.asl.json']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'machines/a.asl.json' }],
+                }),
+            ).toEqual(['machines']);
+        });
+
+        it('ignores a stdin source', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['-']),
+                    configPath: null,
+                    sources: [{ kind: 'stdin' }],
+                }),
+            ).toEqual([]);
+        });
+    });
+
+    it('watches even when the config file cannot be parsed', async () => {
+        // The whole promise of --watch is that a file problem is what you are there
+        // to fix. Collecting the watch targets only after the config load meant a
+        // broken config exited 1 with "Nothing to watch", naming the wrong cause.
+        const input = join(tempDir, 'order.asl.json');
+        writeFileSync(input, readFileSync(simpleFixture, 'utf-8'), 'utf-8');
+        writeFileSync(
+            join(tempDir, 'sfn-diagram.config.json'),
+            '{ this is not json',
+            'utf-8',
+        );
+        const cwdSpy = vi
+            .spyOn(process, 'cwd')
+            .mockReturnValue(tempDir);
+
+        const watching = run([
+            input,
+            '--watch',
+            '-o',
+            join(tempDir, 'order.svg'),
+        ]);
+        await waitFor(() => errors.join('').includes('watching'));
+        process.emit('SIGINT');
+        cwdSpy.mockRestore();
+
+        expect(await watching).toBe(0);
+        expect(errors.join('')).not.toContain('Nothing to watch');
+    }, 20_000);
+
+    it('watches even when a glob matches nothing yet', async () => {
+        // Starting a watch over an empty tree and creating the first file is a
+        // perfectly ordinary way to begin.
+        const machines = join(tempDir, 'machines');
+        mkdirSync(machines);
+
+        const watching = run([
+            join(machines, '*.asl.json'),
+            '--watch',
+            '--out-dir',
+            join(tempDir, 'out'),
+        ]);
+        await waitFor(() => errors.join('').includes('watching'));
+
+        writeFileSync(
+            join(machines, 'first.asl.json'),
+            JSON.stringify({
+                StartAt: 'One',
+                States: { One: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+        await waitFor(() => existsSync(join(tempDir, 'out', 'first.svg')));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('renders once, then re-renders the file that changed', async () => {
+        // The one end-to-end pass with a real fs.watch, so the wiring is proven
+        // rather than only the injected pieces.
+        const input = join(tempDir, 'live.asl.json');
+        const output = join(tempDir, 'live.svg');
+        writeFileSync(
+            input,
+            JSON.stringify({
+                StartAt: 'First',
+                States: { First: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+
+        const watching = run([input, '--watch', '-o', output]);
+        // Wait for the first render to land before touching the file.
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('First');
+
+        writeFileSync(
+            input,
+            JSON.stringify({
+                StartAt: 'Second',
+                States: { Second: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Second'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+        expect(errors.join('')).toContain('watching');
+    }, 20_000);
+
+    it('renders a file created under a glob after startup', async () => {
+        // The case the literal-input test above cannot reach. It is also the case
+        // that caught a real bug: `fs.watch` reports `machines\\b.asl.json` on Windows
+        // while `expandInputs` produced `machines/b.asl.json`, so the change was
+        // reported and then matched no input, and nothing was rendered.
+        const machines = join(tempDir, 'machines');
+        const outDir = join(tempDir, 'out');
+        mkdirSync(machines);
+        writeFileSync(
+            join(machines, 'a.asl.json'),
+            JSON.stringify({
+                StartAt: 'Alpha',
+                States: { Alpha: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+
+        const watching = run([
+            join(machines, '**', '*.asl.json'),
+            '--watch',
+            '--out-dir',
+            outDir,
+        ]);
+        await waitFor(() => existsSync(join(outDir, 'a.svg')));
+
+        writeFileSync(
+            join(machines, 'b.asl.json'),
+            JSON.stringify({
+                StartAt: 'Beta',
+                States: { Beta: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+        await waitFor(() => existsSync(join(outDir, 'b.svg')));
+        expect(readFileSync(join(outDir, 'b.svg'), 'utf-8')).toContain('Beta');
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('falls back to a full pass when a change matches no input', async () => {
+        // `fs.watch` is documented to report a null filename, in which case the event
+        // carries the watched *directory*; a file created under a glob root may also
+        // simply not match the pattern. Both produce an `only` naming nothing that is
+        // an input, and rendering nothing there meant a save that printed "changed"
+        // and produced no diagram.
+        const machines = join(tempDir, 'machines');
+        const outDir = join(tempDir, 'out');
+        mkdirSync(machines);
+        writeFileSync(
+            join(machines, 'a.asl.json'),
+            JSON.stringify({
+                StartAt: 'Alpha',
+                States: { Alpha: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+
+        const watching = run([
+            join(machines, '*.asl.json'),
+            '--watch',
+            '--out-dir',
+            outDir,
+        ]);
+        await waitFor(() => existsSync(join(outDir, 'a.svg')));
+
+        // Remove the output, then touch something that is not an input at all.
+        rmSync(join(outDir, 'a.svg'), { force: true });
+        writeFileSync(join(machines, 'notes.txt'), 'not a definition', 'utf-8');
+
+        // The fallback re-renders every input, so the output comes back.
+        await waitFor(() => existsSync(join(outDir, 'a.svg')));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('keeps watching after a watched file is deleted', async () => {
+        const input = join(tempDir, 'gone.asl.json');
+        const output = join(tempDir, 'gone.svg');
+        writeFileSync(
+            input,
+            JSON.stringify({
+                StartAt: 'Only',
+                States: { Only: { End: true, Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+
+        const watching = run([input, '--watch', '-o', output]);
+        await waitFor(() => existsSync(output));
+
+        rmSync(input, { force: true });
+        // A deletion is a change like any other; the pass fails and the watch lives.
+        await waitFor(() => errors.join('').includes('gone.asl.json'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+        // The last good render is still there.
+        expect(existsSync(output)).toBe(true);
+    }, 20_000);
+
+    it('exits 0 on Ctrl-C even when the last render failed', async () => {
+        // --watch is not a gate: you are watching so you can fix it, and a
+        // half-saved file is routinely invalid for a moment.
+        const input = join(tempDir, 'broken.asl.json');
+        writeFileSync(input, '{ not json', 'utf-8');
+
+        const watching = run([
+            input,
+            '--watch',
+            '-o',
+            join(tempDir, 'broken.svg'),
+        ]);
+        await waitFor(() => errors.join('').includes('watching'));
+        process.emit('SIGINT');
+
+        expect(await watching).toBe(0);
+    }, 20_000);
 });

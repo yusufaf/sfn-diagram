@@ -20,14 +20,21 @@ import {
 } from './cliAws';
 import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
 import { createAbortableSleep, followExecution } from './cliFollow';
+import { createFsWatchFactory, watchPaths } from './cliWatch';
 import type { CliConfig } from './cliConfig';
-import { CliConfigError, loadCliConfig } from './cliConfig';
+import {
+    CliConfigError,
+    discoverConfigPath,
+    loadCliConfig,
+} from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
 import {
     CliInputError,
     expandInputs,
     hasGlobMagic,
+    patternRoot,
     planOutputPaths,
+    toPosix,
 } from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
@@ -143,6 +150,14 @@ export interface CliArgs {
      * way `diff` and `execution` carry a path rather than its contents.
      */
     themeFile: string | null;
+    /**
+     * `--watch`: re-render whenever a watched file changes, until interrupted.
+     *
+     * Needs file inputs: there is nothing to watch about stdin, a live state machine
+     * or a live execution. Always exits 0 when interrupted, so it is a development
+     * loop rather than a CI gate.
+     */
+    watch: boolean;
 }
 
 const HELP_TEXT = `sfn-diagram — generate diagrams from AWS Step Functions ASL definitions
@@ -220,6 +235,11 @@ Options:
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
                                    (JSON templates are detected automatically)
   --resource <logicalId>           State machine to extract when the template has several
+  --watch                          Re-render whenever a watched file changes, until
+                                   interrupted. Watches the inputs (a glob's whole
+                                   directory, so new files count), the config file and
+                                   any --theme, --diff or --execution file. Always
+                                   exits 0: a development loop, not a CI gate.
   --check                          Lint the definition instead of drawing it: print every
                                    diagnostic and exit 1 if any is an error
   -h, --help                       Show this help and exit
@@ -243,10 +263,19 @@ Notes:
   (arn:aws:states:<region>:<account>:execution:<state-machine>:<execution>). An ARN
   is fetched live; Express workflow ARNs are refused, since GetExecutionHistory
   serves Standard workflows only. --follow needs an ARN — a file on disk does not
-  progress, and a finished one is already whatever the run ended as. Each tick
+  progress - use --watch to re-render when one changes. Each tick
   re-fetches the whole history and rewrites the one output file atomically, so a
   reader never sees a partial document and Ctrl-C leaves the last complete render in
   place. A browser showing the HTML needs a manual reload; there is no live push.
+
+  --watch needs file inputs: there is nothing to watch about stdin, --from-aws or an
+  execution ARN, and it cannot be combined with --follow since both re-render on
+  their own schedule. A change to an input re-renders that input; a change to the
+  config, a --theme file, a --diff baseline or an --execution history re-resolves and
+  re-renders everything, since those feed every output. A deleted file is not an
+  error, and a render that fails leaves the watch running - the file you are editing
+  is briefly invalid every time you save. --watch --check re-lints on change and still
+  exits 0.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
@@ -286,6 +315,8 @@ Examples:
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
   sfn-diagram state.asl.json --check
+  sfn-diagram state.asl.json --watch -o diagram.svg
+  sfn-diagram 'machines/**/*.asl.json' --watch --out-dir diagrams
   sfn-diagram --from-aws arn:aws:states:us-east-1:111122223333:stateMachine:Orders -o live.svg
   sfn-diagram --from-aws arn:...:stateMachine:Orders --diff local.asl.json --format mermaid
 `;
@@ -408,6 +439,7 @@ const OPTION_SPEC = {
     'style-preset': { type: 'string' },
     theme: { type: 'string' },
     version: { short: 'v', type: 'boolean' },
+    watch: { type: 'boolean' },
 } as const;
 
 const VALID_CATCH_LABEL_STYLES: readonly CatchLabelStyle[] = [
@@ -973,6 +1005,7 @@ export function parseArgs(argv: string[]): CliArgs {
             themeValue !== undefined && isBuiltInTheme(themeValue)
                 ? themeValue
                 : null,
+        watch: values.watch === true,
         themeFile:
             themeValue !== undefined && !isBuiltInTheme(themeValue)
                 ? themeValue
@@ -1742,6 +1775,73 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
+    // Both own the process until interrupted, and each wants to be the thing that
+    // decides when to re-render. Combining them would mean one loop inside the other
+    // with no sensible answer for which wins.
+    if (args.watch && args.follow) {
+        process.stderr.write(
+            '--watch and --follow cannot be combined; each re-renders on its own ' +
+                'schedule. --follow tracks a running execution, --watch tracks files ' +
+                'on disk\n',
+        );
+        return EXIT_USAGE;
+    }
+    // Nothing on disk to watch. Each of these is refused with its own reason rather
+    // than one vague message, because the fix differs: drop --watch, or pass a file.
+    if (args.watch && args.fromAws.length > 0) {
+        process.stderr.write(
+            '--watch re-renders when a file changes, and --from-aws reads from AWS; ' +
+                'pass a local definition to watch one\n',
+        );
+        return EXIT_USAGE;
+    }
+    if (
+        args.watch &&
+        args.execution !== null &&
+        isStateMachineArn(args.execution)
+    ) {
+        process.stderr.write(
+            '--watch would re-fetch that execution from AWS on every file change; ' +
+                'use --follow to track a running execution\n',
+        );
+        return EXIT_USAGE;
+    }
+    // The same objection, by the third route. Nothing batch-wide is cached between
+    // passes - deliberately, so a config edit is always picked up - so a live
+    // baseline would mean a DescribeStateMachine per keystroke-save.
+    if (args.watch && args.diff !== null && isStateMachineArn(args.diff)) {
+        process.stderr.write(
+            '--watch would re-fetch that --diff baseline from AWS on every file ' +
+                'change; pass a local baseline to watch against\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // Same objection --follow raises: re-rendering to stdout gives a pipe consumer
+    // one diagram per save with no way to tell where one ended. `--check` is exempt
+    // because it writes nothing to begin with.
+    if (
+        args.watch &&
+        !args.check &&
+        args.output === null &&
+        args.outDir === null
+    ) {
+        process.stderr.write(
+            '--watch needs --output or --out-dir: it rewrites a file as you edit, ' +
+                'and stdout cannot be rewritten\n',
+        );
+        return EXIT_USAGE;
+    }
+
+    // stdin is consumed once and never changes afterwards, so there is nothing for
+    // a watch to observe. An explicit `-` and a bare invocation both land here.
+    if (args.watch && (args.inputs.length === 0 || args.inputs.includes('-'))) {
+        process.stderr.write(
+            '--watch needs a named input; stdin is read once and cannot change\n',
+        );
+        return EXIT_USAGE;
+    }
+
     // `--follow` is meaningless without something that changes over time.
     if (args.follow && args.execution === null) {
         process.stderr.write(
@@ -1753,8 +1853,8 @@ export async function run(argv: string[]): Promise<number> {
     // loop to observe: a saved history is already whatever the run ended as.
     if (args.follow && args.execution !== null && !isStateMachineArn(args.execution)) {
         process.stderr.write(
-            '--follow needs an execution ARN; a history file does not progress, ' +
-                'so there is nothing to poll for\n',
+            '--follow needs an execution ARN; a history file does not progress. ' +
+                'Use --watch to re-render when a file changes\n',
         );
         return EXIT_USAGE;
     }
@@ -1800,20 +1900,357 @@ export async function run(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
+    if (args.watch) return runWatch({ args });
+    return (await renderResolvedBatch({ args, only: null })).code;
+}
+
+/** How long a burst of filesystem events is allowed to settle before re-rendering. */
+const WATCH_DEBOUNCE_MS = 100;
+
+/** Parameters for {@link runWatch}. */
+interface RunWatchParams {
+    /** The parsed command line. */
+    args: CliArgs;
+}
+
+/**
+ * Render once, then re-render whenever a watched file changes, until interrupted.
+ *
+ * Each pass re-runs {@link renderResolvedBatch} in full, so a change to the config or
+ * a `--theme` file is picked up: `resolveCliOptions` folds those into the options once
+ * at startup, and nothing short of re-resolving would notice an edit. A change to an
+ * *input* re-renders only that input, by passing it as `only` — a save in a batch of
+ * forty should not redraw forty diagrams.
+ *
+ * Interrupting always exits 0. `--watch` is a development loop, not a gate: the file
+ * you are editing is routinely invalid for a moment, and an exit code that depended on
+ * when you happened to press Ctrl-C would be worse than useless. `--check` works the
+ * same way, printing diagnostics each pass and still exiting 0.
+ *
+ * SIGINT aborts between passes rather than calling `process.exit()`, for the reason
+ * `src/bin.ts` documents: tearing the process down mid-write risks a truncated output
+ * file and, on Windows, a libuv assertion.
+ *
+ * @param params - The parsed command line.
+ *
+ * @returns `EXIT_OK` once interrupted, or `EXIT_USAGE` if the very first pass was
+ *   refused as a usage error — a bad invocation does not become acceptable by adding
+ *   `--watch`.
+ */
+async function runWatch(params: RunWatchParams): Promise<number> {
+    const { args } = params;
+
+    // Resolved from argv, before the first render, precisely so a file problem does
+    // not cost the watch. `renderResolvedBatch` collects its targets only after the
+    // config load, the theme read, the baseline read and the glob expansion, so a
+    // broken config, an unreadable theme or a glob matching nothing all returned an
+    // empty list - and `--watch` then exited 1 saying "nothing to watch", naming the
+    // wrong cause and refusing to do the one thing it exists for. The config path is
+    // discovered independently for the same reason: a config that fails to parse is
+    // exactly the file you need watched.
+    let configPath: string | null = null;
+    try {
+        configPath =
+            args.config ??
+            discoverConfigPath({ startDir: process.cwd() }) ??
+            null;
+    } catch {
+        // Discovery is best-effort; a config that cannot even be located is simply
+        // not watched, and the render below reports whatever the real problem is.
+    }
+    const plannedTargets = collectWatchTargets({
+        args,
+        configPath,
+        sources: args.inputs
+            .filter((pattern) => !hasGlobMagic(pattern) && pattern !== '-')
+            .map((pattern) => ({ kind: 'file' as const, path: pattern })),
+    });
+
+    const first = await renderResolvedBatch({ args, only: null });
+    // A usage error is about the command line, which watching cannot change. Every
+    // other failure is a file problem, and watching is how you fix those - so only
+    // this one aborts.
+    if (first.code === EXIT_USAGE) return EXIT_USAGE;
+
+    // Whatever the pass resolved is additive: it knows the config file it actually
+    // loaded and the files a glob matched, which the argv-only pass above cannot.
+    const targets = [...new Set([...plannedTargets, ...first.watchTargets])];
+    if (targets.length === 0) {
+        process.stderr.write(
+            'Nothing to watch: no input file was named\n',
+        );
+        return EXIT_FAILURE;
+    }
+
+    const controller = new AbortController();
+    const onInterrupt = (): void => controller.abort();
+    process.on('SIGINT', onInterrupt);
+
+    process.stderr.write(`watching ${targets.length} path(s); Ctrl-C to stop\n`);
+
+    try {
+        await watchPaths({
+            debounceMs: WATCH_DEBOUNCE_MS,
+            onChange: async ({ paths }) => {
+                // A config or theme change re-resolves and re-renders everything;
+                // anything else is an input, so only that input is redrawn. A path
+                // that is no longer an input at all - a file deleted, or one created
+                // under a glob root that does not match the pattern - falls back to a
+                // full pass, which re-expands the globs and sorts it out.
+                const inputPaths = paths.filter(
+                    (path) =>
+                        !isBatchWideTarget({
+                            args,
+                            configPath: first.configPath ?? configPath,
+                            path,
+                        }),
+                );
+                const only =
+                    inputPaths.length === paths.length && inputPaths.length > 0
+                        ? inputPaths
+                        : null;
+                for (const path of paths) {
+                    process.stderr.write(`  ${path} changed\n`);
+                }
+                await renderResolvedBatch({ args, only });
+            },
+            onWatchError: ({ target }) => {
+                process.stderr.write(`  cannot watch ${target}; skipping it\n`);
+            },
+            signal: controller.signal,
+            targets,
+            watch: createFsWatchFactory({
+                onError: ({ target }) => {
+                    process.stderr.write(
+                        `  watch on ${target} failed; it will not report further ` +
+                            'changes\n',
+                    );
+                },
+            }),
+        });
+    } finally {
+        process.off('SIGINT', onInterrupt);
+    }
+
+    process.stderr.write('stopped watching\n');
+    return EXIT_OK;
+}
+
+/** Parameters for {@link isBatchWideTarget}. */
+interface IsBatchWideTargetParams {
+    /** The parsed command line. */
+    args: CliArgs;
+    /** The loaded config path, when known. */
+    configPath: string | null;
+    /** The changed path to classify. */
+    path: string;
+}
+
+/**
+ * Whether a changed path is one whose edit invalidates the whole batch.
+ *
+ * The config file and a `--theme` file both feed `resolveCliOptions`, and a `--diff`
+ * baseline or an `--execution` history is shared by every input, so a change to any of
+ * them has to redraw everything rather than one file.
+ *
+ * @param params - The command line, the config path, and the changed path.
+ *
+ * @returns `true` when the whole batch must be re-rendered.
+ */
+function isBatchWideTarget(params: IsBatchWideTargetParams): boolean {
+    const { args, configPath, path } = params;
+    const batchWide = [
+        configPath,
+        args.themeFile,
+        args.diff !== null && !isStateMachineArn(args.diff) ? args.diff : null,
+        args.execution !== null && !isStateMachineArn(args.execution)
+            ? args.execution
+            : null,
+    ].filter((candidate): candidate is string => candidate !== null);
+    const changed = toPosix(path);
+    return batchWide.some((candidate) => {
+        const target = toPosix(candidate);
+        // A config file is watched by the absolute path it was loaded from, while an
+        // event may name it relatively, so a suffix match is needed - but only on a
+        // whole segment boundary, or `a.json` would be read as a change to
+        // `data.json`.
+        return (
+            target === changed ||
+            target.endsWith(`/${changed}`) ||
+            changed.endsWith(`/${target}`)
+        );
+    });
+}
+
+/** Parameters for {@link isUnderAnyRoot}. */
+interface IsUnderAnyRootParams {
+    /** The candidate path. */
+    path: string;
+    /** Directory roots already being watched recursively. */
+    roots: string[];
+}
+
+/**
+ * Whether a path is already covered by a directory being watched recursively.
+ *
+ * @param params - The path and the roots.
+ *
+ * @returns `true` when watching the path separately would be redundant.
+ */
+function isUnderAnyRoot(params: IsUnderAnyRootParams): boolean {
+    const { path, roots } = params;
+    const candidate = toPosix(path);
+    return roots.some((root) => {
+        if (root === '.') return true;
+        const prefix = toPosix(root);
+        return candidate === prefix || candidate.startsWith(`${prefix}/`);
+    });
+}
+
+/** Parameters for {@link collectWatchTargets}. */
+export interface CollectWatchTargetsParams {
+    /** The parsed command line, for the patterns and the auxiliary file flags. */
+    args: CliArgs;
+    /** The config file that was actually loaded, or `null` if there was none. */
+    configPath: string | null;
+    /** The expanded sources for this pass. */
+    sources: CliInputSource[];
+}
+
+/**
+ * The files and directories `--watch` should watch.
+ *
+ * A glob contributes its **root directory** rather than the paths it matched: a watch
+ * on the three files that matched at startup can never notice a fourth, and picking up
+ * a newly added state machine is the obvious thing to want from a watch over a tree.
+ * `patternRoot` already computes that prefix for `expandInputs`.
+ *
+ * The config and `--theme` files are included because `resolveCliOptions` folds them
+ * into the options exactly once; without watching them, editing a config mid-watch
+ * would silently do nothing. `--diff` and `--execution` are included when they name a
+ * path, and skipped when they name an ARN.
+ *
+ * @param params - The command line, the loaded config path, and the expanded sources.
+ *
+ * @returns Targets to watch, de-duplicated, in a stable order.
+ *
+ * @example
+ * ```typescript
+ * collectWatchTargets({
+ *     args: parseArgs(['machines/*.asl.json']),
+ *     configPath: '/repo/sfn-diagram.config.json',
+ *     sources: [{ kind: 'file', path: 'machines/a.asl.json' }],
+ * });
+ * // ['machines', '/repo/sfn-diagram.config.json']
+ * ```
+ */
+export function collectWatchTargets(
+    params: CollectWatchTargetsParams,
+): string[] {
+    const { args, configPath, sources } = params;
+    const targets: string[] = [];
+
+    const globPatterns = args.inputs.filter((pattern) => hasGlobMagic(pattern));
+    const roots: string[] = [];
+    for (const pattern of globPatterns) {
+        const root = patternRoot(pattern);
+        roots.push(root === '' ? '.' : root);
+    }
+    targets.push(...roots);
+
+    // A source already covered by one of those roots is not listed again, or one save
+    // would render twice. The test is per source rather than per batch: suppressing
+    // every literal input because *some* pattern was a glob meant
+    // `sfn-diagram 'machines/*.asl.json' extra/other.asl.json --watch` silently
+    // stopped watching the literal.
+    for (const source of sources) {
+        if (source.kind !== 'file') continue;
+        if (!isUnderAnyRoot({ path: source.path, roots })) {
+            targets.push(source.path);
+        }
+    }
+
+    if (configPath !== null) targets.push(configPath);
+    if (args.themeFile !== null) targets.push(args.themeFile);
+    if (args.diff !== null && !isStateMachineArn(args.diff)) {
+        targets.push(args.diff);
+    }
+    if (args.execution !== null && !isStateMachineArn(args.execution)) {
+        targets.push(args.execution);
+    }
+
+    return [...new Set(targets)];
+}
+
+/** Parameters for {@link renderResolvedBatch}. */
+interface RenderResolvedBatchParams {
+    /** The parsed command line. */
+    args: CliArgs;
+    /**
+     * Render only these inputs, or `null` for all of them.
+     *
+     * `--watch` passes the one path that changed, so a save in a batch of forty
+     * re-renders one file rather than forty. Everything batch-wide is still resolved
+     * from scratch on each pass: a config file is a few hundred bytes, and re-reading
+     * it is both cheaper than caching it and more robust, since a config edit is
+     * picked up even if its own watch event was missed.
+     */
+    only: string[] | null;
+}
+
+/** What one resolve-and-render pass produced. */
+interface RenderResolvedBatchResult {
+    /** The worst exit code across the inputs rendered. */
+    code: number;
+    /**
+     * The config file this pass loaded, or `null`. Returned so `--watch` can tell a
+     * config change (re-render everything) from an input change (re-render one).
+     */
+    configPath: string | null;
+    /**
+     * What `--watch` should watch: each literal input, each glob's root directory,
+     * and the config and theme files. Empty when nothing on disk is involved.
+     */
+    watchTargets: string[];
+}
+
+/**
+ * Resolve everything that depends on the filesystem, then render.
+ *
+ * Split out of {@link run} so `--watch` can repeat it: a change to
+ * `sfn-diagram.config.*` or a `--theme` file has to re-run the config load and the
+ * option merge, which `resolveCliOptions` otherwise does exactly once at startup.
+ * The argv-only guards stay in `run`, because nothing they check can change while
+ * the process is alive.
+ *
+ * @param params - The command line, and which inputs to render.
+ *
+ * @returns The worst exit code, and the paths `--watch` should be watching.
+ */
+async function renderResolvedBatch(
+    params: RenderResolvedBatchParams,
+): Promise<RenderResolvedBatchResult> {
+    const { args, only } = params;
+    /** Returned alongside every early exit so a failed pass still says what to watch. */
+    const watchTargets: string[] = [];
+
     // Loaded before the remaining semantic checks, because a config file can set
     // `format` and those checks read it. A file's contents being wrong is a runtime
     // failure, not a usage error: EXIT_USAGE is reserved for the command line.
     let configFile: CliConfig | null = null;
+    /** Where the config came from, so `--watch` can watch it. */
+    let configPath: string | null = null;
     try {
         const loaded = loadCliConfig({
             explicitPath: args.config,
             startDir: process.cwd(),
         });
         configFile = loaded?.config ?? null;
+        configPath = loaded?.path ?? null;
     } catch (error) {
         if (!(error instanceof CliConfigError)) throw error;
         process.stderr.write(`Error: ${error.message}\n`);
-        return EXIT_FAILURE;
+        return { code: EXIT_FAILURE, configPath, watchTargets };
     }
 
     // Flags over config over defaults, once, here. Every option read below comes from
@@ -1825,13 +2262,13 @@ export async function run(argv: string[]): Promise<number> {
         process.stderr.write(
             `--diff supports --format svg, mermaid or html, not ${options.format}\n`,
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
     if (args.execution !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
             `--execution supports --format svg, mermaid or html, not ${options.format}\n`,
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
     // The flag is valid and the build cannot honour it, which still counts as usage:
     // the fix is to change the invocation (use the npm package), not the input.
@@ -1846,7 +2283,7 @@ export async function run(argv: string[]): Promise<number> {
                 'Use the npm package instead ' +
                 '(npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …).\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
     // Same reasoning as --format png above: the flag is valid and this build cannot
     // honour it. A compiled binary has no node_modules to load an optional peer
@@ -1863,7 +2300,7 @@ export async function run(argv: string[]): Promise<number> {
                 'package instead (npx --package sfn-diagram --package ' +
                 '@aws-sdk/client-sfn sfn-diagram --from-aws …).\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
     // `--out-dir` names the destination just as well as `-o` does, and PNG is one of
     // the formats OUTPUT_EXTENSIONS covers, so demanding `-o` here made batch PNG
@@ -1877,7 +2314,7 @@ export async function run(argv: string[]): Promise<number> {
         process.stderr.write(
             '--output or --out-dir is required when --format is png\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     // With no input argument, loadSource falls through to readStdin(). On a terminal
@@ -1890,7 +2327,7 @@ export async function run(argv: string[]): Promise<number> {
         process.stdin.isTTY
     ) {
         process.stderr.write(HELP_TEXT);
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     // There is no coherent "re-render to stdout": a pipe consumer would get one
@@ -1900,14 +2337,14 @@ export async function run(argv: string[]): Promise<number> {
             '--follow needs --output or --out-dir: it rewrites one file as the ' +
                 'execution progresses, and stdout cannot be rewritten\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     if (args.output !== null && args.outDir !== null) {
         process.stderr.write(
             '-o and --out-dir cannot be combined; -o names one file, --out-dir a directory\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     // `--check` lints and writes nothing, so a destination is as contradictory here
@@ -1917,7 +2354,7 @@ export async function run(argv: string[]): Promise<number> {
         process.stderr.write(
             '--check lints the input only; it cannot be combined with --out-dir\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     // Globs are expanded before the count-dependent checks below, so a pattern matching
@@ -1943,7 +2380,7 @@ export async function run(argv: string[]): Promise<number> {
             // A pattern that matched nothing is about the filesystem, not the
             // command line.
             process.stderr.write(`Error: ${error.message}\n`);
-            return EXIT_FAILURE;
+            return { code: EXIT_FAILURE, configPath, watchTargets };
         }
         sources = expanded.map((path) =>
             path === '-'
@@ -1963,7 +2400,7 @@ export async function run(argv: string[]): Promise<number> {
         process.stderr.write(
             '--out-dir needs a named input; stdin has no filename to derive one from\n',
         );
-        return EXIT_USAGE;
+        return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
     if (sources.length > 1) {
@@ -1971,31 +2408,31 @@ export async function run(argv: string[]): Promise<number> {
             process.stderr.write(
                 'stdin cannot be one of several inputs; there is only one stdin\n',
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.output !== null) {
             process.stderr.write(
                 '-o takes a single output file; use --out-dir for more than one input\n',
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.outDir === null && !args.check) {
             process.stderr.write(
                 '--out-dir is required for more than one input\n',
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.diff !== null) {
             process.stderr.write(
                 '--diff compares one definition against one baseline; pass a single input\n',
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.execution !== null) {
             process.stderr.write(
                 '--execution overlays one run on one definition; pass a single input\n',
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
     }
 
@@ -2005,7 +2442,7 @@ export async function run(argv: string[]): Promise<number> {
             process.stderr.write(
                 `--out-dir is not a directory: ${args.outDir}\n`,
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         try {
             planned = planOutputPaths({
@@ -2025,7 +2462,7 @@ export async function run(argv: string[]): Promise<number> {
             if (!(error instanceof CliInputError)) throw error;
             // A collision is a property of the invocation, not of any file's contents.
             process.stderr.write(`Error: ${error.message}\n`);
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
         // Created only once the batch is known to be renderable, so a rejected batch
         // leaves no directory behind.
@@ -2040,7 +2477,7 @@ export async function run(argv: string[]): Promise<number> {
             process.stderr.write(
                 `Cannot create --out-dir ${args.outDir}: ${reason}\n`,
             );
-            return EXIT_USAGE;
+            return { code: EXIT_USAGE, configPath, watchTargets };
         }
     }
 
@@ -2077,7 +2514,7 @@ export async function run(argv: string[]): Promise<number> {
             // unreadable input or --diff baseline. A misspelled built-in name lands
             // here too and is indistinguishable from a missing path, which is what
             // the second line above is for.
-            return EXIT_FAILURE;
+            return { code: EXIT_FAILURE, configPath, watchTargets };
         }
     }
 
@@ -2106,7 +2543,7 @@ export async function run(argv: string[]): Promise<number> {
                     ? ''
                     : 'Failed to read --diff baseline: ';
             process.stderr.write(`${prefix}${message}\n`);
-            return EXIT_FAILURE;
+            return { code: EXIT_FAILURE, configPath, watchTargets };
         }
     }
 
@@ -2137,16 +2574,48 @@ export async function run(argv: string[]): Promise<number> {
                     ? ''
                     : 'Failed to read --execution history: ';
             process.stderr.write(`${prefix}${message}\n`);
-            return EXIT_FAILURE;
+            return { code: EXIT_FAILURE, configPath, watchTargets };
         }
     }
 
     // One entry per source, so the single-input path is the same code as a batch of one.
+    // Collected here because this is the first point where the globs have been
+    // expanded and the config and theme paths are known. A glob contributes its root
+    // directory rather than its matches, so a file created later fires an event too.
+    watchTargets.push(...collectWatchTargets({ args, configPath, sources }));
+
     const work: Array<{ outputPath: string | null; source: CliInputSource }> =
-        sources.map((source, index) => ({
-            outputPath: planned === null ? args.output : planned[index].output,
-            source,
-        }));
+        sources
+            .map((source, index) => ({
+                outputPath:
+                    planned === null ? args.output : planned[index].output,
+                source,
+            }))
+            // `--watch` re-renders the file that changed, not the whole batch.
+            // Both sides are normalised: `fs.watch` reports a backslash-separated
+            // path on Windows while `expandInputs` produced a forward-slash one, so
+            // comparing them raw matched nothing and a change was reported but never
+            // rendered.
+            .filter((item) => {
+                if (only === null) return true;
+                if (item.source.kind !== 'file') return false;
+                const wanted = only.map((path) => toPosix(path));
+                return wanted.includes(toPosix(item.source.path));
+            });
+
+    // The fallback the `--watch` path assumed existed. `only` can name something that
+    // is not an input at all: `fs.watch` is documented to report a `null` filename,
+    // in which case the event carries the watched *directory*, and a file created
+    // under a glob root may simply not match the pattern. Rendering nothing there
+    // meant a save that printed "changed" and produced no diagram.
+    const selected =
+        only !== null && work.length === 0
+            ? sources.map((source, index) => ({
+                  outputPath:
+                      planned === null ? args.output : planned[index].output,
+                  source,
+              }))
+            : work;
     // A batch names its files, and so does a glob even when it expanded to one: the
     // caller chose a pattern rather than a path, so which file was selected is
     // exactly what they do not know. A single literal input needs no label - the
@@ -2158,20 +2627,24 @@ export async function run(argv: string[]): Promise<number> {
     // until the execution ends. Guards above have already established that
     // `executionArn` is non-null and that there is exactly one output path.
     if (args.follow && executionArn !== null) {
-        return runFollow({
+        return {
+            code: await runFollow({
             args,
             arn: executionArn,
             baselineIsLive,
             baselineSource,
             options,
-            outputPath: work[0].outputPath,
-            source: work[0].source,
-            theme,
-        });
+                outputPath: work[0].outputPath,
+                source: work[0].source,
+                theme,
+            }),
+            configPath,
+            watchTargets,
+        };
     }
 
     let worstCode = EXIT_OK;
-    for (const item of work) {
+    for (const item of selected) {
         // A failing input does not stop the batch: stopping at the first would hide the
         // rest, which is the opposite of what a batch is for.
         const code = await renderOneInput({
@@ -2189,7 +2662,7 @@ export async function run(argv: string[]): Promise<number> {
         });
         if (code !== EXIT_OK) worstCode = code;
     }
-    return worstCode;
+    return { code: worstCode, configPath, watchTargets };
 }
 
 /** Parameters for {@link runFollow}. */

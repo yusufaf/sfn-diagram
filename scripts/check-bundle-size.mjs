@@ -36,11 +36,23 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `dist/cli.js` is absent on purpose: `package.json#files` excludes it
  * (`"!dist/cli.js"`), so it ships to nobody. `dist/bin.js` is the CLI consumers
  * actually get, and it is budgeted.
+ *
+ * Every budget sits roughly 10% above what its entry measured when it was last set.
+ * That headroom is the whole mechanism: it absorbs ordinary change and trips on
+ * something unexpected. A budget the current build only just fits under has stopped
+ * being a gate and become a tripwire for whoever lands next, so when a deliberate
+ * growth eats the headroom, the right move is to re-measure and restate the budget in
+ * the same commit — not to leave it at 2% and let an unrelated PR take the blame.
+ *
+ * `bin.js` was last restated at 674,000 / 197,500 after the CLI gained `--from-aws`,
+ * `--execution <arn> --follow` and `--watch` (#192, #283, #190), which together took
+ * it from 567,677 to 613,128 raw: +45,451 bytes, +8.0%, for three features. The AWS
+ * SDK is not in that number — it stays an externalised optional peer.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
-    'bin.js': { gzip: 183000, raw: 625000 },
+    'bin.js': { gzip: 197500, raw: 674000 },
     'cfn.cjs': { gzip: 3600, raw: 9800 },
     'cfn.js': { gzip: 3600, raw: 9800 },
     'ci.cjs': { gzip: 83500, raw: 287000 },

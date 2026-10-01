@@ -22,6 +22,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
 | `--out-dir <dir>` | Write one output file per input into this directory — see [Rendering several files](#rendering-several-files) |
 | `--from-aws <arn>` | Fetch the definition live from AWS instead of reading a file — see [Rendering a live state machine](#rendering-a-live-state-machine) |
+| `--watch` | Re-render whenever a watched file changes — see [Watching files](#watching-files) |
 | `--follow` | With `--execution <arn>`, keep polling and re-rendering until the run finishes — see [Following a running execution](#following-a-running-execution) |
 | `--poll-interval <seconds>` | How often `--follow` polls (default: `2`) |
 | `--follow-timeout <seconds>` | Give up after this long and exit `1` |
@@ -372,6 +373,83 @@ package instead:
 npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram --from-aws arn:...
 ```
 
+## Watching files
+
+`--watch` renders once and then keeps going, re-rendering whenever something it is
+watching changes:
+
+```bash
+sfn-diagram order.asl.json --watch -o diagram.svg
+sfn-diagram 'machines/**/*.asl.json' --watch --out-dir diagrams
+```
+
+```
+watching 2 path(s); Ctrl-C to stop
+  machines/order.asl.json changed
+  machines/payments.asl.json changed
+stopped watching
+```
+
+### What it watches
+
+| | |
+|---|---|
+| A literal input | the file itself |
+| A glob | the pattern's **root directory**, recursively — so a file added later is picked up, not just the ones that matched at startup |
+| The [config file](#configuration-file) | the one that was actually loaded |
+| `--theme <path>`, `--diff <path>`, `--execution <path>` | each file, when it names a path rather than an ARN |
+
+### What a change re-renders
+
+A change to an **input** re-renders just that input — a save in a batch of forty
+redraws one diagram, not forty.
+
+A change to the **config file**, a `--theme` file, a `--diff` baseline or an
+`--execution` history re-resolves everything and re-renders every input, because those
+feed every output. This is the reason the config file is watched at all: options are
+merged once at startup, so without it, editing a config mid-watch would silently do
+nothing.
+
+Bursts collapse. One save often produces several filesystem events — a write, a
+truncate, sometimes a temporary file and a rename — and a 100ms quiet period turns
+those into one render. Renders never overlap: a change arriving mid-render is queued
+and runs straight after, so two renders cannot race on one output file.
+
+### Failures do not stop it
+
+A file is invalid for a moment every time you save it, so a failed render prints and
+the watch continues. A deleted file is not an error either — the next pass re-expands
+the globs and carries on with whatever is still there. A path that cannot be watched at
+all is reported and skipped rather than ending the run.
+
+### It always exits 0
+
+`--watch` is a development loop, not a gate. Interrupting it exits `0` whatever the
+last render did, including with `--check`:
+
+```
+$ sfn-diagram order.asl.json --check --watch
+watching 1 path(s); Ctrl-C to stop
+  order.asl.json changed
+error   /States/Next  Unreachable state  [unreachable-state]
+^C
+stopped watching          # exit 0
+```
+
+For a gate, drop `--watch` and let `--check`'s exit code mean something.
+
+The one exception is a **usage** error: `--watch` cannot make a bad command line
+work, so an invocation that would have exited `2` still does, before any watching
+starts.
+
+### Not combinable
+
+`--watch` needs files, so it is refused (exit 2) with stdin, with `--from-aws`, and
+with an ARN `--execution` — which would otherwise re-fetch from AWS on every save.
+It is also refused with [`--follow`](#following-a-running-execution): both own the
+process and each wants to decide when to re-render. `--follow` tracks a running
+execution; `--watch` tracks files on disk.
+
 ## Following a running execution
 
 `--execution` takes a saved `GetExecutionHistory` result **or** an execution ARN, which
@@ -425,7 +503,8 @@ has no channel to a running page.
 `--follow` needs `-o` or `--out-dir`: there is no coherent way to re-render to stdout,
 since a pipe consumer would get one diagram per tick with no way to tell where one
 ended. It also needs an **ARN** — a history file on disk does not progress, and
-a saved history is already whatever the run ended as. `--poll-interval` and
+re-rendering when a file changes is what [`--watch`](#watching-files) is for.
+`--poll-interval` and
 `--follow-timeout` are refused without `--follow`, rather than silently doing nothing.
 
 Express workflow ARNs are refused up front: `GetExecutionHistory` serves Standard
