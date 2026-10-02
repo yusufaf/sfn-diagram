@@ -21,7 +21,7 @@ It is also published to [Open VSX](https://open-vsx.org/extension/yusufaf/vscode
 codium --install-extension yusufaf.vscode-sfn-diagram
 ```
 
-Open VSX is published automatically on every release, so it always carries the current version. The VS Code Marketplace is still published by hand, so that listing can trail a release or two behind — the two version badges above report what each registry has right now. [Issue #40](https://github.com/yusufaf/sfn-diagram/issues/40) tracks automating it.
+Open VSX is published automatically whenever a new version of this extension is released. The VS Code Marketplace is still published by hand, so that listing can trail a release or two behind — the two version badges above report what each registry has right now. [Issue #40](https://github.com/yusufaf/sfn-diagram/issues/40) tracks automating it.
 
 ## Features
 
