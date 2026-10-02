@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.7.0...sfn-diagram-v1.8.0) (2026-10-02)
+
+
+### Features
+
+* **cli:** expose the remaining DiagramOptions as flags ([#324](https://github.com/yusufaf/sfn-diagram/issues/324)) ([f8c73b8](https://github.com/yusufaf/sfn-diagram/commit/f8c73b8fe8e620056cbd966af6d6d4e3c6e027e4))
+* **cli:** follow a running execution with --execution &lt;arn&gt; --follow ([#343](https://github.com/yusufaf/sfn-diagram/issues/343)) ([a16331d](https://github.com/yusufaf/sfn-diagram/commit/a16331dda3969aab96eefa7a02ec6cfe32592f96))
+* **cli:** re-render on file change with --watch ([#344](https://github.com/yusufaf/sfn-diagram/issues/344)) ([206f70a](https://github.com/yusufaf/sfn-diagram/commit/206f70a2322658f4c69a75596ee38f9aa10162df))
+* **cli:** render a live state machine with --from-aws ([#342](https://github.com/yusufaf/sfn-diagram/issues/342)) ([bab14cc](https://github.com/yusufaf/sfn-diagram/commit/bab14cc4f9d10ed4869bcdbc98b1c0b826546a97))
+* **cli:** render several inputs into --out-dir, with glob support ([#329](https://github.com/yusufaf/sfn-diagram/issues/329)) ([e458bc2](https://github.com/yusufaf/sfn-diagram/commit/e458bc241057aadd39d73e02b449eab82314eb83))
+* **cli:** support a sfn-diagram.config.* file and --config ([#327](https://github.com/yusufaf/sfn-diagram/issues/327)) ([3e4ff98](https://github.com/yusufaf/sfn-diagram/commit/3e4ff98dbcfa4668dc6cad063e468b5e909591fc))
+* **execution:** collapse support on the execution overlay path ([#306](https://github.com/yusufaf/sfn-diagram/issues/306)) ([294aebe](https://github.com/yusufaf/sfn-diagram/commit/294aebe13fa6ff7c5fe6988a3c356e180afd4f8f))
+* **execution:** replay a history as an ordered timeline ([#310](https://github.com/yusufaf/sfn-diagram/issues/310)) ([ea9f1a5](https://github.com/yusufaf/sfn-diagram/commit/ea9f1a5565e499afc90196d327be0f1333da3902))
+* **html:** generateHtml accepts history and diff overlays ([#303](https://github.com/yusufaf/sfn-diagram/issues/303)) ([9bc1e3e](https://github.com/yusufaf/sfn-diagram/commit/9bc1e3e48829c0e8e6a149c89d9b73ddcb4da0a0))
+* **html:** redact the raw ASL and execution payloads a document inlines ([#314](https://github.com/yusufaf/sfn-diagram/issues/314)) ([d6f91d3](https://github.com/yusufaf/sfn-diagram/commit/d6f91d3e3a046f6078561d1d5b5f6148ed615f4a))
+* **parser:** honour QueryLanguage instead of duck-typing JSONata ([#292](https://github.com/yusufaf/sfn-diagram/issues/292)) ([d809869](https://github.com/yusufaf/sfn-diagram/commit/d809869d70ce38201a4b5b30005c4b88648baad8))
+* **parser:** lintAsl() structured diagnostics and CLI --check ([#301](https://github.com/yusufaf/sfn-diagram/issues/301)) ([6dbf9d7](https://github.com/yusufaf/sfn-diagram/commit/6dbf9d724c64dbc1ee412e4d18c7c1de62a670b6))
+* **parser:** render Arguments, Output, ItemSelector, Label on nodes ([#293](https://github.com/yusufaf/sfn-diagram/issues/293)) ([dbfd634](https://github.com/yusufaf/sfn-diagram/commit/dbfd63488d38521f30a93d72146f4970f201a305))
+* **theme:** CustomTheme requires every field, blocking partial overrides ([#300](https://github.com/yusufaf/sfn-diagram/issues/300)) ([c5e4c68](https://github.com/yusufaf/sfn-diagram/commit/c5e4c68066abad8407efcebdef55380648379e66))
+* **viewer:** deep-link the selected state or edge through location.hash ([#315](https://github.com/yusufaf/sfn-diagram/issues/315)) ([f0a3ed3](https://github.com/yusufaf/sfn-diagram/commit/f0a3ed3a9ac6a8b22a8d0ea23ecdc0199c0c1856))
+* **viewer:** download the SVG and copy the Mermaid from the toolbar ([#316](https://github.com/yusufaf/sfn-diagram/issues/316)) ([945c20b](https://github.com/yusufaf/sfn-diagram/commit/945c20bdf1d75125eda7dd70bc60a14ac1f53dff))
+* **viewer:** execution playback controls ([#311](https://github.com/yusufaf/sfn-diagram/issues/311)) ([da446e4](https://github.com/yusufaf/sfn-diagram/commit/da446e483796c7a71abea6c28d8bf63051851edf))
+* **viewer:** per-container collapse with in-browser relayout ([#305](https://github.com/yusufaf/sfn-diagram/issues/305)) ([4d16e4d](https://github.com/yusufaf/sfn-diagram/commit/4d16e4d0add35f17026bbe8bd9703113862482db))
+* **viewer:** per-state execution runs and payloads in the detail panel ([#312](https://github.com/yusufaf/sfn-diagram/issues/312)) ([40820a8](https://github.com/yusufaf/sfn-diagram/commit/40820a8046602d453622534feb348a1791a08cd9))
+* **viewer:** pinch to zoom on a touch screen ([#319](https://github.com/yusufaf/sfn-diagram/issues/319)) ([bbe6ed7](https://github.com/yusufaf/sfn-diagram/commit/bbe6ed7453681207d0ebe556d31996f89306377c))
+
+
+### Bug Fixes
+
+* **cli:** consolidate usage errors onto exit code 2 and document the convention ([#325](https://github.com/yusufaf/sfn-diagram/issues/325)) ([d1be4fd](https://github.com/yusufaf/sfn-diagram/commit/d1be4fd2bd83fde9ef9f892688f0bc1f0081ed59))
+* **diff:** diff granularity is top-level States keys only — nested states are never classified ([#299](https://github.com/yusufaf/sfn-diagram/issues/299)) ([355663e](https://github.com/yusufaf/sfn-diagram/commit/355663e7efdccc87b193b26e2192b6a3e4a8f931))
+* **execution:** fail a leaf abandoned by a caught container failure ([#308](https://github.com/yusufaf/sfn-diagram/issues/308)) ([20baeac](https://github.com/yusufaf/sfn-diagram/commit/20baeacc20271acab4cdc0a5f09f0736e6f8e097))
+* **parser:** wrap JSON.parse failures in AslValidationError ([#291](https://github.com/yusufaf/sfn-diagram/issues/291)) ([5f0f375](https://github.com/yusufaf/sfn-diagram/commit/5f0f37567f61ea814ffa53b92a4f7325f17e1809))
+
+
+### Performance Improvements
+
+* **html:** parse and lay out the ASL once across the HTML viewer and diff pipelines ([#302](https://github.com/yusufaf/sfn-diagram/issues/302)) ([4c1a179](https://github.com/yusufaf/sfn-diagram/commit/4c1a179441e52261e52f90ecd0d4c7d56f614017))
+* **layout:** memoize dagre layout behind an opt-in cache ([#349](https://github.com/yusufaf/sfn-diagram/issues/349)) ([5370bd1](https://github.com/yusufaf/sfn-diagram/commit/5370bd130dda7ac7155ffc77412127325626261a))
+
 ## [1.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.6.1...sfn-diagram-v1.7.0) (2026-09-20)
 
 

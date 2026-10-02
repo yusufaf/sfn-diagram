@@ -2,7 +2,7 @@
     "name": "vscode-sfn-diagram",
     "displayName": "Step Functions Diagram",
     "description": "Preview AWS Step Functions ASL definitions as diagrams",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "publisher": "yusufaf",
     "icon": "media/icon.png",
     "galleryBanner": {
