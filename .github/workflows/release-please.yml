@@ -728,13 +728,49 @@ jobs:
           # branch with no upstream, and a bare `git push` fails there.
           git push -u origin HEAD
 
+  # `homebrew-tap` above is opt-in and *skips* when HOMEBREW_TAP_REPO is unset. A skip
+  # is not a failure, so `report-publish-failure` below never fires for it - the formula
+  # would quietly stop tracking releases while README.md keeps telling people to run
+  # `brew install yusufaf/tap/sfn-diagram`. This job always runs and says which of the
+  # three things happened, so the answer is on the run summary either way.
+  homebrew-tap-status:
+    name: Report Homebrew status
+    needs: [binaries-verify, homebrew-tap]
+    if: always() && needs.binaries-verify.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Summarise the formula's publish status
+        env:
+          TAP_OWNER: ${{ github.repository_owner }}
+          TAP_REPO: ${{ vars.HOMEBREW_TAP_REPO }}
+          TAP_RESULT: ${{ needs.homebrew-tap.result }}
+        run: |
+          if [ -z "$TAP_REPO" ]; then
+            echo "::warning title=Homebrew formula not updated::The HOMEBREW_TAP_REPO repository variable is unset, so the homebrew-tap job was skipped and no Homebrew formula was published for this release. Either set the variable, or drop the 'brew install' instructions from the docs."
+            echo "- **Homebrew formula:** not updated - the \`HOMEBREW_TAP_REPO\` repository variable is unset, so the tap was skipped. An issue has been filed." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAP_RESULT" = "success" ]; then
+            # "current in", not "pushed to": the tap job exits 0 without pushing when
+            # the rendered formula already matches, which a dispatch re-run always does.
+            echo "- **Homebrew formula:** current in \`$TAP_OWNER/$TAP_REPO\`." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$TAP_RESULT" = "failure" ]; then
+            echo "- **Homebrew formula:** the \`homebrew-tap\` job failed; the publish-failure reporter files an issue for that." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Homebrew formula:** not updated - the \`homebrew-tap\` job finished as \`$TAP_RESULT\`, which nothing else reports." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   # None of the publish jobs above are triggered by a human clicking something -
   # a failure has no "actor" to notify. File an issue so a broken publish to any
   # registry can't silently sit in the Actions tab unnoticed the way the Docker
   # image did for three releases before this was added.
   report-publish-failure:
     name: Report publish failure
-    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync, binaries, binaries-smoke, binaries-verify, homebrew-tap]
+    needs: [release-please, npm-publish, jsr-publish, react-npm-publish, openvsx-publish, mirror-sync, binaries, binaries-smoke, binaries-verify, homebrew-tap, homebrew-tap-status]
+    # An unset HOMEBREW_TAP_REPO makes `homebrew-tap` *skip*, which is not a failure, so
+    # it needs its own clause here - otherwise the formula silently stops tracking
+    # releases while the docs keep telling people to `brew install`. A run summary alone
+    # cannot carry that, for the same reason this job exists: nobody is watching.
     if: |
       always() &&
       (needs.npm-publish.result == 'failure' ||
@@ -742,6 +778,8 @@ jobs:
        needs.binaries-smoke.result == 'failure' ||
        needs.binaries-verify.result == 'failure' ||
        needs.homebrew-tap.result == 'failure' ||
+       needs.homebrew-tap-status.result == 'failure' ||
+       (needs.binaries-verify.result == 'success' && vars.HOMEBREW_TAP_REPO == '') ||
        needs.jsr-publish.result == 'failure' ||
        needs.react-npm-publish.result == 'failure' ||
        needs.openvsx-publish.result == 'failure' ||
@@ -759,7 +797,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "Release publish failure: ${{ needs.release-please.outputs.tag_name || github.event.inputs.publish_tag }}" \
             --label bug \
-            --body "One or more publish jobs failed (or their post-publish verification did).
+            --body "A publish job failed (or its post-publish verification did), or HOMEBREW_TAP_REPO is unset so no Homebrew formula was published.
 
           | Job | Result |
           |---|---|
@@ -772,5 +810,6 @@ jobs:
           | binaries-smoke | ${{ needs.binaries-smoke.result }} |
           | binaries-verify | ${{ needs.binaries-verify.result }} |
           | homebrew-tap | ${{ needs.homebrew-tap.result }} |
+          | HOMEBREW_TAP_REPO set | ${{ vars.HOMEBREW_TAP_REPO != '' }} |
 
           Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
