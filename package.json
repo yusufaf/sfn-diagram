@@ -177,6 +177,7 @@
     "@arethetypeswrong/cli": "^0.18.5",
     "@aws-sdk/client-sfn": "^3.879.0",
     "@commitlint/cli": "^20.5.3",
+    "minimist": "1.2.0",
     "@commitlint/config-conventional": "^20.5.3",
     "@custom-elements-manifest/analyzer": "^0.11.0",
     "@eslint/js": "^9.34.0",
