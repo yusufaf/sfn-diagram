@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.5.0...sfn-diagram-react-v0.6.0) (2026-10-02)
+
+
+### Features
+
+* **viewer:** download the SVG and copy the Mermaid from the toolbar ([#316](https://github.com/yusufaf/sfn-diagram/issues/316)) ([945c20b](https://github.com/yusufaf/sfn-diagram/commit/945c20bdf1d75125eda7dd70bc60a14ac1f53dff))
+
+
+### Bug Fixes
+
+* **react:** raise the sfn-diagram peer floor to ^1.7.0 ([#272](https://github.com/yusufaf/sfn-diagram/issues/272)) ([25f4d7a](https://github.com/yusufaf/sfn-diagram/commit/25f4d7a4cf7ff518f8df0eb33e7fcef1945a9c97))
+
 ## [0.5.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.4.0...sfn-diagram-react-v0.5.0) (2026-09-20)
 
 
