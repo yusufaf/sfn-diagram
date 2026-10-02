@@ -34,8 +34,14 @@ const LAYOUT_OPTION_KEYS = [
 /** Parameters for {@link createLayoutCache}. */
 export interface CreateLayoutCacheParams {
     /**
-     * Most recently used entries to retain. Each entry holds the positioned nodes and
-     * edges of one graph, so this bounds memory rather than just entry count.
+     * Most recently used entries to retain.
+     *
+     * This bounds the entry *count*, not memory: each entry retains a full
+     * {@link LayoutResult} plus its exact-string key, both proportional to the graph
+     * (the key alone measures ~83,000 characters for a 500-state machine). A host
+     * holding one of these across large definitions should size it accordingly and
+     * {@link LayoutCache.clear} when a document closes.
+     *
      * @default 32
      */
     maxEntries?: number;
@@ -171,6 +177,11 @@ function layoutRelevantEdge(edge: GraphEdge): Record<string, unknown> {
  * generateViewerUpdate({ aslDefinition, cache, theme: 'dark' });
  * cache.stats(); // { entries: 1, hits: 1, misses: 1 }
  * ```
+ *
+ * Those counts are for a definition with no Parallel or Map. One *with* a container
+ * renders an expanded and a collapsed view per call, so it takes two entries and the
+ * same two calls report `{ entries: 2, hits: 2, misses: 2 }` - worth knowing when
+ * sizing `maxEntries`, since containers are what the cache is most aimed at.
  *
  * @remarks
  * Keys are the serialised graph and options, not a digest. A 32-bit digest would make

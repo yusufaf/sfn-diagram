@@ -56,10 +56,15 @@ describe('layout cache', () => {
         generateSvg({ aslDefinition: linear500, cache: warmCache });
     });
 
+    // Parse and cache construction are hoisted: leaving `parseAsl` in the timed body
+    // measured parse + key build and overstated the key by ~70%, which is the number the
+    // cache's whole cost argument rests on. The `layout` describe above hoists for the
+    // same reason.
+    const keyProbe = createLayoutCache();
+    const keyGraph = parseAsl({ definition: linear500 });
+
     bench('cache key build only (500-state chain)', () => {
-        const probe = createLayoutCache();
-        const { edges, nodes } = parseAsl({ definition: linear500 });
-        probe.keyFor({ edges, nodes, options });
+        keyProbe.keyFor({ edges: keyGraph.edges, nodes: keyGraph.nodes, options });
     });
 });
 

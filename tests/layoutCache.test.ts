@@ -42,6 +42,30 @@ const DEFINITION: AslDefinition = {
     },
 };
 
+/** Freeze an object graph, so any mutation of it throws instead of corrupting silently. */
+function deepFreeze(value: unknown, seen = new Set<unknown>()): void {
+    if (value === null || typeof value !== 'object' || seen.has(value)) {
+        return;
+    }
+    seen.add(value);
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+        deepFreeze(nested, seen);
+    }
+}
+
+/**
+ * DagreLayout's source with comments stripped.
+ *
+ * The enumeration guards below match against it, and a commented-out
+ * `this.options.somethingUnkeyed` would otherwise satisfy them.
+ */
+function layoutSource(): string {
+    return readFileSync(join(__dirname, '..', 'src', 'layout', 'DagreLayout.ts'), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/[^\n]*/g, '');
+}
+
 function graphFor(options: DiagramOptions) {
     const merged = mergeOptions(options);
     const { edges, nodes } = buildDiagramGraph({ definition: DEFINITION, options: merged });
@@ -160,7 +184,7 @@ describe('layout cache key covers every layout-affecting option', () => {
     // Verified by adding a throwaway `this.options.diagramTitle` read to DagreLayout and
     // confirming this fails naming `diagramTitle`.
     test('DagreLayout reads no option absent from the key list', () => {
-        const source = readFileSync(join(__dirname, '..', 'src', 'layout', 'DagreLayout.ts'), 'utf8');
+        const source = layoutSource();
         const read = new Set(
             [...source.matchAll(/this\.options\.([A-Za-z][A-Za-z0-9]*)/g)].map((match) => match[1]),
         );
@@ -168,6 +192,28 @@ describe('layout cache key covers every layout-affecting option', () => {
         const uncovered = [...read].filter((field) => !covered.has(field)).sort();
 
         expect(uncovered).toEqual([]);
+    });
+
+    // The regexes above only see `this.options.<field>` / `this.theme.<field>`. A
+    // destructure or a dynamic index widens the layout's real inputs invisibly to them,
+    // so rather than quietly passing, fail and say the guard can no longer analyse the
+    // file. Without this the guard is evadable by the most ordinary refactor there is.
+    //
+    // Verified by adding `const { padding } = this.options;` to DagreLayout and
+    // confirming this fails while the two field tests above still pass.
+    test('DagreLayout reads its options and theme only in forms the guard can see', () => {
+        const source = layoutSource();
+        const opaque = [
+            /\}\s*=\s*this\.options/,
+            /\}\s*=\s*this\.theme/,
+            /this\.options\s*\[/,
+            /this\.theme\s*\[/,
+            // `this.theme` or `this.options` passed somewhere whole, rather than read.
+            /[(,]\s*this\.(options|theme)\s*[,)]/,
+        ];
+        const found = opaque.filter((pattern) => pattern.test(source)).map(String);
+
+        expect(found).toEqual([]);
     });
 
     // Same hazard on the theme side. DagreLayout resolves a theme in its constructor and
@@ -180,7 +226,7 @@ describe('layout cache key covers every layout-affecting option', () => {
     });
 
     test('reading another theme field would be uncovered', () => {
-        const source = readFileSync(join(__dirname, '..', 'src', 'layout', 'DagreLayout.ts'), 'utf8');
+        const source = layoutSource();
         const themeFields = new Set(
             [...source.matchAll(/this\.theme\.([A-Za-z][A-Za-z0-9]*)/g)].map((match) => match[1]),
         );
@@ -287,13 +333,7 @@ describe('layout cache does not return a stale layout', () => {
         renderSvgGraph({ cache, edges, nodes, options: merged });
         const stored = cache.get(key);
         expect(stored).toBeDefined();
-        for (const node of stored?.nodes ?? []) {
-            Object.freeze(node);
-        }
-        for (const edge of stored?.edges ?? []) {
-            Object.freeze(edge);
-        }
-        Object.freeze(stored);
+        deepFreeze(stored);
 
         expect(() => renderSvgGraph({ cache, edges, nodes, options: merged })).not.toThrow();
     });
