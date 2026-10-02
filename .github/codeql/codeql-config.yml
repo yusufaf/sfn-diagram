@@ -1,0 +1,20 @@
+name: sfn-diagram CodeQL config
+
+# security-extended over the default suite: the default runs only the
+# high-confidence queries, and the queries that matter most here - taint from a
+# parsed ASL definition into generated HTML - are precision-medium.
+queries:
+  - uses: security-extended
+
+# Everything below is generated, committed output. Scanning it costs time and
+# reports findings against code nobody edits by hand.
+paths-ignore:
+  # 2.8 MB esbuild bundle, committed because `uses: ./packages/...` needs it.
+  - packages/github-action-sfn-diagram/dist
+  # The viewer's browser bundle, emitted by scripts/build-viewer-script.mjs and
+  # checked for drift by `pnpm run test:viewer-script`.
+  - src/renderers/viewer/viewerScript.generated.ts
+  - src/renderers/viewer/viewerRelayout.generated.ts
+  # Snapshot fixtures: large, generated, and not executable code.
+  - tests/__snapshots__
+  - packages/sfn-diagram-react/src/__snapshots__

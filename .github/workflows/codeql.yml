@@ -1,0 +1,57 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Thursdays 08:00 America/Los_Angeles (15:00 UTC). Deliberately not Monday:
+    # Dependabot (06:00) and `pnpm audit --fix` (08:00) already run that day, and
+    # a weekly scan exists to catch queries added *after* the code stopped
+    # changing, so it does not need to sit next to the dependency sweep.
+    - cron: '0 15 * * 4'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  # Superseding a PR push is free; cancelling a push/schedule run would leave
+  # the default branch with no current analysis.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploading the SARIF results is what needs write here; nothing else does.
+      security-events: write
+      contents: read
+      # The Actions API, so the analysis can resolve workflow run metadata.
+      actions: read
+    strategy:
+      # One language failing should not hide the other's findings.
+      fail-fast: false
+      matrix:
+        # `actions` scans the workflow files themselves - script injection via an
+        # untrusted ${{ }} interpolation, over-broad permissions, mutable action
+        # refs. Worth having in a repo that publishes to five registries.
+        language: [actions, javascript-typescript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # No build step: CodeQL extracts TypeScript from source directly, so the
+      # scan does not depend on `pnpm install` or a dist/ tree existing.
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
