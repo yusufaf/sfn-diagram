@@ -489,6 +489,12 @@ jobs:
           - os: macos-latest
             targets: --target bun-darwin-arm64 --target bun-darwin-x64
     runs-on: ${{ matrix.os }}
+    # No id-token here on purpose. This job runs `pnpm install` and `bun build`, so
+    # a malicious lifecycle script in a transitive dependency executes with whatever
+    # this job holds - and npm Trusted Publishing plus JSR's tokenless publish are
+    # keyed on this very workflow file, so an OIDC token minted here would be good
+    # enough to publish an arbitrary tarball. The attestation happens in
+    # binaries-verify instead, which runs no third-party code.
     permissions:
       contents: write
     steps:
@@ -630,8 +636,14 @@ jobs:
     needs: [release-please, binaries, binaries-smoke]
     if: always() && needs.binaries.result == 'success' && needs.binaries-smoke.result == 'success'
     runs-on: ubuntu-latest
+    # attestations + id-token mint the SLSA provenance statement. This job is the
+    # right place for them precisely because it runs no third-party code: checkout,
+    # `gh release download`, `sha256sum`, `gh release upload`. Compare the `binaries`
+    # job, which runs `pnpm install` and so must not hold an OIDC token.
     permissions:
+      attestations: write
       contents: write
+      id-token: write
     steps:
       - name: Checkout released tag
         uses: actions/checkout@v7
@@ -649,6 +661,18 @@ jobs:
             echo "::error::expected 5 binaries on release $TAG"
             exit 1
           }
+
+      # Attests the bytes downloaded from the release, which is what users actually
+      # receive - including the macOS re-sign, which rewrites the binary. Runs before
+      # SHA256SUMS is published so a failed attestation withholds the checksums too,
+      # the same reason this job is gated on every smoke test passing.
+      #
+      # Verify a download with:
+      #   gh attestation verify sfn-diagram-linux-x64 --repo ${{ github.repository }}
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: binaries/sfn-diagram-*
 
       - name: Publish SHA256SUMS
         env:

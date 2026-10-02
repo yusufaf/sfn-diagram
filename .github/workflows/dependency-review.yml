@@ -1,0 +1,40 @@
+name: Dependency Review
+
+# Gates a PR that *adds* a dependency carrying a known advisory. This is not the
+# same job as audit-fix.yml, which sweeps the advisory database weekly for
+# packages already in the lockfile - that one reports, this one blocks.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    permissions:
+      # The dependency-graph compare API only needs read, and a fork PR's token
+      # has it - so this works on fork PRs. `pull-requests: write` is
+      # deliberately NOT requested: a fork PR cannot be granted it, so asking
+      # would make the job fail on exactly the PRs it most needs to run on.
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v5
+        with:
+          # `high`, not `moderate`: audit-fix.yml already opens a PR for any
+          # moderate advisory in the lockfile every Monday, so the merge-time
+          # gate should block only what should not land at all. Blocking on
+          # moderate would stall Dependabot's own PRs on advisories the weekly
+          # sweep is already fixing.
+          fail-on-severity: high
+          # Writing the summary as a PR comment needs pull-requests: write, which
+          # a fork PR cannot have. The job summary carries the same report and
+          # works everywhere.
+          comment-summary-in-pr: never
