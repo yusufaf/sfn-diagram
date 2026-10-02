@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { buildDiagramGraph, renderSvgGraph } from '../src/pipeline';
 import { mergeOptions } from '../src/config';
 import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS } from '../src/layout';
-import { generateSvg } from '../src/index';
+import { generateHtml, generateSvg, generateViewerUpdate } from '../src/index';
 import type { AslDefinition, DiagramOptions } from '../src/types';
 
 /**
@@ -347,6 +347,29 @@ describe('layout cache through the public API', () => {
 
         expect(cache.stats().hits).toBe(1);
         expect(second.svg).toBe(first.svg);
+    });
+
+    // The entry point the issue is actually about: the VS Code preview and the React
+    // wrapper call this on every change, including changes that cannot move geometry.
+    test('generateViewerUpdate reuses the layout across a theme change', () => {
+        const cache = createLayoutCache();
+
+        const light = generateViewerUpdate({ aslDefinition: DEFINITION, cache, theme: 'light' });
+        const dark = generateViewerUpdate({ aslDefinition: DEFINITION, cache, theme: 'dark' });
+
+        // Two views per call (expanded plus collapsed), so a second call hits both.
+        expect(cache.stats().hits).toBeGreaterThan(0);
+        // Same geometry, different paint: the markup must still differ by theme.
+        expect(dark.contentHtml).not.toBe(light.contentHtml);
+    });
+
+    test('generateHtml accepts a cache', () => {
+        const cache = createLayoutCache();
+
+        generateHtml({ aslDefinition: DEFINITION, cache });
+        generateHtml({ aslDefinition: DEFINITION, cache });
+
+        expect(cache.stats().hits).toBeGreaterThan(0);
     });
 
     test('the cache never reaches the rendered output', () => {
