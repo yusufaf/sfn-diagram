@@ -15,6 +15,7 @@ import { DagreLayout } from './layout';
 import { SvgRenderer } from './renderers';
 import type { ParseResult } from './AslParser';
 import type { mergeOptions } from './config';
+import type { LayoutCache } from './layout';
 import type { AslDefinition, GraphEdge, StateNode, SvgOutput } from './types';
 
 /** User options with every default from `DEFAULT_DIAGRAM_OPTIONS` filled in. */
@@ -43,6 +44,13 @@ export interface DiagramGraph {
 
 /** Parameters for {@link renderSvgGraph}. */
 export interface RenderSvgGraphParams {
+    /**
+     * Optional {@link LayoutCache} from {@link createLayoutCache}. When given, a graph
+     * already laid out under the same layout-affecting options reuses that layout
+     * instead of re-running dagre. Omitted, nothing is cached and behaviour is
+     * unchanged.
+     */
+    cache?: LayoutCache;
     /** Edges to render, normally {@link DiagramGraph.edges}. */
     edges: GraphEdge[];
     /** Nodes to render, normally {@link DiagramGraph.nodes}. */
@@ -95,13 +103,21 @@ export function buildDiagramGraph(params: BuildDiagramGraphParams): DiagramGraph
  * ```
  */
 export function renderSvgGraph(params: RenderSvgGraphParams): SvgOutput {
-    const { edges, nodes, options } = params;
+    const { cache, edges, nodes, options } = params;
 
     const collapsedGraph = applyCollapse({ collapse: options.collapse, edges, nodes });
 
+    // Keyed on the *collapsed* graph, which is what dagre actually sees. That is why
+    // `collapse` and `catchHandling` need no place in the key: they change which nodes
+    // and edges exist, so the graph half of the key already covers them.
+    const cacheKey = cache?.keyFor({ edges: collapsedGraph.edges, nodes: collapsedGraph.nodes, options });
+    const cached = cacheKey === undefined ? undefined : cache?.get(cacheKey);
+
     // Calculate layout
-    const layout = new DagreLayout(options);
-    const positioned = layout.calculate(collapsedGraph.nodes, collapsedGraph.edges);
+    const positioned = cached ?? new DagreLayout(options).calculate(collapsedGraph.nodes, collapsedGraph.edges);
+    if (cached === undefined && cacheKey !== undefined) {
+        cache?.set(cacheKey, positioned);
+    }
 
     // Render SVG
     const renderer = new SvgRenderer(options);

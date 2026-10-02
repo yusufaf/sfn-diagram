@@ -1,7 +1,7 @@
 import { bench, describe } from 'vitest';
 import { generateMermaid, generateSvg } from '../../src';
 import { parseAsl } from '../../src/AslParser';
-import { DagreLayout } from '../../src/layout';
+import { createLayoutCache, DagreLayout } from '../../src/layout';
 import { mergeOptions } from '../../src/config';
 import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
 
@@ -37,6 +37,29 @@ describe('layout', () => {
 
     bench('dagre layout (500-state chain)', () => {
         new DagreLayout(options).calculate(nodes, edges);
+    });
+});
+
+describe('layout cache', () => {
+    // The case the cache exists for: a re-render that cannot change geometry - a theme
+    // change, an icon toggle, an execution overlay painted on an unchanged definition.
+    // The cold bench below pays full layout every iteration; the warm one pays the key
+    // build and a Map lookup instead, so the gap is what a cache hit actually buys.
+    const warmCache = createLayoutCache();
+    generateSvg({ aslDefinition: linear500, cache: warmCache });
+
+    bench('generateSvg (500-state chain), no cache', () => {
+        generateSvg({ aslDefinition: linear500 });
+    });
+
+    bench('generateSvg (500-state chain), warm cache', () => {
+        generateSvg({ aslDefinition: linear500, cache: warmCache });
+    });
+
+    bench('cache key build only (500-state chain)', () => {
+        const probe = createLayoutCache();
+        const { edges, nodes } = parseAsl({ definition: linear500 });
+        probe.keyFor({ edges, nodes, options });
     });
 });
 

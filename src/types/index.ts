@@ -3,6 +3,7 @@ import type {
     GetExecutionHistoryCommandOutput,
     HistoryEvent,
 } from '@aws-sdk/client-sfn';
+import type { LayoutCache } from '../layout/layoutCache';
 import type { ViewerEdge } from '../renderers/viewer/edgeData';
 import type { RelayoutModel } from '../renderers/viewer/relayout';
 
@@ -787,6 +788,13 @@ export type DiagramOutput = SvgOutput | MermaidOutput | PngOutput;
 export interface GenerateSvgParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
+    /**
+     * Optional layout cache from `createLayoutCache`. When passed, a definition already
+     * laid out under the same layout-affecting options reuses that layout instead of
+     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
 }
 
 /** Parameters for `generateMermaid`. */
@@ -868,6 +876,13 @@ export interface GenerateHtmlParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
     /**
+     * Optional layout cache from `createLayoutCache`. When passed, a definition already
+     * laid out under the same layout-affecting options reuses that layout instead of
+     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
+    /**
      * Render as a diff against an earlier definition. Composes with `history`: a state
      * that ran takes its execution colour, one the execution never reached keeps its
      * diff colour, and a changed state that ran carries its diff status in its
@@ -920,6 +935,13 @@ export interface GenerateHtmlParams extends DiagramOptions {
 export interface GenerateViewerUpdateParams extends DiagramOptions {
     /** ASL definition as object or JSON string. */
     aslDefinition: AslDefinition | string;
+    /**
+     * Optional layout cache from `createLayoutCache`. When passed, a definition already
+     * laid out under the same layout-affecting options reuses that layout instead of
+     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
     /**
      * Render for per-container collapse: one view with collapse controls plus a
      * `relayoutModel`, instead of the expanded and fully-collapsed views the toggle

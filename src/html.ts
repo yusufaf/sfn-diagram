@@ -28,6 +28,7 @@ import {
 import { collectIconUrls, replaceIconUrls, resolveIconDataUris } from './utils/iconEmbedder';
 import type { StateDiff } from './diff';
 import type { ExecutionStyling } from './execution';
+import type { LayoutCache } from './layout';
 import type { MergedDiagramOptions } from './pipeline';
 import type { RelayoutModel, RelayoutRenderOptions } from './renderers';
 import type {
@@ -151,6 +152,8 @@ function buildHtmlViews(params: {
     afterObj: AslDefinition;
     /** The definition to draw: `afterObj`, or the diff's merged definition. */
     aslObj: AslDefinition;
+    /** Optional layout cache; both views below consult it. */
+    cache?: LayoutCache;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
     /** Whether the reported timeline carries each run's input, output and cause. */
@@ -168,7 +171,7 @@ function buildHtmlViews(params: {
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
 } {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, options, redact, relayout } =
+    const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, options, redact, relayout } =
         params;
     const resolvedCollapse = options.collapse ?? true;
 
@@ -222,7 +225,7 @@ function buildHtmlViews(params: {
         collapse: undefined,
         collapseControls: useRelayout,
     };
-    const svgOutput = renderSvgGraph({ edges, nodes, options: expandedOptions });
+    const svgOutput = renderSvgGraph({ cache, edges, nodes, options: expandedOptions });
 
     const relayoutModel: RelayoutModel | undefined = useRelayout
         ? {
@@ -237,6 +240,7 @@ function buildHtmlViews(params: {
     const collapsedSvgOutput =
         plan.effectiveTargets.size > 0 && !useRelayout
             ? renderSvgGraph({
+                  cache,
                   edges,
                   nodes,
                   options: {
@@ -298,6 +302,7 @@ function buildHtmlViews(params: {
 function buildHtmlViewParts(params: {
     afterObj: AslDefinition;
     aslObj: AslDefinition;
+    cache?: LayoutCache;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
     includeExecutionPayloads?: boolean;
@@ -330,6 +335,7 @@ function buildHtmlViewParts(params: {
 function resolveHtmlInputs(params: GenerateHtmlParams): {
     afterObj: AslDefinition;
     aslObj: AslDefinition;
+    cache?: LayoutCache;
     diff?: StateDiff;
     history?: ExecutionHistoryInput;
     includeExecutionPayloads?: boolean;
@@ -339,6 +345,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
 } {
     const {
         aslDefinition,
+        cache,
         diff: diffOverlay,
         history,
         includeExecutionPayloads,
@@ -353,6 +360,7 @@ function resolveHtmlInputs(params: GenerateHtmlParams): {
     return {
         afterObj,
         aslObj: diff?.mergedAsl ?? afterObj,
+        cache,
         diff,
         history,
         includeExecutionPayloads,
@@ -446,13 +454,14 @@ function buildHtmlMetadata(params: {
  * summary beside its own duration.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
+    const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
+            cache,
             diff,
             history,
             includeExecutionPayloads,
@@ -506,13 +515,14 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * ```
  */
 export function generateViewerUpdate(params: GenerateViewerUpdateParams): ViewerUpdate {
-    const { aslDefinition, redact, relayout = false, ...options } = params;
+    const { aslDefinition, cache, redact, relayout = false, ...options } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions(options);
 
     const { collapsedSvg, collapsedSvgOutput, edges, mermaid, relayoutModel, svgOutput } = buildHtmlViewParts({
         afterObj: aslObj,
         aslObj,
+        cache,
         options: mergedOptions,
         relayout,
     });
@@ -559,13 +569,14 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * ```
  */
 export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<HtmlOutput> {
-    const { afterObj, aslObj, diff, history, includeExecutionPayloads, nonce, options, redact } =
+    const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
     const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
+            cache,
             diff,
             history,
             includeExecutionPayloads,
