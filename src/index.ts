@@ -106,7 +106,7 @@ import type {
  * ```
  */
 export function generateSvg(params: GenerateSvgParams): SvgOutput {
-    const { aslDefinition, ...options } = params;
+    const { aslDefinition, cache, ...options } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
     const mergedOptions = mergeOptions({
         ...options,
@@ -114,7 +114,7 @@ export function generateSvg(params: GenerateSvgParams): SvgOutput {
     });
 
     const { edges, nodes } = buildDiagramGraph({ definition: aslObj, options: mergedOptions });
-    return renderSvgGraph({ edges, nodes, options: mergedOptions });
+    return renderSvgGraph({ cache, edges, nodes, options: mergedOptions });
 }
 
 /**
@@ -477,6 +477,8 @@ export {
     generateHtmlAsync,
     generateViewerUpdate,
 } from './html';
+export { createLayoutCache } from './layout';
+export type { CreateLayoutCacheParams, LayoutCache, LayoutCacheStats } from './layout';
 export { lintAsl } from './lint';
 export type { LintAslParams } from './lint';
 export { EXECUTION_PAYLOAD_CAP, EXECUTION_PAYLOAD_TOTAL_CAP } from './execution';
