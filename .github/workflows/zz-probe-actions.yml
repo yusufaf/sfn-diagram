@@ -1,0 +1,23 @@
+name: zz probe actions scanner
+
+# TEMPORARY. Proves the CodeQL `actions` matrix leg reports a finding instead of
+# passing vacuously. `if: false` means the job is never scheduled, so the
+# interpolation below cannot actually run - CodeQL analyses the YAML statically.
+# Deleted with the rest of the probe.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  never-runs:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unsafe interpolation of attacker-controllable text
+        run: |
+          echo "title is ${{ github.event.pull_request.title }}"
+          echo "branch is ${{ github.head_ref }}"
