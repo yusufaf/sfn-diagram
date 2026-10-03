@@ -4,13 +4,27 @@ name: Bot Dist Rebuild
 # Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI. That push re-triggers this job too
-# (the App is also the actor that opens the audit-fix PR, so the actor alone
-# cannot tell the two apart); the guard step below skips the rebuild when the
-# App is the actor and the head commit is already one of ours.
+# release App token so it retriggers CI.
+#
+# That push re-triggers this workflow, which is how it heals: the retriggered run
+# rebuilds, finds the committed bundle already current, and stops without a push.
+# Nothing skips on the commit subject — an earlier version did, and a rebuild that
+# landed on a tree which had moved underneath it would then latch, because the
+# stale commit carries the subject the skip matched on and no later run would look
+# again. The cost of healing instead of latching is one extra build run per
+# rebuild push, cheap next to a PR stuck red until a human rebuilds. `Refuse to
+# push twice over` below is what keeps that from running away.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
+#
+# The work is split across two jobs on purpose. `build` checks out the pull
+# request and runs its dependencies, so it is given no secrets; `push` holds the
+# App token, which can write to this repository, and never has the pull request
+# on disk at all — it commits the artifact through the contents API. A dependency
+# bump is a change to what `pnpm install` and the build execute, and Dependabot
+# PRs are same-repo, so without the split a malicious package would run next to a
+# repo-push credential.
 
 on:
   pull_request:
@@ -19,72 +33,280 @@ on:
 permissions:
   contents: read
 
-jobs:
-  rebuild:
-    name: Rebuild GitHub Action bundle
-    if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
-    env:
-      REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Mint token
-        uses: actions/create-github-app-token@v3
-        id: app-token
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_KEY }}
+env:
+  BUNDLE_PATH: packages/github-action-sfn-diagram/dist/index.js
+  REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
 
-      - name: Checkout PR branch
+jobs:
+  build:
+    name: Rebuild GitHub Action bundle
+    # Keyed on who opened the PR, not `github.actor`, which on a `synchronize`
+    # event is whoever pushed last. A maintainer pushing a fixup onto a Dependabot
+    # PR — routine when a bump needs a code change — must still get a rebuild, and
+    # so must the run our own rebuild push triggers. Gating on the actor skipped
+    # both, which left the bundle stale with nothing to heal it.
+    #
+    # Same-repo only. The `deps/audit-fix` clause matches a branch name, which a
+    # fork PR can carry too; it would then build fork code here and go red minting
+    # a token it can never be given, since fork runs get no secrets.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.pull_request.user.login == 'dependabot[bot]' ||
+      github.head_ref == 'deps/audit-fix')
+    runs-on: ubuntu-latest
+    # Scoped to this job rather than the workflow: a newer push makes an in-flight
+    # build obsolete and cancelling it is right, but our own push is a push to this
+    # same ref, so a workflow-level group would have the run that just pushed
+    # cancelled by its own push — reporting `cancelled` on a commit that landed,
+    # and skipping the token revocation that `create-github-app-token` does in its
+    # post step.
+    concurrency:
+      group: bot-dist-rebuild-${{ github.head_ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+    outputs:
+      blob: ${{ steps.compare.outputs.blob }}
+      changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      # Pinned to the event's head SHA, not the branch name, so this builds
+      # exactly the tree the run is about even if the branch moves underneath it.
+      - name: Checkout PR head
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.head_ref }}
-          token: ${{ steps.app-token.outputs.token }}
-
-      # Only our own push counts: a human who rebases the branch with the
-      # rebuild commit still at head needs a fresh build, not a skip.
-      - name: Skip if this run was triggered by our own rebuild push
-        id: guard
-        if: github.actor == format('{0}[bot]', steps.app-token.outputs.app-slug)
-        run: |
-          if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
-            echo "Head commit is a bundle rebuild; nothing to do."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
+          # Two commits, not checkout's default one: `Refuse to push twice over`
+          # has to see the parent's subject to count consecutive rebuilds. With a
+          # shallow clone its `git log` returned a single commit and the bound
+          # silently never fired.
+          fetch-depth: 2
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install pnpm
-        if: steps.guard.outputs.skip != 'true'
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
 
+      # `--ignore-scripts` keeps a dependency's lifecycle scripts from running in
+      # a job that is about to hand its output to a credentialed one. Measured
+      # byte-identical: the build calls esbuild's JS API, and esbuild resolves its
+      # binary through its @esbuild/* platform package rather than its postinstall.
+      #
+      # That byte-identity is load-bearing, not incidental. unit-test.yml rebuilds
+      # the same bundle with a plain `pnpm install` and fails on any difference, so
+      # a future dependency whose lifecycle script changes the bundle would make
+      # this job push something that gate immediately calls stale. If that ever
+      # happens the two installs need to agree, rather than this flag being dropped.
       - name: Install
-        if: steps.guard.outputs.skip != 'true'
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build bundle
-        if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
 
-      # The husky pre-commit hook runs the full test suite (which needs a
-      # puppeteer Chrome this job never installs) and then rebuilds the very
-      # bundle being committed. Unit Test runs on the pushed commit anyway, so
-      # the hook is redundant here.
-      - name: Commit and push if the bundle changed
-        if: steps.guard.outputs.skip != 'true'
-        env:
-          HUSKY: '0'
+      # Decided here rather than in `push` so an unchanged bundle never mints the
+      # repo-push token at all. This is also the loop break: the run triggered by
+      # our own push lands here with nothing to do. `blob` is the id of the blob
+      # the push replaces; reading it from the checkout saves an API round trip.
+      - name: Compare against the committed bundle
+        id: compare
         run: |
+          set -euo pipefail
+
+          # The contents API writes one file per call, which is all the bundle
+          # is. If the build ever emits a second file (a sourcemap, a chunk),
+          # fail here — before a token exists — rather than commit half of it.
+          # Checked before `git diff`, which would not notice an untracked one.
+          tracked="$(git ls-files -- packages/github-action-sfn-diagram/dist)"
+          built="$(cd packages/github-action-sfn-diagram/dist && find . -type f | sed 's|^\./||' | sort)"
+          if [ "$tracked" != "$BUNDLE_PATH" ] || [ "$built" != "index.js" ]; then
+            # Both lists are newline-separated, and a literal newline ends a
+            # workflow command — so collapse them, or the annotation names only
+            # the first path exactly when there is more than one to name.
+            echo "::error::expected index.js alone; tracked=[$(echo "$tracked" | tr '\n' ' ')] built=[$(echo "$built" | tr '\n' ' ')]"
+            exit 1
+          fi
+
           if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
             echo "Bundle is up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
-          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
-          git add packages/github-action-sfn-diagram/dist
-          git commit -m "$REBUILD_SUBJECT"
-          git push
+
+          # Assigned on its own line, not interpolated into `echo`, whose exit
+          # status would otherwise mask a rev-parse failure and send an empty
+          # blob id into the credentialed job to fail there instead.
+          blob="$(git rev-parse "HEAD:$BUNDLE_PATH")"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "blob=$blob" >> "$GITHUB_OUTPUT"
+
+      # `changed == false` is what stops the push/retrigger cycle, and it only
+      # stops it if the bundle is byte-reproducible run to run. Were a dependency
+      # ever to make it run-dependent — a timestamp, an absolute path in a banner —
+      # every run would push and retrigger itself without bound.
+      #
+      # One rebuild commit at head with the bundle still changed is the ordinary
+      # case to heal: a push that landed on a tree that had already moved. Two in a
+      # row cannot be, so that is where this stops and asks for a human. Counting
+      # consecutive commits is what separates the two; a single run cannot tell
+      # them apart, which is the mistake the old subject guard made.
+      #
+      # The author has to be a bot as well as the subject matching. CONTRIBUTING
+      # ("Rebuild it with `pnpm run build:action-bundle` and commit the result")
+      # means human commits that do exactly what this job does exist; nothing
+      # prescribes their subject, so one may well collide with this. Counting it
+      # would fail the job with the wrong diagnosis while blocking a push that was
+      # genuinely needed.
+      - name: Refuse to push twice over
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          rebuilds="$(git log --format='%an%x09%s' -n 2 |
+            awk -F'\t' -v subj="$REBUILD_SUBJECT" '$2 != subj || $1 !~ /\[bot\]$/ { exit } { c++ } END { print c+0 }')"
+          if [ "$rebuilds" -ge 2 ]; then
+            echo "::error::$rebuilds rebuild commits in a row and the bundle still differs."
+            echo "::error::The bundle is not reproducible run-to-run; pushing again would loop."
+            exit 1
+          fi
+
+      - name: Hand the bundle to the push job
+        if: steps.compare.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: action-dist
+          path: packages/github-action-sfn-diagram/dist
+          if-no-files-found: error
+
+  # Holds the App token, and never has the pull request on disk at all: it takes
+  # the rebuilt bundle from the artifact and commits it through the contents
+  # API. Committing with git would mean checking the PR branch out next to the
+  # credential, which is the shape CodeQL's actions/untrusted-checkout reports
+  # and the reason this workflow was flagged. The artifact bytes are still built
+  # from PR code, but they only ever land on the PR branch, whose author already
+  # controls it.
+  #
+  # `build` runs that PR code, so its outputs are not trusted either. Neither one
+  # can redirect this job: the path and branch come from the workflow and the
+  # event, and a wrong `blob` only makes the request fail.
+  push:
+    name: Push the rebuilt bundle
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Down-scoped to what this job does: write the one file, read the PR's
+      # state. Left unset, the token carries the release App's whole installation
+      # — pull-requests: write, workflows: write and the rest, which
+      # release-please.yml needs and this does not. Shrinking the credential's
+      # blast radius is the point of the split, so it applies to the token too.
+      - name: Mint token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          permission-contents: write
+          permission-pull-requests: read
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Download the rebuilt bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: action-dist
+          path: bundle
+
+      - name: Commit the rebuilt bundle
+        env:
+          BLOB: ${{ needs.build.outputs.blob }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+
+          # Reading the head ref can fail before the push and again after a failed
+          # one, and it means the same thing both times, so it is decided in one
+          # place: two copies drifted once already, the second having no 404
+          # tolerance at all, which failed a check on a merged PR whose branch had
+          # been deleted — the very thing the first copy existed to avoid.
+          #
+          # A missing ref is benign only when the pull request is finished —
+          # deleting a head branch closes its PR, so a closed PR is the thing to
+          # confirm. An open one means the ref went away for some other reason (a
+          # rename retargets the PR but not this run's HEAD_REF) and no push of
+          # ours is coming to trigger a follow-up run, so the stale bundle would
+          # sit there with the drift gate red and nobody told. That read also
+          # keeps a lost-access 404 loud, because it fails too.
+          stand_down_or_fail() {
+            cat "$1" >&2
+            if ! grep -q 'HTTP 404' "$1"; then
+              exit 1
+            fi
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+            if [ "$state" = "open" ]; then
+              echo "::error::$HEAD_REF is gone but PR #$PR_NUMBER is still open; refusing to stand down."
+              exit 1
+            fi
+            echo "::notice::$HEAD_REF no longer exists and PR #$PR_NUMBER is $state; nothing to push to."
+            exit 0
+          }
+
+          # The bundle was built from HEAD_SHA. Committing it onto a branch that
+          # has since moved would fast-forward cleanly and leave a bundle that
+          # does not match its source. The newer push has a run of its own, so
+          # stand down rather than fail a check nobody needs to see.
+          if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
+            stand_down_or_fail api-error.txt
+          fi
+
+          if [ "$tip" != "$HEAD_SHA" ]; then
+            echo "::notice::$HEAD_REF moved from $HEAD_SHA to $tip; leaving it to that run."
+            exit 0
+          fi
+
+          # The ref can still resolve on a pull request that has just been merged
+          # or closed, when the head branch is not deleted with it. Committing
+          # then leaves a stray rebuild on a branch nobody will look at again.
+          state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [ "$state" != "open" ]; then
+            echo "::notice::PR #$PR_NUMBER is $state; nothing to push for."
+            exit 0
+          fi
+
+          # The base64 bundle is ~3.8 MB, well past ARG_MAX, so the request body
+          # goes to gh on stdin rather than as arguments.
+          base64 -w0 bundle/index.js > content.b64
+          jq -n \
+            --arg branch "$HEAD_REF" \
+            --arg email "${SLUG}[bot]@users.noreply.github.com" \
+            --arg message "$REBUILD_SUBJECT" \
+            --arg name "${SLUG}[bot]" \
+            --arg sha "$BLOB" \
+            --rawfile content content.b64 \
+            '{branch: $branch, committer: {email: $email, name: $name},
+              content: ($content | rtrimstr("\n")), message: $message, sha: $sha}' > body.json
+
+          # The tip check above is a read followed by a write, so a push landing
+          # in between is possible. If it touched the bundle, the blob id this
+          # request carries is stale and the API rejects it; if it did not, the
+          # request succeeds and the run that push triggered heals the rest.
+          # Deciding by re-reading the ref rather than by parsing the error keeps
+          # the benign race quiet without making a real failure quiet too.
+          if ! gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}" \
+            --input body.json \
+            --jq '"Pushed " + .commit.sha' 2>put-error.txt; then
+            cat put-error.txt >&2
+            if ! now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>ref-error.txt)"; then
+              stand_down_or_fail ref-error.txt
+            fi
+            if [ "$now" != "$HEAD_SHA" ]; then
+              echo "::notice::$HEAD_REF moved to $now while pushing; leaving it to that run."
+              exit 0
+            fi
+            exit 1
+          fi
