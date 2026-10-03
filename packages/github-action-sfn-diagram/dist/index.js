@@ -70179,3 +70179,5 @@ content-type/dist/index.js:
 // stale probe marker round 17: PR closed, branch alive
 
 // stale probe marker round 18a: bad blob, tip unchanged, must be loud
+
+// stale probe marker round 18b: bad blob + moved ref, must be quiet

@@ -292,7 +292,7 @@ jobs:
             --input body.json \
             --jq '"Pushed " + .commit.sha' 2>put-error.txt; then
             cat put-error.txt >&2
-            now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha)"
+            now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)"
             if [ "$now" != "$HEAD_SHA" ]; then
               echo "::notice::$HEAD_REF moved to $now while pushing; leaving it to that run."
               exit 0
