@@ -18,19 +18,26 @@ name: Bot Dist Rebuild
 # on disk at all — it commits the artifact through the contents API. A dependency
 # bump is a change to what `pnpm install` and the build execute, and Dependabot
 # PRs are same-repo, so without the split a malicious package would run next to a
-# repo-push credential. The build also installs with
-# `--ignore-scripts`: the bundle is byte-identical without lifecycle scripts
-# (esbuild resolves its binary through its @esbuild/* platform package), so
-# skipping them costs nothing and closes the postinstall path outright.
+# repo-push credential. The build also installs with `--ignore-scripts`: the
+# bundle is byte-identical without lifecycle scripts (esbuild resolves its binary
+# through its @esbuild/* platform package), so skipping them costs nothing and
+# closes the postinstall path outright.
 
 on:
   pull_request:
     branches: [main]
 
+# A newer push to the branch makes an in-flight rebuild obsolete: it would commit
+# a bundle built from the superseded tree. Cancel rather than race.
+concurrency:
+  group: bot-dist-rebuild-${{ github.head_ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 env:
+  BUNDLE_PATH: packages/github-action-sfn-diagram/dist/index.js
   REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
 
 jobs:
@@ -41,12 +48,15 @@ jobs:
     permissions:
       contents: read
     outputs:
-      skip: ${{ steps.guard.outputs.skip }}
+      blob: ${{ steps.compare.outputs.blob }}
+      changed: ${{ steps.compare.outputs.changed }}
     steps:
-      - name: Checkout PR branch
+      # Pinned to the event's head SHA, not the branch name, so this builds
+      # exactly the tree the run is about even if the branch moves underneath it.
+      - name: Checkout PR head
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       # Only our own push counts: a human who rebases the branch with the
       # rebuild commit still at head needs a fresh build, not a skip. Every
@@ -82,8 +92,36 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
 
-      - name: Hand the bundle to the push job
+      # Decided here rather than in `push` so an unchanged bundle never mints the
+      # repo-push token at all. `blob` is the id of the blob the push replaces;
+      # reading it from the checkout saves `push` an API round trip.
+      - name: Compare against the committed bundle
+        id: compare
         if: steps.guard.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+
+          # The contents API writes one file per call, which is all the bundle
+          # is. If the build ever emits a second file (a sourcemap, a chunk),
+          # fail here — before a token exists — rather than commit half of it.
+          tracked="$(git ls-files -- packages/github-action-sfn-diagram/dist)"
+          built="$(cd packages/github-action-sfn-diagram/dist && find . -type f | sed 's|^\./||' | sort)"
+          if [ "$tracked" != "$BUNDLE_PATH" ] || [ "$built" != "index.js" ]; then
+            echo "::error::expected index.js alone; tracked=[$tracked] built=[$built]"
+            exit 1
+          fi
+
+          if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
+            echo "Bundle is up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "blob=$(git rev-parse "HEAD:$BUNDLE_PATH")" >> "$GITHUB_OUTPUT"
+
+      - name: Hand the bundle to the push job
+        if: steps.compare.outputs.changed == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: action-dist
@@ -98,10 +136,14 @@ jobs:
   # and the reason this workflow was flagged. The artifact bytes are still built
   # from PR code, but they only ever land on the PR branch, whose author already
   # controls it.
+  #
+  # `build` runs that PR code, so its outputs are not trusted either. Neither one
+  # can redirect this job: the path and branch come from the workflow and the
+  # event, and a wrong `blob` only makes the request fail.
   push:
     name: Push the rebuilt bundle
     needs: build
-    if: needs.build.outputs.skip != 'true'
+    if: needs.build.outputs.changed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,32 +161,24 @@ jobs:
           name: action-dist
           path: bundle
 
-      # The contents API writes one file per call, which is all the bundle is.
-      # If esbuild ever emits a second file (a sourcemap, a chunk) this fails
-      # loudly instead of committing half a bundle.
-      - name: Commit the bundle if it changed
+      - name: Commit the rebuilt bundle
         env:
-          BUNDLE_PATH: packages/github-action-sfn-diagram/dist/index.js
+          BLOB: ${{ needs.build.outputs.blob }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
 
-          files="$(find bundle -type f | sort)"
-          if [ "$files" != "bundle/index.js" ]; then
-            echo "::error::expected bundle/index.js alone, got: ${files//$'\n'/ }"
-            exit 1
-          fi
-
-          # git's own blob id for the rebuilt file, so "did it change?" is the
-          # same question the old `git diff` asked, without a working tree.
-          size="$(wc -c < bundle/index.js)"
-          rebuilt="$( { printf 'blob %d\0' "$size"; cat bundle/index.js; } | sha1sum | cut -d' ' -f1)"
-          committed="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}?ref=${HEAD_REF}" --jq .sha)"
-
-          if [ "$rebuilt" = "$committed" ]; then
-            echo "Bundle is up to date."
+          # The bundle was built from HEAD_SHA. Committing it onto a branch that
+          # has since moved would fast-forward cleanly and leave a bundle that
+          # does not match its source — and because the commit subject is
+          # REBUILD_SUBJECT, the next run's guard would skip and never heal it.
+          # The newer push has its own run, so standing down here is enough.
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha)"
+          if [ "$tip" != "$HEAD_SHA" ]; then
+            echo "::notice::$HEAD_REF moved from $HEAD_SHA to $tip; leaving it to that run."
             exit 0
           fi
 
@@ -156,7 +190,7 @@ jobs:
             --arg email "${SLUG}[bot]@users.noreply.github.com" \
             --arg message "$REBUILD_SUBJECT" \
             --arg name "${SLUG}[bot]" \
-            --arg sha "$committed" \
+            --arg sha "$BLOB" \
             --rawfile content content.b64 \
             '{branch: $branch, committer: {email: $email, name: $name},
               content: ($content | rtrimstr("\n")), message: $message, sha: $sha}' > body.json
