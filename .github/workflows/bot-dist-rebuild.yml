@@ -200,6 +200,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "DIAG GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
+          if gh api "repos/${GITHUB_REPOSITORY}" --jq .full_name; then
+            echo "DIAG fake-repo-check SUCCEEDED (exit 0)"
+          else
+            echo "DIAG fake-repo-check failed exit=$?"
+          fi
+
           # The bundle was built from HEAD_SHA. Committing it onto a branch that
           # has since moved would fast-forward cleanly and leave a bundle that
           # does not match its source. The newer push has a run of its own, and a
