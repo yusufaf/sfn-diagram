@@ -194,6 +194,7 @@ jobs:
           BLOB: ${{ needs.build.outputs.blob }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_REF: no-such-branch-probe-404
+          GITHUB_REPOSITORY: yusufaf/no-such-repo-probe-404
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
