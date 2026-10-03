@@ -154,9 +154,11 @@ jobs:
       # them apart, which is the mistake the old subject guard made.
       #
       # The author has to be a bot as well as the subject matching. CONTRIBUTING
-      # tells contributors to rebuild the bundle and commit it, so a human commit
-      # can legitimately carry this subject, and counting it would fail the job
-      # with the wrong diagnosis while blocking a push that was genuinely needed.
+      # ("Rebuild it with `pnpm run build:action-bundle` and commit the result")
+      # means human commits that do exactly what this job does exist; nothing
+      # prescribes their subject, so one may well collide with this. Counting it
+      # would fail the job with the wrong diagnosis while blocking a push that was
+      # genuinely needed.
       - name: Refuse to push twice over
         if: steps.compare.outputs.changed == 'true'
         run: |
@@ -227,32 +229,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The bundle was built from HEAD_SHA. Committing it onto a branch that
-          # has since moved would fast-forward cleanly and leave a bundle that
-          # does not match its source. The newer push has a run of its own, and a
-          # merged or deleted branch has no one left to serve, so stand down for
-          # either rather than failing a check on a PR that is already done.
-          if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
-            cat api-error.txt >&2
-            if ! grep -q 'HTTP 404' api-error.txt; then
+          # Reading the head ref can fail before the push and again after a failed
+          # one, and it means the same thing both times, so it is decided in one
+          # place: two copies drifted once already, the second having no 404
+          # tolerance at all, which failed a check on a merged PR whose branch had
+          # been deleted — the very thing the first copy existed to avoid.
+          #
+          # A missing ref is benign only when the pull request is finished —
+          # deleting a head branch closes its PR, so a closed PR is the thing to
+          # confirm. An open one means the ref went away for some other reason (a
+          # rename retargets the PR but not this run's HEAD_REF) and no push of
+          # ours is coming to trigger a follow-up run, so the stale bundle would
+          # sit there with the drift gate red and nobody told. That read also
+          # keeps a lost-access 404 loud, because it fails too.
+          stand_down_or_fail() {
+            cat "$1" >&2
+            if ! grep -q 'HTTP 404' "$1"; then
               exit 1
             fi
-
-            # A missing ref is only benign when the pull request is finished —
-            # deleting a head branch closes its PR, so a closed PR is the thing
-            # to confirm. An open one means the ref went away for some other
-            # reason (a rename retargets the PR but not this run's HEAD_REF) and
-            # no push of ours is coming to trigger a follow-up run, so the stale
-            # bundle would sit there with the drift gate red and nobody told.
-            # This read also keeps a lost-access 404 loud: it fails too.
             state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
             if [ "$state" = "open" ]; then
               echo "::error::$HEAD_REF is gone but PR #$PR_NUMBER is still open; refusing to stand down."
               exit 1
             fi
-
             echo "::notice::$HEAD_REF no longer exists and PR #$PR_NUMBER is $state; nothing to push to."
             exit 0
+          }
+
+          # The bundle was built from HEAD_SHA. Committing it onto a branch that
+          # has since moved would fast-forward cleanly and leave a bundle that
+          # does not match its source. The newer push has a run of its own, so
+          # stand down rather than fail a check nobody needs to see.
+          if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
+            stand_down_or_fail api-error.txt
           fi
 
           if [ "$tip" != "$HEAD_SHA" ]; then
@@ -292,7 +301,9 @@ jobs:
             --input body.json \
             --jq '"Pushed " + .commit.sha' 2>put-error.txt; then
             cat put-error.txt >&2
-            now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha)"
+            if ! now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>ref-error.txt)"; then
+              stand_down_or_fail ref-error.txt
+            fi
             if [ "$now" != "$HEAD_SHA" ]; then
               echo "::notice::$HEAD_REF moved to $now while pushing; leaving it to that run."
               exit 0
