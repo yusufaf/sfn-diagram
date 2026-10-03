@@ -224,7 +224,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: 357
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
@@ -247,7 +247,7 @@ jobs:
             if ! grep -q 'HTTP 404' "$1"; then
               exit 1
             fi
-            state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/357" --jq .state)"
             if [ "$state" = "open" ]; then
               echo "::error::$HEAD_REF is gone but PR #$PR_NUMBER is still open; refusing to stand down."
               exit 1
