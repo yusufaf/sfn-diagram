@@ -202,6 +202,18 @@ describe('Markdown cell escaping', () => {
             expect(countDelimiters(diagnosticRow(message))).toBe(EXPECTED_DELIMITERS);
         },
     );
+
+    // A lone CR is a line ending to CommonMark, so it ends the table row just as a bare
+    // pipe ends a cell — and `/\r?\n/` requires the \n, so it let a bare CR straight
+    // through. Verified by restoring that pattern, which fails the first case here.
+    it.each([['a\rb'], ['a\r\nb'], ['a\nb'], ['a\n\rb']])(
+        'a message of %j survives with no line ending left in the row',
+        (message) => {
+            const row = diagnosticRow(message);
+            expect(row).not.toMatch(/[\r\n]/);
+            expect(countDelimiters(row)).toBe(EXPECTED_DELIMITERS);
+        },
+    );
 });
 
 describe('formatStateList', () => {

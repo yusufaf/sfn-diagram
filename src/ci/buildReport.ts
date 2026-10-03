@@ -54,19 +54,26 @@ export function formatStateList(names: string[]): string {
 }
 
 /**
- * Escape the characters that would end or restyle a Markdown table cell / inline code span.
+ * Keep untrusted text inside its own Markdown table cell.
  *
- * Backslashes are escaped *first*. Escaping only the pipe turns an input of `\\|` into
- * `\\\\|` - an escaped backslash followed by a live pipe - so a state name containing
- * `\\|` ends its table cell and injects arbitrary Markdown into the comment this
- * reports into. Order matters: doing it second would re-escape the backslashes the
- * pipe rule just added.
+ * Escapes the two things that end a cell, and nothing else — notably **not** the
+ * backtick, which still closes the code span in the backtick-wrapped `path` column
+ * (see {@link buildLintSection}); that is tracked separately. This is a containment
+ * guarantee about the row, not a general-purpose Markdown escaper.
+ *
+ * - **Backslashes first.** Escaping only the pipe turns an input of `\|` into `\\|` —
+ *   an escaped backslash followed by a *live* pipe — so the cell ends and the rest of
+ *   the text is parsed as fresh Markdown in the comment this posts. Doing it second
+ *   would re-escape the backslashes the pipe rule just added.
+ * - **Every line ending, not just `\n`.** A lone `\r` is a line ending to CommonMark,
+ *   so `/\r?\n/` (which requires the `\n`) let a bare CR through and it ended the row —
+ *   the same injection as the pipe, by a different character.
  */
 function escapeMarkdownCell(text: string): string {
     return text
         .replace(/\\/g, '\\\\')
         .replace(/\|/g, '\\|')
-        .replace(/\r?\n/g, ' ');
+        .replace(/\r\n?|\n/g, ' ');
 }
 
 /** Shown in place of the diagram when the definition has lint errors the renderer would reject. */

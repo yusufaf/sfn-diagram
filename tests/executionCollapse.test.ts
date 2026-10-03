@@ -5,6 +5,7 @@ import { generateExecution, generateExecutionHtml, generateHtml } from '../src';
 import { computeCollapsePlan, rollUpExecutionStatuses } from '../src/graph';
 import { parseAsl } from '../src/AslParser';
 import { renderCollapsedView } from '../src/renderers/viewer/relayout';
+import { escapeAttribute } from '../src/renderers/svgBuilder';
 import type { RelayoutModel } from '../src/renderers/viewer/relayout';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type { AslDefinition, ExecutionStateStatus } from '../src/types';
@@ -48,13 +49,10 @@ function nodeMarkup(svg: string, stateId: string): string {
 
 /** The drawn (non hit-area) path of one edge; the id is attribute-escaped as the renderer writes it. */
 function edgeMarkup(svg: string, edgeId: string): string {
-    // Mirrors escapeAttribute in svgBuilder.ts, quotes included - without them this
-    // helper silently fails to find an edge whose id contains a double quote.
-    const escaped = edgeId
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    // The renderer's own escaper, not a copy of it. The copy that used to live here
+    // omitted `"` and U+00A0, so it silently failed to find an edge whose id
+    // contained either — a second set of rules is a second set to drift.
+    const escaped = escapeAttribute(edgeId);
     const paths = svg.match(/<path[^>]*>/g) ?? [];
     const drawn = paths.find(
         (path) => path.includes(`data-edge-id="${escaped}"`) && !path.includes('data-edge-hit-area'),

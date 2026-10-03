@@ -69587,7 +69587,7 @@ function formatStateList(names) {
   return names.map((name) => `\`${name}\``).join(", ");
 }
 function escapeMarkdownCell(text) {
-  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return text.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r\n?|\n/g, " ");
 }
 var LINT_ERROR_DIAGRAM_NOTE = "> \u274C Diagram omitted \u2014 the definition has errors Step Functions would reject";
 function hasLintErrors(diagnostics) {

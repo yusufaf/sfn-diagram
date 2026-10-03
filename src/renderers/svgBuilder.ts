@@ -26,7 +26,13 @@ export type SvgAttrValue = number | string;
  * the `<path[^>]*>` style scans callers run over the serialized SVG. The escaping is
  * transparent to any XML/DOM parser, which hands back the original string.
  */
-function escapeAttribute(value: string): string {
+/**
+ * Escape a value for an XML/HTML attribute.
+ *
+ * Exported so tests can locate an element by an attribute the renderer wrote,
+ * rather than keeping a second copy of these rules that drifts out of step.
+ */
+export function escapeAttribute(value: string): string {
     return value
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&nbsp;')
