@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.6.0...github-action-sfn-diagram-v1.6.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **cfn:** bound Fn::Sub names so a template cannot be quadratic to parse ([#352](https://github.com/yusufaf/sfn-diagram/issues/352)) ([04f0c26](https://github.com/yusufaf/sfn-diagram/commit/04f0c26af8fb4f3e1fd82e8ba1dc2fdc5d760d86))
+
 ## [1.6.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.5.0...github-action-sfn-diagram-v1.6.0) (2026-10-02)
 
 
