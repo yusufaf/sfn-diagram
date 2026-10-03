@@ -45,7 +45,14 @@ jobs:
     # PR — routine when a bump needs a code change — must still get a rebuild, and
     # so must the run our own rebuild push triggers. Gating on the actor skipped
     # both, which left the bundle stale with nothing to heal it.
-    if: github.event.pull_request.user.login == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
+    #
+    # Same-repo only. The `deps/audit-fix` clause matches a branch name, which a
+    # fork PR can carry too; it would then build fork code here and go red minting
+    # a token it can never be given, since fork runs get no secrets.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.pull_request.user.login == 'dependabot[bot]' ||
+      github.head_ref == 'deps/audit-fix')
     runs-on: ubuntu-latest
     # Scoped to this job rather than the workflow: a newer push makes an in-flight
     # build obsolete and cancelling it is right, but our own push is a push to this
@@ -125,8 +132,12 @@ jobs:
             exit 0
           fi
 
+          # Assigned on its own line, not interpolated into `echo`, whose exit
+          # status would otherwise mask a rev-parse failure and send an empty
+          # blob id into the credentialed job to fail there instead.
+          blob="$(git rev-parse "HEAD:$BUNDLE_PATH")"
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "blob=$(git rev-parse "HEAD:$BUNDLE_PATH")" >> "$GITHUB_OUTPUT"
+          echo "blob=$blob" >> "$GITHUB_OUTPUT"
 
       # `changed == false` is what stops the push/retrigger cycle, and it only
       # stops it if the bundle is byte-reproducible run to run. Were a dependency
@@ -138,11 +149,17 @@ jobs:
       # row cannot be, so that is where this stops and asks for a human. Counting
       # consecutive commits is what separates the two; a single run cannot tell
       # them apart, which is the mistake the old subject guard made.
+      #
+      # The author has to be a bot as well as the subject matching. CONTRIBUTING
+      # tells contributors to rebuild the bundle and commit it, so a human commit
+      # can legitimately carry this subject, and counting it would fail the job
+      # with the wrong diagnosis while blocking a push that was genuinely needed.
       - name: Refuse to push twice over
         if: steps.compare.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          rebuilds="$(git log --format=%s -n 2 | awk -v subj="$REBUILD_SUBJECT" '$0 != subj { exit } { c++ } END { print c+0 }')"
+          rebuilds="$(git log --format='%an%x09%s' -n 2 |
+            awk -F'\t' -v subj="$REBUILD_SUBJECT" '$2 != subj || $1 !~ /\[bot\]$/ { exit } { c++ } END { print c+0 }')"
           if [ "$rebuilds" -ge 2 ]; then
             echo "::error::$rebuilds rebuild commits in a row and the bundle still differs."
             echo "::error::The bundle is not reproducible run-to-run; pushing again would loop."
@@ -195,6 +212,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
@@ -205,16 +223,26 @@ jobs:
           # merged or deleted branch has no one left to serve, so stand down for
           # either rather than failing a check on a PR that is already done.
           if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
-            # A 404 means the ref is gone — or that the App lost access to the
-            # repository, which must stay loud. Ask whether the repository itself
-            # is still readable to tell those apart.
-            if grep -q 'HTTP 404' api-error.txt &&
-              gh api "repos/${GITHUB_REPOSITORY}" --jq .full_name >/dev/null 2>&1; then
-              echo "::notice::$HEAD_REF no longer exists; nothing to push to."
-              exit 0
-            fi
             cat api-error.txt >&2
-            exit 1
+            if ! grep -q 'HTTP 404' api-error.txt; then
+              exit 1
+            fi
+
+            # A missing ref is only benign when the pull request is finished —
+            # deleting a head branch closes its PR, so a closed PR is the thing
+            # to confirm. An open one means the ref went away for some other
+            # reason (a rename retargets the PR but not this run's HEAD_REF) and
+            # no push of ours is coming to trigger a follow-up run, so the stale
+            # bundle would sit there with the drift gate red and nobody told.
+            # This read also keeps a lost-access 404 loud: it fails too.
+            state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+            if [ "$state" = "open" ]; then
+              echo "::error::$HEAD_REF is gone but PR #$PR_NUMBER is still open; refusing to stand down."
+              exit 1
+            fi
+
+            echo "::notice::$HEAD_REF no longer exists and PR #$PR_NUMBER is $state; nothing to push to."
+            exit 0
           fi
 
           if [ "$tip" != "$HEAD_SHA" ]; then
