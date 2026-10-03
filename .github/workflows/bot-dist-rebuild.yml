@@ -160,7 +160,7 @@ jobs:
         env:
           BLOB: ${{ needs.build.outputs.blob }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: no-such-branch-probe-404
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
