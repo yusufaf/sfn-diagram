@@ -36,20 +36,32 @@ on:
 permissions:
   contents: read
 
+# A release-triggered run and a manual recovery dispatch can otherwise overlap on the
+# same version. Not cancel-in-progress: a publish half way through is not something to
+# interrupt, so the second run waits and then no-ops on --skip-duplicate.
+concurrency:
+  group: vscode-marketplace
+  cancel-in-progress: false
+
 jobs:
   # Builds the .vsix. Deliberately holds no id-token: this job runs
   # `pnpm install --frozen-lockfile`, so a malicious lifecycle script in a transitive
   # dependency executes here, and it must not be able to mint any token at all.
   package:
     name: Package the extension
+    # Both paths are guarded on the tag prefix. Guarding only the release path lets a
+    # dispatch of, say, sfn-diagram-v1.8.0 check out the core tag, build whatever
+    # extension version happened to live there, and attach a .vsix to the *core*
+    # release - release-please.yml:57 guards its own dispatch input for the same reason.
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+       startsWith(github.event.inputs.publish_tag, 'vscode-sfn-diagram-v')) ||
       startsWith(github.event.release.tag_name, 'vscode-sfn-diagram-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      vsce_range: ${{ steps.vsce.outputs.range }}
+      vsce_version: ${{ steps.vsce.outputs.version }}
       vsix: ${{ steps.pack.outputs.vsix }}
     steps:
       - name: Checkout released tag
@@ -84,14 +96,21 @@ jobs:
         run: pnpm --filter vscode-sfn-diagram run package
 
       # The publish job runs vsce without a checkout, so it needs to know which version
-      # to fetch. Reading the range from package.json keeps one source of truth and
-      # lets Dependabot bump it, rather than pinning a second copy in this file.
-      - name: Read the vsce range
+      # to fetch. This resolves the *exact* version pnpm installed from the lockfile -
+      # not the `^3.0.0` range in package.json, which would let the one job holding the
+      # OIDC credential install whatever 3.x was newest that morning, including a
+      # version no CI run has ever exercised. Dependabot still owns the bump; this just
+      # reads what it produced.
+      - name: Resolve the vsce version
         id: vsce
         run: |
-          RANGE="$(node -p "require('./packages/vscode-sfn-diagram/package.json').devDependencies['@vscode/vsce']")"
-          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
-          echo "vsce range: $RANGE"
+          VERSION="$(pnpm --filter vscode-sfn-diagram exec vsce --version | tr -d '[:space:]')"
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::unexpected vsce version '$VERSION'"; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "vsce version: $VERSION"
 
       - name: Locate the .vsix
         id: pack
@@ -112,7 +131,11 @@ jobs:
       # Attach it to the release too. The extension's releases carried no .vsix asset,
       # which matters while the Marketplace listing can lag: it is the only way to
       # sideload the exact build Open VSX got. --clobber so a dispatch re-run replaces it.
+      # Nice to have, not the point of this workflow: a dispatch for a tag with no
+      # GitHub release would otherwise fail here and skip publishing entirely, even
+      # though the .vsix built fine and is already an artifact.
       - name: Attach the .vsix to the release
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -160,8 +183,9 @@ jobs:
         env:
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: |
-          npx --yes "@vscode/vsce@${{ needs.package.outputs.vsce_range }}" publish \
+          npx --yes "@vscode/vsce@${{ needs.package.outputs.vsce_version }}" publish \
             --azure-credential \
+            --skip-duplicate \
             --packagePath "${{ needs.package.outputs.vsix }}"
 
       # Same post-publish verification every other publish job in this repo carries:
@@ -171,7 +195,15 @@ jobs:
       # after the 0.3.0 upload reported DONE. 30 x 30s gives validation 15 minutes
       # before this is called a failure; a shorter window fails publishes that worked.
       #
-      # The -A is load-bearing. Without a browser user agent this endpoint answers 503.
+      # Two details the query itself depends on:
+      #   - flags 946, not 914. 914 is IncludeFiles|IncludeVersionProperties|
+      #     IncludeAssetUri|IncludeStatistics|IncludeLatestVersionOnly and does NOT set
+      #     ExcludeNonValidated (32), so it happily reports a version that is still
+      #     unvalidated or that validation rejected - the job would go green while the
+      #     listing never moved, which is the exact failure this step exists to catch.
+      #     946 = 914 + 32, and the version's own `flags` is asserted to contain
+      #     `validated` as well, because one check that cannot fail is not a check.
+      #   - The -A is load-bearing. Without a browser user agent this endpoint answers 503.
       - name: Verify the published version on the Marketplace
         run: |
           VERSION="$(printf '%s' "${{ needs.package.outputs.vsix }}" \
@@ -179,20 +211,25 @@ jobs:
           echo "expecting $VERSION"
           FOUND=""
           for i in $(seq 1 30); do
-            ACTUAL="$(curl -s -A 'Mozilla/5.0' -X POST \
+            RESPONSE="$(curl -s -A 'Mozilla/5.0' -X POST \
               'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' \
               -H 'Accept: application/json;api-version=3.0-preview.1' \
               -H 'Content-Type: application/json' \
-              -d '{"filters":[{"criteria":[{"filterType":7,"value":"yusufaf.vscode-sfn-diagram"}],"pageNumber":1,"pageSize":1}],"flags":914}' \
-              | jq -r '.results[0].extensions[0].versions[0].version' 2>/dev/null || true)"
-            if [ "$ACTUAL" = "$VERSION" ]; then
+              -d '{"filters":[{"criteria":[{"filterType":7,"value":"yusufaf.vscode-sfn-diagram"}],"pageNumber":1,"pageSize":1}],"flags":946}' \
+              || true)"
+            ACTUAL="$(printf '%s' "$RESPONSE" \
+              | jq -r '.results[0].extensions[0].versions[0].version // empty' 2>/dev/null || true)"
+            ACTUAL_FLAGS="$(printf '%s' "$RESPONSE" \
+              | jq -r '.results[0].extensions[0].versions[0].flags // empty' 2>/dev/null || true)"
+            echo "poll $i: version='$ACTUAL' flags='$ACTUAL_FLAGS'"
+            if [ "$ACTUAL" = "$VERSION" ] && printf '%s' "$ACTUAL_FLAGS" | grep -q 'validated'; then
               FOUND=1
               break
             fi
             sleep 30
           done
           if [ -z "$FOUND" ]; then
-            echo "::error::Marketplace never showed yusufaf.vscode-sfn-diagram@$VERSION (last seen: $ACTUAL)"
+            echo "::error::Marketplace never served a validated yusufaf.vscode-sfn-diagram@$VERSION (last seen: '$ACTUAL' flags '$ACTUAL_FLAGS')"
             exit 1
           fi
-          echo "Marketplace is serving $VERSION"
+          echo "Marketplace is serving $VERSION (validated)"

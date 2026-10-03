@@ -16,6 +16,6 @@ code --install-extension yusufaf.vscode-sfn-diagram
 
 Published to both the VS Code Marketplace and [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram), so the Extensions panel finds it in **Cursor, Windsurf, VSCodium, Gitpod, and Eclipse Theia** as well.
 
-The two registries are not always on the same version. Open VSX is published automatically whenever a new extension version is released; the Marketplace is published by hand, because `vsce publish` needs an Azure DevOps credential this repository does not hold, so its listing can trail Open VSX by a release or two. The version badges above report what each registry has right now. [Issue #40](https://github.com/yusufaf/sfn-diagram/issues/40) tracks automating the Marketplace side.
+Both registries are published automatically whenever a new extension version is released, so they carry the same build. The Marketplace side authenticates with Microsoft Entra workload identity federation rather than a stored token, which is why no credential expires behind it. The version badges above report what each registry currently has.
 
 **Usage:** Open any `.json` or `.asl` file and run **Step Functions: Preview Step Functions Diagram** from the command palette, or click the diagram icon in the editor title bar.

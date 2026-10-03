@@ -27,16 +27,12 @@ current version is the supported path to a fix.
 | `sfn-diagram` | latest minor | npm, JSR, Docker, Homebrew, standalone binaries |
 | `sfn-diagram-react` | latest minor | npm |
 | `sfn-diagram-action` | latest minor | GitHub Marketplace |
-| `vscode-sfn-diagram` | latest minor | Open VSX |
+| `vscode-sfn-diagram` | latest minor | Open VSX, Microsoft Marketplace |
 
-One exception worth stating plainly: publishing the VS Code extension to the
-**Microsoft Marketplace is a manual step** (it needs a credential this repository
-does not hold - see
-[#40](https://github.com/yusufaf/sfn-diagram/issues/40)), so that listing can sit
-behind Open VSX. A fix released for the extension reaches Open VSX automatically and
-the Marketplace only once someone publishes it by hand. If you are on a Marketplace
-install, check the version you actually have rather than assuming an upgrade carries
-the fix.
+Every package above is published automatically on release, so a fix reaches each
+registry without anyone publishing by hand. The VS Code extension goes to Open VSX and
+the Microsoft Marketplace from separate workflows; the Marketplace one authenticates
+with Microsoft Entra workload identity federation rather than a stored token.
 
 ## Scope
 

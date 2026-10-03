@@ -54,11 +54,14 @@ jobs:
       # a token that works here is a token that works for publishing.
       - name: Read the Azure DevOps profile
         run: |
+          # `|| true`: the default shell is `bash -eo pipefail`, so a non-2xx from az
+          # would exit the step before the guard below could print what came back -
+          # making the diagnostic unreachable in exactly the case it was written for.
           PROFILE="$(az rest \
             --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
-            --resource 499b84ac-1321-427f-aa17-267ca6975798)"
-          ID="$(printf '%s' "$PROFILE" | jq -r '.id')"
-          NAME="$(printf '%s' "$PROFILE" | jq -r '.displayName')"
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 2>&1 || true)"
+          ID="$(printf '%s' "$PROFILE" | jq -r '.id // empty' 2>/dev/null || true)"
+          NAME="$(printf '%s' "$PROFILE" | jq -r '.displayName // empty' 2>/dev/null || true)"
 
           if [ -z "$ID" ] || [ "$ID" = "null" ]; then
             echo "::error::could not read a profile id; the response was: $PROFILE"
