@@ -53,9 +53,20 @@ export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ');
 }
 
-/** Escape the characters that would end or restyle a Markdown table cell / inline code span. */
+/**
+ * Escape the characters that would end or restyle a Markdown table cell / inline code span.
+ *
+ * Backslashes are escaped *first*. Escaping only the pipe turns an input of `\\|` into
+ * `\\\\|` - an escaped backslash followed by a live pipe - so a state name containing
+ * `\\|` ends its table cell and injects arbitrary Markdown into the comment this
+ * reports into. Order matters: doing it second would re-escape the backslashes the
+ * pipe rule just added.
+ */
 function escapeMarkdownCell(text: string): string {
-    return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+    return text
+        .replace(/\\/g, '\\\\')
+        .replace(/\|/g, '\\|')
+        .replace(/\r?\n/g, ' ');
 }
 
 /** Shown in place of the diagram when the definition has lint errors the renderer would reject. */

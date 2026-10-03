@@ -48,7 +48,13 @@ function nodeMarkup(svg: string, stateId: string): string {
 
 /** The drawn (non hit-area) path of one edge; the id is attribute-escaped as the renderer writes it. */
 function edgeMarkup(svg: string, edgeId: string): string {
-    const escaped = edgeId.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Mirrors escapeAttribute in svgBuilder.ts, quotes included - without them this
+    // helper silently fails to find an edge whose id contains a double quote.
+    const escaped = edgeId
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     const paths = svg.match(/<path[^>]*>/g) ?? [];
     const drawn = paths.find(
         (path) => path.includes(`data-edge-id="${escaped}"`) && !path.includes('data-edge-hit-area'),

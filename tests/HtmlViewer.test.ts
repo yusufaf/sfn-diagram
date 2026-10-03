@@ -88,7 +88,7 @@ describe('generateHtml', () => {
             // viewer controller. (A lone End state has no transitions, so no edge blob
             // is emitted.) The hostile comment survives only as escaped text inside a
             // blob, so it never reaches an executable position.
-            expect(result.html.match(/<script/g)).toHaveLength(3);
+            expect(result.html.match(/<script/gi)).toHaveLength(3);
             expect(result.html).not.toContain('<script>alert');
 
             const match = result.html.match(
@@ -117,7 +117,7 @@ describe('generateHtml', () => {
             expect(edgeData['A->B#normal#0']).toEqual({ from: 'A', to: 'B', type: 'normal' });
             // Every key is addressable from the rendered SVG, which escapes `>`.
             for (const edgeId of Object.keys(edgeData)) {
-                expect(result.html).toContain(`data-edge-id="${edgeId.replace('>', '&gt;')}"`);
+                expect(result.html).toContain(`data-edge-id="${edgeId.replaceAll('>', '&gt;')}"`);
             }
         });
 
@@ -252,8 +252,8 @@ describe('nonce', () => {
     it('stamps every script and style tag with the given nonce', () => {
         const result = generateHtml({ aslDefinition: asl, nonce: 'abc123' });
 
-        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
-        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        const scriptTags = result.html.match(/<script\b[^>]*>/gi) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/gi) ?? [];
         expect(scriptTags.length).toBeGreaterThan(0);
         expect(styleTags.length).toBeGreaterThan(0);
         for (const tag of [...scriptTags, ...styleTags]) {
@@ -275,8 +275,8 @@ describe('nonce', () => {
     it('behaves identically for generateHtmlAsync', async () => {
         const result = await generateHtmlAsync({ aslDefinition: asl, nonce: 'abc123' });
 
-        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
-        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        const scriptTags = result.html.match(/<script\b[^>]*>/gi) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/gi) ?? [];
         expect(scriptTags.length).toBeGreaterThan(0);
         expect(styleTags.length).toBeGreaterThan(0);
         for (const tag of [...scriptTags, ...styleTags]) {

@@ -149,6 +149,61 @@ describe('buildLintSection', () => {
     });
 });
 
+describe('Markdown cell escaping', () => {
+    // js/incomplete-sanitization. Escaping `|` without first escaping the backslash
+    // turned an input of `\|` into `\\|` — an escaped backslash followed by a *live*
+    // pipe — so a lint message or JSON pointer could end its own table cell and inject
+    // Markdown into the comment this posts to a PR or MR.
+    //
+    // Verified by reverting the backslash rule in escapeMarkdownCell, which fails the
+    // first case below while leaving the plain `a|b` case passing — which is why the
+    // pre-existing test did not catch this.
+
+    /**
+     * Column delimiters in a row: pipes preceded by an even number of backslashes.
+     *
+     * A row legitimately contains these — they separate the cells — so the test is not
+     * "are there unescaped pipes" but "does this message add any", which is what
+     * breaking out of a cell means.
+     */
+    function countDelimiters(row: string): number {
+        let delimiters = 0;
+        for (let index = 0; index < row.length; index += 1) {
+            if (row[index] !== '|') continue;
+            let backslashes = 0;
+            for (let back = index - 1; back >= 0 && row[back] === '\\'; back -= 1) {
+                backslashes += 1;
+            }
+            if (backslashes % 2 === 0) delimiters += 1;
+        }
+        return delimiters;
+    }
+
+    function diagnosticRow(message: string): string {
+        const markdown = buildLintSection([
+            { code: 'end-with-next', message, path: '/States/x', severity: 'error' },
+        ]);
+        const row = markdown
+            .split('\n')
+            .find((line) => line.startsWith('|') && line.includes('end-with-next'));
+        expect(row, `row for ${JSON.stringify(message)}`).toBeDefined();
+        return row!;
+    }
+
+    const EXPECTED_DELIMITERS = countDelimiters(diagnosticRow('benign'));
+
+    it('a benign message produces a well-formed four-column row', () => {
+        expect(EXPECTED_DELIMITERS).toBe(5);
+    });
+
+    it.each([['a\\|b'], ['a|b'], ['back\\slash'], ['x\\\\|y'], ['many || pipes'], ['\\']])(
+        'a message of %j adds no column delimiter',
+        (message) => {
+            expect(countDelimiters(diagnosticRow(message))).toBe(EXPECTED_DELIMITERS);
+        },
+    );
+});
+
 describe('formatStateList', () => {
     it('wraps each name in backticks and comma-joins', () => {
         expect(formatStateList(['A', 'B'])).toBe('`A`, `B`');

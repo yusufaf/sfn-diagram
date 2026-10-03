@@ -18,9 +18,22 @@ function isPseudoParam(name: string): boolean {
     return name.startsWith('AWS::');
 }
 
+/**
+ * Longest `${...}` name this will resolve.
+ *
+ * Bounded on purpose: `[^}]+` is unanchored on the right, so on a template of repeated
+ * `${` with no closing brace the engine rescans to end-of-string from every one of them
+ * - quadratic in the template size, and templates are untrusted input. Measured on
+ * `'${'.repeat(n)`: 4.3ms at n=2000 rising to 1055ms at n=32000, against 1.4ms and
+ * 22ms once bounded. A CloudFormation logical ID is at most 255 alphanumeric
+ * characters and `Fn::Sub` names are a logical ID or `Resource.Attribute`, so nothing
+ * legitimate reaches this limit.
+ */
+const SUBSTITUTION_PATTERN = /\$\{([^}]{1,255})\}/g;
+
 function substitute(template: string, substitutions: Record<string, string>): string {
     // Replace ${Var} with a substitution when known; keep ${AWS::X} pseudo-params.
-    return template.replace(/\$\{([^}]+)\}/g, (match, name: string) => {
+    return template.replace(SUBSTITUTION_PATTERN, (match, name: string) => {
         if (isPseudoParam(name)) return match;
         if (name in substitutions) return substitutions[name];
         return match;

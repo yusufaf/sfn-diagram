@@ -1185,8 +1185,8 @@ describe('generateExecutionHtml', () => {
             nonce: 'abc123',
         });
 
-        const scriptTags = result.html.match(/<script\b[^>]*>/g) ?? [];
-        const styleTags = result.html.match(/<style\b[^>]*>/g) ?? [];
+        const scriptTags = result.html.match(/<script\b[^>]*>/gi) ?? [];
+        const styleTags = result.html.match(/<style\b[^>]*>/gi) ?? [];
         expect(scriptTags.length).toBeGreaterThan(0);
         expect(styleTags.length).toBeGreaterThan(0);
         for (const tag of [...scriptTags, ...styleTags]) {
