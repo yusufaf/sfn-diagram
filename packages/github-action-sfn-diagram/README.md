@@ -104,3 +104,5 @@ To cut a release:
    Marketplace Developer Agreement once).
 
 Users always pin `@v1`, so moving that major tag ships the update without them changing anything.
+
+<!-- probe round 5: bundle untouched, push job must not mint a token -->
