@@ -67,6 +67,11 @@ jobs:
       - name: Checkout PR head
         uses: actions/checkout@v7
         with:
+          # Two commits, not checkout's default one: `Refuse to push twice over`
+          # has to see the parent's subject to count consecutive rebuilds. With a
+          # shallow clone its `git log` returned a single commit and the bound
+          # silently never fired.
+          fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install pnpm
@@ -137,7 +142,7 @@ jobs:
         if: steps.compare.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          rebuilds="$(git log --format=%s -n 5 | awk -v subj="$REBUILD_SUBJECT" '$0 != subj { exit } { c++ } END { print c+0 }')"
+          rebuilds="$(git log --format=%s -n 2 | awk -v subj="$REBUILD_SUBJECT" '$0 != subj { exit } { c++ } END { print c+0 }')"
           if [ "$rebuilds" -ge 2 ]; then
             echo "::error::$rebuilds rebuild commits in a row and the bundle still differs."
             echo "::error::The bundle is not reproducible run-to-run; pushing again would loop."
