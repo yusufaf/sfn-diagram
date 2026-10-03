@@ -122,7 +122,10 @@ jobs:
           tracked="$(git ls-files -- packages/github-action-sfn-diagram/dist)"
           built="$(cd packages/github-action-sfn-diagram/dist && find . -type f | sed 's|^\./||' | sort)"
           if [ "$tracked" != "$BUNDLE_PATH" ] || [ "$built" != "index.js" ]; then
-            echo "::error::expected index.js alone; tracked=[$tracked] built=[$built]"
+            # Both lists are newline-separated, and a literal newline ends a
+            # workflow command — so collapse them, or the annotation names only
+            # the first path exactly when there is more than one to name.
+            echo "::error::expected index.js alone; tracked=[$(echo "$tracked" | tr '\n' ' ')] built=[$(echo "$built" | tr '\n' ' ')]"
             exit 1
           fi
 
@@ -193,11 +196,18 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Down-scoped to what this job does: write the one file, read the PR's
+      # state. Left unset, the token carries the release App's whole installation
+      # — pull-requests: write, workflows: write and the rest, which
+      # release-please.yml needs and this does not. Shrinking the credential's
+      # blast radius is the point of the split, so it applies to the token too.
       - name: Mint token
         uses: actions/create-github-app-token@v3
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          permission-contents: write
+          permission-pull-requests: read
           private-key: ${{ secrets.RELEASE_APP_KEY }}
 
       - name: Download the rebuilt bundle
@@ -250,6 +260,15 @@ jobs:
             exit 0
           fi
 
+          # The ref can still resolve on a pull request that has just been merged
+          # or closed, when the head branch is not deleted with it. Committing
+          # then leaves a stray rebuild on a branch nobody will look at again.
+          state="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [ "$state" != "open" ]; then
+            echo "::notice::PR #$PR_NUMBER is $state; nothing to push for."
+            exit 0
+          fi
+
           # The base64 bundle is ~3.8 MB, well past ARG_MAX, so the request body
           # goes to gh on stdin rather than as arguments.
           base64 -w0 bundle/index.js > content.b64
@@ -263,6 +282,20 @@ jobs:
             '{branch: $branch, committer: {email: $email, name: $name},
               content: ($content | rtrimstr("\n")), message: $message, sha: $sha}' > body.json
 
-          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}" \
+          # The tip check above is a read followed by a write, so a push landing
+          # in between is possible. If it touched the bundle, the blob id this
+          # request carries is stale and the API rejects it; if it did not, the
+          # request succeeds and the run that push triggered heals the rest.
+          # Deciding by re-reading the ref rather than by parsing the error keeps
+          # the benign race quiet without making a real failure quiet too.
+          if ! gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}" \
             --input body.json \
-            --jq '"Pushed " + .commit.sha'
+            --jq '"Pushed " + .commit.sha' 2>put-error.txt; then
+            cat put-error.txt >&2
+            now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha)"
+            if [ "$now" != "$HEAD_SHA" ]; then
+              echo "::notice::$HEAD_REF moved to $now while pushing; leaving it to that run."
+              exit 0
+            fi
+            exit 1
+          fi
