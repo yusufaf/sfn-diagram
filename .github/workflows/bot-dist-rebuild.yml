@@ -14,10 +14,11 @@ name: Bot Dist Rebuild
 #
 # The work is split across two jobs on purpose. `build` checks out the pull
 # request and runs its dependencies, so it is given no secrets; `push` holds the
-# App token, which can write to this repository, and runs nothing but git. A
-# dependency bump is a change to what `pnpm install` and the build execute, and
-# Dependabot PRs are same-repo, so without the split a malicious package would
-# run next to a repo-push credential. The build also installs with
+# App token, which can write to this repository, and never has the pull request
+# on disk at all — it commits the artifact through the contents API. A dependency
+# bump is a change to what `pnpm install` and the build execute, and Dependabot
+# PRs are same-repo, so without the split a malicious package would run next to a
+# repo-push credential. The build also installs with
 # `--ignore-scripts`: the bundle is byte-identical without lifecycle scripts
 # (esbuild resolves its binary through its @esbuild/* platform package), so
 # skipping them costs nothing and closes the postinstall path outright.
@@ -90,10 +91,13 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
-  # Holds the App token, and runs no code from the pull request: it checks the
-  # branch out, replaces dist with the artifact, and commits. The artifact bytes
-  # are themselves built from PR code, but they only ever land on the PR branch,
-  # which its author already controls.
+  # Holds the App token, and never has the pull request on disk at all: it takes
+  # the rebuilt bundle from the artifact and commits it through the contents
+  # API. Committing with git would mean checking the PR branch out next to the
+  # credential, which is the shape CodeQL's actions/untrusted-checkout reports
+  # and the reason this workflow was flagged. The artifact bytes are still built
+  # from PR code, but they only ever land on the PR branch, whose author already
+  # controls it.
   push:
     name: Push the rebuilt bundle
     needs: build
@@ -109,38 +113,46 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_KEY }}
 
-      - name: Checkout PR branch
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.head_ref }}
-          token: ${{ steps.app-token.outputs.token }}
-
-      # download-artifact only adds and overwrites, so a file the rebuild
-      # deleted would survive into the commit. Clear the directory first so the
-      # commit reflects the build exactly.
-      - name: Drop the committed bundle
-        run: rm -rf packages/github-action-sfn-diagram/dist
-
       - name: Download the rebuilt bundle
         uses: actions/download-artifact@v8
         with:
           name: action-dist
-          path: packages/github-action-sfn-diagram/dist
+          path: bundle
 
-      # The husky pre-commit hook runs the full test suite (which needs a
-      # puppeteer Chrome this job never installs) and then rebuilds the very
-      # bundle being committed. Unit Test runs on the pushed commit anyway, so
-      # the hook is redundant here.
-      - name: Commit and push if the bundle changed
+      # The contents API writes one file per call, which is all the bundle is.
+      # If esbuild ever emits a second file (a sourcemap, a chunk) this fails
+      # loudly instead of committing half a bundle.
+      - name: Commit the bundle if it changed
         env:
-          HUSKY: '0'
+          BUNDLE_PATH: packages/github-action-sfn-diagram/dist/index.js
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
-          if git diff --quiet -- packages/github-action-sfn-diagram/dist; then
+          set -euo pipefail
+
+          files="$(find bundle -type f | sort)"
+          if [ "$files" != "bundle/index.js" ]; then
+            echo "::error::expected bundle/index.js alone, got: ${files//$'\n'/ }"
+            exit 1
+          fi
+
+          # git's own blob id for the rebuilt file, so "did it change?" is the
+          # same question the old `git diff` asked, without a working tree.
+          size="$(wc -c < bundle/index.js)"
+          rebuilt="$( { printf 'blob %d\0' "$size"; cat bundle/index.js; } | sha1sum | cut -d' ' -f1)"
+          committed="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}?ref=${HEAD_REF}" --jq .sha)"
+
+          if [ "$rebuilt" = "$committed" ]; then
             echo "Bundle is up to date."
             exit 0
           fi
-          git config user.name "${{ steps.app-token.outputs.app-slug }}[bot]"
-          git config user.email "${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com"
-          git add packages/github-action-sfn-diagram/dist
-          git commit -m "$REBUILD_SUBJECT"
-          git push
+
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}" \
+            -f message="$REBUILD_SUBJECT" \
+            -f branch="$HEAD_REF" \
+            -f sha="$committed" \
+            -f content="$(base64 -w0 bundle/index.js)" \
+            -f "committer[name]=${SLUG}[bot]" \
+            -f "committer[email]=${SLUG}[bot]@users.noreply.github.com" \
+            --jq '"Pushed " + .commit.sha'
