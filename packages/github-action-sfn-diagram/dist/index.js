@@ -70178,3 +70178,5 @@ content-type/dist/index.js:
 */
 
 // stale probe marker round 15b: ref gone but PR open, must be loud
+
+// stale probe marker round 15a: ref gone, PR closed, stand down green
