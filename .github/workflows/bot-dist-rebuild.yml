@@ -218,11 +218,11 @@ jobs:
 
       - name: Commit the rebuilt bundle
         env:
-          BLOB: ${{ needs.build.outputs.blob }}
+          BLOB: 0000000000000000000000000000000000000000
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: 357
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
