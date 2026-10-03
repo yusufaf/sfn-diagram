@@ -4,6 +4,13 @@ All notable changes to the Step Functions Diagram VS Code extension are document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.1](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.3.0...vscode-sfn-diagram-v0.3.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* **cfn:** bound Fn::Sub names so a template cannot be quadratic to parse ([#352](https://github.com/yusufaf/sfn-diagram/issues/352)) ([04f0c26](https://github.com/yusufaf/sfn-diagram/commit/04f0c26af8fb4f3e1fd82e8ba1dc2fdc5d760d86))
+
 ## [0.3.0](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.2.0...vscode-sfn-diagram-v0.3.0) (2026-10-02)
 
 
