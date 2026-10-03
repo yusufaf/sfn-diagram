@@ -8,11 +8,12 @@ name: Bot Dist Rebuild
 #
 # That push re-triggers this workflow, which is how it heals: the retriggered run
 # rebuilds, finds the committed bundle already current, and stops without a push.
-# Nothing skips on the commit subject — an earlier version did, and a rebuild
-# that landed on a tree that had moved underneath it would then latch, because
-# the stale commit carries the subject the skip matched on and no later run would
-# look again. The cost of healing instead of latching is one extra build run per
-# rebuild push, which is cheap next to a PR stuck red until a human rebuilds.
+# Nothing skips on the commit subject — an earlier version did, and a rebuild that
+# landed on a tree which had moved underneath it would then latch, because the
+# stale commit carries the subject the skip matched on and no later run would look
+# again. The cost of healing instead of latching is one extra build run per
+# rebuild push, cheap next to a PR stuck red until a human rebuilds. `Refuse to
+# push twice over` below is what keeps that from running away.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
@@ -29,12 +30,6 @@ on:
   pull_request:
     branches: [main]
 
-# A newer push to the branch makes an in-flight rebuild obsolete: it would commit
-# a bundle built from the superseded tree. Cancel rather than race.
-concurrency:
-  group: bot-dist-rebuild-${{ github.head_ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -45,8 +40,22 @@ env:
 jobs:
   build:
     name: Rebuild GitHub Action bundle
-    if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
+    # Keyed on who opened the PR, not `github.actor`, which on a `synchronize`
+    # event is whoever pushed last. A maintainer pushing a fixup onto a Dependabot
+    # PR — routine when a bump needs a code change — must still get a rebuild, and
+    # so must the run our own rebuild push triggers. Gating on the actor skipped
+    # both, which left the bundle stale with nothing to heal it.
+    if: github.event.pull_request.user.login == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
     runs-on: ubuntu-latest
+    # Scoped to this job rather than the workflow: a newer push makes an in-flight
+    # build obsolete and cancelling it is right, but our own push is a push to this
+    # same ref, so a workflow-level group would have the run that just pushed
+    # cancelled by its own push — reporting `cancelled` on a commit that landed,
+    # and skipping the token revocation that `create-github-app-token` does in its
+    # post step.
+    concurrency:
+      group: bot-dist-rebuild-${{ github.head_ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
     outputs:
@@ -77,10 +86,8 @@ jobs:
       # That byte-identity is load-bearing, not incidental. unit-test.yml rebuilds
       # the same bundle with a plain `pnpm install` and fails on any difference, so
       # a future dependency whose lifecycle script changes the bundle would make
-      # this job push something that gate immediately calls stale. The retrigger
-      # would rebuild it the same way and stop, leaving the PR red for a human —
-      # loud, which is the point, but if it ever happens the two installs need to
-      # agree rather than this flag being dropped.
+      # this job push something that gate immediately calls stale. If that ever
+      # happens the two installs need to agree, rather than this flag being dropped.
       - name: Install
         run: pnpm install --frozen-lockfile --ignore-scripts
 
@@ -115,6 +122,27 @@ jobs:
 
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "blob=$(git rev-parse "HEAD:$BUNDLE_PATH")" >> "$GITHUB_OUTPUT"
+
+      # `changed == false` is what stops the push/retrigger cycle, and it only
+      # stops it if the bundle is byte-reproducible run to run. Were a dependency
+      # ever to make it run-dependent — a timestamp, an absolute path in a banner —
+      # every run would push and retrigger itself without bound.
+      #
+      # One rebuild commit at head with the bundle still changed is the ordinary
+      # case to heal: a push that landed on a tree that had already moved. Two in a
+      # row cannot be, so that is where this stops and asks for a human. Counting
+      # consecutive commits is what separates the two; a single run cannot tell
+      # them apart, which is the mistake the old subject guard made.
+      - name: Refuse to push twice over
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          rebuilds="$(git log --format=%s -n 5 | awk -v subj="$REBUILD_SUBJECT" '$0 != subj { exit } { c++ } END { print c+0 }')"
+          if [ "$rebuilds" -ge 2 ]; then
+            echo "::error::$rebuilds rebuild commits in a row and the bundle still differs."
+            echo "::error::The bundle is not reproducible run-to-run; pushing again would loop."
+            exit 1
+          fi
 
       - name: Hand the bundle to the push job
         if: steps.compare.outputs.changed == 'true'
@@ -172,7 +200,11 @@ jobs:
           # merged or deleted branch has no one left to serve, so stand down for
           # either rather than failing a check on a PR that is already done.
           if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
-            if grep -q '404' api-error.txt; then
+            # A 404 means the ref is gone — or that the App lost access to the
+            # repository, which must stay loud. Ask whether the repository itself
+            # is still readable to tell those apart.
+            if grep -q 'HTTP 404' api-error.txt &&
+              gh api "repos/${GITHUB_REPOSITORY}" --jq .full_name >/dev/null 2>&1; then
               echo "::notice::$HEAD_REF no longer exists; nothing to push to."
               exit 0
             fi
