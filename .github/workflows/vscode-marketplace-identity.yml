@@ -1,0 +1,79 @@
+name: VS Code Marketplace identity
+
+# Prints the Azure DevOps *profile ID* of the managed identity that publishes the
+# extension. Dispatch-only; it publishes nothing and changes nothing.
+#
+# Why this exists. To let the identity publish, it has to be added as a member of the
+# `yusufaf` Marketplace publisher - and that Members field accepts only an Azure DevOps
+# profile ID. It does not accept the managed identity's client ID, its principal ID, or
+# its ARM resource ID; all three are rejected with "TF14045: The identity could not be
+# found" or "Not a valid User Id". (VS Code's own publishing docs say to paste the
+# resource ID. That is wrong, and following it costs an afternoon.)
+#
+# A profile ID can only be read by the identity itself, and a managed identity cannot be
+# assumed from a laptop - only from a workload Azure trusts. Hence a workflow.
+#
+# Run this when:
+#   - first authorising the identity
+#   - the identity is rotated or recreated
+#   - publishing starts failing with an authorisation (not authentication) error
+#
+# Then paste the printed id at
+#   https://marketplace.visualstudio.com/manage/publishers/yusufaf -> Members -> Add
+# with the role Contributor.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Print the publishing identity
+    runs-on: ubuntu-latest
+    # Must match the federated credential's subject
+    # (repo:yusufaf/sfn-diagram:environment:vscode-marketplace), or the OIDC token
+    # cannot be exchanged for an Azure one.
+    environment: vscode-marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Azure login (workload identity federation)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          # The identity holds no Azure RBAC - its only grant is Marketplace publisher
+          # membership, which is an Azure DevOps concept, not an Azure one.
+          allow-no-subscriptions: true
+
+      # 499b84ac-1321-427f-aa17-267ca6975798 is Azure DevOps' well-known application ID
+      # in Microsoft Entra. It is the same resource vsce asks for (see out/auth.js), so
+      # a token that works here is a token that works for publishing.
+      - name: Read the Azure DevOps profile
+        run: |
+          PROFILE="$(az rest \
+            --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798)"
+          ID="$(printf '%s' "$PROFILE" | jq -r '.id')"
+          NAME="$(printf '%s' "$PROFILE" | jq -r '.displayName')"
+
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::error::could not read a profile id; the response was: $PROFILE"
+            exit 1
+          fi
+
+          echo "::notice title=Marketplace publisher member id::$ID"
+          {
+            echo "## Marketplace publishing identity"
+            echo
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Display name | \`$NAME\` |"
+            echo "| **Profile ID (paste this)** | \`$ID\` |"
+            echo
+            echo "Add it at <https://marketplace.visualstudio.com/manage/publishers/yusufaf>"
+            echo "under **Members**, with the role **Contributor**."
+          } >> "$GITHUB_STEP_SUMMARY"

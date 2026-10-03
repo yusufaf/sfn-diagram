@@ -1,0 +1,198 @@
+name: VS Code Marketplace
+
+# Publishes the extension to the Microsoft Marketplace with Entra workload identity
+# federation - no PAT. `vsce publish` otherwise needs a *global* Azure DevOps PAT, and
+# global PATs are retired 2026-12-01 (microsoft/vscode#322741), so this is the only
+# route that outlives that date. Open VSX is published separately from
+# release-please.yml with its own OVSX_PAT and is unaffected.
+#
+# WHY THIS IS ITS OWN WORKFLOW FILE, not a job in release-please.yml:
+# npm Trusted Publishing and JSR's tokenless publish are keyed on repo + *workflow
+# filename*, and both are configured against release-please.yml. A job there holding
+# `id-token: write` could mint a token good enough to publish an arbitrary sfn-diagram
+# tarball to npm with valid provenance. An OIDC token minted here carries a
+# job_workflow_ref pointing at this file instead, which npm and JSR reject outright -
+# so the Marketplace credential cannot be turned into a core-package credential.
+#
+# Setup this depends on (one-time, already done):
+#   - Entra app registration + service principal in the yusufaf tenant
+#   - a federated credential on it with
+#     subject repo:yusufaf/sfn-diagram:environment:vscode-marketplace
+#   - that service principal added to the `yusufaf` Marketplace publisher as Contributor
+#   - repo variables AZURE_CLIENT_ID and AZURE_TENANT_ID (identifiers, not secrets)
+
+on:
+  release:
+    types: [published]
+  # Recovery, and the first publish: the Marketplace listing can sit behind Open VSX,
+  # so re-publishing an already-released tag has to be possible without a new release.
+  workflow_dispatch:
+    inputs:
+      publish_tag:
+        description: 'Extension tag to publish, e.g. vscode-sfn-diagram-v0.3.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Builds the .vsix. Deliberately holds no id-token: this job runs
+  # `pnpm install --frozen-lockfile`, so a malicious lifecycle script in a transitive
+  # dependency executes here, and it must not be able to mint any token at all.
+  package:
+    name: Package the extension
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'vscode-sfn-diagram-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      vsce_range: ${{ steps.vsce.outputs.range }}
+      vsix: ${{ steps.pack.outputs.vsix }}
+    steps:
+      - name: Checkout released tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.publish_tag || github.event.release.tag_name }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # esbuild bundles the core package into out/extension.js, so core dist/ must
+      # exist before the extension can build. Same order as openvsx-publish.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm --filter vscode-sfn-diagram run typecheck
+
+      - name: Build
+        run: pnpm --filter vscode-sfn-diagram run build
+
+      - name: Package
+        run: pnpm --filter vscode-sfn-diagram run package
+
+      # The publish job runs vsce without a checkout, so it needs to know which version
+      # to fetch. Reading the range from package.json keeps one source of truth and
+      # lets Dependabot bump it, rather than pinning a second copy in this file.
+      - name: Read the vsce range
+        id: vsce
+        run: |
+          RANGE="$(node -p "require('./packages/vscode-sfn-diagram/package.json').devDependencies['@vscode/vsce']")"
+          echo "range=$RANGE" >> "$GITHUB_OUTPUT"
+          echo "vsce range: $RANGE"
+
+      - name: Locate the .vsix
+        id: pack
+        working-directory: packages/vscode-sfn-diagram
+        run: |
+          VSIX="$(ls vscode-sfn-diagram-*.vsix)"
+          [ -f "$VSIX" ] || { echo "::error::no .vsix was produced"; exit 1; }
+          echo "vsix=$VSIX" >> "$GITHUB_OUTPUT"
+          echo "built $VSIX"
+
+      - name: Keep the .vsix for the publish job
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: packages/vscode-sfn-diagram/${{ steps.pack.outputs.vsix }}
+          if-no-files-found: error
+
+      # Attach it to the release too. The extension's releases carried no .vsix asset,
+      # which matters while the Marketplace listing can lag: it is the only way to
+      # sideload the exact build Open VSX got. --clobber so a dispatch re-run replaces it.
+      - name: Attach the .vsix to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.publish_tag || github.event.release.tag_name }}"
+          gh release upload "$TAG" \
+            "packages/vscode-sfn-diagram/${{ steps.pack.outputs.vsix }}" --clobber
+
+  # Holds the OIDC token and nothing else: no checkout, no pnpm install, no repo code.
+  # Its only third-party execution is vsce itself, which is unavoidable to publish.
+  publish:
+    name: Publish to the Marketplace
+    needs: package
+    runs-on: ubuntu-latest
+    # Gates the federated credential: its subject is
+    # repo:yusufaf/sfn-diagram:environment:vscode-marketplace, so a job that does not
+    # declare this environment cannot exchange its OIDC token for an Azure one, however
+    # the workflow is triggered.
+    environment: vscode-marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download the .vsix
+        uses: actions/download-artifact@v8
+        with:
+          name: vsix
+
+      # Federated login: no client secret anywhere. allow-no-subscriptions because the
+      # service principal holds no Azure RBAC - its only authorisation is membership of
+      # the Marketplace publisher, which is an Azure DevOps grant, not an Azure one.
+      - name: Azure login (workload identity federation)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      # vsce's credential chain is EnvironmentCredential -> AzureCliCredential -> ...
+      # (@vscode/vsce out/auth.js). There is no WorkloadIdentityCredential in it, and
+      # EnvironmentCredential reads only AZURE_CLIENT_SECRET / AZURE_CLIENT_CERTIFICATE_PATH,
+      # so the federated token cannot be handed over directly. The step above logs the
+      # Azure CLI in, and AzureCliCredential picks that session up. That is the whole
+      # mechanism - removing the azure/login step breaks this with an auth error.
+      - name: Publish
+        env:
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+        run: |
+          npx --yes "@vscode/vsce@${{ needs.package.outputs.vsce_range }}" publish \
+            --azure-credential \
+            --packagePath "${{ needs.package.outputs.vsix }}"
+
+      # Same post-publish verification every other publish job in this repo carries:
+      # a green publish step is not evidence the listing moved. `vsce publish` returns
+      # as soon as the upload is accepted, and the Marketplace then validates
+      # asynchronously - the gallery served the previous version for about 7 minutes
+      # after the 0.3.0 upload reported DONE. 30 x 30s gives validation 15 minutes
+      # before this is called a failure; a shorter window fails publishes that worked.
+      #
+      # The -A is load-bearing. Without a browser user agent this endpoint answers 503.
+      - name: Verify the published version on the Marketplace
+        run: |
+          VERSION="$(printf '%s' "${{ needs.package.outputs.vsix }}" \
+            | sed -E 's/^vscode-sfn-diagram-(.*)\.vsix$/\1/')"
+          echo "expecting $VERSION"
+          FOUND=""
+          for i in $(seq 1 30); do
+            ACTUAL="$(curl -s -A 'Mozilla/5.0' -X POST \
+              'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' \
+              -H 'Accept: application/json;api-version=3.0-preview.1' \
+              -H 'Content-Type: application/json' \
+              -d '{"filters":[{"criteria":[{"filterType":7,"value":"yusufaf.vscode-sfn-diagram"}],"pageNumber":1,"pageSize":1}],"flags":914}' \
+              | jq -r '.results[0].extensions[0].versions[0].version' 2>/dev/null || true)"
+            if [ "$ACTUAL" = "$VERSION" ]; then
+              FOUND=1
+              break
+            fi
+            sleep 30
+          done
+          if [ -z "$FOUND" ]; then
+            echo "::error::Marketplace never showed yusufaf.vscode-sfn-diagram@$VERSION (last seen: $ACTUAL)"
+            exit 1
+          fi
+          echo "Marketplace is serving $VERSION"
