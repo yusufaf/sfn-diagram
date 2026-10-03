@@ -53,9 +53,15 @@ export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ');
 }
 
-/** Escape the characters that would end or restyle a Markdown table cell / inline code span. */
+// Keeps untrusted text inside its own table cell. Backslashes first, or `\|` becomes an
+// escaped backslash plus a live pipe. Every line ending, not just `\n`: a lone `\r` ends
+// the row too. Does NOT escape backticks, so the backtick-wrapped `path` cell below can
+// still have its code span closed early.
 function escapeMarkdownCell(text: string): string {
-    return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+    return text
+        .replace(/\\/g, '\\\\')
+        .replace(/\|/g, '\\|')
+        .replace(/\r\n?|\n/g, ' ');
 }
 
 /** Shown in place of the diagram when the definition has lint errors the renderer would reject. */

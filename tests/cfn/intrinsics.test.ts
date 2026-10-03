@@ -1,6 +1,42 @@
 import { describe, it, expect } from 'vitest';
 import { resolveIntrinsics } from '../../src/cfn/intrinsics';
 
+describe('Fn::Sub substitution name bound', () => {
+    // js/polynomial-redos. The pattern was `[^}]+`, unanchored on the right, so on a
+    // template of repeated `${` with no closing brace the engine rescanned to
+    // end-of-string from every one of them - quadratic in a template the CLI, the
+    // library and the GitHub Action all accept from the user. The name is now bounded
+    // to 255, which is above any legitimate CloudFormation logical ID.
+    //
+    // This half asserts the bound deterministically; the timing shape lives in
+    // tests/performance/scaling.test.ts, where the repo keeps its ratio checks.
+    it('resolves a name at the 255-character bound', () => {
+        const name = 'A'.repeat(255);
+        const { value } = resolveIntrinsics({
+            substitutions: { [name]: 'resolved' },
+            value: { 'Fn::Sub': '${' + name + '}' },
+        });
+        expect(value).toBe('resolved');
+    });
+
+    it('leaves a longer name untouched rather than scanning past it', () => {
+        const name = 'A'.repeat(256);
+        const { value } = resolveIntrinsics({
+            substitutions: { [name]: 'resolved' },
+            value: { 'Fn::Sub': '${' + name + '}' },
+        });
+        expect(value).toBe('${' + name + '}');
+    });
+
+    it('still resolves an ordinary name and keeps pseudo-params', () => {
+        const { value } = resolveIntrinsics({
+            substitutions: { Topic: 'arn:aws:sns:::alerts' },
+            value: { 'Fn::Sub': '${Topic} in ${AWS::Region}' },
+        });
+        expect(value).toBe('arn:aws:sns:::alerts in ${AWS::Region}');
+    });
+});
+
 describe('resolveIntrinsics', () => {
     it('keeps pseudo-parameter Refs as ${AWS::X}', () => {
         const { value } = resolveIntrinsics({ value: { Ref: 'AWS::Partition' } });

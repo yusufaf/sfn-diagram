@@ -18,9 +18,15 @@ function isPseudoParam(name: string): boolean {
     return name.startsWith('AWS::');
 }
 
+// Bounded, not `[^}]+`: unanchored on the right, that rescans to end-of-string from
+// every `${` in a template with no closing brace - quadratic, on untrusted input. 255
+// covers the whole body (`Logical.Attribute` reaches ~226); a longer name resolves to
+// the literal placeholder, as an unknown name already does. See tests/performance.
+const SUBSTITUTION_PATTERN = /\$\{([^}]{1,255})\}/g;
+
 function substitute(template: string, substitutions: Record<string, string>): string {
     // Replace ${Var} with a substitution when known; keep ${AWS::X} pseudo-params.
-    return template.replace(/\$\{([^}]+)\}/g, (match, name: string) => {
+    return template.replace(SUBSTITUTION_PATTERN, (match, name: string) => {
         if (isPseudoParam(name)) return match;
         if (name in substitutions) return substitutions[name];
         return match;

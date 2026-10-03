@@ -35,7 +35,7 @@ describe('buildPreviewDocument', () => {
 
     it('stamps every script tag with the same nonce', () => {
         const document = buildDocument()
-        const scriptTags = document.match(/<script\b[^>]*>/g) ?? []
+        const scriptTags = document.match(/<script\b[^>]*>/gi) ?? []
         expect(scriptTags.length).toBeGreaterThan(0)
         for (const tag of scriptTags) {
             expect(tag).toContain(`nonce="${NONCE}"`)

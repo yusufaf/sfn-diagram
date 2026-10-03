@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { generateSvg, generateMermaid } from '../../src';
 import { parseAsl } from '../../src/AslParser';
 import { computeCollapsePlan } from '../../src/graph';
+import { resolveIntrinsics } from '../../src/cfn/intrinsics';
 import type { AslDefinition, AslState } from '../../src';
 import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
 
@@ -216,5 +217,31 @@ describe('parser enumeration guard', () => {
         // `states` (e.g. `states[candidate]` inside a loop over every state)
         // would cost ~64x. 12 sits clear of both.
         expect(largeCounts.get / smallCounts.get).toBeLessThan(12);
+    });
+});
+
+describe('Fn::Sub substitution scaling', () => {
+    // The timing half of the js/polynomial-redos fix in src/cfn/intrinsics.ts. The
+    // substitution pattern was `[^}]+`, unanchored on the right, so a template of
+    // repeated `${` with no closing brace cost one end-of-string rescan per occurrence.
+    // CloudFormation templates are untrusted input to the CLI, the library and the
+    // Action alike, so that is a denial-of-service vector rather than a slow path.
+    //
+    // Asserted as a ratio rather than a wall-clock budget, like the checks above.
+    function timeResolve(repeats: number): number {
+        const value = { 'Fn::Sub': '${'.repeat(repeats) };
+        const start = performance.now();
+        resolveIntrinsics({ value });
+        return performance.now() - start;
+    }
+
+    test('a template of repeated "${" does not degrade quadratically', () => {
+        timeResolve(8000); // warm up, so JIT cost does not land on the first measurement
+
+        const small = Math.max(timeResolve(8000), 0.5);
+        const large = timeResolve(32000); // 4x the input
+
+        // Linear is ~4x and quadratic ~16x. 8 sits clear of both.
+        expect(large / small).toBeLessThan(8);
     });
 });
