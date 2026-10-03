@@ -4,13 +4,23 @@ name: Bot Dist Rebuild
 # Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI. That push re-triggers this job too
+# release App token so it retriggers CI. That push re-triggers this workflow too
 # (the App is also the actor that opens the audit-fix PR, so the actor alone
-# cannot tell the two apart); the guard step below skips the rebuild when the
-# App is the actor and the head commit is already one of ours.
+# cannot tell the two apart); the guard step below skips the rebuild when a bot
+# other than Dependabot is the actor and the head commit is already one of ours.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
+#
+# The work is split across two jobs on purpose. `build` checks out the pull
+# request and runs its dependencies, so it is given no secrets; `push` holds the
+# App token, which can write to this repository, and runs nothing but git. A
+# dependency bump is a change to what `pnpm install` and the build execute, and
+# Dependabot PRs are same-repo, so without the split a malicious package would
+# run next to a repo-push credential. The build also installs with
+# `--ignore-scripts`: the bundle is byte-identical without lifecycle scripts
+# (esbuild resolves its binary through its @esbuild/* platform package), so
+# skipping them costs nothing and closes the postinstall path outright.
 
 on:
   pull_request:
@@ -19,32 +29,33 @@ on:
 permissions:
   contents: read
 
+env:
+  REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
+
 jobs:
-  rebuild:
+  build:
     name: Rebuild GitHub Action bundle
     if: github.actor == 'dependabot[bot]' || github.head_ref == 'deps/audit-fix'
-    env:
-      REBUILD_SUBJECT: 'chore(action): rebuild dist bundle for dependency update'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
     steps:
-      - name: Mint token
-        uses: actions/create-github-app-token@v3
-        id: app-token
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_KEY }}
-
       - name: Checkout PR branch
         uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ steps.app-token.outputs.token }}
 
       # Only our own push counts: a human who rebases the branch with the
-      # rebuild commit still at head needs a fresh build, not a skip.
+      # rebuild commit still at head needs a fresh build, not a skip. Every
+      # actor that reaches this job is dependabot[bot], the release App (which
+      # pushes the rebuild and also opens the audit-fix PR), or a human on
+      # deps/audit-fix — so "a bot that is not Dependabot" identifies our own
+      # push without a token to resolve the App's slug from.
       - name: Skip if this run was triggered by our own rebuild push
         id: guard
-        if: github.actor == format('{0}[bot]', steps.app-token.outputs.app-slug)
+        if: github.actor != 'dependabot[bot]' && endsWith(github.actor, '[bot]')
         run: |
           if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
             echo "Head commit is a bundle rebuild; nothing to do."
@@ -64,18 +75,63 @@ jobs:
 
       - name: Install
         if: steps.guard.outputs.skip != 'true'
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build bundle
         if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
+
+      - name: Hand the bundle to the push job
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: action-dist
+          path: packages/github-action-sfn-diagram/dist
+          include-hidden-files: true
+          if-no-files-found: error
+
+  # Holds the App token, and runs no code from the pull request: it checks the
+  # branch out, replaces dist with the artifact, and commits. The artifact bytes
+  # are themselves built from PR code, but they only ever land on the PR branch,
+  # which its author already controls.
+  push:
+    name: Push the rebuilt bundle
+    needs: build
+    if: needs.build.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Mint token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      # download-artifact only adds and overwrites, so a file the rebuild
+      # deleted would survive into the commit. Clear the directory first so the
+      # commit reflects the build exactly.
+      - name: Drop the committed bundle
+        run: rm -rf packages/github-action-sfn-diagram/dist
+
+      - name: Download the rebuilt bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: action-dist
+          path: packages/github-action-sfn-diagram/dist
 
       # The husky pre-commit hook runs the full test suite (which needs a
       # puppeteer Chrome this job never installs) and then rebuilds the very
       # bundle being committed. Unit Test runs on the pushed commit anyway, so
       # the hook is redundant here.
       - name: Commit and push if the bundle changed
-        if: steps.guard.outputs.skip != 'true'
         env:
           HUSKY: '0'
         run: |
