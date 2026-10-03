@@ -70181,3 +70181,5 @@ content-type/dist/index.js:
 // stale probe marker round 12b: repo unreadable, must be loud
 
 // stale probe marker round 12c: diagnose repo check
+
+// stale probe marker round 12d: repo unreachable, must be loud

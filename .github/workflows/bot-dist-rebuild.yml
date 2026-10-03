@@ -193,7 +193,7 @@ jobs:
         env:
           BLOB: ${{ needs.build.outputs.blob }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REF: no-such-branch-probe-404
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
@@ -209,7 +209,7 @@ jobs:
             # repository, which must stay loud. Ask whether the repository itself
             # is still readable to tell those apart.
             if grep -q 'HTTP 404' api-error.txt &&
-              gh api "repos/${GITHUB_REPOSITORY}" --jq .full_name >/dev/null 2>&1; then
+              gh api "repos/yusufaf/no-such-repo-probe-404" --jq .full_name >/dev/null 2>&1; then
               echo "::notice::$HEAD_REF no longer exists; nothing to push to."
               exit 0
             fi
