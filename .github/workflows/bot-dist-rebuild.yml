@@ -193,19 +193,11 @@ jobs:
         env:
           BLOB: ${{ needs.build.outputs.blob }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_REF: no-such-branch-probe-404
-          GITHUB_REPOSITORY: yusufaf/no-such-repo-probe-404
+          HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
-
-          echo "DIAG GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
-          if gh api "repos/${GITHUB_REPOSITORY}" --jq .full_name; then
-            echo "DIAG fake-repo-check SUCCEEDED (exit 0)"
-          else
-            echo "DIAG fake-repo-check failed exit=$?"
-          fi
 
           # The bundle was built from HEAD_SHA. Committing it onto a branch that
           # has since moved would fast-forward cleanly and leave a bundle that
