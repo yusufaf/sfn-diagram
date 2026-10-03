@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 
 await build({
+    banner: { js: `// probe only: non-reproducible marker ${Date.now()} ${Math.random()}` },
     bundle: true,
     entryPoints: ['src/main.ts'],
     format: 'cjs',
