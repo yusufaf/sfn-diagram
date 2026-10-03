@@ -53,22 +53,10 @@ export function formatStateList(names: string[]): string {
     return names.map((name) => `\`${name}\``).join(', ');
 }
 
-/**
- * Keep untrusted text inside its own Markdown table cell.
- *
- * Escapes the two things that end a cell, and nothing else — notably **not** the
- * backtick, which still closes the code span in the backtick-wrapped `path` column
- * (see {@link buildLintSection}); that is tracked separately. This is a containment
- * guarantee about the row, not a general-purpose Markdown escaper.
- *
- * - **Backslashes first.** Escaping only the pipe turns an input of `\|` into `\\|` —
- *   an escaped backslash followed by a *live* pipe — so the cell ends and the rest of
- *   the text is parsed as fresh Markdown in the comment this posts. Doing it second
- *   would re-escape the backslashes the pipe rule just added.
- * - **Every line ending, not just `\n`.** A lone `\r` is a line ending to CommonMark,
- *   so `/\r?\n/` (which requires the `\n`) let a bare CR through and it ended the row —
- *   the same injection as the pipe, by a different character.
- */
+// Keeps untrusted text inside its own table cell. Backslashes first, or `\|` becomes an
+// escaped backslash plus a live pipe. Every line ending, not just `\n`: a lone `\r` ends
+// the row too. Does NOT escape backticks, so the backtick-wrapped `path` cell below can
+// still have its code span closed early.
 function escapeMarkdownCell(text: string): string {
     return text
         .replace(/\\/g, '\\\\')
