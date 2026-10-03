@@ -4,10 +4,15 @@ name: Bot Dist Rebuild
 # Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
 # the build themselves, so this rebuilds the bundle on their PRs and pushes the
 # result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI. That push re-triggers this workflow too
-# (the App is also the actor that opens the audit-fix PR, so the actor alone
-# cannot tell the two apart); the guard step below skips the rebuild when a bot
-# other than Dependabot is the actor and the head commit is already one of ours.
+# release App token so it retriggers CI.
+#
+# That push re-triggers this workflow, which is how it heals: the retriggered run
+# rebuilds, finds the committed bundle already current, and stops without a push.
+# Nothing skips on the commit subject — an earlier version did, and a rebuild
+# that landed on a tree that had moved underneath it would then latch, because
+# the stale commit carries the subject the skip matched on and no later run would
+# look again. The cost of healing instead of latching is one extra build run per
+# rebuild push, which is cheap next to a PR stuck red until a human rebuilds.
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
@@ -18,10 +23,7 @@ name: Bot Dist Rebuild
 # on disk at all — it commits the artifact through the contents API. A dependency
 # bump is a change to what `pnpm install` and the build execute, and Dependabot
 # PRs are same-repo, so without the split a malicious package would run next to a
-# repo-push credential. The build also installs with `--ignore-scripts`: the
-# bundle is byte-identical without lifecycle scripts (esbuild resolves its binary
-# through its @esbuild/* platform package), so skipping them costs nothing and
-# closes the postinstall path outright.
+# repo-push credential.
 
 on:
   pull_request:
@@ -58,52 +60,46 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      # Only our own push counts: a human who rebases the branch with the
-      # rebuild commit still at head needs a fresh build, not a skip. Every
-      # actor that reaches this job is dependabot[bot], the release App (which
-      # pushes the rebuild and also opens the audit-fix PR), or a human on
-      # deps/audit-fix — so "a bot that is not Dependabot" identifies our own
-      # push without a token to resolve the App's slug from.
-      - name: Skip if this run was triggered by our own rebuild push
-        id: guard
-        if: github.actor != 'dependabot[bot]' && endsWith(github.actor, '[bot]')
-        run: |
-          if [ "$(git log -1 --format=%s)" = "$REBUILD_SUBJECT" ]; then
-            echo "Head commit is a bundle rebuild; nothing to do."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Install pnpm
-        if: steps.guard.outputs.skip != 'true'
         uses: pnpm/action-setup@v6
 
       - name: Set node LTS
-        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: lts/*
           cache: pnpm
 
+      # `--ignore-scripts` keeps a dependency's lifecycle scripts from running in
+      # a job that is about to hand its output to a credentialed one. Measured
+      # byte-identical: the build calls esbuild's JS API, and esbuild resolves its
+      # binary through its @esbuild/* platform package rather than its postinstall.
+      #
+      # That byte-identity is load-bearing, not incidental. unit-test.yml rebuilds
+      # the same bundle with a plain `pnpm install` and fails on any difference, so
+      # a future dependency whose lifecycle script changes the bundle would make
+      # this job push something that gate immediately calls stale. The retrigger
+      # would rebuild it the same way and stop, leaving the PR red for a human —
+      # loud, which is the point, but if it ever happens the two installs need to
+      # agree rather than this flag being dropped.
       - name: Install
-        if: steps.guard.outputs.skip != 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Build bundle
-        if: steps.guard.outputs.skip != 'true'
         run: pnpm build:action-bundle
 
       # Decided here rather than in `push` so an unchanged bundle never mints the
-      # repo-push token at all. `blob` is the id of the blob the push replaces;
-      # reading it from the checkout saves `push` an API round trip.
+      # repo-push token at all. This is also the loop break: the run triggered by
+      # our own push lands here with nothing to do. `blob` is the id of the blob
+      # the push replaces; reading it from the checkout saves an API round trip.
       - name: Compare against the committed bundle
         id: compare
-        if: steps.guard.outputs.skip != 'true'
         run: |
           set -euo pipefail
 
           # The contents API writes one file per call, which is all the bundle
           # is. If the build ever emits a second file (a sourcemap, a chunk),
           # fail here — before a token exists — rather than commit half of it.
+          # Checked before `git diff`, which would not notice an untracked one.
           tracked="$(git ls-files -- packages/github-action-sfn-diagram/dist)"
           built="$(cd packages/github-action-sfn-diagram/dist && find . -type f | sed 's|^\./||' | sort)"
           if [ "$tracked" != "$BUNDLE_PATH" ] || [ "$built" != "index.js" ]; then
@@ -126,7 +122,6 @@ jobs:
         with:
           name: action-dist
           path: packages/github-action-sfn-diagram/dist
-          include-hidden-files: true
           if-no-files-found: error
 
   # Holds the App token, and never has the pull request on disk at all: it takes
@@ -173,10 +168,18 @@ jobs:
 
           # The bundle was built from HEAD_SHA. Committing it onto a branch that
           # has since moved would fast-forward cleanly and leave a bundle that
-          # does not match its source — and because the commit subject is
-          # REBUILD_SUBJECT, the next run's guard would skip and never heal it.
-          # The newer push has its own run, so standing down here is enough.
-          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha)"
+          # does not match its source. The newer push has a run of its own, and a
+          # merged or deleted branch has no one left to serve, so stand down for
+          # either rather than failing a check on a PR that is already done.
+          if ! tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>api-error.txt)"; then
+            if grep -q '404' api-error.txt; then
+              echo "::notice::$HEAD_REF no longer exists; nothing to push to."
+              exit 0
+            fi
+            cat api-error.txt >&2
+            exit 1
+          fi
+
           if [ "$tip" != "$HEAD_SHA" ]; then
             echo "::notice::$HEAD_REF moved from $HEAD_SHA to $tip; leaving it to that run."
             exit 0
