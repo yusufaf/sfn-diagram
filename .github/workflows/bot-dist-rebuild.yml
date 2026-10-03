@@ -220,11 +220,11 @@ jobs:
 
       - name: Commit the rebuilt bundle
         env:
-          BLOB: ${{ needs.build.outputs.blob }}
+          BLOB: 0000000000000000000000000000000000000000
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          HEAD_REF: no-such-branch-probe-404
+          HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: 357
           SLUG: ${{ steps.app-token.outputs.app-slug }}
         run: |
           set -euo pipefail
@@ -301,7 +301,7 @@ jobs:
             --input body.json \
             --jq '"Pushed " + .commit.sha' 2>put-error.txt; then
             cat put-error.txt >&2
-            if ! now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${HEAD_REF}" --jq .object.sha 2>ref-error.txt)"; then
+            if ! now="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/no-such-branch-probe-404" --jq .object.sha 2>ref-error.txt)"; then
               stand_down_or_fail ref-error.txt
             fi
             if [ "$now" != "$HEAD_SHA" ]; then
