@@ -148,11 +148,19 @@ jobs:
             exit 0
           fi
 
+          # The base64 bundle is ~3.8 MB, well past ARG_MAX, so the request body
+          # goes to gh on stdin rather than as arguments.
+          base64 -w0 bundle/index.js > content.b64
+          jq -n \
+            --arg branch "$HEAD_REF" \
+            --arg email "${SLUG}[bot]@users.noreply.github.com" \
+            --arg message "$REBUILD_SUBJECT" \
+            --arg name "${SLUG}[bot]" \
+            --arg sha "$committed" \
+            --rawfile content content.b64 \
+            '{branch: $branch, committer: {email: $email, name: $name},
+              content: ($content | rtrimstr("\n")), message: $message, sha: $sha}' > body.json
+
           gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${BUNDLE_PATH}" \
-            -f message="$REBUILD_SUBJECT" \
-            -f branch="$HEAD_REF" \
-            -f sha="$committed" \
-            -f content="$(base64 -w0 bundle/index.js)" \
-            -f "committer[name]=${SLUG}[bot]" \
-            -f "committer[email]=${SLUG}[bot]@users.noreply.github.com" \
+            --input body.json \
             --jq '"Pushed " + .commit.sha'
