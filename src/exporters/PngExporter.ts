@@ -9,26 +9,6 @@ import { renderResvgPng } from './resvgEngine';
  */
 const BUILT_IN_FONT_FAMILIES = new Set([AWS_LIGHT_THEME.fontFamily, AWS_DARK_THEME.fontFamily]);
 
-/**
- * The first family named in a CSS font stack, unquoted.
- *
- * `theme.fontFamily` is a stack ('MyBrand Sans, sans-serif'), while resvg's
- * `defaultFontFamily` takes one family name and does not split a list - handing
- * it the whole stack matches nothing at all.
- *
- * @param stack - A CSS `font-family` value.
- * @returns The first family in it, or `undefined` if it names none.
- */
-function firstFamilyIn(stack: string): string | undefined {
-    const first = stack
-        .split(',')[0]
-        ?.trim()
-        .replace(/^['"]|['"]$/g, '')
-        .trim();
-
-    return first || undefined;
-}
-
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
     /**
@@ -93,7 +73,7 @@ export class PngExporter {
         const themeFontFamily = getTheme(theme).fontFamily;
         const preferredFamily = BUILT_IN_FONT_FAMILIES.has(themeFontFamily)
             ? undefined
-            : firstFamilyIn(themeFontFamily);
+            : themeFontFamily;
 
         const rendered =
             engine === 'resvg'

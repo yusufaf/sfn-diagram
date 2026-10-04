@@ -70,6 +70,29 @@ function isReadableFile(path: string): boolean {
     }
 }
 
+/**
+ * The first family named in a CSS font stack, unquoted, or `undefined` if it
+ * names none.
+ *
+ * Every family that reaches here may be a stack - `theme.fontFamily` is one by
+ * definition, and a caller passing `fontFamily: 'Inter, sans-serif'` is natural
+ * - while resvg's `defaultFontFamily` takes a single family name and does not
+ * split a list. Handing it the whole stack matches nothing at all, which looks
+ * exactly like the option having no effect.
+ *
+ * @param stack - A CSS `font-family` value, or nothing.
+ * @returns The first family in it, trimmed and unquoted.
+ */
+function firstFamilyIn(stack?: string): string | undefined {
+    const first = stack
+        ?.split(',')[0]
+        ?.trim()
+        .replace(/^['"]|['"]$/g, '')
+        .trim();
+
+    return first || undefined;
+}
+
 /** Env var that forces {@link ResvgFontOptions.loadSystemFonts} on or off. */
 export const LOAD_SYSTEM_FONTS_ENV_VAR = 'SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS';
 
@@ -117,6 +140,9 @@ interface RefuseBlankParams {
 
     /** Platform being resolved for, named in the error. */
     platform: NodeJS.Platform;
+
+    /** `fontFiles` entries that were rejected, named in the error. */
+    rejected?: string[];
 }
 
 /**
@@ -134,11 +160,17 @@ interface RefuseBlankParams {
  * @throws if `false` was forced and no font file or directory resolved.
  */
 function refuseBlank(params: RefuseBlankParams): boolean {
-    const { forced, hasSource, otherwise, platform } = params;
+    const { forced, hasSource, otherwise, platform, rejected = [] } = params;
 
     if (forced === false && !hasSource) {
+        // The common way to get here is passing fontFiles that all failed the
+        // readable-file check, so name them: telling someone to pass the thing
+        // they just passed is no help.
+        const cause = rejected.length
+            ? `could not read any of ${rejected.join(', ')}`
+            : `no font resolved on ${platform}`;
         throw new Error(
-            `No font resolved on ${platform} and system fonts are disabled, so no text would render. Pass fontFiles or fontDirs, or allow system fonts.`
+            `PNG font resolution ${cause} and system fonts are disabled, so no text would render. Pass a readable font file in fontFiles, a fontDirs path, or allow system fonts.`
         );
     }
 
@@ -204,7 +236,9 @@ export interface ResvgFontOptions {
  * file paths.
  *
  * `preferredFamily` sits outside that precedence: it names the family on
- * whatever source resolves, rather than being a source itself.
+ * whatever source resolves, rather than being a source itself, and is ignored
+ * when `fontFamily` overrides it. Every family is read as a CSS stack and
+ * narrowed to its first entry, since resvg matches one name and not a list.
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
  * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` only if a readable font
@@ -230,7 +264,10 @@ export interface ResvgFontOptions {
 export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): ResvgFontOptions {
     const { fileExists = existsSync, isFile = isReadableFile, platform = process.platform } = params;
     const forced = params.loadSystemFonts ?? readLoadSystemFontsEnv();
-    const preferredFamily = params.preferredFamily;
+    const overrideFamily = firstFamilyIn(params.fontFamily);
+    // An override replaces the family the SVG asked for, so the preferred one
+    // stops mattering - including for whether the scan has to stay on for it.
+    const preferredFamily = overrideFamily === undefined ? firstFamilyIn(params.preferredFamily) : undefined;
 
     if (params.fontFiles || params.fontDirs || params.fontFamily) {
         // fontDirs are best-effort search paths, so a stale/nonexistent one is
@@ -238,8 +275,9 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         // through verbatim, and let `isFile` decide only whether it counts as a
         // resolved font.
         const fontDirs = (params.fontDirs ?? []).filter(fileExists);
-        const fontFileResolved = (params.fontFiles ?? []).some(isFile);
-        const family = params.fontFamily ?? preferredFamily;
+        const fontFiles = params.fontFiles ?? [];
+        const fontFileResolved = fontFiles.some(isFile);
+        const family = overrideFamily ?? preferredFamily;
         return {
             defaultFontFamily: family,
             fontDirs,
@@ -252,6 +290,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
                 hasSource: fontFileResolved || fontDirs.length > 0,
                 otherwise: !fontFileResolved || preferredFamily !== undefined,
                 platform,
+                rejected: fontFiles,
             }),
             sansSerifFamily: family,
         };
@@ -261,7 +300,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     // empty array, which is truthy, so a variable that is set but blank would
     // otherwise take this branch and shadow the probe table with no font at all.
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
-    const envFontFamily = process.env.SFN_DIAGRAM_PNG_FONT_FAMILY?.trim() || undefined;
+    const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
     if (envFontDirs?.length || envFontFamily) {
         const fontDirs = (envFontDirs ?? []).filter(fileExists);
         const family = envFontFamily ?? preferredFamily;

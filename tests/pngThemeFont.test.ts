@@ -1,22 +1,30 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ResolvePngFontOptionsParams } from '../src/exporters/pngFonts';
 
-const renderAsync = vi.fn(async () => ({
-    asPng: () => Buffer.from('fake-png'),
-    height: 100,
-    width: 200,
+// vi.hoisted, because the factory runs while `../src/png` is being imported -
+// before a plain top-level const would have been initialised.
+const { resolvePngFontOptions } = vi.hoisted(() => ({
+    resolvePngFontOptions: vi.fn(
+        (params: ResolvePngFontOptionsParams): { loadSystemFonts: boolean } => ({
+            loadSystemFonts: params.loadSystemFonts ?? false,
+        })
+    ),
 }));
-vi.mock('@resvg/resvg-js', () => ({ renderAsync }));
+vi.mock('../src/exporters/pngFonts', () => ({ resolvePngFontOptions }));
+vi.mock('@resvg/resvg-js', () => ({
+    renderAsync: async () => ({ asPng: () => Buffer.from('fake-png'), height: 100, width: 200 }),
+}));
 
 import { PngExporter } from '../src/png';
 
 const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>';
 
-/** The font options the mocked engine was handed on the last call. */
-const lastFont = () => renderAsync.mock.calls.at(-1)?.[1]?.font;
+/** The font params the resolver was handed on the last call. */
+const lastParams = () => resolvePngFontOptions.mock.calls.at(-1)?.[0];
 
 const render = async (options: ConstructorParameters<typeof PngExporter>[0]) => {
     await new PngExporter(options).convert({ height: 100, svg, width: 200 });
-    return lastFont();
+    return lastParams();
 };
 
 /**
@@ -25,77 +33,72 @@ const render = async (options: ConstructorParameters<typeof PngExporter>[0]) => 
  * SVG asks for. So a custom `theme.fontFamily` has to reach the font resolution
  * too, or it renders as the probe family with nothing reported (#336 review).
  *
- * These assert the family that is asked for, not which source resolved: the
- * latter depends on what fonts the host has, which is covered with an injected
- * platform in `tests/pngFonts.test.ts`. The font env vars are cleared for the
- * same reason - a developer with one exported should not fail the suite.
+ * The resolver is mocked on purpose: what the exporter owns is deciding which
+ * family the SVG is asking for. What the resolver then does with it depends on
+ * which fonts the host has, and is tested with an injected platform in
+ * `tests/pngFonts.test.ts` instead - these cases would otherwise fail on any
+ * machine with no font at a probed path.
  */
 describe('PNG font resolution against the theme', () => {
     beforeEach(() => {
-        renderAsync.mockClear();
-        for (const name of [
-            'SFN_DIAGRAM_PNG_FONT_DIRS',
-            'SFN_DIAGRAM_PNG_FONT_FAMILY',
-            'SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS',
-        ]) {
-            vi.stubEnv(name, '');
-        }
+        resolvePngFontOptions.mockClear();
     });
 
-    afterEach(() => {
-        vi.unstubAllEnvs();
-    });
-
-    it('asks for no particular family under the built-in theme', async () => {
-        const font = await render({});
-
-        expect(font?.defaultFontFamily).not.toBe('Georgia');
+    it('asks for no particular family when no theme is given', async () => {
+        expect(await render({})).toMatchObject({ fontFamily: undefined, preferredFamily: undefined });
     });
 
     it.each(['light', 'dark'] as const)(
-        'keeps the fast single-file path for the %s theme',
+        'asks for no particular family under the %s theme',
         async (theme) => {
-            const font = await render({ theme });
-
-            expect(font?.loadSystemFonts).toBe(false);
-            expect(font?.fontFiles).toHaveLength(1);
+            expect(await render({ theme })).toMatchObject({ preferredFamily: undefined });
         }
     );
 
-    it('asks resvg for a custom theme font family, and keeps system fonts searchable', async () => {
-        const font = await render({ theme: { fontFamily: 'Georgia' } });
+    it('asks for no particular family when a custom theme changes something else', async () => {
+        const params = await render({ theme: { fontSize: 18 } });
 
-        expect(font?.defaultFontFamily).toBe('Georgia');
-        expect(font?.sansSerifFamily).toBe('Georgia');
-        expect(font?.loadSystemFonts).toBe(true);
+        expect(params?.preferredFamily).toBeUndefined();
     });
 
-    // theme.fontFamily is a CSS stack; resvg's defaultFontFamily takes one name
-    // and does not split a list, so the whole stack would match nothing.
-    it('takes the first family out of a stack, unquoted', async () => {
-        const font = await render({ theme: { fontFamily: "'MyBrand Sans', Helvetica, sans-serif" } });
+    it('passes a custom theme font family as the preferred one', async () => {
+        const params = await render({ theme: { fontFamily: 'Georgia' } });
 
-        expect(font?.defaultFontFamily).toBe('MyBrand Sans');
+        expect(params?.preferredFamily).toBe('Georgia');
+        // Not as fontFamily: that is a font *source*, and claiming to be one
+        // would skip the font dirs a caller configured.
+        expect(params?.fontFamily).toBeUndefined();
     });
 
-    it('keeps the fast path for a custom theme that changes something else', async () => {
-        const font = await render({ theme: { fontSize: 18 } });
+    it('passes the stack verbatim, leaving the resolver to narrow it', async () => {
+        const params = await render({ theme: { fontFamily: "'MyBrand Sans', Helvetica, sans-serif" } });
 
-        expect(font?.loadSystemFonts).toBe(false);
+        expect(params?.preferredFamily).toBe("'MyBrand Sans', Helvetica, sans-serif");
     });
 
-    it('still honours an explicit fontFamily option alongside a theme family', async () => {
-        const font = await render({ fontFamily: 'Courier New', theme: { fontFamily: 'Georgia' } });
+    it('still passes an explicit fontFamily option alongside a theme family', async () => {
+        const params = await render({ fontFamily: 'Courier New', theme: { fontFamily: 'Georgia' } });
 
-        expect(font?.defaultFontFamily).toBe('Courier New');
+        expect(params?.fontFamily).toBe('Courier New');
     });
 
-    it('still searches configured fontDirs when the theme names a family', async () => {
-        vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', process.cwd());
+    it('passes a custom theme family through a dark base too', async () => {
+        const params = await render({ theme: { base: 'dark', fontFamily: 'Georgia' } });
 
-        const font = await render({ theme: { fontFamily: 'Georgia' } });
+        expect(params?.preferredFamily).toBe('Georgia');
+    });
 
-        expect(font?.fontDirs).toEqual([process.cwd()]);
-        expect(font?.defaultFontFamily).toBe('Georgia');
+    it('leaves the other font options untouched', async () => {
+        const params = await render({
+            fontDirs: ['/mounted/fonts'],
+            loadSystemFonts: true,
+            theme: { fontFamily: 'Georgia' },
+        });
+
+        expect(params).toMatchObject({
+            fontDirs: ['/mounted/fonts'],
+            loadSystemFonts: true,
+            preferredFamily: 'Georgia',
+        });
     });
 });

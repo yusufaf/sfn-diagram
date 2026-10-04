@@ -133,6 +133,21 @@ describe('resolvePngFontOptions', () => {
             expect(result.sansSerifFamily).toBe('Env Sans');
         });
 
+        it('is ignored for the scan decision when an explicit fontFamily overrides it', () => {
+            // The theme family is discarded here, so paying ~250ms to make it
+            // findable buys nothing.
+            const result = resolvePngFontOptions({
+                fontFamily: 'Inter',
+                fontFiles: ['/opt/fonts/Inter.ttf'],
+                preferredFamily: 'Georgia',
+                fileExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
+            expect(result.sansSerifFamily).toBe('Inter');
+        });
+
         it('loses to an explicit fontFamily', () => {
             const result = resolvePngFontOptions({
                 fontFamily: 'Explicit Sans',
@@ -163,6 +178,49 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
 
             expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+        });
+    });
+
+    describe('font family stacks', () => {
+        // resvg's defaultFontFamily matches one name and does not split a list,
+        // so the whole stack matches nothing - indistinguishable from the option
+        // having no effect.
+        it('narrows an explicit fontFamily stack to its first family', () => {
+            const result = resolvePngFontOptions({
+                fontFamily: 'Inter, Helvetica, sans-serif',
+                fileExists: () => true,
+            });
+
+            expect(result.defaultFontFamily).toBe('Inter');
+            expect(result.sansSerifFamily).toBe('Inter');
+        });
+
+        it('narrows SFN_DIAGRAM_PNG_FONT_FAMILY the same way, quotes included', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', '"Env Sans", sans-serif');
+
+            const result = resolvePngFontOptions({ fileExists: () => true });
+
+            expect(result.sansSerifFamily).toBe('Env Sans');
+        });
+
+        it('narrows a preferredFamily stack', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: "'MyBrand Sans', Helvetica, sans-serif",
+                ...hostWithLiberation('/usr/share/fonts'),
+            });
+
+            expect(result.sansSerifFamily).toBe('MyBrand Sans');
+        });
+
+        it('treats a stack that names nothing as no family at all', () => {
+            const result = resolvePngFontOptions({
+                fontDirs: ['/exists'],
+                fontFamily: ' , ',
+                fileExists: () => true,
+            });
+
+            expect(result.defaultFontFamily).toBeUndefined();
         });
     });
 
@@ -286,7 +344,18 @@ describe('resolvePngFontOptions', () => {
                     fileExists: () => false,
                     isFile: () => false,
                 })
-            ).toThrow(/no text would render/);
+            ).toThrow(/no font resolved on linux.*no text would render/);
+        });
+
+        it('names the fontFiles it could not read when it refuses', () => {
+            expect(() =>
+                resolvePngFontOptions({
+                    fontFiles: ['/typo/Arial.ttf', '/also/missing.ttf'],
+                    loadSystemFonts: false,
+                    fileExists: () => false,
+                    isFile: () => false,
+                })
+            ).toThrow(/could not read any of \/typo\/Arial.ttf, \/also\/missing.ttf/);
         });
 
         it('refuses to be forced off for a fontFamily with no search path', () => {
