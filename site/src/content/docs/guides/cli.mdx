@@ -723,11 +723,12 @@ the image ships — the renderer loads only that file and skips parsing every in
 saving around 250ms per export. Pointing `SFN_DIAGRAM_PNG_FONT_DIRS` at a directory keeps the scan
 on, because a directory that exists may hold no font the renderer can parse.
 
-Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to scan anyway. That is what you want if a diagram
-contains glyphs the one resolved font does not cover, such as CJK text, which otherwise renders as
-tofu. Accepted values are `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an
-error rather than being ignored. See [PNG fonts](/guides/configuration/#png-fonts) for the full
-resolution order and what the single-file path gives up.
+Text that needs glyphs the one resolved font is unlikely to have — CJK, emoji, or the `↻` in a
+retry-count label — turns the scan back on by itself, so those render rather than coming out as
+tofu. Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to force it on regardless. Accepted values are
+`1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
+ignored. See [PNG fonts](/guides/configuration/#png-fonts) for the full resolution order and what
+the single-file path gives up.
 
 ## Standalone binary
 

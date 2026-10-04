@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { LOAD_SYSTEM_FONTS_ENV_VAR, resolvePngFontOptions } from '../src/exporters/pngFonts';
 
 const LINUX_LIBERATION = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf';
@@ -170,14 +173,87 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(true);
         });
 
-        it('is ignored when a blank env font dirs value is set', () => {
+        it('still reaches the probe table when a blank env font dirs value is set', () => {
             // ''.split(delimiter).filter(Boolean) is an empty array, which is
             // truthy - a set-but-blank value must not shadow the probe table.
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '');
 
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: 'Georgia',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.fontDirs).toEqual([]);
+        });
+
+        it('still names the family when no probe matched at all', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: 'Georgia',
+                fileExists: () => false,
+                isFile: () => false,
+            });
+
+            expect(result.defaultFontFamily).toBe('Georgia');
+            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.loadSystemFonts).toBe(true);
+        });
+    });
+
+    describe('renderedText coverage', () => {
+        const svgWith = (text) => `<svg xmlns="http://www.w3.org/2000/svg"><text>${text}</text></svg>`;
+
+        // The single-file fast path gives up resvg's fallback, so a glyph the
+        // probed face lacks renders as a tofu box with nothing reported.
+        // Measured on Windows against the real engine: CJK paints 272 pixels
+        // against 1833 with the scan on, and U+21BB paints 68 - a tofu box -
+        // against 180.
+        it.each([
+            ['plain ASCII', 'Order Received', false],
+            ['the middot and ellipsis this package emits', 'Map \u00b7 items\u2026', false],
+            ['the \u00d7 in a retry count', 'Retry \u00d73', false],
+            ['Cyrillic, which the probed fonts cover', '\u041d\u0430\u0447\u0430\u043b\u043e', false],
+            ['the U+21BB in this package own retry label', '\u21bb \u00d73', true],
+            ['CJK state names', '\u51e6\u7406\u958b\u59cb', true],
+            ['emoji', '\u2705 done', true],
+        ])('decides the scan for %s', (_label, text, expected) => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                renderedText: svgWith(text),
+                ...hostWithLiberation('/usr/share/fonts'),
+            });
+
+            expect(result.loadSystemFonts).toBe(expected);
+        });
+
+        it('keeps the fast path when no text was passed at all', () => {
             const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
 
-            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it('overrides the fast path even when explicit fontFiles resolved', () => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/my/fonts/custom.ttf'],
+                renderedText: svgWith('\u51e6\u7406'),
+                fileExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('is still overridden by an explicit loadSystemFonts', () => {
+            const result = resolvePngFontOptions({
+                loadSystemFonts: false,
+                platform: 'linux',
+                renderedText: svgWith('\u51e6\u7406'),
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
         });
     });
 
@@ -280,6 +356,21 @@ describe('resolvePngFontOptions', () => {
 
         // A directory that exists may hold no font fontdb can parse - an empty
         // mount renders every label blank with the scan off.
+        // [] is truthy, so this used to take the explicit branch and shadow both
+        // the env vars and the probe table - which, forced off, then threw.
+        it('ignores empty fontFiles and fontDirs arrays entirely', () => {
+            const result = resolvePngFontOptions({
+                fontDirs: [],
+                fontFiles: [],
+                loadSystemFonts: false,
+                platform: 'linux',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
         it('stays on for explicit fontDirs, which prove no loadable font', () => {
             const result = resolvePngFontOptions({ fontDirs: ['/exists'], fileExists: () => true });
 
@@ -379,20 +470,50 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(false);
         });
 
-        // existsSync is true for a directory, and passing one in fontFiles rather
-        // than fontDirs is an easy mix-up. resvg loads no glyph from it and does
-        // not say so, so this must not count as a resolved font. No injection
-        // here: the real statSync check is the thing under test.
+        // These three use the real filesystem on purpose: the default predicate is
+        // what is under test. resvg reports none of these cases - it renders a
+        // valid, entirely blank PNG - so each one must keep the scan on.
         it('stays on for a fontFiles entry that is a directory, not a file', () => {
             const result = resolvePngFontOptions({ fontFiles: [process.cwd()] });
 
             expect(result.loadSystemFonts).toBe(true);
         });
 
-        it('is off for a fontFiles entry that is a real readable file', () => {
+        it('stays on for a readable file that is not a font resvg can parse', () => {
+            // Verified against the engine: rendering with this as the only font
+            // paints 0 pixels, where the system scan paints 581.
             const result = resolvePngFontOptions({ fontFiles: [import.meta.filename] });
 
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('is off for a file whose magic number is a font resvg parses', () => {
+            const sfnt = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.ttf');
+            // Only the leading bytes are read, so a stub is enough here; a real
+            // face is exercised end to end in tests/resvgEngine.test.ts.
+            writeFileSync(sfnt, Buffer.from([0x00, 0x01, 0x00, 0x00, 0x00, 0x00]));
+
+            const result = resolvePngFontOptions({ fontFiles: [sfnt] });
+
             expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it.each(['wOFF', 'wOF2'])('stays on for a %s web font, which fontdb cannot parse', (magic) => {
+            const woff = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.woff');
+            writeFileSync(woff, Buffer.from(`${magic}\u0000\u0000`, 'latin1'));
+
+            const result = resolvePngFontOptions({ fontFiles: [woff] });
+
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('stays on for a file too short to carry a magic number', () => {
+            const stub = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.ttf');
+            writeFileSync(stub, Buffer.from([0x00, 0x01]));
+
+            const result = resolvePngFontOptions({ fontFiles: [stub] });
+
+            expect(result.loadSystemFonts).toBe(true);
         });
 
         it.each([

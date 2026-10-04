@@ -102,6 +102,7 @@ export async function renderResvgPng(
         fontFiles,
         loadSystemFonts,
         preferredFamily,
+        renderedText: svg,
     });
     const background =
         backgroundColor && backgroundColor !== 'transparent' ? backgroundColor : undefined;

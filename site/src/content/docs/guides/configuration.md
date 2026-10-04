@@ -574,16 +574,22 @@ await exportPng({ aslDefinition: asl, fontFiles: ['/opt/fonts/Inter-Regular.ttf'
 
 ### The system font scan
 
-When step 3 finds a readable file, that one file is all resvg loads, and the ~250ms it would
+When step 3 finds a readable font file, that one file is all resvg loads, and the ~250ms it would
 otherwise spend parsing every installed font is skipped. The trade is that nothing else is
-available to fall back on:
+available to fall back on, so the scan is kept on wherever one face cannot be enough:
 
-- glyphs that font does not cover — CJK text in a state name, emoji — render as tofu,
-- a `font-weight="bold"` run renders at regular weight instead of being synthesized. No SVG this
-  package generates asks for bold, but one you hand-roll and pass to `PngExporter` might.
+- **text outside the ranges every probed font covers.** Latin, Greek, Cyrillic and general
+  punctuation stay on the fast path; CJK state names, emoji, and the `↻` in this package's own
+  retry-count label do not, because the probed face has no glyph for them and would render tofu. A
+  diagram with a `Retry` block therefore pays the scan.
+- **a `theme.fontFamily` other than the built-in `'Arial, sans-serif'`**, since one font file
+  cannot satisfy a different family.
 
-A `theme.fontFamily` other than the built-in `'Arial, sans-serif'` turns the scan back on by
-itself, since one font file cannot satisfy a different family. To ask for it directly:
+What the single face still gives up: a `font-weight="bold"` run renders at regular weight rather
+than being synthesized. No SVG this package generates asks for bold, but one you hand-roll and
+pass to `PngExporter` might — ask for the scan in that case.
+
+To ask for it directly:
 
 ```typescript
 await exportPng({ aslDefinition: asl, loadSystemFonts: true });

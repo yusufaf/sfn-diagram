@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { delimiter } from 'node:path';
 
 /** A candidate font family and the absolute file that must exist to use it. */
@@ -47,26 +47,47 @@ const FONT_DIRS: Partial<Record<NodeJS.Platform, string[]>> = {
 };
 
 /**
- * Whether a path is a font file this process can actually read.
+ * Leading bytes of the font formats resvg's fontdb parses: TrueType, OpenType,
+ * a TrueType collection, and the two older sfnt tags.
  *
- * `existsSync` is true for a directory, and for a file with no read
- * permission - neither of which resvg can load a glyph from, and neither of
- * which it reports as an error. Passing a directory in `fontFiles` instead of
- * `fontDirs` is an easy mix-up, so the check that decides whether to skip the
- * system scan has to be stricter than existence.
+ * `wOFF`/`wOF2` are deliberately absent. fontdb does not decompress WOFF, so a
+ * web font is readable, plausible, and useless - exactly the case this check
+ * exists to catch.
+ */
+const FONT_MAGIC = new Set(['\u0000\u0001\u0000\u0000', 'OTTO', 'ttcf', 'true', 'typ1']);
+
+/**
+ * Whether a path is a font file this process can read and resvg can parse.
+ *
+ * Three things that are not the same: `existsSync` is true for a directory and
+ * for a file with no read permission, and a readable file can still be
+ * something fontdb will not parse - a `.woff`, or a truncated `.ttf`. resvg
+ * reports none of the three; it renders a valid, entirely blank PNG. Since this
+ * check is what decides whether to skip the system font scan, getting it wrong
+ * means the silent blank output #336 is about, so it reads the magic number
+ * rather than trusting the path.
  *
  * @param path - Absolute path to a candidate font file.
- * @returns `true` if it is a readable regular file.
+ * @returns `true` if it is a readable regular file in a format resvg parses.
  */
 function isReadableFile(path: string): boolean {
+    let handle: number | undefined;
     try {
         if (!statSync(path).isFile()) {
             return false;
         }
-        accessSync(path, constants.R_OK);
-        return true;
+        handle = openSync(path, 'r');
+        const magic = Buffer.alloc(4);
+        if (readSync(handle, magic, 0, 4, 0) < 4) {
+            return false;
+        }
+        return FONT_MAGIC.has(magic.toString('latin1'));
     } catch {
         return false;
+    } finally {
+        if (handle !== undefined) {
+            closeSync(handle);
+        }
     }
 }
 
@@ -91,6 +112,45 @@ function firstFamilyIn(stack?: string): string | undefined {
         .trim();
 
     return first || undefined;
+}
+
+/**
+ * Codepoint ranges every font in {@link FONT_PROBES} covers: Latin and its
+ * supplements, Greek, Cyrillic, and general punctuation.
+ *
+ * Deliberately narrow. It decides whether one probed face is enough, so a
+ * wrong guess the generous way renders tofu, while a wrong guess the strict
+ * way only costs the system font scan.
+ */
+const WIDELY_COVERED_RANGES: [number, number][] = [
+    [0x0000, 0x024f],
+    [0x0370, 0x03ff],
+    [0x0400, 0x04ff],
+    [0x2000, 0x206f],
+];
+
+/**
+ * Whether text holds a codepoint one probed font is unlikely to cover.
+ *
+ * The single-file fast path gives up resvg's fallback, so a glyph the resolved
+ * face lacks renders as a tofu box with nothing reported. Measured on Windows:
+ * CJK text paints 272 pixels against 1833 with the scan on, and the `↻` in
+ * this package's own retry-count label paints 68 - a tofu box - against 180.
+ * The `·` and `…` it also emits are covered, and so is Cyrillic.
+ *
+ * @param text - The SVG markup, whose own syntax is ASCII, so only its text
+ * content can put anything in here.
+ * @returns `true` if the system fonts should stay searchable for it.
+ */
+function needsWiderCoverage(text: string): boolean {
+    for (const character of text) {
+        const codepoint = character.codePointAt(0) ?? 0;
+        if (!WIDELY_COVERED_RANGES.some(([first, last]) => codepoint >= first && codepoint <= last)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /** Env var that forces {@link ResvgFontOptions.loadSystemFonts} on or off. */
@@ -210,6 +270,14 @@ export interface ResolvePngFontOptionsParams {
     platform?: NodeJS.Platform;
 
     /**
+     * The SVG being rendered. Read only to decide whether one font file can
+     * cover its text; a glyph the resolved face lacks renders as tofu with
+     * nothing reported, so text outside the ranges every probed font covers
+     * keeps the system fonts searchable.
+     */
+    renderedText?: string;
+
+    /**
      * Font family the SVG itself asks for, as opposed to an override. Unlike
      * {@link ResolvePngFontOptionsParams.fontFamily} it is not a font *source*,
      * so the env vars and the probe table are still consulted; it only names
@@ -242,8 +310,8 @@ export interface ResvgFontOptions {
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
  * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` only if a readable font
- * *file* is known and no `preferredFamily` has to be matched, and `true`
- * otherwise. Scanning every installed font costs ~250ms per export and buys
+ * *file* is known, no `preferredFamily` has to be matched, and `renderedText`
+ * stays inside the ranges every probed font covers; `true` otherwise. Scanning every installed font costs ~250ms per export and buys
  * nothing once a specific file is known (#336), but nothing short of a readable
  * file proves text can render at all: a directory that exists may hold no font
  * fontdb can parse, and a family name cannot be located without a search path.
@@ -268,8 +336,12 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     // An override replaces the family the SVG asked for, so the preferred one
     // stops mattering - including for whether the scan has to stay on for it.
     const preferredFamily = overrideFamily === undefined ? firstFamilyIn(params.preferredFamily) : undefined;
+    const oneFaceIsEnough = !needsWiderCoverage(params.renderedText ?? '');
 
-    if (params.fontFiles || params.fontDirs || params.fontFamily) {
+    // `.length`, not truthiness: `[]` is truthy, and `exportPng({ fontFiles: [] })`
+    // taking this branch shadows the env vars and the probe table with no font
+    // source at all - which, with the scan forced off, now throws.
+    if (params.fontFiles?.length || params.fontDirs?.length || params.fontFamily) {
         // fontDirs are best-effort search paths, so a stale/nonexistent one is
         // silently pruned. fontFiles is a specific, deliberate request - pass it
         // through verbatim, and let `isFile` decide only whether it counts as a
@@ -288,7 +360,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
             loadSystemFonts: refuseBlank({
                 forced,
                 hasSource: fontFileResolved || fontDirs.length > 0,
-                otherwise: !fontFileResolved || preferredFamily !== undefined,
+                otherwise: !fontFileResolved || preferredFamily !== undefined || !oneFaceIsEnough,
                 platform,
                 rejected: fontFiles,
             }),
@@ -325,7 +397,9 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const match = probes.find((probe) => isFile(probe.path));
     if (!match) {
         return {
+            defaultFontFamily: preferredFamily,
             loadSystemFonts: refuseBlank({ forced, hasSource: false, otherwise: true, platform }),
+            sansSerifFamily: preferredFamily,
         };
     }
 
@@ -333,9 +407,9 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const loadSystemFonts = refuseBlank({
         forced,
         hasSource: true,
-        // One font file cannot satisfy a different family, so a preferred one
-        // needs the fonts searchable.
-        otherwise: preferredFamily !== undefined,
+        // One font file cannot satisfy a different family, nor a glyph it has no
+        // coverage for, so either keeps the fonts searchable.
+        otherwise: preferredFamily !== undefined || !oneFaceIsEnough,
         platform,
     });
 

@@ -2,6 +2,9 @@ import { inflateSync } from 'node:zlib';
 
 const PNG_BYTES_PER_PIXEL = 4;
 
+/** The eight bytes every PNG file starts with. */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
 /** A decoded PNG: its dimensions and raw, unfiltered RGBA8 pixel data. */
 export interface DecodedPng {
     height: number;
@@ -29,7 +32,9 @@ export interface DecodedPng {
  * ```
  */
 export function decodePng(png: Buffer): DecodedPng {
-    if (png.readUInt32BE(0) !== 0x89504e47) {
+    // Length first: readUInt32BE on a 3-byte buffer throws a RangeError, which
+    // is not the error this is supposed to report.
+    if (png.length < PNG_SIGNATURE.length || !png.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
         throw new Error('decodePng: not a PNG (bad signature)');
     }
 

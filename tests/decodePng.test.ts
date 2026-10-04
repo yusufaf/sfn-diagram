@@ -33,6 +33,18 @@ describe('decodePng', () => {
         expect(() => decodePng(Buffer.alloc(32))).toThrow(/not a PNG/);
     });
 
+    // readUInt32BE on a 3-byte buffer throws a RangeError, which says nothing
+    // about what was wrong with the input.
+    it.each([0, 3, 7])('rejects a %i-byte buffer with the signature error', (length) => {
+        expect(() => decodePng(Buffer.alloc(length))).toThrow(/not a PNG/);
+    });
+
+    it('rejects a buffer whose signature matches only in its first four bytes', () => {
+        const almost = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x00]);
+
+        expect(() => decodePng(almost)).toThrow(/not a PNG/);
+    });
+
     it('rejects a PNG with no IHDR', () => {
         expect(() => decodePng(png([{ data: deflateSync(Buffer.alloc(0)), type: 'IDAT' }]))).toThrow(
             /no IHDR/
