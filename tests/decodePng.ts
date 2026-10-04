@@ -43,7 +43,10 @@ export function decodePng(png: Buffer): DecodedPng {
     let width = 0;
     const idat: Buffer[] = [];
 
-    while (offset < png.length) {
+    // A chunk header is 4 length bytes + 4 type bytes; a buffer that ends mid
+    // header would make readUInt32BE throw a RangeError, which says nothing
+    // about the input - the same reason the signature is length-checked above.
+    while (offset + 8 <= png.length) {
         const length = png.readUInt32BE(offset);
         const type = png.toString('ascii', offset + 4, offset + 8);
         const data = png.subarray(offset + 8, offset + 8 + length);

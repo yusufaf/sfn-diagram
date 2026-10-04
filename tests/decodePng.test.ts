@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { deflateSync } from 'node:zlib';
 import { countOpaquePixels, decodePng } from './decodePng';
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
 /** Build a PNG with the given chunks, CRCs left as zero (the decoder ignores them). */
 const png = (chunks: { data: Buffer; type: string }[]): Buffer =>
     Buffer.concat([
-        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        PNG_SIGNATURE,
         ...chunks.flatMap(({ data, type }) => {
             const length = Buffer.alloc(4);
             length.writeUInt32BE(data.length);
@@ -43,6 +45,12 @@ describe('decodePng', () => {
         const almost = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x00, 0x00, 0x00]);
 
         expect(() => decodePng(almost)).toThrow(/not a PNG/);
+    });
+
+    it.each([8, 9, 11])('rejects a %i-byte buffer, which ends mid chunk header', (length) => {
+        const truncated = Buffer.concat([PNG_SIGNATURE, Buffer.alloc(length - 8)]);
+
+        expect(() => decodePng(truncated)).toThrow(/no IHDR/);
     });
 
     it('rejects a PNG with no IHDR', () => {

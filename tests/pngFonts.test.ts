@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LOAD_SYSTEM_FONTS_ENV_VAR, resolvePngFontOptions } from '../src/exporters/pngFonts';
@@ -9,15 +9,32 @@ const LINUX_LIBERATION = '/usr/share/fonts/truetype/liberation/LiberationSans-Re
 /**
  * Path checks for a host where the Liberation Sans probe is a readable font and
  * the given directories exist. Both predicates matter: the probe table is
- * matched with `isFile`, while `fontDirs` are pruned with `fileExists`.
+ * matched with `isFile`, while `fontDirs` are pruned with `dirExists`.
  *
  * @param dirs - Directories to report as existing.
- * @returns `fileExists`/`isFile` params to spread in.
+ * @returns `dirExists`/`isFile` params to spread in.
  */
 const hostWithLiberation = (...dirs: string[]) => ({
-    fileExists: (path: string) => path === LINUX_LIBERATION || dirs.includes(path),
+    dirExists: (path: string) => path === LINUX_LIBERATION || dirs.includes(path),
     isFile: (path: string) => path === LINUX_LIBERATION,
 });
+
+/** Temp directories made by the real-filesystem cases, removed after each one. */
+const scratchDirs: string[] = [];
+
+/**
+ * A file with the given leading bytes, in a directory cleaned up afterwards.
+ *
+ * @param params - The file's name and its first bytes.
+ * @returns The path written.
+ */
+const scratchFile = (params: { bytes: number[] | Buffer; name: string }): string => {
+    const directory = mkdtempSync(join(tmpdir(), 'sfn-font-'));
+    scratchDirs.push(directory);
+    const path = join(directory, params.name);
+    writeFileSync(path, Buffer.from(params.bytes));
+    return path;
+};
 
 beforeEach(() => {
     // Ambient font env vars would otherwise reach the cases that assert on the
@@ -33,6 +50,9 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllEnvs();
+    while (scratchDirs.length) {
+        rmSync(scratchDirs.pop() as string, { force: true, recursive: true });
+    }
 });
 
 /**
@@ -44,15 +64,15 @@ afterEach(() => {
  */
 const inputsDefaultingTo = (defaultValue: boolean) =>
     defaultValue
-        ? { fileExists: () => true, fontDirs: ['/exists'], isFile: () => false }
-        : { fileExists: () => true, fontFiles: ['/exists/font.ttf'], isFile: () => true };
+        ? { dirExists: () => true, fontDirs: ['/exists'], isFile: () => false }
+        : { dirExists: () => true, fontFiles: ['/exists/font.ttf'], isFile: () => true };
 
 describe('resolvePngFontOptions', () => {
     it('passes explicit fontFiles and fontDirs through verbatim', () => {
         const result = resolvePngFontOptions({
             fontDirs: ['/my/fonts'],
             fontFiles: ['/my/fonts/custom.ttf'],
-            fileExists: () => true,
+            dirExists: () => true,
         });
 
         expect(result.fontFiles).toEqual(['/my/fonts/custom.ttf']);
@@ -60,7 +80,7 @@ describe('resolvePngFontOptions', () => {
     });
 
     it('uses an explicit fontFamily as both default and sans-serif family', () => {
-        const result = resolvePngFontOptions({ fontFamily: 'Custom Sans', fileExists: () => true });
+        const result = resolvePngFontOptions({ fontFamily: 'Custom Sans', dirExists: () => true });
 
         expect(result.defaultFontFamily).toBe('Custom Sans');
         expect(result.sansSerifFamily).toBe('Custom Sans');
@@ -79,7 +99,7 @@ describe('resolvePngFontOptions', () => {
     it('probes for Arial on win32', () => {
         const result = resolvePngFontOptions({
             platform: 'win32',
-            fileExists: () => false,
+            dirExists: () => false,
             isFile: (path) => path.toLowerCase().endsWith('arial.ttf'),
         });
 
@@ -91,7 +111,7 @@ describe('resolvePngFontOptions', () => {
         // really does have a font at the probed path.
         const result = resolvePngFontOptions({
             platform: 'linux',
-            fileExists: () => false,
+            dirExists: () => false,
             isFile: () => false,
         });
 
@@ -103,7 +123,7 @@ describe('resolvePngFontOptions', () => {
     it('filters out non-existent directories', () => {
         const result = resolvePngFontOptions({
             fontDirs: ['/exists', '/does-not-exist'],
-            fileExists: (path) => path === '/exists',
+            dirExists: (path) => path === '/exists',
         });
 
         expect(result.fontDirs).toEqual(['/exists']);
@@ -117,7 +137,7 @@ describe('resolvePngFontOptions', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '/mounted/fonts');
 
             const result = resolvePngFontOptions({
-                fileExists: () => true,
+                dirExists: () => true,
                 preferredFamily: 'Georgia',
             });
 
@@ -129,7 +149,7 @@ describe('resolvePngFontOptions', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Env Sans');
 
             const result = resolvePngFontOptions({
-                fileExists: () => true,
+                dirExists: () => true,
                 preferredFamily: 'Georgia',
             });
 
@@ -143,7 +163,7 @@ describe('resolvePngFontOptions', () => {
                 fontFamily: 'Inter',
                 fontFiles: ['/opt/fonts/Inter.ttf'],
                 preferredFamily: 'Georgia',
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => true,
             });
 
@@ -155,7 +175,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontFamily: 'Explicit Sans',
                 preferredFamily: 'Georgia',
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => true,
             });
 
@@ -166,7 +186,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/my/fonts/custom.ttf'],
                 preferredFamily: 'Georgia',
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => true,
             });
 
@@ -192,7 +212,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 platform: 'linux',
                 preferredFamily: 'Georgia',
-                fileExists: () => false,
+                dirExists: () => false,
                 isFile: () => false,
             });
 
@@ -203,7 +223,8 @@ describe('resolvePngFontOptions', () => {
     });
 
     describe('renderedText coverage', () => {
-        const svgWith = (text) => `<svg xmlns="http://www.w3.org/2000/svg"><text>${text}</text></svg>`;
+        const svgWith = (text: string) =>
+            `<svg xmlns="http://www.w3.org/2000/svg"><text>${text}</text></svg>`;
 
         // The single-file fast path gives up resvg's fallback, so a glyph the
         // probed face lacks renders as a tofu box with nothing reported.
@@ -213,6 +234,9 @@ describe('resolvePngFontOptions', () => {
         it.each([
             ['plain ASCII', 'Order Received', false],
             ['the middot and ellipsis this package emits', 'Map \u00b7 items\u2026', false],
+            ['dashes and curly quotes, measured as covered', '\u2018a\u2019 \u2013 \u201cb\u201d \u2014 c \u2022', false],
+            ['U+2010 HYPHEN, which Arial has no glyph for', 'co\u2010operate', true],
+            ['U+203B REFERENCE MARK', 'note \u203b', true],
             ['the \u00d7 in a retry count', 'Retry \u00d73', false],
             ['Cyrillic, which the probed fonts cover', '\u041d\u0430\u0447\u0430\u043b\u043e', false],
             ['the U+21BB in this package own retry label', '\u21bb \u00d73', true],
@@ -238,7 +262,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/my/fonts/custom.ttf'],
                 renderedText: svgWith('\u51e6\u7406'),
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => true,
             });
 
@@ -264,7 +288,7 @@ describe('resolvePngFontOptions', () => {
         it('narrows an explicit fontFamily stack to its first family', () => {
             const result = resolvePngFontOptions({
                 fontFamily: 'Inter, Helvetica, sans-serif',
-                fileExists: () => true,
+                dirExists: () => true,
             });
 
             expect(result.defaultFontFamily).toBe('Inter');
@@ -274,7 +298,7 @@ describe('resolvePngFontOptions', () => {
         it('narrows SFN_DIAGRAM_PNG_FONT_FAMILY the same way, quotes included', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', '"Env Sans", sans-serif');
 
-            const result = resolvePngFontOptions({ fileExists: () => true });
+            const result = resolvePngFontOptions({ dirExists: () => true });
 
             expect(result.sansSerifFamily).toBe('Env Sans');
         });
@@ -293,7 +317,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontDirs: ['/exists'],
                 fontFamily: ' , ',
-                fileExists: () => true,
+                dirExists: () => true,
             });
 
             expect(result.defaultFontFamily).toBeUndefined();
@@ -312,7 +336,7 @@ describe('resolvePngFontOptions', () => {
         it('stays on when the probed path exists but is not a readable file', () => {
             const result = resolvePngFontOptions({
                 platform: 'linux',
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => false,
             });
 
@@ -323,7 +347,7 @@ describe('resolvePngFontOptions', () => {
         it('is off for an explicit fontFile that exists', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/my/fonts/custom.ttf'],
-                fileExists: () => true,
+                dirExists: () => true,
                 isFile: () => true,
             });
 
@@ -336,7 +360,7 @@ describe('resolvePngFontOptions', () => {
         it('stays on for fontFiles that do not exist, but still passes them through', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/typo/Arial.ttf'],
-                fileExists: () => false,
+                dirExists: () => false,
                 isFile: () => false,
             });
 
@@ -347,7 +371,7 @@ describe('resolvePngFontOptions', () => {
         it('is off when only one of several fontFiles exists', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/typo/Arial.ttf', '/my/fonts/custom.ttf'],
-                fileExists: () => false,
+                dirExists: () => false,
                 isFile: (path) => path === '/my/fonts/custom.ttf',
             });
 
@@ -372,14 +396,14 @@ describe('resolvePngFontOptions', () => {
         });
 
         it('stays on for explicit fontDirs, which prove no loadable font', () => {
-            const result = resolvePngFontOptions({ fontDirs: ['/exists'], fileExists: () => true });
+            const result = resolvePngFontOptions({ fontDirs: ['/exists'], dirExists: () => true });
 
             expect(result.fontDirs).toEqual(['/exists']);
             expect(result.loadSystemFonts).toBe(true);
         });
 
         it('stays on when every explicit fontDir was pruned as non-existent', () => {
-            const result = resolvePngFontOptions({ fontDirs: ['/gone'], fileExists: () => false });
+            const result = resolvePngFontOptions({ fontDirs: ['/gone'], dirExists: () => false });
 
             expect(result.fontDirs).toEqual([]);
             expect(result.loadSystemFonts).toBe(true);
@@ -388,7 +412,7 @@ describe('resolvePngFontOptions', () => {
         it('stays on for a fontFamily alone, which has no search path to resolve against', () => {
             const result = resolvePngFontOptions({
                 fontFamily: 'Custom Sans',
-                fileExists: () => true,
+                dirExists: () => true,
             });
 
             expect(result.loadSystemFonts).toBe(true);
@@ -397,7 +421,7 @@ describe('resolvePngFontOptions', () => {
         it('stays on for SFN_DIAGRAM_PNG_FONT_DIRS, for the same reason', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '/env/fonts');
 
-            const result = resolvePngFontOptions({ fileExists: () => true });
+            const result = resolvePngFontOptions({ dirExists: () => true });
 
             expect(result.fontDirs).toEqual(['/env/fonts']);
             expect(result.loadSystemFonts).toBe(true);
@@ -406,7 +430,7 @@ describe('resolvePngFontOptions', () => {
         it('stays on for SFN_DIAGRAM_PNG_FONT_FAMILY alone', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Env Sans');
 
-            const result = resolvePngFontOptions({ fileExists: () => true });
+            const result = resolvePngFontOptions({ dirExists: () => true });
 
             expect(result.sansSerifFamily).toBe('Env Sans');
             expect(result.loadSystemFonts).toBe(true);
@@ -432,7 +456,7 @@ describe('resolvePngFontOptions', () => {
                 resolvePngFontOptions({
                     loadSystemFonts: false,
                     platform: 'linux',
-                    fileExists: () => false,
+                    dirExists: () => false,
                     isFile: () => false,
                 })
             ).toThrow(/no font resolved on linux.*no text would render/);
@@ -443,7 +467,7 @@ describe('resolvePngFontOptions', () => {
                 resolvePngFontOptions({
                     fontFiles: ['/typo/Arial.ttf', '/also/missing.ttf'],
                     loadSystemFonts: false,
-                    fileExists: () => false,
+                    dirExists: () => false,
                     isFile: () => false,
                 })
             ).toThrow(/could not read any of \/typo\/Arial.ttf, \/also\/missing.ttf/);
@@ -454,7 +478,7 @@ describe('resolvePngFontOptions', () => {
                 resolvePngFontOptions({
                     fontFamily: 'Custom Sans',
                     loadSystemFonts: false,
-                    fileExists: () => false,
+                    dirExists: () => false,
                     isFile: () => false,
                 })
             ).toThrow(/no text would render/);
@@ -464,7 +488,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontDirs: ['/exists'],
                 loadSystemFonts: false,
-                fileExists: () => true,
+                dirExists: () => true,
             });
 
             expect(result.loadSystemFonts).toBe(false);
@@ -488,10 +512,9 @@ describe('resolvePngFontOptions', () => {
         });
 
         it('is off for a file whose magic number is a font resvg parses', () => {
-            const sfnt = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.ttf');
             // Only the leading bytes are read, so a stub is enough here; a real
             // face is exercised end to end in tests/resvgEngine.test.ts.
-            writeFileSync(sfnt, Buffer.from([0x00, 0x01, 0x00, 0x00, 0x00, 0x00]));
+            const sfnt = scratchFile({ bytes: [0x00, 0x01, 0x00, 0x00, 0x00, 0x00], name: 'fake.ttf' });
 
             const result = resolvePngFontOptions({ fontFiles: [sfnt] });
 
@@ -499,8 +522,7 @@ describe('resolvePngFontOptions', () => {
         });
 
         it.each(['wOFF', 'wOF2'])('stays on for a %s web font, which fontdb cannot parse', (magic) => {
-            const woff = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.woff');
-            writeFileSync(woff, Buffer.from(`${magic}\u0000\u0000`, 'latin1'));
+            const woff = scratchFile({ bytes: Buffer.from(`${magic}..`, 'latin1'), name: 'fake.woff' });
 
             const result = resolvePngFontOptions({ fontFiles: [woff] });
 
@@ -508,12 +530,31 @@ describe('resolvePngFontOptions', () => {
         });
 
         it('stays on for a file too short to carry a magic number', () => {
-            const stub = join(mkdtempSync(join(tmpdir(), 'sfn-font-')), 'fake.ttf');
-            writeFileSync(stub, Buffer.from([0x00, 0x01]));
+            const stub = scratchFile({ bytes: [0x00, 0x01], name: 'fake.ttf' });
 
             const result = resolvePngFontOptions({ fontFiles: [stub] });
 
             expect(result.loadSystemFonts).toBe(true);
+        });
+
+        // existsSync is equally true for a regular file, which resvg cannot
+        // search - so honouring `false` against one renders every label blank.
+        it('refuses to be forced off when a fontDirs entry is a file, not a directory', () => {
+            const notADirectory = scratchFile({ bytes: [0x00], name: 'hostname' });
+
+            expect(() =>
+                resolvePngFontOptions({
+                    fontDirs: [notADirectory],
+                    loadSystemFonts: false,
+                })
+            ).toThrow(/no text would render/);
+        });
+
+        it('honours being forced off for a fontDirs entry that is a real directory', () => {
+            const result = resolvePngFontOptions({ fontDirs: [process.cwd()], loadSystemFonts: false });
+
+            expect(result.fontDirs).toEqual([process.cwd()]);
+            expect(result.loadSystemFonts).toBe(false);
         });
 
         it.each([
@@ -574,7 +615,7 @@ describe('resolvePngFontOptions', () => {
             vi.stubEnv(LOAD_SYSTEM_FONTS_ENV_VAR, 'flase');
 
             expect(() =>
-                resolvePngFontOptions({ platform: 'linux', fileExists: () => true })
+                resolvePngFontOptions({ platform: 'linux', dirExists: () => true })
             ).toThrow(/SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS must be one of .*got 'flase'/);
         });
 

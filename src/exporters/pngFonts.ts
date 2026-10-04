@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { delimiter } from 'node:path';
 
 /** A candidate font family and the absolute file that must exist to use it. */
@@ -57,15 +57,31 @@ const FONT_DIRS: Partial<Record<NodeJS.Platform, string[]>> = {
 const FONT_MAGIC = new Set(['\u0000\u0001\u0000\u0000', 'OTTO', 'ttcf', 'true', 'typ1']);
 
 /**
+ * Whether a path is a directory.
+ *
+ * `existsSync` is equally true for a regular file, which resvg cannot search
+ * and which must not count as a font source - honouring `loadSystemFonts:
+ * false` against one would render every label blank.
+ *
+ * @param path - Path to a candidate font directory.
+ * @returns `true` if it is a directory.
+ */
+function isDirectory(path: string): boolean {
+    try {
+        return statSync(path).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Whether a path is a font file this process can read and resvg can parse.
  *
- * Three things that are not the same: `existsSync` is true for a directory and
- * for a file with no read permission, and a readable file can still be
- * something fontdb will not parse - a `.woff`, or a truncated `.ttf`. resvg
- * reports none of the three; it renders a valid, entirely blank PNG. Since this
- * check is what decides whether to skip the system font scan, getting it wrong
- * means the silent blank output #336 is about, so it opens the file and reads
- * its magic number rather than trusting the path.
+ * Three different things: `existsSync` is true for a directory and for a file
+ * with no read permission, and a readable file can still be something fontdb
+ * will not parse - a `.woff`, or a truncated `.ttf`. resvg reports none of them;
+ * it renders a valid, blank PNG. So this opens the file and reads its magic
+ * number rather than trusting the path (#336).
  *
  * @param path - Absolute path to a candidate font file.
  * @returns `true` if it is a readable regular file in a format resvg parses.
@@ -120,37 +136,44 @@ function firstFamilyIn(stack?: string): string | undefined {
 }
 
 /**
- * Codepoint ranges every font in {@link FONT_PROBES} covers: Latin and its
- * supplements, Greek, Cyrillic, and general punctuation.
+ * Codepoint ranges every font in {@link FONT_PROBES} covers.
  *
- * Deliberately narrow. It decides whether one probed face is enough, so a
- * wrong guess the generous way renders tofu, while a wrong guess the strict
- * way only costs the system font scan.
+ * Deliberately narrow: guessing generously renders tofu, guessing strictly only
+ * costs the font scan. General Punctuation is not a range here because Arial
+ * has no glyph for 44 codepoints in it, U+2010 HYPHEN among them.
  */
 const WIDELY_COVERED_RANGES: [number, number][] = [
     [0x0000, 0x024f],
     [0x0370, 0x03ff],
     [0x0400, 0x04ff],
-    [0x2000, 0x206f],
 ];
+
+/**
+ * Punctuation outside those ranges, measured as covered, and common enough in a
+ * state name to be worth the fast path: dashes, curly quotes, bullet, ellipsis.
+ */
+const WIDELY_COVERED_PUNCTUATION = new Set([
+    0x2013, 0x2014, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2026,
+]);
 
 /**
  * Whether text holds a codepoint one probed font is unlikely to cover.
  *
- * The single-file fast path gives up resvg's fallback, so a glyph the resolved
- * face lacks renders as a tofu box with nothing reported. Measured on Windows:
- * CJK text paints 272 pixels against 1833 with the scan on, and the `↻` in
- * this package's own retry-count label paints 68 - a tofu box - against 180.
- * The `·` and `…` it also emits are covered, and so is Cyrillic.
+ * The fast path gives up resvg's fallback, so a glyph the resolved face lacks
+ * renders as a tofu box with nothing reported - including the U+21BB in this
+ * package's own retry-count label, which Arial does not have.
  *
- * @param text - The SVG markup, whose own syntax is ASCII, so only its text
- * content can put anything in here.
+ * @param text - The SVG markup; its own syntax is ASCII, so only text content
+ * reaches here.
  * @returns `true` if the system fonts should stay searchable for it.
  */
 function needsWiderCoverage(text: string): boolean {
     for (const character of text) {
         const codepoint = character.codePointAt(0) ?? 0;
-        if (!WIDELY_COVERED_RANGES.some(([first, last]) => codepoint >= first && codepoint <= last)) {
+        const covered =
+            WIDELY_COVERED_PUNCTUATION.has(codepoint) ||
+            WIDELY_COVERED_RANGES.some(([first, last]) => codepoint >= first && codepoint <= last);
+        if (!covered) {
             return true;
         }
     }
@@ -244,8 +267,13 @@ function refuseBlank(params: RefuseBlankParams): boolean {
 
 /** Parameters for {@link resolvePngFontOptions}. */
 export interface ResolvePngFontOptionsParams {
-    /** Injectable file-existence check, for testing. @default fs.existsSync */
-    fileExists?: (path: string) => boolean;
+    /**
+     * Injectable directory check, for testing. `existsSync` is also true for a
+     * regular file, which resvg cannot use as a search path and which must not
+     * count as a font source either.
+     * @default a `statSync` directory check
+     */
+    dirExists?: (path: string) => boolean;
 
     /** Directories to search for font files, overriding automatic detection. */
     fontDirs?: string[];
@@ -257,9 +285,10 @@ export interface ResolvePngFontOptionsParams {
     fontFiles?: string[];
 
     /**
-     * Injectable readable-regular-file check, for testing. Decides whether a
-     * `fontFiles` entry, or a probe path, counts as a resolved font.
-     * @default a `statSync`/`accessSync` check
+     * Injectable font-file check, for testing. Decides whether a `fontFiles`
+     * entry, or a probe path, counts as a resolved font.
+     * @default {@link isReadableFile}, which opens the path and matches its
+     * magic number, so a readable `.woff` or `.pfb` is rejected
      */
     isFile?: (path: string) => boolean;
 
@@ -275,14 +304,6 @@ export interface ResolvePngFontOptionsParams {
     platform?: NodeJS.Platform;
 
     /**
-     * The SVG being rendered. Read only to decide whether one font file can
-     * cover its text; a glyph the resolved face lacks renders as tofu with
-     * nothing reported, so text outside the ranges every probed font covers
-     * keeps the system fonts searchable.
-     */
-    renderedText?: string;
-
-    /**
      * Font family the SVG itself asks for, as opposed to an override. Unlike
      * {@link ResolvePngFontOptionsParams.fontFamily} it is not a font *source*,
      * so the env vars and the probe table are still consulted; it only names
@@ -290,6 +311,14 @@ export interface ResolvePngFontOptionsParams {
      * family cannot be matched out of one font file.
      */
     preferredFamily?: string;
+
+    /**
+     * The SVG being rendered. Read only to decide whether one font file can
+     * cover its text; a glyph the resolved face lacks renders as tofu with
+     * nothing reported, so text outside the ranges every probed font covers
+     * keeps the system fonts searchable.
+     */
+    renderedText?: string;
 }
 
 /** Font options in the shape resvg's `Resvg` constructor accepts. */
@@ -310,7 +339,10 @@ export interface ResvgFontOptions {
  *
  * `preferredFamily` sits outside that precedence: it names the family on
  * whatever source resolves, rather than being a source itself, and is ignored
- * when `fontFamily` overrides it. Every family is read as a CSS stack and
+ * when `fontFamily` overrides it. One asymmetry follows: an explicit
+ * `fontFamily` is matched only within the fonts the caller also supplied, since
+ * passing both is a deliberate pairing and second-guessing it would cost the
+ * scan on the one path where the caller has named their fonts. Every family is read as a CSS stack and
  * narrowed to its first entry, since resvg matches one name and not a list.
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
@@ -335,7 +367,7 @@ export interface ResvgFontOptions {
  * ```
  */
 export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): ResvgFontOptions {
-    const { fileExists = existsSync, isFile = isReadableFile, platform = process.platform } = params;
+    const { dirExists = isDirectory, isFile = isReadableFile, platform = process.platform } = params;
     const forced = params.loadSystemFonts ?? readLoadSystemFontsEnv();
     const overrideFamily = firstFamilyIn(params.fontFamily);
     // An override replaces the family the SVG asked for, so the preferred one
@@ -351,7 +383,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         // silently pruned. fontFiles is a specific, deliberate request - pass it
         // through verbatim, and let `isFile` decide only whether it counts as a
         // resolved font.
-        const fontDirs = (params.fontDirs ?? []).filter(fileExists);
+        const fontDirs = (params.fontDirs ?? []).filter(dirExists);
         const fontFiles = params.fontFiles ?? [];
         const fontFileResolved = fontFiles.some(isFile);
         const family = overrideFamily ?? preferredFamily;
@@ -379,7 +411,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
     const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
     if (envFontDirs?.length || envFontFamily) {
-        const fontDirs = (envFontDirs ?? []).filter(fileExists);
+        const fontDirs = (envFontDirs ?? []).filter(dirExists);
         const family = envFontFamily ?? preferredFamily;
         return {
             defaultFontFamily: family,
@@ -394,7 +426,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         };
     }
 
-    // `isFile`, not `fileExists`: a probe path that exists but is a directory,
+    // `isFile`, not `dirExists`: a probe path that exists but is a directory,
     // or is unreadable by this process, loads no glyph and resvg does not say
     // so. Existence alone was enough to strand the default path on one
     // unloadable file with the scan already off.
@@ -423,7 +455,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     if (loadSystemFonts) {
         return {
             defaultFontFamily: family,
-            fontDirs: (FONT_DIRS[platform] ?? []).filter(fileExists),
+            fontDirs: (FONT_DIRS[platform] ?? []).filter(dirExists),
             loadSystemFonts: true,
             sansSerifFamily: family,
         };
