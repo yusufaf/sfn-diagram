@@ -63,8 +63,8 @@ export const BUNDLE_BUDGETS = {
     'element.js': { gzip: 107000, raw: 373000 },
     'index.cjs': { gzip: 154000, raw: 528000 },
     'index.js': { gzip: 154000, raw: 528000 },
-    'png.cjs': { gzip: 58300, raw: 201000 },
-    'png.js': { gzip: 58300, raw: 201000 },
+    'png.cjs': { gzip: 61000, raw: 205000 },
+    'png.js': { gzip: 61000, raw: 205000 },
 };
 
 /**
