@@ -745,8 +745,16 @@ export interface PngExportOptions {
     fontDirs?: string[];
 
     /**
-     * Font family to use for text rendering, overriding automatic detection.
-     * `resvg` only.
+     * Default font family for text that names none of its own, which is what
+     * resvg's `defaultFontFamily` means. `resvg` only.
+     *
+     * Note this does *not* restyle a generated diagram: `SvgRenderer` writes
+     * `theme.fontFamily` onto every `<text>`, so an export is byte-identical
+     * with and without this option. Set `theme.fontFamily` to change a
+     * diagram's font; use this for a hand-authored SVG passed to
+     * {@link PngExporter} that leaves `font-family` out. Naming a family the
+     * resolved font is not does keep the system font scan on, so it is not free
+     * even where it is invisible.
      */
     fontFamily?: string;
 
@@ -754,6 +762,32 @@ export interface PngExportOptions {
      * Explicit font files to load. `resvg` only.
      */
     fontFiles?: string[];
+
+    /**
+     * Whether resvg should also parse every installed system font, which costs
+     * ~250ms per export. `resvg` only.
+     *
+     * Defaults to `false` only when a readable font *file* is known — an entry
+     * of `fontFiles`, or a hit in the built-in per-platform probe table — and
+     * `true` otherwise, including for `fontDirs`/`fontFamily` and
+     * `SFN_DIAGRAM_PNG_FONT_DIRS`, since neither a directory nor a family name
+     * proves a loadable font and resvg renders blank text without one. Three
+     * more things keep it on: any family the resolved font is not, since one
+     * file cannot satisfy another; text needing glyphs outside the ranges every
+     * probed font covers - CJK, emoji, or the U+21BB in this package's own
+     * retry-count label - which would otherwise render as tofu; and, for a font
+     * supplied through `fontFiles`, anything beyond ASCII and the marks this
+     * package emits, since a caller's font may be script-specific.
+     *
+     * Set it to `true` to keep resvg's own fallback for what that leaves: a
+     * `font-weight="bold"` run renders at regular weight rather than being
+     * synthesized, which no SVG this package generates asks for but a
+     * hand-rolled one might. The
+     * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` env var sets it for callers that
+     * cannot pass options, such as the CLI. Setting it to `false` with no font
+     * file or directory to load from throws rather than rendering blank text.
+     */
+    loadSystemFonts?: boolean;
 
     /**
      * Multiplier applied to the diagram's rendered size. `resvg` only.

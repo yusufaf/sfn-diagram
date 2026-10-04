@@ -718,6 +718,18 @@ Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
 
 PNG text is rendered with Liberation Sans, which the image ships. To use your own fonts, mount them and point the renderer at them with `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list of directories) or `SFN_DIAGRAM_PNG_FONT_FAMILY`.
 
+When an exact font file is known — the built-in per-platform default, which is the Liberation Sans
+the image ships — the renderer loads only that file and skips parsing every installed system font,
+saving around 250ms per export. Pointing `SFN_DIAGRAM_PNG_FONT_DIRS` at a directory keeps the scan
+on, because a directory that exists may hold no font the renderer can parse.
+
+Text that needs glyphs the one resolved font is unlikely to have — CJK, emoji, or the `↻` in a
+retry-count label — turns the scan back on by itself, so those render rather than coming out as
+tofu. Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to force it on regardless. Accepted values are
+`1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
+ignored. See [PNG fonts](/guides/configuration/#png-fonts) for the full resolution order and what
+the single-file path gives up.
+
 ## Standalone binary
 
 Each GitHub release also attaches single-file executables for Linux (x64, arm64),

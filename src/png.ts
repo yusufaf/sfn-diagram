@@ -52,6 +52,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontDirs,
         fontFamily,
         fontFiles,
+        loadSystemFonts,
         pngQuality,
         scale,
         ...svgOptions
@@ -72,8 +73,10 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontDirs,
         fontFamily,
         fontFiles,
+        loadSystemFonts,
         pngQuality,
         scale,
+        theme: svgOptions.theme,
     });
     return exporter.convert({
         height: svgOutput.height,

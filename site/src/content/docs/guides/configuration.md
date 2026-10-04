@@ -556,3 +556,64 @@ const { svg } = generateSvg({
 - **PNG export**: CDN icons are inlined as data URIs before rasterizing (via `embedIcons`), so `showIcons` renders correctly with the default `resvg` engine. This requires network access when the PNG is generated; an icon whose fetch fails falls back to the original CDN URL, which `resvg` cannot fetch — that icon silently fails to render rather than the reference being removed. Only calling `PngExporter` directly with a hand-authored SVG skips this inlining — embed external images yourself first in that case.
 - Unsupported services gracefully fall back to text-only labels
 - Icons are opt-in via `showIcons: true` (disabled by default)
+
+## PNG fonts
+
+SVG and Mermaid output only names a font family; the font itself is the viewer's problem. PNG has
+to find and parse a real font file, so `sfn-diagram/png` resolves one, in this order:
+
+1. the `fontFiles` / `fontDirs` / `fontFamily` export options,
+2. `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list, `;` on Windows) and
+   `SFN_DIAGRAM_PNG_FONT_FAMILY`, for callers that cannot pass options, such as the CLI,
+3. a built-in table of per-platform font paths — Liberation Sans, DejaVu Sans or Noto Sans on
+   Linux, Helvetica or Arial on macOS, Arial on Windows.
+
+Which font is *asked for* is a separate question from where fonts are *found*. `fontFamily` and
+`SFN_DIAGRAM_PNG_FONT_FAMILY` answer the first: they set resvg's default family, used for text that
+names none of its own. They are not font sources, so they do not replace steps 1–3 above.
+
+For a generated diagram they change nothing visible — every `<text>` carries `theme.fontFamily`, and
+the export is byte-identical with and without the option — so set `theme.fontFamily` to restyle a
+diagram. `fontFamily` is for a hand-authored SVG passed to `PngExporter` that leaves `font-family`
+out. It is not free, though: naming a family the resolved font is not keeps the system font scan on,
+since one face cannot answer for another.
+
+```typescript
+await exportPng({ aslDefinition: asl, fontFiles: ['/opt/fonts/Inter-Regular.ttf'] });
+```
+
+### The system font scan
+
+When step 3 finds a readable font file, that one file is all resvg loads, and the ~250ms it would
+otherwise spend parsing every installed font is skipped. The trade is that nothing else is
+available to fall back on, so the scan is kept on wherever one face cannot be enough:
+
+- **text outside the ranges every probed font covers.** Latin and its supplements, Greek and
+  Cyrillic stay on the fast path, along with the handful of punctuation marks measured as covered
+  — the dashes, curly quotes, bullet, ellipsis, and the `≤`/`≥` this package writes in Map batch
+  labels. Most of General Punctuation is *not* covered (Arial has no glyph for 44 of those
+  codepoints, U+2010 HYPHEN among them), nor are CJK state names, emoji, or the `↻` in this
+  package's own retry-count label — those would render tofu, so they keep the scan. A diagram with a
+  `Retry` block therefore pays it.
+- **a `theme.fontFamily` other than the built-in `'Arial, sans-serif'`**, or any other family the
+  resolved font is not — including one written into a hand-authored SVG — since one font file cannot
+  satisfy a different family.
+- **anything beyond ASCII, when the font is one you supplied** via `fontFiles`. The measured
+  coverage above is for the fonts in the built-in table; your font might be script-specific, so only
+  ASCII is assumed, plus the marks this package emits itself (`·`, `×`, `…`, `≤`, `≥`). Pass
+  `loadSystemFonts: false` to pin the fast path when you know your font covers the diagram.
+
+What the single face still gives up: a `font-weight="bold"` run renders at regular weight rather
+than being synthesized. No SVG this package generates asks for bold, but one you hand-roll and
+pass to `PngExporter` might — ask for the scan in that case.
+
+To ask for it directly:
+
+```typescript
+await exportPng({ aslDefinition: asl, loadSystemFonts: true });
+```
+
+or, for the CLI and the Docker image, `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true`. It accepts
+`1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
+ignored. Turning it off with no font file or directory to load from is refused — it would render
+every label blank with nothing to explain why.

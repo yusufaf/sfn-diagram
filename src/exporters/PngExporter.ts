@@ -1,4 +1,5 @@
 import type { PngExporterOptions, PngOutput } from '../types';
+import { getTheme } from '../config/themes';
 import { renderHtmlToImagePng } from './htmlToImageEngine';
 import { renderResvgPng } from './resvgEngine';
 
@@ -45,12 +46,41 @@ export class PngExporter {
      */
     async convert(params: ConvertParams): Promise<PngOutput> {
         const { svg, width, height } = params;
-        const { backgroundColor, engine = 'resvg', fontDirs, fontFamily, fontFiles, pngQuality, scale } =
-            this.options;
+        const {
+            backgroundColor,
+            engine = 'resvg',
+            fontDirs,
+            fontFamily,
+            fontFiles,
+            loadSystemFonts,
+            pngQuality,
+            scale,
+            theme,
+        } = this.options;
+
+        // SvgRenderer writes theme.fontFamily onto every <text>, and the default
+        // font path loads exactly one probed file - which resvg then uses for
+        // whatever family the SVG asks for, so a custom theme.fontFamily would
+        // silently render as the probed font. It goes in as preferredFamily, not
+        // fontFamily: it has to name the family without also claiming to be the
+        // font source, which would skip the font dirs a caller configured.
+        // resolvePngFontOptions narrows the stack and recognises the built-in
+        // one, so the whole value goes over as it is.
+        const preferredFamily = getTheme(theme).fontFamily;
 
         const rendered =
             engine === 'resvg'
-                ? await renderResvgPng({ backgroundColor, fontDirs, fontFamily, fontFiles, scale, svg, width })
+                ? await renderResvgPng({
+                      backgroundColor,
+                      fontDirs,
+                      fontFamily,
+                      fontFiles,
+                      loadSystemFonts,
+                      preferredFamily,
+                      scale,
+                      svg,
+                      width,
+                  })
                 : await renderHtmlToImagePng({ backgroundColor, height, pngQuality, svg, width });
 
         return {
