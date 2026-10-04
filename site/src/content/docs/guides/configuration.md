@@ -568,11 +568,15 @@ to find and parse a real font file, so `sfn-diagram/png` resolves one, in this o
 3. a built-in table of per-platform font paths — Liberation Sans, DejaVu Sans or Noto Sans on
    Linux, Helvetica or Arial on macOS, Arial on Windows.
 
-Which font is *asked for* is a separate question from where fonts are *found*. Every `<text>` a
-diagram generates carries `theme.fontFamily`, and the `fontFamily` option sets only resvg's default
-family — what it uses for text that names none. So `fontFamily` changes nothing about a generated
-diagram (the export is byte-identical with and without it); set `theme.fontFamily` for that. It is
-there for a hand-authored SVG passed to `PngExporter` that leaves the family out.
+Which font is *asked for* is a separate question from where fonts are *found*. `fontFamily` and
+`SFN_DIAGRAM_PNG_FONT_FAMILY` answer the first: they set resvg's default family, used for text that
+names none of its own. They are not font sources, so they do not replace steps 1–3 above.
+
+For a generated diagram they change nothing visible — every `<text>` carries `theme.fontFamily`, and
+the export is byte-identical with and without the option — so set `theme.fontFamily` to restyle a
+diagram. `fontFamily` is for a hand-authored SVG passed to `PngExporter` that leaves `font-family`
+out. It is not free, though: naming a family the resolved font is not keeps the system font scan on,
+since one face cannot answer for another.
 
 ```typescript
 await exportPng({ aslDefinition: asl, fontFiles: ['/opt/fonts/Inter-Regular.ttf'] });
@@ -584,10 +588,13 @@ When step 3 finds a readable font file, that one file is all resvg loads, and th
 otherwise spend parsing every installed font is skipped. The trade is that nothing else is
 available to fall back on, so the scan is kept on wherever one face cannot be enough:
 
-- **text outside the ranges every probed font covers.** Latin, Greek, Cyrillic and general
-  punctuation stay on the fast path; CJK state names, emoji, and the `↻` in this package's own
-  retry-count label do not, because the probed face has no glyph for them and would render tofu. A
-  diagram with a `Retry` block therefore pays the scan.
+- **text outside the ranges every probed font covers.** Latin and its supplements, Greek and
+  Cyrillic stay on the fast path, along with the handful of punctuation marks measured as covered
+  — the dashes, curly quotes, bullet, ellipsis, and the `≤`/`≥` this package writes in Map batch
+  labels. Most of General Punctuation is *not* covered (Arial has no glyph for 44 of those
+  codepoints, U+2010 HYPHEN among them), nor are CJK state names, emoji, or the `↻` in this
+  package's own retry-count label — those would render tofu, so they keep the scan. A diagram with a
+  `Retry` block therefore pays it.
 - **a `theme.fontFamily` other than the built-in `'Arial, sans-serif'`**, since one font file
   cannot satisfy a different family.
 

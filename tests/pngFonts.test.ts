@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { LOAD_SYSTEM_FONTS_ENV_VAR, resolvePngFontOptions } from '../src/exporters/pngFonts';
 
 const LINUX_LIBERATION = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf';
@@ -36,6 +36,22 @@ const scratchFile = (params: { bytes: number[] | Buffer; name: string }): string
     return path;
 };
 
+/** Leading bytes of a TrueType font, which is all the magic check reads. */
+const SFNT_MAGIC = [0x00, 0x01, 0x00, 0x00, 0x00, 0x00];
+
+/**
+ * A real directory holding one parseable stub font. The forced-off guard walks
+ * the configured directories now, so a fake path no longer stands in for one.
+ *
+ * @returns The directory's path.
+ */
+const scratchDirWithFont = (): string =>
+    dirname(scratchFile({ bytes: SFNT_MAGIC, name: 'stub.ttf' }));
+
+/** A real directory with nothing in it that resvg could load. */
+const scratchDirWithoutFont = (): string =>
+    dirname(scratchFile({ bytes: [0x00], name: 'notes.txt' }));
+
 beforeEach(() => {
     // Ambient font env vars would otherwise reach the cases that assert on the
     // probe table or on the real filesystem.
@@ -64,7 +80,8 @@ afterEach(() => {
  */
 const inputsDefaultingTo = (defaultValue: boolean) =>
     defaultValue
-        ? { dirExists: () => true, fontDirs: ['/exists'], isFile: () => false }
+        ? // A real directory: with the scan forced off, the guard walks it.
+          { dirExists: () => true, fontDirs: [scratchDirWithFont()] }
         : { dirExists: () => true, fontFiles: ['/exists/font.ttf'], isFile: () => true };
 
 describe('resolvePngFontOptions', () => {
@@ -577,20 +594,86 @@ describe('resolvePngFontOptions', () => {
             ).toThrow(/could not read any of \/typo\/Arial.ttf, \/also\/missing.ttf/);
         });
 
-        it('refuses to be forced off for a fontFamily with no search path', () => {
+        it('refuses to be forced off for a fontFamily with nothing to load from', () => {
             expect(() =>
                 resolvePngFontOptions({
                     fontFamily: 'Custom Sans',
                     loadSystemFonts: false,
+                    platform: 'linux',
                     dirExists: () => false,
                     isFile: () => false,
                 })
             ).toThrow(/no text would render/);
         });
 
-        it('honours being forced off once a fontDir resolved', () => {
+        // fontFamily names a family; it is not a source. Letting it select the
+        // explicit branch skipped the probe table, handed back the full scan,
+        // and threw over a font the table would have found.
+        it('still reaches the probe table when only a fontFamily was given', () => {
             const result = resolvePngFontOptions({
-                fontDirs: ['/exists'],
+                fontFamily: 'Liberation Sans',
+                platform: 'linux',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it('honours being forced off for a fontFamily the probe table satisfies', () => {
+            const result = resolvePngFontOptions({
+                fontFamily: 'Liberation Sans',
+                loadSystemFonts: false,
+                platform: 'linux',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it('scans for a fontFamily the probed face is not', () => {
+            const result = resolvePngFontOptions({
+                fontFamily: 'Georgia',
+                platform: 'linux',
+                ...hostWithLiberation('/usr/share/fonts'),
+            });
+
+            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('honours being forced off for a fontDir that holds a font', () => {
+            const directory = scratchDirWithFont();
+
+            const result = resolvePngFontOptions({
+                fontDirs: [directory],
+                loadSystemFonts: false,
+                dirExists: () => true,
+            });
+
+            expect(result.fontDirs).toEqual([directory]);
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        // The empty `-v ./myfonts:/fonts` mount: a directory that exists is not
+        // proof a font will load, and this is the one case the guard is for.
+        it('refuses to be forced off for a fontDir with no loadable font in it', () => {
+            expect(() =>
+                resolvePngFontOptions({
+                    fontDirs: [scratchDirWithoutFont()],
+                    loadSystemFonts: false,
+                    dirExists: () => true,
+                })
+            ).toThrow(/no text would render/);
+        });
+
+        it('finds a font nested below the fontDir it was given', () => {
+            const nested = join(scratchDirWithFont(), 'nested');
+            mkdirSync(nested);
+            writeFileSync(join(nested, 'deep.ttf'), Buffer.from(SFNT_MAGIC));
+
+            const result = resolvePngFontOptions({
+                fontDirs: [dirname(nested)],
                 loadSystemFonts: false,
                 dirExists: () => true,
             });
@@ -655,9 +738,11 @@ describe('resolvePngFontOptions', () => {
         });
 
         it('honours being forced off for a fontDirs entry that is a real directory', () => {
-            const result = resolvePngFontOptions({ fontDirs: [process.cwd()], loadSystemFonts: false });
+            const directory = scratchDirWithFont();
 
-            expect(result.fontDirs).toEqual([process.cwd()]);
+            const result = resolvePngFontOptions({ fontDirs: [directory], loadSystemFonts: false });
+
+            expect(result.fontDirs).toEqual([directory]);
             expect(result.loadSystemFonts).toBe(false);
         });
 

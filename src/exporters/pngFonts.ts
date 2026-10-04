@@ -1,5 +1,5 @@
-import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
-import { delimiter } from 'node:path';
+import { closeSync, fstatSync, openSync, readSync, readdirSync, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import { AWS_DARK_THEME, AWS_LIGHT_THEME } from '../config/themes';
 
 /** A candidate font family and the absolute file that must exist to use it. */
@@ -327,6 +327,66 @@ function isAsciiOnly(text: string): boolean {
     return true;
 }
 
+/** Parameters for {@link holdsLoadableFont}. */
+interface HoldsLoadableFontParams {
+    /** Directory to search. */
+    directory: string;
+
+    /** The font-file check to apply to each entry found. */
+    isFile: (path: string) => boolean;
+}
+
+/** How far down, and how many entries, {@link holdsLoadableFont} will look. */
+const FONT_SEARCH_LIMITS = { depth: 4, entries: 2048 };
+
+/**
+ * Whether a directory tree holds at least one font resvg can parse.
+ *
+ * Bounded, and only ever called when a caller forced the system scan off: the
+ * question is whether honouring that would leave resvg with nothing, and a
+ * directory existing does not answer it. Running out of budget counts as yes,
+ * so a deep font tree is never refused on a technicality.
+ *
+ * @param params - The directory and the font-file check to use.
+ * @returns `true` if a parseable font was found, or the search hit its limits.
+ */
+function holdsLoadableFont(params: HoldsLoadableFontParams): boolean {
+    const { directory, isFile } = params;
+    let budget = FONT_SEARCH_LIMITS.entries;
+    const pending: { depth: number; path: string }[] = [{ depth: 0, path: directory }];
+
+    while (pending.length > 0) {
+        const next = pending.pop();
+        if (!next) {
+            break;
+        }
+
+        let entries;
+        try {
+            entries = readdirSync(next.path, { withFileTypes: true });
+        } catch {
+            continue;
+        }
+
+        for (const entry of entries) {
+            if (budget-- <= 0) {
+                return true;
+            }
+
+            const path = join(next.path, entry.name);
+            if (entry.isDirectory()) {
+                if (next.depth < FONT_SEARCH_LIMITS.depth) {
+                    pending.push({ depth: next.depth + 1, path });
+                }
+            } else if (isFile(path)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 /** Parameters for {@link refuseBlank}. */
 interface RefuseBlankParams {
     /** The caller's or env var's `loadSystemFonts`, if either set one. */
@@ -445,9 +505,10 @@ export interface ResvgFontOptions {
 /**
  * Resolve font options for the resvg PNG engine.
  *
- * Font source precedence: explicit params, then `SFN_DIAGRAM_PNG_FONT_DIRS` /
- * `SFN_DIAGRAM_PNG_FONT_FAMILY`, then a fixed table of known per-platform font
- * file paths.
+ * Font source precedence: explicit `fontFiles`/`fontDirs`, then
+ * `SFN_DIAGRAM_PNG_FONT_DIRS`, then a fixed table of known per-platform font
+ * file paths. `fontFamily` and `SFN_DIAGRAM_PNG_FONT_FAMILY` are not sources -
+ * they name a family on whichever source wins.
  *
  * `preferredFamily` sits outside that precedence: it names the family on
  * whatever source resolves, rather than being a source itself. Note what
@@ -492,13 +553,17 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const namedFamily = firstFamilyIn(params.preferredFamily);
     const preferredFamily =
         namedFamily && BUILT_IN_FAMILIES.has(namedFamily.toLowerCase()) ? undefined : namedFamily;
+    /** Families asked for by name, in precedence order, for whichever source wins. */
+    const askedFor = [overrideFamily, preferredFamily];
     const renderedText = params.renderedText ?? '';
     const oneFaceIsEnough = !needsWiderCoverage(renderedText);
 
-    // `.length`, not truthiness: `[]` is truthy, and `exportPng({ fontFiles: [] })`
-    // taking this branch shadows the env vars and the probe table with no font
-    // source at all - which, with the scan forced off, now throws.
-    if (params.fontFiles?.length || params.fontDirs?.length || params.fontFamily) {
+    // Font *sources* only. `fontFamily` names a family without being one, so
+    // letting it select this branch skipped the probe table, handed back the
+    // whole system scan, and made `loadSystemFonts: false` throw over a font
+    // the table would have found. `.length` because `[]` is truthy, and
+    // `exportPng({ fontFiles: [] })` must not shadow the table either.
+    if (params.fontFiles?.length || params.fontDirs?.length) {
         // fontDirs are best-effort search paths, so a stale/nonexistent one is
         // silently pruned. fontFiles is a specific, deliberate request - pass it
         // through verbatim, and let `isFile` decide only whether it counts as a
@@ -517,7 +582,15 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
             // real search path, so it is enough to honour an explicit `false`.
             loadSystemFonts: refuseBlank({
                 forced,
-                hasSource: fontFileResolved || fontDirs.length > 0,
+                // Only walked when `false` was forced and no file resolved, so
+                // the fast path never pays for it. A directory that merely
+                // exists is not proof - an empty mount, or one holding only
+                // WOFF, renders every label blank just as silently.
+                hasSource:
+                    fontFileResolved ||
+                    (forced === false
+                        ? fontDirs.some((dir) => holdsLoadableFont({ directory: dir, isFile }))
+                        : fontDirs.length > 0),
                 otherwise:
                     !fontFileResolved || preferredFamily !== undefined || !isAsciiOnly(renderedText),
                 platform,
@@ -534,13 +607,16 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
     if (envFontDirs?.length || envFontFamily) {
         const fontDirs = (envFontDirs ?? []).filter(dirExists);
-        const family = envFontFamily ?? preferredFamily;
+        const family = overrideFamily ?? envFontFamily ?? preferredFamily;
         return {
             defaultFontFamily: family,
             fontDirs,
             loadSystemFonts: refuseBlank({
                 forced,
-                hasSource: fontDirs.length > 0,
+                hasSource:
+                    forced === false
+                        ? fontDirs.some((dir) => holdsLoadableFont({ directory: dir, isFile }))
+                        : fontDirs.length > 0,
                 otherwise: true,
                 platform,
             }),
@@ -555,14 +631,15 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const probes = FONT_PROBES[platform] ?? [];
     const match = probes.find((probe) => isFile(probe.path));
     if (!match) {
+        const unresolved = overrideFamily ?? preferredFamily;
         return {
-            defaultFontFamily: preferredFamily,
+            defaultFontFamily: unresolved,
             loadSystemFonts: refuseBlank({ forced, hasSource: false, otherwise: true, platform }),
-            sansSerifFamily: preferredFamily,
+            sansSerifFamily: unresolved,
         };
     }
 
-    const family = preferredFamily ?? match.family;
+    const family = overrideFamily ?? preferredFamily ?? match.family;
     const loadSystemFonts = refuseBlank({
         forced,
         hasSource: true,
@@ -571,7 +648,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         otherwise:
             !oneFaceIsEnough ||
             !oneFaceSatisfiesFamilies({
-                also: [preferredFamily],
+                also: askedFor,
                 family: match.family,
                 markup: renderedText,
             }),

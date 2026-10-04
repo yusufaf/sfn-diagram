@@ -752,7 +752,9 @@ export interface PngExportOptions {
      * `theme.fontFamily` onto every `<text>`, so an export is byte-identical
      * with and without this option. Set `theme.fontFamily` to change a
      * diagram's font; use this for a hand-authored SVG passed to
-     * {@link PngExporter} that leaves `font-family` out.
+     * {@link PngExporter} that leaves `font-family` out. Naming a family the
+     * resolved font is not does keep the system font scan on, so it is not free
+     * even where it is invisible.
      */
     fontFamily?: string;
 
