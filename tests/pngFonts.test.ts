@@ -100,11 +100,19 @@ describe('resolvePngFontOptions', () => {
         expect(result.fontDirs).toEqual(['/my/fonts']);
     });
 
-    it('uses an explicit fontFamily as both default and sans-serif family', () => {
-        const result = resolvePngFontOptions({ fontFamily: 'Custom Sans', dirExists: () => true });
+    // The generic mapping stays the probed face: it is the one that is certain
+    // to resolve, and pointing it at a family that may not exist only loses that.
+    it('names an explicit fontFamily as the default family', () => {
+        const result = resolvePngFontOptions({
+            fontFamily: 'Custom Sans',
+            platform: 'linux',
+            ...hostWithLiberation(),
+        });
+
+        expect(result.sansSerifFamily).toBe('Liberation Sans');
 
         expect(result.defaultFontFamily).toBe('Custom Sans');
-        expect(result.sansSerifFamily).toBe('Custom Sans');
+        expect(result.defaultFontFamily).toBe('Custom Sans');
     });
 
     it('probes for Liberation Sans on linux', () => {
@@ -174,7 +182,7 @@ describe('resolvePngFontOptions', () => {
                 preferredFamily: 'Georgia',
             });
 
-            expect(result.sansSerifFamily).toBe('Env Sans');
+            expect(result.defaultFontFamily).toBe('Env Sans');
         });
 
         // fontFamily does not override what the markup asks for - resvg applies
@@ -224,7 +232,7 @@ describe('resolvePngFontOptions', () => {
                 isFile: () => true,
             });
 
-            expect(result.sansSerifFamily).toBe('Explicit Sans');
+            expect(result.defaultFontFamily).toBe('Explicit Sans');
         });
 
         it('keeps the scan on even when explicit fontFiles resolved', () => {
@@ -249,8 +257,10 @@ describe('resolvePngFontOptions', () => {
                 ...hostWithLiberation(),
             });
 
-            expect(result.sansSerifFamily).toBe('Georgia');
-            expect(result.fontDirs).toEqual([]);
+            expect(result.defaultFontFamily).toBe('Georgia');
+            // The probed face reached the result, so the blank value did not
+            // shadow the table.
+            expect(result.sansSerifFamily).toBe('Liberation Sans');
         });
 
         it('still names the family when no probe matched at all', () => {
@@ -395,6 +405,29 @@ describe('resolvePngFontOptions', () => {
         });
     });
 
+    describe('a hand-authored SVG passed with the caller own fonts', () => {
+        const svgAsking = (family: string) =>
+            `<svg xmlns="http://www.w3.org/2000/svg"><text font-family="${family}">x</text></svg>`;
+
+        // There is no face name to compare against for a file the caller
+        // supplied, so only the themes' own stack can be assumed satisfied.
+        // Anything else was silently rendered in whatever they supplied.
+        it.each([
+            ['the themes own stack', 'Arial, sans-serif', false],
+            ['a generic alone', 'monospace', false],
+            ['a family the file may not be', 'Georgia', true],
+        ])('decides the scan for %s', (_label, family, expected) => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/opt/fonts/Inter.ttf'],
+                renderedText: svgAsking(family),
+                dirExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.loadSystemFonts).toBe(expected);
+        });
+    });
+
     describe('font family stacks', () => {
         // resvg's defaultFontFamily matches one name and does not split a list,
         // so the whole stack matches nothing - indistinguishable from the option
@@ -406,7 +439,7 @@ describe('resolvePngFontOptions', () => {
             });
 
             expect(result.defaultFontFamily).toBe('Inter');
-            expect(result.sansSerifFamily).toBe('Inter');
+            expect(result.defaultFontFamily).toBe('Inter');
         });
 
         it('narrows SFN_DIAGRAM_PNG_FONT_FAMILY the same way, quotes included', () => {
@@ -414,7 +447,7 @@ describe('resolvePngFontOptions', () => {
 
             const result = resolvePngFontOptions({ dirExists: () => true });
 
-            expect(result.sansSerifFamily).toBe('Env Sans');
+            expect(result.defaultFontFamily).toBe('Env Sans');
         });
 
         it('narrows a preferredFamily stack', () => {
@@ -424,7 +457,7 @@ describe('resolvePngFontOptions', () => {
                 ...hostWithLiberation('/usr/share/fonts'),
             });
 
-            expect(result.sansSerifFamily).toBe('MyBrand Sans');
+            expect(result.defaultFontFamily).toBe('MyBrand Sans');
         });
 
         it('treats a stack that names nothing as no family at all', () => {
@@ -572,7 +605,7 @@ describe('resolvePngFontOptions', () => {
                 ...hostWithLiberation(),
             });
 
-            expect(result.sansSerifFamily).toBe('Param Sans');
+            expect(result.defaultFontFamily).toBe('Param Sans');
         });
 
         it('stays on for SFN_DIAGRAM_PNG_FONT_FAMILY alone', () => {
@@ -580,7 +613,7 @@ describe('resolvePngFontOptions', () => {
 
             const result = resolvePngFontOptions({ dirExists: () => true });
 
-            expect(result.sansSerifFamily).toBe('Env Sans');
+            expect(result.defaultFontFamily).toBe('Env Sans');
             expect(result.loadSystemFonts).toBe(true);
         });
 
@@ -709,7 +742,7 @@ describe('resolvePngFontOptions', () => {
                 ...hostWithLiberation('/usr/share/fonts'),
             });
 
-            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.defaultFontFamily).toBe('Georgia');
             expect(result.loadSystemFonts).toBe(true);
         });
 
@@ -855,7 +888,7 @@ describe('resolvePngFontOptions', () => {
             });
 
             expect(result.loadSystemFonts).toBe(true);
-            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.defaultFontFamily).toBe('Georgia');
             expect(result.fontDirs).toContain('/usr/share/fonts');
         });
 

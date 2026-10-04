@@ -218,8 +218,12 @@ interface OneFaceSatisfiesFamiliesParams {
     /** Families named out of band, such as a `preferredFamily`. */
     also?: (string | undefined)[];
 
-    /** Family of the single face that would be loaded. */
-    family: string;
+    /**
+     * Family of the single face that would be loaded, where that is known. It
+     * is not for a file the caller supplied, so only the themes' own stack can
+     * be assumed satisfied there.
+     */
+    family?: string;
 
     /** The SVG markup whose `font-family` declarations have to be satisfied. */
     markup: string;
@@ -239,7 +243,10 @@ interface OneFaceSatisfiesFamiliesParams {
  */
 function oneFaceSatisfiesFamilies(params: OneFaceSatisfiesFamiliesParams): boolean {
     const { also = [], family, markup } = params;
-    const satisfied = new Set([family.toLowerCase(), ...BUILT_IN_FAMILIES]);
+    const satisfied = new Set([
+        ...(family ? [family.toLowerCase()] : []),
+        ...BUILT_IN_FAMILIES,
+    ]);
     const asked = [
         ...familiesIn(markup),
         ...also.flatMap((name) => (name ? [name.trim().toLowerCase()] : [])),
@@ -342,7 +349,7 @@ interface HoldsLoadableFontParams {
  * Exported so a test can shrink it: the `exhausted` branch is otherwise only
  * reachable by creating thousands of files.
  */
-export const FONT_SEARCH_LIMITS = { depth: 4, entries: 2048 };
+export const FONT_SEARCH_LIMITS = { depth: 8, entries: 4096 };
 
 /** What a bounded search of a directory tree concluded. */
 type FontSearchResult = 'exhausted' | 'found' | 'none';
@@ -356,6 +363,10 @@ type FontSearchResult = 'exhausted' | 'found' | 'none';
  * from `none` because the two want different errors - counting a truncated
  * search as a find would honour the request and render a blank PNG, which is
  * the silent failure this guard exists to stop.
+ *
+ * fontdb's own loading is unbounded, so the limits are set well past any real
+ * font directory and the refusal names them: a search that runs out is a tree
+ * worth a different `fontDirs`, not a verdict.
  *
  * @param params - The directory and the font-file check to use.
  * @returns Whether a font was found, none was, or the search ran out of budget.
@@ -384,7 +395,11 @@ function holdsLoadableFont(params: HoldsLoadableFontParams): FontSearchResult {
             }
 
             const path = join(next.path, entry.name);
-            if (entry.isDirectory()) {
+            // A symlink is neither isDirectory() nor isFile(), and fontdb
+            // follows them, so classify it rather than skipping it.
+            const directory = entry.isDirectory() || (entry.isSymbolicLink() && isDirectory(path));
+
+            if (directory) {
                 if (next.depth < FONT_SEARCH_LIMITS.depth) {
                     pending.push({ depth: next.depth + 1, path });
                 }
@@ -637,7 +652,13 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
                 // WOFF, renders every label blank just as silently.
                 hasSource: fontFileResolved || (searched ? searched.found : fontDirs.length > 0),
                 otherwise:
-                    !fontFileResolved || preferredFamily !== undefined || !isAsciiOnly(renderedText),
+                    !fontFileResolved ||
+                    !isAsciiOnly(renderedText) ||
+                    // No face name to compare against here - the caller's file
+                    // could be anything - so only the themes' own stack passes.
+                    // A hand-authored SVG naming Georgia was otherwise rendered
+                    // in whatever the caller supplied, silently.
+                    !oneFaceSatisfiesFamilies({ also: askedFor, markup: renderedText }),
                 platform,
                 rejected: [
                     ...fontFiles,
@@ -716,7 +737,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
             defaultFontFamily: family,
             fontDirs: (FONT_DIRS[platform] ?? []).filter(dirExists),
             loadSystemFonts: true,
-            sansSerifFamily: family,
+            sansSerifFamily: match.family,
         };
     }
 
@@ -724,10 +745,14 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     // `font-weight="bold"` run renders at regular weight rather than being
     // synthesized - which no SVG this package generates asks for, but a
     // hand-rolled one passed to PngExporter might.
+    //
+    // `sansSerifFamily` stays the probed face, not the asked-for family: the
+    // generic is the one thing guaranteed to resolve, and pointing it at a
+    // family that may not exist can only lose that.
     return {
         defaultFontFamily: family,
         fontFiles: [match.path],
         loadSystemFonts: false,
-        sansSerifFamily: family,
+        sansSerifFamily: match.family,
     };
 }
