@@ -315,18 +315,27 @@ function readLoadSystemFontsEnv(): boolean | undefined {
 }
 
 /**
- * Whether text is plain ASCII.
+ * Punctuation this package writes into diagrams itself: the sub-label separator
+ * and ellipsis, the retry multiplier, and the Map batch comparisons.
+ */
+const EMITTED_PUNCTUATION = new Set([0x00b7, 0x00d7, 0x2026, 0x2264, 0x2265]);
+
+/**
+ * Whether a font the *caller* supplied can be assumed to cover some text.
  *
  * {@link WIDELY_COVERED_RANGES} was measured against {@link FONT_PROBES} and
- * says nothing about a font the caller supplied, which may be script-specific.
- * ASCII is all such a font can be assumed to carry.
+ * says nothing about a caller's font, which may be script-specific - so the
+ * assumption here is only ASCII, plus the handful of marks this package emits
+ * on its own and any text font carries. Without those, a single `·` in a Map
+ * sub-label would put every such diagram back on the slow path.
  *
  * @param text - The SVG markup.
- * @returns `true` if every codepoint in it is ASCII.
+ * @returns `true` if nothing in it needs a wider search.
  */
-function isAsciiOnly(text: string): boolean {
+function isAssumableForAnyFont(text: string): boolean {
     for (const character of text) {
-        if ((character.codePointAt(0) ?? 0) > 0x7f) {
+        const codepoint = character.codePointAt(0) ?? 0;
+        if (codepoint > 0x7f && !EMITTED_PUNCTUATION.has(codepoint)) {
             return false;
         }
     }
@@ -338,6 +347,9 @@ function isAsciiOnly(text: string): boolean {
 interface HoldsLoadableFontParams {
     /** Directory to search. */
     directory: string;
+
+    /** The directory check to apply to a symlinked entry. */
+    isDir: (path: string) => boolean;
 
     /** The font-file check to apply to each entry found. */
     isFile: (path: string) => boolean;
@@ -372,7 +384,7 @@ type FontSearchResult = 'exhausted' | 'found' | 'none';
  * @returns Whether a font was found, none was, or the search ran out of budget.
  */
 function holdsLoadableFont(params: HoldsLoadableFontParams): FontSearchResult {
-    const { directory, isFile } = params;
+    const { directory, isDir, isFile } = params;
     let budget = FONT_SEARCH_LIMITS.entries;
     const pending: { depth: number; path: string }[] = [{ depth: 0, path: directory }];
 
@@ -397,9 +409,9 @@ function holdsLoadableFont(params: HoldsLoadableFontParams): FontSearchResult {
             const path = join(next.path, entry.name);
             // A symlink is neither isDirectory() nor isFile(), and fontdb
             // follows them, so classify it rather than skipping it.
-            const directory = entry.isDirectory() || (entry.isSymbolicLink() && isDirectory(path));
+            const descend = entry.isDirectory() || (entry.isSymbolicLink() && isDir(path));
 
-            if (directory) {
+            if (descend) {
                 if (next.depth < FONT_SEARCH_LIMITS.depth) {
                     pending.push({ depth: next.depth + 1, path });
                 }
@@ -417,6 +429,9 @@ interface SearchFontDirsParams {
     /** Directories to search, already pruned to the ones that exist. */
     fontDirs: string[];
 
+    /** The directory check to apply to a symlinked entry. */
+    isDir: (path: string) => boolean;
+
     /** The font-file check to apply to each entry found. */
     isFile: (path: string) => boolean;
 }
@@ -428,11 +443,11 @@ interface SearchFontDirsParams {
  * @returns Whether any held a font, and a note per directory that did not.
  */
 function searchFontDirs(params: SearchFontDirsParams): { found: boolean; rejected: string[] } {
-    const { fontDirs, isFile } = params;
+    const { fontDirs, isDir, isFile } = params;
     const rejected: string[] = [];
 
     for (const directory of fontDirs) {
-        const result = holdsLoadableFont({ directory, isFile });
+        const result = holdsLoadableFont({ directory, isDir, isFile });
         if (result === 'found') {
             return { found: true, rejected: [] };
         }
@@ -488,9 +503,9 @@ function refuseBlank(params: RefuseBlankParams): boolean {
         // they just passed is no help.
         const cause = rejected.length
             ? `could not load a font from ${rejected.join(', ')}`
-            : `no font resolved on ${platform}`;
+            : `found no font to load on ${platform}`;
         throw new Error(
-            `PNG font resolution ${cause} and system fonts are disabled, so no text would render. Pass a readable font file in fontFiles, a fontDirs path, or allow system fonts.`
+            `PNG font resolution ${cause}, and system fonts are disabled, so no text would render. Point fontDirs or SFN_DIAGRAM_PNG_FONT_DIRS at a directory holding a font, pass a readable fontFiles entry, or allow system fonts.`
         );
     }
 
@@ -576,8 +591,8 @@ export interface ResvgFontOptions {
  * `fontFamily` can and cannot do - resvg applies it only to text naming no
  * family of its own, so for a generated diagram, whose every `<text>` carries
  * the theme's stack, it changes nothing; it is for a hand-authored SVG that
- * leaves the family out. An explicit `fontFamily` is matched only within the
- * fonts the caller also supplied, since passing both is a deliberate pairing. Every family is read as a CSS stack and
+ * leaves the family out. Asking for a family the resolved font is not keeps
+ * the system fonts searchable, whichever way it was asked for. Every family is read as a CSS stack and
  * narrowed to its first entry, since resvg matches one name and not a list.
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
@@ -617,6 +632,13 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
     /** Families asked for by name, in precedence order, for whichever source wins. */
     const askedFor = [overrideFamily, envFontFamily, preferredFamily];
+    /**
+     * Of those, the ones text will actually be resolved against. `fontFamily`
+     * replaces `preferredFamily` as the default family, so a theme family it
+     * displaced is asked for by nothing - except through the markup, where
+     * `familiesIn` finds it anyway.
+     */
+    const resolvedAgainst = overrideFamily ? [overrideFamily] : [envFontFamily, preferredFamily];
     const renderedText = params.renderedText ?? '';
     const oneFaceIsEnough = !needsWiderCoverage(renderedText);
 
@@ -635,7 +657,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         const fontFiles = params.fontFiles ?? [];
         const fontFileResolved = fontFiles.some(isFile);
         const searched =
-            forced === false && !fontFileResolved ? searchFontDirs({ fontDirs, isFile }) : undefined;
+            forced === false && !fontFileResolved ? searchFontDirs({ fontDirs, isDir: dirExists, isFile }) : undefined;
         const family = askedFor.find((name) => name !== undefined);
         return {
             defaultFontFamily: family,
@@ -653,12 +675,12 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
                 hasSource: fontFileResolved || (searched ? searched.found : fontDirs.length > 0),
                 otherwise:
                     !fontFileResolved ||
-                    !isAsciiOnly(renderedText) ||
+                    !isAssumableForAnyFont(renderedText) ||
                     // No face name to compare against here - the caller's file
                     // could be anything - so only the themes' own stack passes.
                     // A hand-authored SVG naming Georgia was otherwise rendered
                     // in whatever the caller supplied, silently.
-                    !oneFaceSatisfiesFamilies({ also: askedFor, markup: renderedText }),
+                    !oneFaceSatisfiesFamilies({ also: resolvedAgainst, markup: renderedText }),
                 platform,
                 rejected: [
                     ...fontFiles,
@@ -680,7 +702,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
     if (envFontDirs?.length) {
         const fontDirs = envFontDirs.filter(dirExists);
-        const searched = forced === false ? searchFontDirs({ fontDirs, isFile }) : undefined;
+        const searched = forced === false ? searchFontDirs({ fontDirs, isDir: dirExists, isFile }) : undefined;
         const family = askedFor.find((name) => name !== undefined);
         return {
             defaultFontFamily: family,
@@ -723,7 +745,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         otherwise:
             !oneFaceIsEnough ||
             !oneFaceSatisfiesFamilies({
-                also: askedFor,
+                also: resolvedAgainst,
                 family: match.family,
                 markup: renderedText,
             }),

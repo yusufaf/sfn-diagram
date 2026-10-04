@@ -771,12 +771,13 @@ export interface PngExportOptions {
      * of `fontFiles`, or a hit in the built-in per-platform probe table — and
      * `true` otherwise, including for `fontDirs`/`fontFamily` and
      * `SFN_DIAGRAM_PNG_FONT_DIRS`, since neither a directory nor a family name
-     * proves a loadable font and resvg renders blank text without one. Two more
-     * things keep it on: a `theme.fontFamily` other than the built-in one,
-     * since one font file cannot satisfy a different family, and text needing
-     * glyphs outside the ranges every probed font covers - CJK, emoji, or the
-     * U+21BB in this package's own retry-count label - which would otherwise
-     * render as tofu.
+     * proves a loadable font and resvg renders blank text without one. Three
+     * more things keep it on: any family the resolved font is not, since one
+     * file cannot satisfy another; text needing glyphs outside the ranges every
+     * probed font covers - CJK, emoji, or the U+21BB in this package's own
+     * retry-count label - which would otherwise render as tofu; and, for a font
+     * supplied through `fontFiles`, anything beyond ASCII and the marks this
+     * package emits, since a caller's font may be script-specific.
      *
      * Set it to `true` to keep resvg's own fallback for what that leaves: a
      * `font-weight="bold"` run renders at regular weight rather than being

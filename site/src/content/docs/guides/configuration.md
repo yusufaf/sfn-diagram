@@ -595,8 +595,13 @@ available to fall back on, so the scan is kept on wherever one face cannot be en
   codepoints, U+2010 HYPHEN among them), nor are CJK state names, emoji, or the `↻` in this
   package's own retry-count label — those would render tofu, so they keep the scan. A diagram with a
   `Retry` block therefore pays it.
-- **a `theme.fontFamily` other than the built-in `'Arial, sans-serif'`**, since one font file
-  cannot satisfy a different family.
+- **a `theme.fontFamily` other than the built-in `'Arial, sans-serif'`**, or any other family the
+  resolved font is not — including one written into a hand-authored SVG — since one font file cannot
+  satisfy a different family.
+- **anything beyond ASCII, when the font is one you supplied** via `fontFiles`. The measured
+  coverage above is for the fonts in the built-in table; your font might be script-specific, so only
+  ASCII is assumed, plus the marks this package emits itself (`·`, `×`, `…`, `≤`, `≥`). Pass
+  `loadSystemFonts: false` to pin the fast path when you know your font covers the diagram.
 
 What the single face still gives up: a `font-weight="bold"` run renders at regular weight rather
 than being synthesized. No SVG this package generates asks for bold, but one you hand-roll and

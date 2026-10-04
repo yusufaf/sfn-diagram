@@ -112,7 +112,6 @@ describe('resolvePngFontOptions', () => {
         expect(result.sansSerifFamily).toBe('Liberation Sans');
 
         expect(result.defaultFontFamily).toBe('Custom Sans');
-        expect(result.defaultFontFamily).toBe('Custom Sans');
     });
 
     it('probes for Liberation Sans on linux', () => {
@@ -387,10 +386,13 @@ describe('resolvePngFontOptions', () => {
 
     describe('a font file the caller supplied', () => {
         // WIDELY_COVERED_RANGES was measured against the probe table; a caller's
-        // font may be Latin-only or script-specific, so only ASCII is assumed.
+        // font may be Latin-only or script-specific, so only ASCII is assumed -
+        // plus the marks this package emits itself, without which one separator
+        // in a Map sub-label would put every such diagram on the slow path.
         // Measured: a Cyrillic state name with a Cyrillic-less font paints tofu.
         it.each([
             ['ASCII text', 'Order Received', false],
+            ['the marks this package emits itself', 'Map \u00b7 items\u2026 \u00d73 \u2264 1', false],
             ['Cyrillic, which the probed fonts cover but this one may not', '\u041d\u0430\u0447\u0430\u043b\u043e', true],
             ['an accented Latin name', 'Cr\u00e9ation', true],
         ])('decides the scan for %s', (_label, text, expected) => {
@@ -640,7 +642,7 @@ describe('resolvePngFontOptions', () => {
                     dirExists: () => false,
                     isFile: () => false,
                 })
-            ).toThrow(/no font resolved on linux.*no text would render/);
+            ).toThrow(/found no font to load on linux.*no text would render/);
         });
 
         it('names a fontDirs entry it pruned when it refuses', () => {
