@@ -45,12 +45,29 @@ export class PngExporter {
      */
     async convert(params: ConvertParams): Promise<PngOutput> {
         const { svg, width, height } = params;
-        const { backgroundColor, engine = 'resvg', fontDirs, fontFamily, fontFiles, pngQuality, scale } =
-            this.options;
+        const {
+            backgroundColor,
+            engine = 'resvg',
+            fontDirs,
+            fontFamily,
+            fontFiles,
+            loadSystemFonts,
+            pngQuality,
+            scale,
+        } = this.options;
 
         const rendered =
             engine === 'resvg'
-                ? await renderResvgPng({ backgroundColor, fontDirs, fontFamily, fontFiles, scale, svg, width })
+                ? await renderResvgPng({
+                      backgroundColor,
+                      fontDirs,
+                      fontFamily,
+                      fontFiles,
+                      loadSystemFonts,
+                      scale,
+                      svg,
+                      width,
+                  })
                 : await renderHtmlToImagePng({ backgroundColor, height, pngQuality, svg, width });
 
         return {

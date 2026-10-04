@@ -756,6 +756,20 @@ export interface PngExportOptions {
     fontFiles?: string[];
 
     /**
+     * Whether resvg should also parse every installed system font, which costs
+     * ~250ms per export. `resvg` only.
+     *
+     * Defaults to `false` whenever a concrete font file or directory resolved —
+     * one of `fontDirs`/`fontFiles`, `SFN_DIAGRAM_PNG_FONT_DIRS`, or the
+     * built-in per-platform probe table — and `true` when nothing did, so text
+     * still renders. Set it to `true` to keep resvg's own fallback for glyphs
+     * the resolved font lacks, CJK text for instance. The
+     * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` env var sets it for callers that
+     * cannot pass options, such as the CLI.
+     */
+    loadSystemFonts?: boolean;
+
+    /**
      * Multiplier applied to the diagram's rendered size. `resvg` only.
      * @default 1
      */

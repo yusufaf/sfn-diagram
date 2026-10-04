@@ -52,6 +52,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontDirs,
         fontFamily,
         fontFiles,
+        loadSystemFonts,
         pngQuality,
         scale,
         ...svgOptions
@@ -72,6 +73,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontDirs,
         fontFamily,
         fontFiles,
+        loadSystemFonts,
         pngQuality,
         scale,
     });

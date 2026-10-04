@@ -46,6 +46,40 @@ const FONT_DIRS: Partial<Record<NodeJS.Platform, string[]>> = {
     win32: [`${process.env.WINDIR ?? 'C:\\Windows'}\\Fonts`],
 };
 
+/** Env var that forces {@link ResvgFontOptions.loadSystemFonts} on or off. */
+export const LOAD_SYSTEM_FONTS_ENV_VAR = 'SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS';
+
+const TRUE_VALUES = new Set(['1', 'on', 'true', 'yes']);
+const FALSE_VALUES = new Set(['0', 'false', 'no', 'off']);
+
+/**
+ * Read {@link LOAD_SYSTEM_FONTS_ENV_VAR} as a boolean.
+ *
+ * Unset or empty means "no opinion", so the per-branch default applies. An
+ * unrecognized value throws rather than being ignored: the override exists to
+ * change how fonts resolve, and silently dropping a typo would leave either a
+ * slow scan or missing glyphs with nothing to explain it.
+ *
+ * @returns `true`/`false` when set, or `undefined` when unset or empty.
+ * @throws if the variable is set to a value that is not a recognized boolean.
+ */
+function readLoadSystemFontsEnv(): boolean | undefined {
+    const raw = process.env[LOAD_SYSTEM_FONTS_ENV_VAR];
+    const normalized = raw?.trim().toLowerCase();
+    if (!normalized) {
+        return undefined;
+    }
+    if (TRUE_VALUES.has(normalized)) {
+        return true;
+    }
+    if (FALSE_VALUES.has(normalized)) {
+        return false;
+    }
+    throw new Error(
+        `${LOAD_SYSTEM_FONTS_ENV_VAR} must be one of ${[...TRUE_VALUES, ...FALSE_VALUES].sort().join(', ')}, got '${raw}'.`
+    );
+}
+
 /** Parameters for {@link resolvePngFontOptions}. */
 export interface ResolvePngFontOptionsParams {
     /** Injectable file-existence check, for testing. @default fs.existsSync */
@@ -59,6 +93,13 @@ export interface ResolvePngFontOptionsParams {
 
     /** Explicit font files to load, overriding automatic detection. */
     fontFiles?: string[];
+
+    /**
+     * Whether resvg should also parse every installed system font. Defaults to
+     * `false` whenever a concrete font file or directory resolved, `true` when
+     * nothing did.
+     */
+    loadSystemFonts?: boolean;
 
     /** Platform to probe for. @default process.platform */
     platform?: NodeJS.Platform;
@@ -76,33 +117,45 @@ export interface ResvgFontOptions {
 /**
  * Resolve font options for the resvg PNG engine.
  *
- * Precedence: explicit params, then `SFN_DIAGRAM_PNG_FONT_DIRS` /
- * `SFN_DIAGRAM_PNG_FONT_FAMILY` env vars, then a fixed table of known
- * per-platform font file paths. `loadSystemFonts` always stays `true` so
- * resvg's own fallback still gets a chance even when nothing above resolves.
+ * Font source precedence: explicit params, then `SFN_DIAGRAM_PNG_FONT_DIRS` /
+ * `SFN_DIAGRAM_PNG_FONT_FAMILY`, then a fixed table of known per-platform font
+ * file paths.
+ *
+ * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
+ * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` if a concrete font file or
+ * directory resolved and `true` if nothing did. Scanning every installed font
+ * costs ~250ms per export and buys nothing once a specific file is known
+ * (#336); it stays on where it is the only way text renders at all, including
+ * when only a family name was given, since a family cannot be located without
+ * a search path. Forcing it on restores the pre-#336 shape, which also keeps
+ * resvg's fallback for glyphs the resolved font lacks.
  *
  * @param params - Explicit overrides, an injectable `fileExists`, and platform.
  * @returns Font options ready to pass to resvg's `Resvg` constructor.
+ * @throws if `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` is set to a non-boolean value.
  *
  * @example
  * ```typescript
  * const font = resolvePngFontOptions({});
- * // { loadSystemFonts: true, sansSerifFamily: 'Liberation Sans', fontDirs: [...] }
+ * // { loadSystemFonts: false, sansSerifFamily: 'Liberation Sans', fontFiles: [...] }
  * ```
  */
 export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): ResvgFontOptions {
     const { fileExists = existsSync, platform = process.platform } = params;
+    const forced = params.loadSystemFonts ?? readLoadSystemFontsEnv();
 
     if (params.fontFiles || params.fontDirs || params.fontFamily) {
+        // fontDirs are best-effort search paths, so a stale/nonexistent one is
+        // silently pruned. fontFiles is a specific, deliberate request - pass
+        // it through verbatim so a genuine typo surfaces as resvg's own error
+        // rather than being silently dropped.
+        const fontDirs = (params.fontDirs ?? []).filter(fileExists);
+        const resolvedSomething = Boolean(params.fontFiles?.length) || fontDirs.length > 0;
         return {
             defaultFontFamily: params.fontFamily,
-            // fontDirs are best-effort search paths, so a stale/nonexistent one
-            // is silently pruned. fontFiles is a specific, deliberate request -
-            // pass it through verbatim so a genuine typo surfaces as resvg's own
-            // error rather than being silently dropped.
-            fontDirs: (params.fontDirs ?? []).filter(fileExists),
+            fontDirs,
             fontFiles: params.fontFiles,
-            loadSystemFonts: true,
+            loadSystemFonts: forced ?? !resolvedSomething,
             sansSerifFamily: params.fontFamily,
         };
     }
@@ -110,10 +163,11 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
     const envFontFamily = process.env.SFN_DIAGRAM_PNG_FONT_FAMILY;
     if (envFontDirs || envFontFamily) {
+        const fontDirs = (envFontDirs ?? []).filter(fileExists);
         return {
             defaultFontFamily: envFontFamily,
-            fontDirs: (envFontDirs ?? []).filter(fileExists),
-            loadSystemFonts: true,
+            fontDirs,
+            loadSystemFonts: forced ?? fontDirs.length === 0,
             sansSerifFamily: envFontFamily,
         };
     }
@@ -121,13 +175,25 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const probes = FONT_PROBES[platform] ?? [];
     const match = probes.find((probe) => fileExists(probe.path));
     if (!match) {
-        return { loadSystemFonts: true };
+        return { loadSystemFonts: forced ?? true };
     }
 
+    // Forced back on: return the search-path shape this used to return
+    // unconditionally, so the pre-#336 rendering is reproducible exactly.
+    if (forced) {
+        return {
+            defaultFontFamily: match.family,
+            fontDirs: (FONT_DIRS[platform] ?? []).filter(fileExists),
+            loadSystemFonts: true,
+            sansSerifFamily: match.family,
+        };
+    }
+
+    // The probe matched an exact file, so hand resvg just that file.
     return {
         defaultFontFamily: match.family,
-        fontDirs: (FONT_DIRS[platform] ?? []).filter(fileExists),
-        loadSystemFonts: true,
+        fontFiles: [match.path],
+        loadSystemFonts: false,
         sansSerifFamily: match.family,
     };
 }
