@@ -53,6 +53,16 @@ describe('decodePng', () => {
         expect(() => decodePng(truncated)).toThrow(/no IHDR/);
     });
 
+    it('rejects a chunk claiming more bytes than the buffer holds', () => {
+        const header = Buffer.alloc(8);
+        header.writeUInt32BE(64, 0);
+        header.write('IHDR', 4, 'ascii');
+
+        expect(() => decodePng(Buffer.concat([PNG_SIGNATURE, header, Buffer.alloc(4)]))).toThrow(
+            /IHDR chunk claims 64 bytes/
+        );
+    });
+
     it('rejects a PNG with no IHDR', () => {
         expect(() => decodePng(png([{ data: deflateSync(Buffer.alloc(0)), type: 'IDAT' }]))).toThrow(
             /no IHDR/

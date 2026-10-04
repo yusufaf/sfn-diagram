@@ -336,21 +336,31 @@ interface HoldsLoadableFontParams {
     isFile: (path: string) => boolean;
 }
 
-/** How far down, and how many entries, {@link holdsLoadableFont} will look. */
-const FONT_SEARCH_LIMITS = { depth: 4, entries: 2048 };
+/**
+ * How far down, and how many entries, {@link holdsLoadableFont} will look.
+ *
+ * Exported so a test can shrink it: the `exhausted` branch is otherwise only
+ * reachable by creating thousands of files.
+ */
+export const FONT_SEARCH_LIMITS = { depth: 4, entries: 2048 };
+
+/** What a bounded search of a directory tree concluded. */
+type FontSearchResult = 'exhausted' | 'found' | 'none';
 
 /**
- * Whether a directory tree holds at least one font resvg can parse.
+ * Whether a directory tree holds a font resvg can parse.
  *
  * Bounded, and only ever called when a caller forced the system scan off: the
  * question is whether honouring that would leave resvg with nothing, and a
- * directory existing does not answer it. Running out of budget counts as yes,
- * so a deep font tree is never refused on a technicality.
+ * directory existing does not answer it. `exhausted` is reported separately
+ * from `none` because the two want different errors - counting a truncated
+ * search as a find would honour the request and render a blank PNG, which is
+ * the silent failure this guard exists to stop.
  *
  * @param params - The directory and the font-file check to use.
- * @returns `true` if a parseable font was found, or the search hit its limits.
+ * @returns Whether a font was found, none was, or the search ran out of budget.
  */
-function holdsLoadableFont(params: HoldsLoadableFontParams): boolean {
+function holdsLoadableFont(params: HoldsLoadableFontParams): FontSearchResult {
     const { directory, isFile } = params;
     let budget = FONT_SEARCH_LIMITS.entries;
     const pending: { depth: number; path: string }[] = [{ depth: 0, path: directory }];
@@ -370,7 +380,7 @@ function holdsLoadableFont(params: HoldsLoadableFontParams): boolean {
 
         for (const entry of entries) {
             if (budget-- <= 0) {
-                return true;
+                return 'exhausted';
             }
 
             const path = join(next.path, entry.name);
@@ -379,12 +389,47 @@ function holdsLoadableFont(params: HoldsLoadableFontParams): boolean {
                     pending.push({ depth: next.depth + 1, path });
                 }
             } else if (isFile(path)) {
-                return true;
+                return 'found';
             }
         }
     }
 
-    return false;
+    return 'none';
+}
+
+/** Parameters for {@link searchFontDirs}. */
+interface SearchFontDirsParams {
+    /** Directories to search, already pruned to the ones that exist. */
+    fontDirs: string[];
+
+    /** The font-file check to apply to each entry found. */
+    isFile: (path: string) => boolean;
+}
+
+/**
+ * Search each directory for a loadable font, keeping what failed and why.
+ *
+ * @param params - The directories and the font-file check to use.
+ * @returns Whether any held a font, and a note per directory that did not.
+ */
+function searchFontDirs(params: SearchFontDirsParams): { found: boolean; rejected: string[] } {
+    const { fontDirs, isFile } = params;
+    const rejected: string[] = [];
+
+    for (const directory of fontDirs) {
+        const result = holdsLoadableFont({ directory, isFile });
+        if (result === 'found') {
+            return { found: true, rejected: [] };
+        }
+
+        rejected.push(
+            result === 'exhausted'
+                ? `${directory} (no font in its first ${FONT_SEARCH_LIMITS.entries} entries)`
+                : `${directory} (no font resvg can parse)`
+        );
+    }
+
+    return { found: false, rejected };
 }
 
 /** Parameters for {@link refuseBlank}. */
@@ -427,7 +472,7 @@ function refuseBlank(params: RefuseBlankParams): boolean {
         // readable-file check, so name them: telling someone to pass the thing
         // they just passed is no help.
         const cause = rejected.length
-            ? `could not read any of ${rejected.join(', ')}`
+            ? `could not load a font from ${rejected.join(', ')}`
             : `no font resolved on ${platform}`;
         throw new Error(
             `PNG font resolution ${cause} and system fonts are disabled, so no text would render. Pass a readable font file in fontFiles, a fontDirs path, or allow system fonts.`
@@ -508,7 +553,8 @@ export interface ResvgFontOptions {
  * Font source precedence: explicit `fontFiles`/`fontDirs`, then
  * `SFN_DIAGRAM_PNG_FONT_DIRS`, then a fixed table of known per-platform font
  * file paths. `fontFamily` and `SFN_DIAGRAM_PNG_FONT_FAMILY` are not sources -
- * they name a family on whichever source wins.
+ * they name a family on whichever source wins, in that order ahead of
+ * `preferredFamily`.
  *
  * `preferredFamily` sits outside that precedence: it names the family on
  * whatever source resolves, rather than being a source itself. Note what
@@ -553,8 +599,9 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const namedFamily = firstFamilyIn(params.preferredFamily);
     const preferredFamily =
         namedFamily && BUILT_IN_FAMILIES.has(namedFamily.toLowerCase()) ? undefined : namedFamily;
+    const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
     /** Families asked for by name, in precedence order, for whichever source wins. */
-    const askedFor = [overrideFamily, preferredFamily];
+    const askedFor = [overrideFamily, envFontFamily, preferredFamily];
     const renderedText = params.renderedText ?? '';
     const oneFaceIsEnough = !needsWiderCoverage(renderedText);
 
@@ -572,7 +619,9 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         const fontDirs = dirs.filter(dirExists);
         const fontFiles = params.fontFiles ?? [];
         const fontFileResolved = fontFiles.some(isFile);
-        const family = overrideFamily ?? preferredFamily;
+        const searched =
+            forced === false && !fontFileResolved ? searchFontDirs({ fontDirs, isFile }) : undefined;
+        const family = askedFor.find((name) => name !== undefined);
         return {
             defaultFontFamily: family,
             fontDirs,
@@ -586,15 +635,15 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
                 // the fast path never pays for it. A directory that merely
                 // exists is not proof - an empty mount, or one holding only
                 // WOFF, renders every label blank just as silently.
-                hasSource:
-                    fontFileResolved ||
-                    (forced === false
-                        ? fontDirs.some((dir) => holdsLoadableFont({ directory: dir, isFile }))
-                        : fontDirs.length > 0),
+                hasSource: fontFileResolved || (searched ? searched.found : fontDirs.length > 0),
                 otherwise:
                     !fontFileResolved || preferredFamily !== undefined || !isAsciiOnly(renderedText),
                 platform,
-                rejected: [...fontFiles, ...dirs.filter((dir) => !fontDirs.includes(dir))],
+                rejected: [
+                    ...fontFiles,
+                    ...(searched?.rejected ?? []),
+                    ...dirs.filter((dir) => !fontDirs.includes(dir)),
+                ],
             }),
             sansSerifFamily: family,
         };
@@ -603,22 +652,27 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     // Both treat empty as unset. `''.split(delimiter).filter(Boolean)` is an
     // empty array, which is truthy, so a variable that is set but blank would
     // otherwise take this branch and shadow the probe table with no font at all.
+    // Dirs only, for the same reason the explicit branch takes only sources: a
+    // family name selecting this branch skipped the probe table and made the
+    // documented `SFN_DIAGRAM_PNG_FONT_FAMILY` + `..._LOAD_SYSTEM_FONTS=false`
+    // pair throw on an image that ships a probed font.
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
-    const envFontFamily = firstFamilyIn(process.env.SFN_DIAGRAM_PNG_FONT_FAMILY);
-    if (envFontDirs?.length || envFontFamily) {
-        const fontDirs = (envFontDirs ?? []).filter(dirExists);
-        const family = overrideFamily ?? envFontFamily ?? preferredFamily;
+    if (envFontDirs?.length) {
+        const fontDirs = envFontDirs.filter(dirExists);
+        const searched = forced === false ? searchFontDirs({ fontDirs, isFile }) : undefined;
+        const family = askedFor.find((name) => name !== undefined);
         return {
             defaultFontFamily: family,
             fontDirs,
             loadSystemFonts: refuseBlank({
                 forced,
-                hasSource:
-                    forced === false
-                        ? fontDirs.some((dir) => holdsLoadableFont({ directory: dir, isFile }))
-                        : fontDirs.length > 0,
+                hasSource: searched ? searched.found : fontDirs.length > 0,
                 otherwise: true,
                 platform,
+                rejected: [
+                    ...(searched?.rejected ?? []),
+                    ...envFontDirs.filter((dir) => !fontDirs.includes(dir)),
+                ],
             }),
             sansSerifFamily: family,
         };
@@ -631,7 +685,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const probes = FONT_PROBES[platform] ?? [];
     const match = probes.find((probe) => isFile(probe.path));
     if (!match) {
-        const unresolved = overrideFamily ?? preferredFamily;
+        const unresolved = askedFor.find((name) => name !== undefined);
         return {
             defaultFontFamily: unresolved,
             loadSystemFonts: refuseBlank({ forced, hasSource: false, otherwise: true, platform }),
@@ -639,7 +693,7 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         };
     }
 
-    const family = overrideFamily ?? preferredFamily ?? match.family;
+    const family = askedFor.find((name) => name !== undefined) ?? match.family;
     const loadSystemFonts = refuseBlank({
         forced,
         hasSource: true,

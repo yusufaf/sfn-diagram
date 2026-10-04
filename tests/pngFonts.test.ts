@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { LOAD_SYSTEM_FONTS_ENV_VAR, resolvePngFontOptions } from '../src/exporters/pngFonts';
+import {
+    FONT_SEARCH_LIMITS,
+    LOAD_SYSTEM_FONTS_ENV_VAR,
+    resolvePngFontOptions,
+} from '../src/exporters/pngFonts';
 
 const LINUX_LIBERATION = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf';
 
@@ -537,6 +541,40 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(true);
         });
 
+        // The family names a font; it is not a source. Letting it select the env
+        // branch skipped the probe table, so the two documented env vars
+        // together threw on an image that ships a probed font.
+        it('still reaches the probe table for SFN_DIAGRAM_PNG_FONT_FAMILY alone', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Liberation Sans');
+
+            const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
+
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+            expect(result.sansSerifFamily).toBe('Liberation Sans');
+        });
+
+        it('honours the two env vars together instead of refusing', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Liberation Sans');
+            vi.stubEnv(LOAD_SYSTEM_FONTS_ENV_VAR, 'false');
+
+            const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
+
+            expect(result.loadSystemFonts).toBe(false);
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+        });
+
+        it('lets an explicit fontFamily win over the env family', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Env Sans');
+
+            const result = resolvePngFontOptions({
+                fontFamily: 'Param Sans',
+                platform: 'linux',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.sansSerifFamily).toBe('Param Sans');
+        });
+
         it('stays on for SFN_DIAGRAM_PNG_FONT_FAMILY alone', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Env Sans');
 
@@ -580,7 +618,40 @@ describe('resolvePngFontOptions', () => {
                     dirExists: () => false,
                     isFile: () => false,
                 })
-            ).toThrow(/could not read any of \/not\/a\/directory/);
+            ).toThrow(/could not load a font from \/not\/a\/directory/);
+        });
+
+        it('says a fontDir exists but holds nothing loadable, not just that it pruned one', () => {
+            const empty = scratchDirWithoutFont();
+
+            expect(() =>
+                resolvePngFontOptions({
+                    fontDirs: [empty],
+                    loadSystemFonts: false,
+                    dirExists: () => true,
+                })
+            ).toThrow(/no font resvg can parse/);
+        });
+
+        // A truncated search cannot be read as a find: that would honour the
+        // request against a tree whose fonts are past the budget and render
+        // blank, which is the failure the guard exists to stop.
+        it('says so when the search ran out of budget rather than claiming a find', () => {
+            const directory = scratchDirWithoutFont();
+            const entries = FONT_SEARCH_LIMITS.entries;
+            FONT_SEARCH_LIMITS.entries = 0;
+
+            try {
+                expect(() =>
+                    resolvePngFontOptions({
+                        fontDirs: [directory],
+                        loadSystemFonts: false,
+                        dirExists: () => true,
+                    })
+                ).toThrow(/no font in its first 0 entries/);
+            } finally {
+                FONT_SEARCH_LIMITS.entries = entries;
+            }
         });
 
         it('names the fontFiles it could not read when it refuses', () => {
@@ -591,7 +662,7 @@ describe('resolvePngFontOptions', () => {
                     dirExists: () => false,
                     isFile: () => false,
                 })
-            ).toThrow(/could not read any of \/typo\/Arial.ttf, \/also\/missing.ttf/);
+            ).toThrow(/could not load a font from \/typo\/Arial.ttf, \/also\/missing.ttf/);
         });
 
         it('refuses to be forced off for a fontFamily with nothing to load from', () => {

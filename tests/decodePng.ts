@@ -49,6 +49,12 @@ export function decodePng(png: Buffer): DecodedPng {
     while (offset + 8 <= png.length) {
         const length = png.readUInt32BE(offset);
         const type = png.toString('ascii', offset + 4, offset + 8);
+        // subarray clamps silently, so a chunk claiming more than is there would
+        // reach the IHDR field reads below and throw a bare RangeError.
+        if (offset + 8 + length > png.length) {
+            throw new Error(`decodePng: ${type} chunk claims ${length} bytes, past the end`);
+        }
+
         const data = png.subarray(offset + 8, offset + 8 + length);
 
         if (type === 'IHDR') {
