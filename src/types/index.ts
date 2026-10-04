@@ -1045,12 +1045,33 @@ export interface ViewerUpdate {
 export interface GenerateDiagramParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
+    /**
+     * Optional layout cache from `createLayoutCache`. Skips re-running dagre for a definition
+     * already laid out under the same layout-affecting options. Ignored for `mermaid` output,
+     * which does no layout. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
+}
+
+/** Constructor options for `SfnDiagramGenerator`. */
+export interface SfnDiagramGeneratorOptions extends DiagramOptions {
+    /**
+     * Optional layout cache from `createLayoutCache`, shared by every SVG/HTML render this
+     * generator makes. Omitted, the generator caches nothing.
+     */
+    cache?: LayoutCache;
 }
 
 /** Parameters for `exportPng` (from the `sfn-diagram/png` subpath). */
 export interface ExportPngParams extends DiagramOptions, PngExportOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
+    /**
+     * Optional layout cache from `createLayoutCache`. Skips re-running dagre for a definition
+     * already laid out under the same layout-affecting options. Ignored for `mermaid` output,
+     * which does no layout. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
 }
 
 /** Constructor options for {@link PngExporter}. */

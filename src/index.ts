@@ -30,12 +30,14 @@ import { mergeDiagramOptions, mergeOptions } from './config';
 import { generateHtml } from './html';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import type { MergedDiagramOptions } from './pipeline';
+import type { LayoutCache } from './layout';
 import type {
     GenerateSvgParams,
     GenerateMermaidParams,
     GenerateDiagramParams,
     GenerateFromAwsParams,
     DiagramOptions,
+    SfnDiagramGeneratorOptions,
     SvgOutput,
     MermaidOutput,
     HtmlOutput,
@@ -195,6 +197,7 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * @param params.format - Output format: 'svg' (default), 'mermaid' or 'html'
  * @param params.theme - Color theme (SVG only)
  * @param params.layout - Layout direction (SVG only)
+ * @param params.cache - Layout cache from `createLayoutCache` (SVG and HTML only; ignored for Mermaid)
  * @param ...params - Other options (see generateSvg, generateMermaid or generateHtml)
  *
  * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid',
@@ -217,7 +220,7 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 export function generateDiagram(
     params: GenerateDiagramParams,
 ): HtmlOutput | MermaidOutput | SvgOutput {
-    const { aslDefinition, format, ...options } = params;
+    const { aslDefinition, cache, format, ...options } = params;
     const mergedOptions = mergeOptions({ format, ...options });
 
     if (mergedOptions.format === 'mermaid') {
@@ -225,7 +228,7 @@ export function generateDiagram(
     }
 
     if (mergedOptions.format === 'html') {
-        return generateHtml({ aslDefinition, ...options });
+        return generateHtml({ aslDefinition, cache, ...options });
     }
 
     if (mergedOptions.format === 'png') {
@@ -235,7 +238,7 @@ export function generateDiagram(
         );
     }
 
-    return generateSvg({ aslDefinition, ...options });
+    return generateSvg({ aslDefinition, cache, ...options });
 }
 
 /**
@@ -313,20 +316,29 @@ export function generateFromAwsResponse(
  * ```
  */
 export class SfnDiagramGenerator {
+    private cache: LayoutCache | undefined;
     private options: MergedDiagramOptions;
 
     /**
      * Create a new diagram generator with default options
      *
-     * @param options - Default diagram options for all subsequent generations
+     * @param options - Default diagram options for all subsequent generations. Pass `cache`
+     *   (from `createLayoutCache`) to reuse layouts across renders; omitted, nothing is cached.
      *
      * @example
      * ```typescript
      * const generator = new SfnDiagramGenerator({ theme: 'dark', layout: 'LR' });
      * ```
+     *
+     * @example
+     * ```typescript
+     * const generator = new SfnDiagramGenerator({ cache: createLayoutCache() });
+     * ```
      */
-    constructor(options: DiagramOptions = {}) {
-        this.options = mergeOptions(options);
+    constructor(options: SfnDiagramGeneratorOptions = {}) {
+        const { cache, ...diagramOptions } = options;
+        this.cache = cache;
+        this.options = mergeOptions(diagramOptions);
     }
 
     /**
@@ -344,7 +356,7 @@ export class SfnDiagramGenerator {
     generate(params: {
         aslDefinition: AslDefinition | string;
     }): HtmlOutput | MermaidOutput | SvgOutput {
-        return generateDiagram({ ...params, ...this.options });
+        return generateDiagram({ ...params, ...this.options, cache: this.cache });
     }
 
     /**
@@ -360,7 +372,7 @@ export class SfnDiagramGenerator {
      * ```
      */
     generateSvg(params: { aslDefinition: AslDefinition | string }): SvgOutput {
-        return generateSvg({ ...params, ...this.options });
+        return generateSvg({ ...params, ...this.options, cache: this.cache });
     }
 
     /**
@@ -428,6 +440,7 @@ export type {
     RedactParams,
     ViewerUpdate,
     GenerateDiagramParams,
+    SfnDiagramGeneratorOptions,
     GenerateDiffParams,
     GenerateMermaidDiffParams,
     GenerateFromAwsParams,
