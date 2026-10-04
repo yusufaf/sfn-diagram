@@ -122,13 +122,13 @@ export interface ResvgFontOptions {
  * file paths.
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
- * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` if a concrete font file or
- * directory resolved and `true` if nothing did. Scanning every installed font
- * costs ~250ms per export and buys nothing once a specific file is known
- * (#336); it stays on where it is the only way text renders at all, including
- * when only a family name was given, since a family cannot be located without
- * a search path. Forcing it on restores the pre-#336 shape, which also keeps
- * resvg's fallback for glyphs the resolved font lacks.
+ * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` only if an existing font
+ * *file* is known, and `true` otherwise. Scanning every installed font costs
+ * ~250ms per export and buys nothing once a specific file is known (#336), but
+ * nothing short of a readable file proves text can render at all: a directory
+ * that exists may hold no font fontdb can parse, and a family name cannot be
+ * located without a search path. Both render a blank PNG with the scan off, so
+ * both keep it on. Forcing it on restores the pre-#336 shape.
  *
  * @param params - Explicit overrides, an injectable `fileExists`, and platform.
  * @returns Font options ready to pass to resvg's `Resvg` constructor.
@@ -146,16 +146,14 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
 
     if (params.fontFiles || params.fontDirs || params.fontFamily) {
         // fontDirs are best-effort search paths, so a stale/nonexistent one is
-        // silently pruned. fontFiles is a specific, deliberate request - pass
-        // it through verbatim so a genuine typo surfaces as resvg's own error
-        // rather than being silently dropped.
-        const fontDirs = (params.fontDirs ?? []).filter(fileExists);
-        const resolvedSomething = Boolean(params.fontFiles?.length) || fontDirs.length > 0;
+        // silently pruned. fontFiles is a specific, deliberate request - pass it
+        // through verbatim, and let `fileExists` decide only whether it counts
+        // as a resolved font.
         return {
             defaultFontFamily: params.fontFamily,
-            fontDirs,
+            fontDirs: (params.fontDirs ?? []).filter(fileExists),
             fontFiles: params.fontFiles,
-            loadSystemFonts: forced ?? !resolvedSomething,
+            loadSystemFonts: forced ?? !(params.fontFiles ?? []).some(fileExists),
             sansSerifFamily: params.fontFamily,
         };
     }
@@ -163,11 +161,10 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
     const envFontFamily = process.env.SFN_DIAGRAM_PNG_FONT_FAMILY;
     if (envFontDirs || envFontFamily) {
-        const fontDirs = (envFontDirs ?? []).filter(fileExists);
         return {
             defaultFontFamily: envFontFamily,
-            fontDirs,
-            loadSystemFonts: forced ?? fontDirs.length === 0,
+            fontDirs: (envFontDirs ?? []).filter(fileExists),
+            loadSystemFonts: forced ?? true,
             sansSerifFamily: envFontFamily,
         };
     }
@@ -189,7 +186,10 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         };
     }
 
-    // The probe matched an exact file, so hand resvg just that file.
+    // The probe matched an exact file, so hand resvg just that file. Only the
+    // regular face: a `font-weight="bold"` run renders at regular weight rather
+    // than being synthesized, which no SVG this package generates asks for but
+    // a hand-rolled one passed to PngExporter might.
     return {
         defaultFontFamily: match.family,
         fontFiles: [match.path],

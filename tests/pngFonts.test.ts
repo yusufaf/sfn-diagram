@@ -72,7 +72,7 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(false);
         });
 
-        it('is off for explicit fontFiles', () => {
+        it('is off for an explicit fontFile that exists', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/my/fonts/custom.ttf'],
                 fileExists: () => true,
@@ -81,10 +81,35 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(false);
         });
 
-        it('is off for explicit fontDirs that exist', () => {
-            const result = resolvePngFontOptions({ fontDirs: ['/exists'], fileExists: () => true });
+        // resvg does not error on a fontFiles entry it cannot read - it renders a
+        // valid, blank PNG. Keeping the scan on is what stops a typo there being
+        // silent, now that it is no longer on unconditionally.
+        it('stays on for fontFiles that do not exist, but still passes them through', () => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/typo/Arial.ttf'],
+                fileExists: () => false,
+            });
+
+            expect(result.fontFiles).toEqual(['/typo/Arial.ttf']);
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('is off when only one of several fontFiles exists', () => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/typo/Arial.ttf', '/my/fonts/custom.ttf'],
+                fileExists: (path) => path === '/my/fonts/custom.ttf',
+            });
 
             expect(result.loadSystemFonts).toBe(false);
+        });
+
+        // A directory that exists may hold no font fontdb can parse - an empty
+        // mount renders every label blank with the scan off.
+        it('stays on for explicit fontDirs, which prove no loadable font', () => {
+            const result = resolvePngFontOptions({ fontDirs: ['/exists'], fileExists: () => true });
+
+            expect(result.fontDirs).toEqual(['/exists']);
+            expect(result.loadSystemFonts).toBe(true);
         });
 
         it('stays on when every explicit fontDir was pruned as non-existent', () => {
@@ -103,13 +128,13 @@ describe('resolvePngFontOptions', () => {
             expect(result.loadSystemFonts).toBe(true);
         });
 
-        it('is off for SFN_DIAGRAM_PNG_FONT_DIRS that exist', () => {
+        it('stays on for SFN_DIAGRAM_PNG_FONT_DIRS, for the same reason', () => {
             vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '/env/fonts');
 
             const result = resolvePngFontOptions({ fileExists: () => true });
 
             expect(result.fontDirs).toEqual(['/env/fonts']);
-            expect(result.loadSystemFonts).toBe(false);
+            expect(result.loadSystemFonts).toBe(true);
         });
 
         it('stays on for SFN_DIAGRAM_PNG_FONT_FAMILY alone', () => {
@@ -157,11 +182,14 @@ describe('resolvePngFontOptions', () => {
         ])('reads the env var set to %j as %s', (value, expected) => {
             vi.stubEnv(LOAD_SYSTEM_FONTS_ENV_VAR, value);
 
-            // fileExists is inverted against the expectation so a branch default
-            // of the same value cannot make the assertion pass on its own.
+            // fileExists is set so the probe branch's own default is the
+            // opposite of the expectation - it matches (default off) when the
+            // env var says on, and misses (default on) when it says off.
+            // Otherwise every case here would pass without the env var being
+            // read at all.
             const result = resolvePngFontOptions({
                 platform: 'linux',
-                fileExists: () => !expected,
+                fileExists: () => expected,
             });
 
             expect(result.loadSystemFonts).toBe(expected);

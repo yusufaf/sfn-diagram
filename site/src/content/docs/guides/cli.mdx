@@ -718,12 +718,15 @@ Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
 
 PNG text is rendered with Liberation Sans, which the image ships. To use your own fonts, mount them and point the renderer at them with `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list of directories) or `SFN_DIAGRAM_PNG_FONT_FAMILY`.
 
-Once a font file or directory resolves — from those variables or from the built-in per-platform
-defaults — the renderer loads only that font and skips parsing every installed system font, which
-is around 250ms per export. Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to scan them anyway, which
-is what you want if a diagram contains glyphs the resolved font does not cover, such as CJK text.
-Accepted values are `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error
-rather than being ignored.
+When an exact font file is known — the built-in per-platform default, which is the Liberation Sans
+the image ships — the renderer loads only that file and skips parsing every installed system font,
+saving around 250ms per export. Pointing `SFN_DIAGRAM_PNG_FONT_DIRS` at a directory keeps the scan
+on, because a directory that exists may hold no font the renderer can parse.
+
+Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to scan anyway. That is what you want if a diagram
+contains glyphs the one resolved font does not cover, such as CJK text, which otherwise renders as
+tofu. Accepted values are `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an
+error rather than being ignored.
 
 ## Standalone binary
 

@@ -759,11 +759,16 @@ export interface PngExportOptions {
      * Whether resvg should also parse every installed system font, which costs
      * ~250ms per export. `resvg` only.
      *
-     * Defaults to `false` whenever a concrete font file or directory resolved —
-     * one of `fontDirs`/`fontFiles`, `SFN_DIAGRAM_PNG_FONT_DIRS`, or the
-     * built-in per-platform probe table — and `true` when nothing did, so text
-     * still renders. Set it to `true` to keep resvg's own fallback for glyphs
-     * the resolved font lacks, CJK text for instance. The
+     * Defaults to `false` only when an existing font *file* is known — an entry
+     * of `fontFiles`, or a hit in the built-in per-platform probe table — and
+     * `true` otherwise, including for `fontDirs`/`fontFamily` and
+     * `SFN_DIAGRAM_PNG_FONT_DIRS`, since neither a directory nor a family name
+     * proves a loadable font and resvg renders blank text without one.
+     *
+     * Set it to `true` to keep resvg's own fallback, which the single resolved
+     * file gives up: glyphs that font does not cover (CJK text, for instance)
+     * render as tofu, and a `font-weight="bold"` run renders at regular weight.
+     * No SVG this package generates asks for either. The
      * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` env var sets it for callers that
      * cannot pass options, such as the CLI.
      */

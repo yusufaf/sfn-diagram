@@ -46,7 +46,8 @@ export function decodePng(png: Buffer): DecodedPng {
         if (type === 'IHDR') {
             width = data.readUInt32BE(0);
             height = data.readUInt32BE(4);
-            const [bitDepth, colorType] = [data[8], data[9]];
+            const bitDepth = data[8];
+            const colorType = data[9];
             const interlace = data[12];
             if (bitDepth !== 8 || colorType !== 6 || interlace !== 0) {
                 throw new Error(
