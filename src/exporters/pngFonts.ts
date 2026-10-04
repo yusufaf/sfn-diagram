@@ -150,13 +150,6 @@ export interface ResolvePngFontOptionsParams {
     /** Injectable file-existence check, for testing. @default fs.existsSync */
     fileExists?: (path: string) => boolean;
 
-    /**
-     * Injectable readable-regular-file check, for testing. Decides whether a
-     * `fontFiles` entry counts as a resolved font.
-     * @default a `statSync`/`accessSync` check
-     */
-    isFile?: (path: string) => boolean;
-
     /** Directories to search for font files, overriding automatic detection. */
     fontDirs?: string[];
 
@@ -167,14 +160,31 @@ export interface ResolvePngFontOptionsParams {
     fontFiles?: string[];
 
     /**
+     * Injectable readable-regular-file check, for testing. Decides whether a
+     * `fontFiles` entry, or a probe path, counts as a resolved font.
+     * @default a `statSync`/`accessSync` check
+     */
+    isFile?: (path: string) => boolean;
+
+    /**
      * Whether resvg should also parse every installed system font. Defaults to
-     * `false` only when a readable font file resolved, `true` otherwise -
-     * a directory or a family name does not prove one.
+     * `false` only when a readable font file resolved and no other family has
+     * to be matched, `true` otherwise - a directory or a family name does not
+     * prove a loadable font.
      */
     loadSystemFonts?: boolean;
 
     /** Platform to probe for. @default process.platform */
     platform?: NodeJS.Platform;
+
+    /**
+     * Font family the SVG itself asks for, as opposed to an override. Unlike
+     * {@link ResolvePngFontOptionsParams.fontFamily} it is not a font *source*,
+     * so the env vars and the probe table are still consulted; it only names
+     * the family, and keeps the system fonts searchable by default because a
+     * family cannot be matched out of one font file.
+     */
+    preferredFamily?: string;
 }
 
 /** Font options in the shape resvg's `Resvg` constructor accepts. */
@@ -193,14 +203,18 @@ export interface ResvgFontOptions {
  * `SFN_DIAGRAM_PNG_FONT_FAMILY`, then a fixed table of known per-platform font
  * file paths.
  *
+ * `preferredFamily` sits outside that precedence: it names the family on
+ * whatever source resolves, rather than being a source itself.
+ *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
- * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` only if an existing font
- * *file* is known, and `true` otherwise. Scanning every installed font costs
- * ~250ms per export and buys nothing once a specific file is known (#336), but
- * nothing short of a readable file proves text can render at all: a directory
- * that exists may hold no font fontdb can parse, and a family name cannot be
- * located without a search path. Both render a blank PNG with the scan off, so
- * both keep it on. Forcing it on restores the pre-#336 shape.
+ * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then `false` only if a readable font
+ * *file* is known and no `preferredFamily` has to be matched, and `true`
+ * otherwise. Scanning every installed font costs ~250ms per export and buys
+ * nothing once a specific file is known (#336), but nothing short of a readable
+ * file proves text can render at all: a directory that exists may hold no font
+ * fontdb can parse, and a family name cannot be located without a search path.
+ * Each renders a blank PNG with the scan off, so each keeps it on. Forcing it
+ * on restores the pre-#336 shape.
  *
  * @param params - Explicit overrides, injectable path checks, and platform.
  * @returns Font options ready to pass to resvg's `Resvg` constructor.
@@ -216,6 +230,7 @@ export interface ResvgFontOptions {
 export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): ResvgFontOptions {
     const { fileExists = existsSync, isFile = isReadableFile, platform = process.platform } = params;
     const forced = params.loadSystemFonts ?? readLoadSystemFontsEnv();
+    const preferredFamily = params.preferredFamily;
 
     if (params.fontFiles || params.fontDirs || params.fontFamily) {
         // fontDirs are best-effort search paths, so a stale/nonexistent one is
@@ -224,26 +239,34 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         // resolved font.
         const fontDirs = (params.fontDirs ?? []).filter(fileExists);
         const fontFileResolved = (params.fontFiles ?? []).some(isFile);
+        const family = params.fontFamily ?? preferredFamily;
         return {
-            defaultFontFamily: params.fontFamily,
+            defaultFontFamily: family,
             fontDirs,
             fontFiles: params.fontFiles,
+            // A directory can only be known to hold a usable font by walking it,
+            // so it is not enough to turn the scan off by itself - but it is a
+            // real search path, so it is enough to honour an explicit `false`.
             loadSystemFonts: refuseBlank({
                 forced,
                 hasSource: fontFileResolved || fontDirs.length > 0,
-                otherwise: !fontFileResolved,
+                otherwise: !fontFileResolved || preferredFamily !== undefined,
                 platform,
             }),
-            sansSerifFamily: params.fontFamily,
+            sansSerifFamily: family,
         };
     }
 
+    // Both treat empty as unset. `''.split(delimiter).filter(Boolean)` is an
+    // empty array, which is truthy, so a variable that is set but blank would
+    // otherwise take this branch and shadow the probe table with no font at all.
     const envFontDirs = process.env.SFN_DIAGRAM_PNG_FONT_DIRS?.split(delimiter).filter(Boolean);
-    const envFontFamily = process.env.SFN_DIAGRAM_PNG_FONT_FAMILY;
-    if (envFontDirs || envFontFamily) {
+    const envFontFamily = process.env.SFN_DIAGRAM_PNG_FONT_FAMILY?.trim() || undefined;
+    if (envFontDirs?.length || envFontFamily) {
         const fontDirs = (envFontDirs ?? []).filter(fileExists);
+        const family = envFontFamily ?? preferredFamily;
         return {
-            defaultFontFamily: envFontFamily,
+            defaultFontFamily: family,
             fontDirs,
             loadSystemFonts: refuseBlank({
                 forced,
@@ -251,37 +274,51 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
                 otherwise: true,
                 platform,
             }),
-            sansSerifFamily: envFontFamily,
+            sansSerifFamily: family,
         };
     }
 
+    // `isFile`, not `fileExists`: a probe path that exists but is a directory,
+    // or is unreadable by this process, loads no glyph and resvg does not say
+    // so. Existence alone was enough to strand the default path on one
+    // unloadable file with the scan already off.
     const probes = FONT_PROBES[platform] ?? [];
-    const match = probes.find((probe) => fileExists(probe.path));
+    const match = probes.find((probe) => isFile(probe.path));
     if (!match) {
         return {
             loadSystemFonts: refuseBlank({ forced, hasSource: false, otherwise: true, platform }),
         };
     }
 
-    // Forced back on: return the search-path shape this used to return
-    // unconditionally, so the pre-#336 rendering is reproducible exactly.
-    if (forced) {
+    const family = preferredFamily ?? match.family;
+    const loadSystemFonts = refuseBlank({
+        forced,
+        hasSource: true,
+        // One font file cannot satisfy a different family, so a preferred one
+        // needs the fonts searchable.
+        otherwise: preferredFamily !== undefined,
+        platform,
+    });
+
+    // Scanning: the search-path shape this used to return unconditionally, so
+    // the pre-#336 rendering stays reproducible.
+    if (loadSystemFonts) {
         return {
-            defaultFontFamily: match.family,
+            defaultFontFamily: family,
             fontDirs: (FONT_DIRS[platform] ?? []).filter(fileExists),
             loadSystemFonts: true,
-            sansSerifFamily: match.family,
+            sansSerifFamily: family,
         };
     }
 
-    // The probe matched an exact file, so hand resvg just that file. Only the
-    // regular face: a `font-weight="bold"` run renders at regular weight rather
-    // than being synthesized, which no SVG this package generates asks for but
-    // a hand-rolled one passed to PngExporter might.
+    // Not scanning: hand resvg the one probed file. Only the regular face, so a
+    // `font-weight="bold"` run renders at regular weight rather than being
+    // synthesized - which no SVG this package generates asks for, but a
+    // hand-rolled one passed to PngExporter might.
     return {
-        defaultFontFamily: match.family,
+        defaultFontFamily: family,
         fontFiles: [match.path],
         loadSystemFonts: false,
-        sansSerifFamily: match.family,
+        sansSerifFamily: family,
     };
 }

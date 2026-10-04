@@ -556,3 +556,40 @@ const { svg } = generateSvg({
 - **PNG export**: CDN icons are inlined as data URIs before rasterizing (via `embedIcons`), so `showIcons` renders correctly with the default `resvg` engine. This requires network access when the PNG is generated; an icon whose fetch fails falls back to the original CDN URL, which `resvg` cannot fetch — that icon silently fails to render rather than the reference being removed. Only calling `PngExporter` directly with a hand-authored SVG skips this inlining — embed external images yourself first in that case.
 - Unsupported services gracefully fall back to text-only labels
 - Icons are opt-in via `showIcons: true` (disabled by default)
+
+## PNG fonts
+
+SVG and Mermaid output only names a font family; the font itself is the viewer's problem. PNG has
+to find and parse a real font file, so `sfn-diagram/png` resolves one, in this order:
+
+1. the `fontFiles` / `fontDirs` / `fontFamily` export options,
+2. `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list, `;` on Windows) and
+   `SFN_DIAGRAM_PNG_FONT_FAMILY`, for callers that cannot pass options, such as the CLI,
+3. a built-in table of per-platform font paths — Liberation Sans, DejaVu Sans or Noto Sans on
+   Linux, Helvetica or Arial on macOS, Arial on Windows.
+
+```typescript
+await exportPng({ aslDefinition: asl, fontFiles: ['/opt/fonts/Inter-Regular.ttf'] });
+```
+
+### The system font scan
+
+When step 3 finds a readable file, that one file is all resvg loads, and the ~250ms it would
+otherwise spend parsing every installed font is skipped. The trade is that nothing else is
+available to fall back on:
+
+- glyphs that font does not cover — CJK text in a state name, emoji — render as tofu,
+- a `font-weight="bold"` run renders at regular weight instead of being synthesized. No SVG this
+  package generates asks for bold, but one you hand-roll and pass to `PngExporter` might.
+
+A `theme.fontFamily` other than the built-in `'Arial, sans-serif'` turns the scan back on by
+itself, since one font file cannot satisfy a different family. To ask for it directly:
+
+```typescript
+await exportPng({ aslDefinition: asl, loadSystemFonts: true });
+```
+
+or, for the CLI and the Docker image, `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true`. It accepts
+`1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
+ignored. Turning it off with no font file or directory to load from is refused — it would render
+every label blank with nothing to explain why.

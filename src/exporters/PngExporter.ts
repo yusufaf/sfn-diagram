@@ -9,6 +9,26 @@ import { renderResvgPng } from './resvgEngine';
  */
 const BUILT_IN_FONT_FAMILIES = new Set([AWS_LIGHT_THEME.fontFamily, AWS_DARK_THEME.fontFamily]);
 
+/**
+ * The first family named in a CSS font stack, unquoted.
+ *
+ * `theme.fontFamily` is a stack ('MyBrand Sans, sans-serif'), while resvg's
+ * `defaultFontFamily` takes one family name and does not split a list - handing
+ * it the whole stack matches nothing at all.
+ *
+ * @param stack - A CSS `font-family` value.
+ * @returns The first family in it, or `undefined` if it names none.
+ */
+function firstFamilyIn(stack: string): string | undefined {
+    const first = stack
+        .split(',')[0]
+        ?.trim()
+        .replace(/^['"]|['"]$/g, '')
+        .trim();
+
+    return first || undefined;
+}
+
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
     /**
@@ -67,21 +87,23 @@ export class PngExporter {
         // SvgRenderer writes theme.fontFamily onto every <text>, and the default
         // font path loads exactly one probed file - which resvg then uses for
         // whatever family the SVG asks for, so a custom theme.fontFamily would
-        // silently render as Arial. Treat it as a caller-passed fontFamily,
-        // which keeps the system fonts searchable so it can actually be found.
+        // silently render as the probed font. It goes in as preferredFamily, not
+        // fontFamily: it has to name the family without also claiming to be the
+        // font source, which would skip the font dirs a caller configured.
         const themeFontFamily = getTheme(theme).fontFamily;
-        const requestedFontFamily =
-            fontFamily ??
-            (BUILT_IN_FONT_FAMILIES.has(themeFontFamily) ? undefined : themeFontFamily);
+        const preferredFamily = BUILT_IN_FONT_FAMILIES.has(themeFontFamily)
+            ? undefined
+            : firstFamilyIn(themeFontFamily);
 
         const rendered =
             engine === 'resvg'
                 ? await renderResvgPng({
                       backgroundColor,
                       fontDirs,
-                      fontFamily: requestedFontFamily,
+                      fontFamily,
                       fontFiles,
                       loadSystemFonts,
+                      preferredFamily,
                       scale,
                       svg,
                       width,

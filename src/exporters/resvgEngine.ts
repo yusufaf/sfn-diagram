@@ -50,6 +50,12 @@ export interface RenderResvgPngParams {
     /** Whether resvg should also parse every installed system font. */
     loadSystemFonts?: boolean;
 
+    /**
+     * Font family the SVG asks for, which names the family without selecting
+     * where fonts are loaded from. See `resolvePngFontOptions`.
+     */
+    preferredFamily?: string;
+
     /** Multiplier applied to the diagram's rendered size. @default 1 */
     scale?: number;
 
@@ -74,14 +80,29 @@ export interface RenderResvgPngParams {
 export async function renderResvgPng(
     params: RenderResvgPngParams
 ): Promise<{ buffer: Buffer; height: number; width: number }> {
-    const { backgroundColor, fontDirs, fontFamily, fontFiles, loadSystemFonts, scale = 1, svg, width } =
-        params;
+    const {
+        backgroundColor,
+        fontDirs,
+        fontFamily,
+        fontFiles,
+        loadSystemFonts,
+        preferredFamily,
+        scale = 1,
+        svg,
+        width,
+    } = params;
     if (scale <= 0) {
         throw new Error(`PNG export 'scale' must be a positive number, got ${scale}.`);
     }
     const { renderAsync } = await loadResvg();
 
-    const font = resolvePngFontOptions({ fontDirs, fontFamily, fontFiles, loadSystemFonts });
+    const font = resolvePngFontOptions({
+        fontDirs,
+        fontFamily,
+        fontFiles,
+        loadSystemFonts,
+        preferredFamily,
+    });
     const background =
         backgroundColor && backgroundColor !== 'transparent' ? backgroundColor : undefined;
 

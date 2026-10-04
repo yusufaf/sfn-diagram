@@ -1,7 +1,32 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { LOAD_SYSTEM_FONTS_ENV_VAR, resolvePngFontOptions } from '../src/exporters/pngFonts';
 
 const LINUX_LIBERATION = '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf';
+
+/**
+ * Path checks for a host where the Liberation Sans probe is a readable font and
+ * the given directories exist. Both predicates matter: the probe table is
+ * matched with `isFile`, while `fontDirs` are pruned with `fileExists`.
+ *
+ * @param dirs - Directories to report as existing.
+ * @returns `fileExists`/`isFile` params to spread in.
+ */
+const hostWithLiberation = (...dirs: string[]) => ({
+    fileExists: (path: string) => path === LINUX_LIBERATION || dirs.includes(path),
+    isFile: (path: string) => path === LINUX_LIBERATION,
+});
+
+beforeEach(() => {
+    // Ambient font env vars would otherwise reach the cases that assert on the
+    // probe table or on the real filesystem.
+    for (const name of [
+        'SFN_DIAGRAM_PNG_FONT_DIRS',
+        'SFN_DIAGRAM_PNG_FONT_FAMILY',
+        LOAD_SYSTEM_FONTS_ENV_VAR,
+    ]) {
+        vi.stubEnv(name, '');
+    }
+});
 
 afterEach(() => {
     vi.unstubAllEnvs();
@@ -41,7 +66,7 @@ describe('resolvePngFontOptions', () => {
     it('probes for Liberation Sans on linux', () => {
         const result = resolvePngFontOptions({
             platform: 'linux',
-            fileExists: (path) => path === LINUX_LIBERATION || path === '/usr/share/fonts',
+            ...hostWithLiberation('/usr/share/fonts'),
         });
 
         expect(result.sansSerifFamily).toBe('Liberation Sans');
@@ -51,7 +76,8 @@ describe('resolvePngFontOptions', () => {
     it('probes for Arial on win32', () => {
         const result = resolvePngFontOptions({
             platform: 'win32',
-            fileExists: (path) => path.toLowerCase().endsWith('arial.ttf'),
+            fileExists: () => false,
+            isFile: (path) => path.toLowerCase().endsWith('arial.ttf'),
         });
 
         expect(result.defaultFontFamily).toBe('Arial');
@@ -74,14 +100,84 @@ describe('resolvePngFontOptions', () => {
         expect(result.fontDirs).toEqual(['/exists']);
     });
 
-    describe('loadSystemFonts', () => {
-        it('is off when a probe resolved an exact font file', () => {
+    describe('preferredFamily', () => {
+        // It names a family; it is not a font source. Letting it select one would
+        // skip the dirs a caller configured, which is the only reason they would
+        // have mounted a font in the first place.
+        it('leaves SFN_DIAGRAM_PNG_FONT_DIRS searched', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '/mounted/fonts');
+
             const result = resolvePngFontOptions({
-                platform: 'linux',
-                fileExists: (path) => path === LINUX_LIBERATION,
+                fileExists: () => true,
+                preferredFamily: 'Georgia',
             });
 
+            expect(result.fontDirs).toEqual(['/mounted/fonts']);
+            expect(result.sansSerifFamily).toBe('Georgia');
+        });
+
+        it('loses to SFN_DIAGRAM_PNG_FONT_FAMILY', () => {
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_FAMILY', 'Env Sans');
+
+            const result = resolvePngFontOptions({
+                fileExists: () => true,
+                preferredFamily: 'Georgia',
+            });
+
+            expect(result.sansSerifFamily).toBe('Env Sans');
+        });
+
+        it('loses to an explicit fontFamily', () => {
+            const result = resolvePngFontOptions({
+                fontFamily: 'Explicit Sans',
+                preferredFamily: 'Georgia',
+                fileExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.sansSerifFamily).toBe('Explicit Sans');
+        });
+
+        it('keeps the scan on even when explicit fontFiles resolved', () => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/my/fonts/custom.ttf'],
+                preferredFamily: 'Georgia',
+                fileExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('is ignored when a blank env font dirs value is set', () => {
+            // ''.split(delimiter).filter(Boolean) is an empty array, which is
+            // truthy - a set-but-blank value must not shadow the probe table.
+            vi.stubEnv('SFN_DIAGRAM_PNG_FONT_DIRS', '');
+
+            const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
+
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
+        });
+    });
+
+    describe('loadSystemFonts', () => {
+        it('is off when a probe resolved an exact font file', () => {
+            const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
+
             expect(result.loadSystemFonts).toBe(false);
+        });
+
+        // existsSync is true for a directory and for a file this process cannot
+        // read, neither of which resvg loads a glyph from or complains about.
+        it('stays on when the probed path exists but is not a readable file', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                fileExists: () => true,
+                isFile: () => false,
+            });
+
+            expect(result.fontFiles).toBeUndefined();
+            expect(result.loadSystemFonts).toBe(true);
         });
 
         it('is off for an explicit fontFile that exists', () => {
@@ -165,7 +261,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 loadSystemFonts: true,
                 platform: 'linux',
-                fileExists: (path) => path === LINUX_LIBERATION || path === '/usr/share/fonts',
+                ...hostWithLiberation('/usr/share/fonts'),
             });
 
             expect(result.loadSystemFonts).toBe(true);
@@ -248,12 +344,33 @@ describe('resolvePngFontOptions', () => {
         it('ignores the env var when it is empty', () => {
             vi.stubEnv(LOAD_SYSTEM_FONTS_ENV_VAR, '  ');
 
+            const result = resolvePngFontOptions({ platform: 'linux', ...hostWithLiberation() });
+
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it('stays on for a preferredFamily, which one font file cannot satisfy', () => {
             const result = resolvePngFontOptions({
                 platform: 'linux',
-                fileExists: (path) => path === LINUX_LIBERATION,
+                preferredFamily: 'Georgia',
+                ...hostWithLiberation('/usr/share/fonts'),
+            });
+
+            expect(result.loadSystemFonts).toBe(true);
+            expect(result.sansSerifFamily).toBe('Georgia');
+            expect(result.fontDirs).toContain('/usr/share/fonts');
+        });
+
+        it('honours being forced off with a preferredFamily, rather than refusing', () => {
+            const result = resolvePngFontOptions({
+                loadSystemFonts: false,
+                platform: 'linux',
+                preferredFamily: 'Georgia',
+                ...hostWithLiberation(),
             });
 
             expect(result.loadSystemFonts).toBe(false);
+            expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
         });
 
         it('throws on an env value that is not a recognized boolean', () => {
@@ -270,7 +387,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 loadSystemFonts: false,
                 platform: 'linux',
-                fileExists: (path) => path === LINUX_LIBERATION,
+                ...hostWithLiberation(),
             });
 
             expect(result.loadSystemFonts).toBe(false);
