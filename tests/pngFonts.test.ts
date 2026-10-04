@@ -156,9 +156,11 @@ describe('resolvePngFontOptions', () => {
             expect(result.sansSerifFamily).toBe('Env Sans');
         });
 
-        it('is ignored for the scan decision when an explicit fontFamily overrides it', () => {
-            // The theme family is discarded here, so paying ~250ms to make it
-            // findable buys nothing.
+        // fontFamily does not override what the markup asks for - resvg applies
+        // it only to text naming no family - so it cannot stand in for the
+        // theme family either. Measured: exportPng is byte-identical with and
+        // without it.
+        it('survives an explicit fontFamily, which overrides nothing in the markup', () => {
             const result = resolvePngFontOptions({
                 fontFamily: 'Inter',
                 fontFiles: ['/opt/fonts/Inter.ttf'],
@@ -167,8 +169,30 @@ describe('resolvePngFontOptions', () => {
                 isFile: () => true,
             });
 
-            expect(result.loadSystemFonts).toBe(false);
+            expect(result.loadSystemFonts).toBe(true);
             expect(result.sansSerifFamily).toBe('Inter');
+        });
+
+        it('is no preference at all when it is the themes own stack', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: 'Arial,sans-serif',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        it('survives the markup escaping its quotes', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: '"Arial", sans-serif',
+                renderedText:
+                    '<svg xmlns="http://www.w3.org/2000/svg"><text font-family="&quot;Arial&quot;, sans-serif">x</text></svg>',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
         });
 
         it('loses to an explicit fontFamily', () => {

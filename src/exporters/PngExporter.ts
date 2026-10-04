@@ -1,13 +1,7 @@
 import type { PngExporterOptions, PngOutput } from '../types';
-import { AWS_DARK_THEME, AWS_LIGHT_THEME, getTheme } from '../config/themes';
+import { getTheme } from '../config/themes';
 import { renderHtmlToImagePng } from './htmlToImageEngine';
 import { renderResvgPng } from './resvgEngine';
-
-/**
- * The font families the built-in themes use, and so the only ones the probe
- * table's single font file can be assumed to satisfy.
- */
-const BUILT_IN_FONT_FAMILIES = new Set([AWS_LIGHT_THEME.fontFamily, AWS_DARK_THEME.fontFamily]);
 
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
@@ -70,10 +64,9 @@ export class PngExporter {
         // silently render as the probed font. It goes in as preferredFamily, not
         // fontFamily: it has to name the family without also claiming to be the
         // font source, which would skip the font dirs a caller configured.
-        const themeFontFamily = getTheme(theme).fontFamily;
-        const preferredFamily = BUILT_IN_FONT_FAMILIES.has(themeFontFamily)
-            ? undefined
-            : themeFontFamily;
+        // resolvePngFontOptions narrows the stack and recognises the built-in
+        // one, so the whole value goes over as it is.
+        const preferredFamily = getTheme(theme).fontFamily;
 
         const rendered =
             engine === 'resvg'

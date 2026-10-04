@@ -196,7 +196,11 @@ function familiesIn(markup: string): string[] {
     const families = new Set<string>();
 
     for (const declaration of markup.matchAll(FONT_FAMILY_DECLARATION)) {
-        const value = declaration[1] ?? declaration[2] ?? declaration[3] ?? '';
+        // The markup is escaped, so a quoted family name arrives as
+        // `&quot;Arial&quot;` and would never match anything.
+        const value = (declaration[1] ?? declaration[2] ?? declaration[3] ?? '')
+            .replace(/&quot;|&#34;/g, '"')
+            .replace(/&apos;|&#39;/g, "'");
         for (const entry of value.split(',')) {
             const family = entry.trim().replace(/^['"]|['"]$/g, '').trim().toLowerCase();
             if (family && !GENERIC_FAMILIES.has(family)) {
@@ -446,11 +450,12 @@ export interface ResvgFontOptions {
  * file paths.
  *
  * `preferredFamily` sits outside that precedence: it names the family on
- * whatever source resolves, rather than being a source itself, and is ignored
- * when `fontFamily` overrides it. One asymmetry follows: an explicit
- * `fontFamily` is matched only within the fonts the caller also supplied, since
- * passing both is a deliberate pairing and second-guessing it would cost the
- * scan on the one path where the caller has named their fonts. Every family is read as a CSS stack and
+ * whatever source resolves, rather than being a source itself. Note what
+ * `fontFamily` can and cannot do - resvg applies it only to text naming no
+ * family of its own, so for a generated diagram, whose every `<text>` carries
+ * the theme's stack, it changes nothing; it is for a hand-authored SVG that
+ * leaves the family out. An explicit `fontFamily` is matched only within the
+ * fonts the caller also supplied, since passing both is a deliberate pairing. Every family is read as a CSS stack and
  * narrowed to its first entry, since resvg matches one name and not a list.
  *
  * `loadSystemFonts` resolves separately: the `loadSystemFonts` param, then
@@ -478,9 +483,15 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const { dirExists = isDirectory, isFile = isReadableFile, platform = process.platform } = params;
     const forced = params.loadSystemFonts ?? readLoadSystemFontsEnv();
     const overrideFamily = firstFamilyIn(params.fontFamily);
-    // An override replaces the family the SVG asked for, so the preferred one
-    // stops mattering - including for whether the scan has to stay on for it.
-    const preferredFamily = overrideFamily === undefined ? firstFamilyIn(params.preferredFamily) : undefined;
+    // `fontFamily` does not override the markup: resvg applies
+    // defaultFontFamily/sansSerifFamily only to text that names no family of
+    // its own, and SvgRenderer writes one onto every <text>. So it cannot
+    // displace `preferredFamily` either - measured, exportPng is byte-identical
+    // with and without it. A family that is the themes' own is no preference at
+    // all, since any probed face has always rendered that stack.
+    const namedFamily = firstFamilyIn(params.preferredFamily);
+    const preferredFamily =
+        namedFamily && BUILT_IN_FAMILIES.has(namedFamily.toLowerCase()) ? undefined : namedFamily;
     const renderedText = params.renderedText ?? '';
     const oneFaceIsEnough = !needsWiderCoverage(renderedText);
 

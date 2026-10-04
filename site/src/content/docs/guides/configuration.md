@@ -568,6 +568,12 @@ to find and parse a real font file, so `sfn-diagram/png` resolves one, in this o
 3. a built-in table of per-platform font paths — Liberation Sans, DejaVu Sans or Noto Sans on
    Linux, Helvetica or Arial on macOS, Arial on Windows.
 
+Which font is *asked for* is a separate question from where fonts are *found*. Every `<text>` a
+diagram generates carries `theme.fontFamily`, and the `fontFamily` option sets only resvg's default
+family — what it uses for text that names none. So `fontFamily` changes nothing about a generated
+diagram (the export is byte-identical with and without it); set `theme.fontFamily` for that. It is
+there for a hand-authored SVG passed to `PngExporter` that leaves the family out.
+
 ```typescript
 await exportPng({ aslDefinition: asl, fontFiles: ['/opt/fonts/Inter-Regular.ttf'] });
 ```

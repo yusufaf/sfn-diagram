@@ -745,8 +745,14 @@ export interface PngExportOptions {
     fontDirs?: string[];
 
     /**
-     * Font family to use for text rendering, overriding automatic detection.
-     * `resvg` only.
+     * Default font family for text that names none of its own, which is what
+     * resvg's `defaultFontFamily` means. `resvg` only.
+     *
+     * Note this does *not* restyle a generated diagram: `SvgRenderer` writes
+     * `theme.fontFamily` onto every `<text>`, so an export is byte-identical
+     * with and without this option. Set `theme.fontFamily` to change a
+     * diagram's font; use this for a hand-authored SVG passed to
+     * {@link PngExporter} that leaves `font-family` out.
      */
     fontFamily?: string;
 

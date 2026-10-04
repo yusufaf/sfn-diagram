@@ -44,21 +44,24 @@ describe('PNG font resolution against the theme', () => {
         resolvePngFontOptions.mockClear();
     });
 
-    it('asks for no particular family when no theme is given', async () => {
-        expect(await render({})).toMatchObject({ fontFamily: undefined, preferredFamily: undefined });
+    // The whole stack goes over, built-in or not: resolvePngFontOptions narrows
+    // it and recognises the themes' own, so a restated built-in stack like
+    // 'Arial,sans-serif' is not mistaken for a custom family here.
+    it('passes the built-in stack when no theme is given', async () => {
+        expect(await render({})).toMatchObject({
+            fontFamily: undefined,
+            preferredFamily: 'Arial, sans-serif',
+        });
     });
 
-    it.each(['light', 'dark'] as const)(
-        'asks for no particular family under the %s theme',
-        async (theme) => {
-            expect(await render({ theme })).toMatchObject({ preferredFamily: undefined });
-        }
-    );
+    it.each(['light', 'dark'] as const)('passes the %s theme stack', async (theme) => {
+        expect(await render({ theme })).toMatchObject({ preferredFamily: 'Arial, sans-serif' });
+    });
 
-    it('asks for no particular family when a custom theme changes something else', async () => {
+    it('passes the inherited stack when a custom theme changes something else', async () => {
         const params = await render({ theme: { fontSize: 18 } });
 
-        expect(params?.preferredFamily).toBeUndefined();
+        expect(params?.preferredFamily).toBe('Arial, sans-serif');
     });
 
     it('passes a custom theme font family as the preferred one', async () => {
