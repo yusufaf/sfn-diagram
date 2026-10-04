@@ -11,7 +11,8 @@
  * #336 took the font scan off the default path, so only the one test that forces
  * `loadSystemFonts: true` still pays for it — and on the Windows runner it pays
  * all of it, because it is now the first thing there to walk every installed
- * font with a cold cache: 12.6s, where the suite was 2.0s before and
+ * font with a cold cache: 7.7s and 12.6s across two runs of this branch,
+ * where the suite was 2.0s before and
  * `tests/integration.test.ts` was the one absorbing ~9s as whichever suite went
  * first. So the value stays at 30s. Local timings are single-digit
  * milliseconds and say nothing about this.

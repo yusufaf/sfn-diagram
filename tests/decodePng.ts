@@ -64,6 +64,10 @@ export function decodePng(png: Buffer): DecodedPng {
         offset += 12 + length;
     }
 
+    if (width === 0 || height === 0) {
+        throw new Error('decodePng: no IHDR chunk, or zero dimensions');
+    }
+
     return { height, pixels: unfilter({ height, raw: inflateSync(Buffer.concat(idat)), width }), width };
 }
 
@@ -89,6 +93,16 @@ interface UnfilterParams {
 function unfilter(params: UnfilterParams): Buffer {
     const { height, raw, width } = params;
     const stride = width * PNG_BYTES_PER_PIXEL;
+
+    // Without this, a short scanline reads as `undefined`, every arithmetic step
+    // after it is NaN, `NaN & 0xff` is 0, and the decoder quietly returns a
+    // fully transparent image - which is the one result the tests here read as
+    // meaningful.
+    const expected = height * (stride + 1);
+    if (raw.length !== expected) {
+        throw new Error(`decodePng: inflated ${raw.length} bytes, expected ${expected}`);
+    }
+
     const pixels = Buffer.alloc(height * stride);
 
     for (let row = 0; row < height; row++) {

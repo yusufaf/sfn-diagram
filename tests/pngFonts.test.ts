@@ -7,6 +7,18 @@ afterEach(() => {
     vi.unstubAllEnvs();
 });
 
+/**
+ * Inputs whose branch default for `loadSystemFonts` is `defaultValue`, and which
+ * always carry a font source so the unsatisfiable-off guard stays out of the way.
+ *
+ * @param defaultValue - The default the returned inputs should produce.
+ * @returns Params to spread into {@link resolvePngFontOptions}.
+ */
+const inputsDefaultingTo = (defaultValue: boolean) =>
+    defaultValue
+        ? { fileExists: () => true, fontDirs: ['/exists'], isFile: () => false }
+        : { fileExists: () => true, fontFiles: ['/exists/font.ttf'], isFile: () => true };
+
 describe('resolvePngFontOptions', () => {
     it('passes explicit fontFiles and fontDirs through verbatim', () => {
         const result = resolvePngFontOptions({
@@ -76,6 +88,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/my/fonts/custom.ttf'],
                 fileExists: () => true,
+                isFile: () => true,
             });
 
             expect(result.loadSystemFonts).toBe(false);
@@ -88,6 +101,7 @@ describe('resolvePngFontOptions', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/typo/Arial.ttf'],
                 fileExists: () => false,
+                isFile: () => false,
             });
 
             expect(result.fontFiles).toEqual(['/typo/Arial.ttf']);
@@ -97,7 +111,8 @@ describe('resolvePngFontOptions', () => {
         it('is off when only one of several fontFiles exists', () => {
             const result = resolvePngFontOptions({
                 fontFiles: ['/typo/Arial.ttf', '/my/fonts/custom.ttf'],
-                fileExists: (path) => path === '/my/fonts/custom.ttf',
+                fileExists: () => false,
+                isFile: (path) => path === '/my/fonts/custom.ttf',
             });
 
             expect(result.loadSystemFonts).toBe(false);
@@ -159,12 +174,51 @@ describe('resolvePngFontOptions', () => {
             expect(result.sansSerifFamily).toBe('Liberation Sans');
         });
 
-        it('forced off, stays off even when nothing resolved at all', () => {
+        // Honouring this would render every label blank and report nothing, which
+        // is the failure mode #336 is about.
+        it('refuses to be forced off when no font resolved at all', () => {
+            expect(() =>
+                resolvePngFontOptions({
+                    loadSystemFonts: false,
+                    platform: 'linux',
+                    fileExists: () => false,
+                })
+            ).toThrow(/no text would render/);
+        });
+
+        it('refuses to be forced off for a fontFamily with no search path', () => {
+            expect(() =>
+                resolvePngFontOptions({
+                    fontFamily: 'Custom Sans',
+                    loadSystemFonts: false,
+                    fileExists: () => false,
+                    isFile: () => false,
+                })
+            ).toThrow(/no text would render/);
+        });
+
+        it('honours being forced off once a fontDir resolved', () => {
             const result = resolvePngFontOptions({
+                fontDirs: ['/exists'],
                 loadSystemFonts: false,
-                platform: 'linux',
-                fileExists: () => false,
+                fileExists: () => true,
             });
+
+            expect(result.loadSystemFonts).toBe(false);
+        });
+
+        // existsSync is true for a directory, and passing one in fontFiles rather
+        // than fontDirs is an easy mix-up. resvg loads no glyph from it and does
+        // not say so, so this must not count as a resolved font. No injection
+        // here: the real statSync check is the thing under test.
+        it('stays on for a fontFiles entry that is a directory, not a file', () => {
+            const result = resolvePngFontOptions({ fontFiles: [process.cwd()] });
+
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('is off for a fontFiles entry that is a real readable file', () => {
+            const result = resolvePngFontOptions({ fontFiles: [import.meta.filename] });
 
             expect(result.loadSystemFonts).toBe(false);
         });
@@ -182,15 +236,11 @@ describe('resolvePngFontOptions', () => {
         ])('reads the env var set to %j as %s', (value, expected) => {
             vi.stubEnv(LOAD_SYSTEM_FONTS_ENV_VAR, value);
 
-            // fileExists is set so the probe branch's own default is the
-            // opposite of the expectation - it matches (default off) when the
-            // env var says on, and misses (default on) when it says off.
-            // Otherwise every case here would pass without the env var being
-            // read at all.
-            const result = resolvePngFontOptions({
-                platform: 'linux',
-                fileExists: () => expected,
-            });
+            // Each case runs against inputs whose own default is the opposite of
+            // the expectation, so a case cannot pass without the env var having
+            // been read. The `false` cases need a font source too, or the
+            // unsatisfiable-off guard throws instead.
+            const result = resolvePngFontOptions({ ...inputsDefaultingTo(!expected) });
 
             expect(result.loadSystemFonts).toBe(expected);
         });

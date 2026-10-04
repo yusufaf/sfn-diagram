@@ -76,6 +76,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         loadSystemFonts,
         pngQuality,
         scale,
+        theme: svgOptions.theme,
     });
     return exporter.convert({
         height: svgOutput.height,
