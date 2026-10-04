@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { delimiter } from 'node:path';
 
 /** A candidate font family and the absolute file that must exist to use it. */
@@ -64,8 +64,8 @@ const FONT_MAGIC = new Set(['\u0000\u0001\u0000\u0000', 'OTTO', 'ttcf', 'true', 
  * something fontdb will not parse - a `.woff`, or a truncated `.ttf`. resvg
  * reports none of the three; it renders a valid, entirely blank PNG. Since this
  * check is what decides whether to skip the system font scan, getting it wrong
- * means the silent blank output #336 is about, so it reads the magic number
- * rather than trusting the path.
+ * means the silent blank output #336 is about, so it opens the file and reads
+ * its magic number rather than trusting the path.
  *
  * @param path - Absolute path to a candidate font file.
  * @returns `true` if it is a readable regular file in a format resvg parses.
@@ -73,14 +73,19 @@ const FONT_MAGIC = new Set(['\u0000\u0001\u0000\u0000', 'OTTO', 'ttcf', 'true', 
 function isReadableFile(path: string): boolean {
     let handle: number | undefined;
     try {
-        if (!statSync(path).isFile()) {
+        // Open first and stat the descriptor, rather than stat'ing the path and
+        // opening it afterwards: checking one thing and then using another is a
+        // race, and CodeQL's js/file-system-race is right to call it one.
+        handle = openSync(path, 'r');
+        if (!fstatSync(handle).isFile()) {
             return false;
         }
-        handle = openSync(path, 'r');
+
         const magic = Buffer.alloc(4);
         if (readSync(handle, magic, 0, 4, 0) < 4) {
             return false;
         }
+
         return FONT_MAGIC.has(magic.toString('latin1'));
     } catch {
         return false;
