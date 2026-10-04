@@ -84,7 +84,13 @@ describe('resolvePngFontOptions', () => {
     });
 
     it('falls back to loadSystemFonts alone when nothing probed exists', () => {
-        const result = resolvePngFontOptions({ platform: 'linux', fileExists: () => false });
+        // isFile too: the probe table is matched with that one, and a CI runner
+        // really does have a font at the probed path.
+        const result = resolvePngFontOptions({
+            platform: 'linux',
+            fileExists: () => false,
+            isFile: () => false,
+        });
 
         expect(result.loadSystemFonts).toBe(true);
         expect(result.fontDirs).toBeUndefined();
@@ -278,6 +284,7 @@ describe('resolvePngFontOptions', () => {
                     loadSystemFonts: false,
                     platform: 'linux',
                     fileExists: () => false,
+                    isFile: () => false,
                 })
             ).toThrow(/no text would render/);
         });
