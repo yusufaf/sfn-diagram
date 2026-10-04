@@ -237,6 +237,8 @@ describe('resolvePngFontOptions', () => {
             ['dashes and curly quotes, measured as covered', '\u2018a\u2019 \u2013 \u201cb\u201d \u2014 c \u2022', false],
             ['U+2010 HYPHEN, which Arial has no glyph for', 'co\u2010operate', true],
             ['U+203B REFERENCE MARK', 'note \u203b', true],
+            ['the U+2264 this package writes in Map batch labels', '\u2264 100KB', false],
+            ['U+2265', '\u2265 1', false],
             ['the \u00d7 in a retry count', 'Retry \u00d73', false],
             ['Cyrillic, which the probed fonts cover', '\u041d\u0430\u0447\u0430\u043b\u043e', false],
             ['the U+21BB in this package own retry label', '\u21bb \u00d73', true],
@@ -278,6 +280,73 @@ describe('resolvePngFontOptions', () => {
             });
 
             expect(result.loadSystemFonts).toBe(false);
+        });
+    });
+
+    describe('families named in the markup', () => {
+        const svgAsking = (family: string) =>
+            `<svg xmlns="http://www.w3.org/2000/svg"><text font-family="${family}">x</text></svg>`;
+
+        // resvg resolves a family it cannot find to whatever face did load, so
+        // the family is silently ignored rather than failing. A hand-authored
+        // SVG passed to PngExporter is the case that has no theme behind it.
+        it.each([
+            ['the themes own stack, whatever the probe is called', 'Arial, sans-serif', false],
+            ['a generic family alone', 'monospace', false],
+            ['the resolved probe family itself', 'Liberation Sans', false],
+            ['a quoted family that is the probe', "'Liberation Sans', sans-serif", false],
+            ['a family nothing loaded has', 'Courier New, monospace', true],
+            ['an unquoted custom family', 'Comic Sans MS', true],
+        ])('decides the scan for %s', (_label, family, expected) => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                renderedText: svgAsking(family),
+                ...hostWithLiberation('/usr/share/fonts'),
+            });
+
+            expect(result.loadSystemFonts).toBe(expected);
+        });
+
+        it('reads a family out of a style declaration too', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                renderedText:
+                    '<svg xmlns="http://www.w3.org/2000/svg"><text style="font-family: Courier New">x</text></svg>',
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(true);
+        });
+
+        it('keeps the fast path when a custom theme names the probe font itself', () => {
+            const result = resolvePngFontOptions({
+                platform: 'linux',
+                preferredFamily: 'Liberation Sans',
+                renderedText: svgAsking('Liberation Sans, sans-serif'),
+                ...hostWithLiberation(),
+            });
+
+            expect(result.loadSystemFonts).toBe(false);
+        });
+    });
+
+    describe('a font file the caller supplied', () => {
+        // WIDELY_COVERED_RANGES was measured against the probe table; a caller's
+        // font may be Latin-only or script-specific, so only ASCII is assumed.
+        // Measured: a Cyrillic state name with a Cyrillic-less font paints tofu.
+        it.each([
+            ['ASCII text', 'Order Received', false],
+            ['Cyrillic, which the probed fonts cover but this one may not', '\u041d\u0430\u0447\u0430\u043b\u043e', true],
+            ['an accented Latin name', 'Cr\u00e9ation', true],
+        ])('decides the scan for %s', (_label, text, expected) => {
+            const result = resolvePngFontOptions({
+                fontFiles: ['/my/fonts/custom.ttf'],
+                renderedText: `<svg xmlns="http://www.w3.org/2000/svg"><text>${text}</text></svg>`,
+                dirExists: () => true,
+                isFile: () => true,
+            });
+
+            expect(result.loadSystemFonts).toBe(expected);
         });
     });
 
@@ -460,6 +529,17 @@ describe('resolvePngFontOptions', () => {
                     isFile: () => false,
                 })
             ).toThrow(/no font resolved on linux.*no text would render/);
+        });
+
+        it('names a fontDirs entry it pruned when it refuses', () => {
+            expect(() =>
+                resolvePngFontOptions({
+                    fontDirs: ['/not/a/directory'],
+                    loadSystemFonts: false,
+                    dirExists: () => false,
+                    isFile: () => false,
+                })
+            ).toThrow(/could not read any of \/not\/a\/directory/);
         });
 
         it('names the fontFiles it could not read when it refuses', () => {

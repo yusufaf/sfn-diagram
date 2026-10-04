@@ -1,5 +1,6 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { delimiter } from 'node:path';
+import { AWS_DARK_THEME, AWS_LIGHT_THEME } from '../config/themes';
 
 /** A candidate font family and the absolute file that must exist to use it. */
 export interface FontProbe {
@@ -153,8 +154,95 @@ const WIDELY_COVERED_RANGES: [number, number][] = [
  * state name to be worth the fast path: dashes, curly quotes, bullet, ellipsis.
  */
 const WIDELY_COVERED_PUNCTUATION = new Set([
-    0x2013, 0x2014, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2026,
+    0x2013, 0x2014, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2026, 0x2264, 0x2265,
 ]);
+
+/**
+ * First specific family of each built-in theme's stack, lowercased. A diagram
+ * asking only for these is fine with whichever probed face loads - the Docker
+ * image has always drawn the themes' Arial stack with Liberation Sans.
+ */
+const BUILT_IN_FAMILIES = new Set(
+    [AWS_LIGHT_THEME.fontFamily, AWS_DARK_THEME.fontFamily].map(
+        (stack) => stack.split(',')[0]?.trim().toLowerCase() ?? ''
+    )
+);
+
+/** CSS generic families, which resvg maps onto whatever face it has. */
+const GENERIC_FAMILIES = new Set([
+    'cursive',
+    'fantasy',
+    'monospace',
+    'sans-serif',
+    'serif',
+    'system-ui',
+    'ui-monospace',
+    'ui-rounded',
+    'ui-sans-serif',
+    'ui-serif',
+]);
+
+/** `font-family` in an attribute or a `style` declaration, however quoted. */
+const FONT_FAMILY_DECLARATION = /font-family\s*[:=]\s*(?:"([^"]*)"|'([^']*)'|([^;"'>]+))/gi;
+
+/**
+ * The specific font families some markup asks for, lowercased. Generics are
+ * left out: resvg satisfies those from whatever face it loaded.
+ *
+ * @param markup - SVG markup.
+ * @returns The distinct specific families named in it.
+ */
+function familiesIn(markup: string): string[] {
+    const families = new Set<string>();
+
+    for (const declaration of markup.matchAll(FONT_FAMILY_DECLARATION)) {
+        const value = declaration[1] ?? declaration[2] ?? declaration[3] ?? '';
+        for (const entry of value.split(',')) {
+            const family = entry.trim().replace(/^['"]|['"]$/g, '').trim().toLowerCase();
+            if (family && !GENERIC_FAMILIES.has(family)) {
+                families.add(family);
+                break;
+            }
+        }
+    }
+
+    return [...families];
+}
+
+/** Parameters for {@link oneFaceSatisfiesFamilies}. */
+interface OneFaceSatisfiesFamiliesParams {
+    /** Families named out of band, such as a `preferredFamily`. */
+    also?: (string | undefined)[];
+
+    /** Family of the single face that would be loaded. */
+    family: string;
+
+    /** The SVG markup whose `font-family` declarations have to be satisfied. */
+    markup: string;
+}
+
+/**
+ * Whether one face can satisfy every family the markup names.
+ *
+ * Satisfied: the themes' own stack, and a family that is the resolved face.
+ * Anything else - a custom `theme.fontFamily`, or a family written into a
+ * hand-authored SVG passed to `PngExporter` - resolves to the one loaded face
+ * with nothing reported unless the fonts stay searchable.
+ *
+ * @param params - The resolved face's family, the markup, and any family named
+ * out of band.
+ * @returns `true` if no wider search is needed for the families named.
+ */
+function oneFaceSatisfiesFamilies(params: OneFaceSatisfiesFamiliesParams): boolean {
+    const { also = [], family, markup } = params;
+    const satisfied = new Set([family.toLowerCase(), ...BUILT_IN_FAMILIES]);
+    const asked = [
+        ...familiesIn(markup),
+        ...also.flatMap((name) => (name ? [name.trim().toLowerCase()] : [])),
+    ];
+
+    return asked.every((named) => satisfied.has(named));
+}
 
 /**
  * Whether text holds a codepoint one probed font is unlikely to cover.
@@ -213,6 +301,26 @@ function readLoadSystemFontsEnv(): boolean | undefined {
     throw new Error(
         `${LOAD_SYSTEM_FONTS_ENV_VAR} must be one of ${[...TRUE_VALUES, ...FALSE_VALUES].sort().join(', ')}, got '${raw}'.`
     );
+}
+
+/**
+ * Whether text is plain ASCII.
+ *
+ * {@link WIDELY_COVERED_RANGES} was measured against {@link FONT_PROBES} and
+ * says nothing about a font the caller supplied, which may be script-specific.
+ * ASCII is all such a font can be assumed to carry.
+ *
+ * @param text - The SVG markup.
+ * @returns `true` if every codepoint in it is ASCII.
+ */
+function isAsciiOnly(text: string): boolean {
+    for (const character of text) {
+        if ((character.codePointAt(0) ?? 0) > 0x7f) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /** Parameters for {@link refuseBlank}. */
@@ -373,7 +481,8 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     // An override replaces the family the SVG asked for, so the preferred one
     // stops mattering - including for whether the scan has to stay on for it.
     const preferredFamily = overrideFamily === undefined ? firstFamilyIn(params.preferredFamily) : undefined;
-    const oneFaceIsEnough = !needsWiderCoverage(params.renderedText ?? '');
+    const renderedText = params.renderedText ?? '';
+    const oneFaceIsEnough = !needsWiderCoverage(renderedText);
 
     // `.length`, not truthiness: `[]` is truthy, and `exportPng({ fontFiles: [] })`
     // taking this branch shadows the env vars and the probe table with no font
@@ -383,7 +492,8 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
         // silently pruned. fontFiles is a specific, deliberate request - pass it
         // through verbatim, and let `isFile` decide only whether it counts as a
         // resolved font.
-        const fontDirs = (params.fontDirs ?? []).filter(dirExists);
+        const dirs = params.fontDirs ?? [];
+        const fontDirs = dirs.filter(dirExists);
         const fontFiles = params.fontFiles ?? [];
         const fontFileResolved = fontFiles.some(isFile);
         const family = overrideFamily ?? preferredFamily;
@@ -397,9 +507,10 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
             loadSystemFonts: refuseBlank({
                 forced,
                 hasSource: fontFileResolved || fontDirs.length > 0,
-                otherwise: !fontFileResolved || preferredFamily !== undefined || !oneFaceIsEnough,
+                otherwise:
+                    !fontFileResolved || preferredFamily !== undefined || !isAsciiOnly(renderedText),
                 platform,
-                rejected: fontFiles,
+                rejected: [...fontFiles, ...dirs.filter((dir) => !fontDirs.includes(dir))],
             }),
             sansSerifFamily: family,
         };
@@ -444,9 +555,15 @@ export function resolvePngFontOptions(params: ResolvePngFontOptionsParams): Resv
     const loadSystemFonts = refuseBlank({
         forced,
         hasSource: true,
-        // One font file cannot satisfy a different family, nor a glyph it has no
+        // One font file cannot satisfy a family it is not, nor a glyph it has no
         // coverage for, so either keeps the fonts searchable.
-        otherwise: preferredFamily !== undefined || !oneFaceIsEnough,
+        otherwise:
+            !oneFaceIsEnough ||
+            !oneFaceSatisfiesFamilies({
+                also: [preferredFamily],
+                family: match.family,
+                markup: renderedText,
+            }),
         platform,
     });
 
