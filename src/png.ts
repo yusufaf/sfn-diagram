@@ -48,6 +48,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
     const {
         aslDefinition,
         backgroundColor,
+        cache,
         engine,
         fontDirs,
         fontFamily,
@@ -57,7 +58,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         scale,
         ...svgOptions
     } = params;
-    const svgOutput = generateSvg({ aslDefinition, ...svgOptions });
+    const svgOutput = generateSvg({ aslDefinition, cache, ...svgOptions });
 
     // resvg (the default engine) does not fetch remote <image href> icons the
     // way the html-to-image engine's headless Chromium did - inline them as
