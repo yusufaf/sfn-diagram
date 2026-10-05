@@ -99,7 +99,7 @@ function loadPullRequest(number) {
             ),
             title,
         }),
-        prBody: body,
+        prBody: body ?? undefined,
     };
 }
 
