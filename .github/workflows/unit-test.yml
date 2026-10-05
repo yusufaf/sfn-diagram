@@ -269,7 +269,7 @@ jobs:
       # `load: true` keeps the image in the runner's daemon so the smoke test below
       # can run it - which is also why this build stays single-platform.
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # scope= per build variant: a type=gha export replaces the whole index for its
       # scope, so builds that share one evict each other instead of sharing. mode=min
