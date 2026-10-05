@@ -1,0 +1,39 @@
+name: Release Message
+
+# Fails a PR whose squash message release-please would silently drop (#387). The
+# squash message is rebuilt from the PR title and commits, so `edited` re-runs this
+# when a title is fixed or a BEGIN_COMMIT_OVERRIDE block is added to the body.
+permissions:
+  contents: read
+  pull-requests: read
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  parse:
+    name: release-please can parse the squash message
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --ignore-scripts
+
+      - name: Parse the would-be squash message
+        run: pnpm run check:release-message --pr "$PR_NUMBER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}

@@ -1,0 +1,548 @@
+feat(png): add loadSystemFonts and skip the system font scan by default (#362)
+
+* perf(png): load one font file instead of scanning every system font
+
+resolvePngFontOptions returned loadSystemFonts: true from all three
+branches, so resvg re-parsed every installed font on every Resvg
+construction - even when the caller had named an exact file. The probe
+branch already knew the file: FONT_PROBES entries are { family, path },
+and the code resolved match.path, threw it away, and handed resvg the
+whole of FONT_DIRS[platform] instead.
+
+loadSystemFonts now resolves separately from the font source: the new
+loadSystemFonts option, then SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS, then
+false if a concrete font file or directory resolved and true if nothing
+did. The probe branch hands resvg fontFiles: [match.path] alone.
+
+exportPng on examples/order-processing.asl.json, Windows 11, warm cache,
+four runs: 248ms -> 18ms, output byte-identical at 19162 bytes. Isolated
+through @resvg/resvg-js on a 200x100 one-text SVG, three runs each:
+system scan + dirs 267/226/219ms, dirs only 88/99/93ms, one fontFiles
+entry 1/1/1ms - identical bytes and identical painted-pixel counts in
+all three.
+
+The tradeoff: glyphs the resolved font does not cover no longer fall
+back. The same CJK probe drops from 562 painted pixels to 136 (tofu
+boxes, not blank). Set loadSystemFonts: true, or the env var, to get the
+previous behaviour back - the forced-on path returns the exact option
+shape the probe branch used to return unconditionally.
+
+A family name alone cannot be located without a search path, so
+fontFamily-only callers, and SFN_DIAGRAM_PNG_FONT_FAMILY on its own,
+keep the scan: probed with loadSystemFonts: false it renders 0 pixels.
+Explicit fontDirs that are all pruned as non-existent keep it too.
+
+Tests assert painted pixels rather than a valid PNG, since a font that
+fails to resolve still produces a perfectly valid blank one. tests/
+decodePng.ts inflates and unfilters the engine's own output; a fully
+covered image decoding to exactly 200*100 opaque pixels is what keeps a
+zero count meaningful. Verified the glyph assertion fails (0 pixels)
+when the font is made unresolvable.
+
+Closes #336
+
+* fix(png): only skip the font scan when a readable font file is known
+
+Review on #362 found three ways the first cut could render a silently
+blank PNG, and one undocumented loss. Verified each against the real
+engine before changing anything, by painted-pixel count.
+
+An existing directory or a bare family name does not prove a loadable
+font. `fontDirs: [<existing empty dir>]` with the scan off paints 0
+pixels against 581 with it on, so an `-e SFN_DIAGRAM_PNG_FONT_DIRS=/fonts`
+mount holding nothing fontdb can parse would have lost every label.
+`fontDirs` and `SFN_DIAGRAM_PNG_FONT_DIRS` now keep the scan on.
+
+`fontFiles` entries are not checked for existence, so a typo path also
+turned the scan off: `fontFiles: ['C:/nope/missing.ttf']` paints 0 pixels
+and resvg does not throw, which makes the retained comment claiming it
+surfaces as resvg's own error wrong. The paths still pass through
+verbatim; `fileExists` now only decides whether they count as resolved.
+
+So the rule is narrower: skip the scan only when an existing font file is
+known - an entry of `fontFiles`, or a probe-table hit.
+
+The nine env-var parsing cases were vacuous. `fileExists: () => !expected`
+made the probe branch's own default equal the expectation every time, so
+stubbing the reader to return undefined left all nine green -
+`TRUE_VALUES`, `FALSE_VALUES`, `trim()` and `toLowerCase()` were all
+untested. Inverted the stub the other way; all nine now fail under that
+mutation and pass against the real source. The new fontFiles-existence
+test is mutation-checked the same way.
+
+Also documented what the single resolved face gives up besides glyph
+coverage: a `font-weight="bold"` run renders at regular weight rather
+than being synthesized (1240 bytes for both weights with one `fontFiles`
+entry, 1240 vs 1214 with `fontDirs`). Nothing this package generates asks
+for bold, but a hand-rolled SVG passed to `PngExporter` can.
+
+The default path is untouched: exportPng on order-processing is 16ms
+against 250ms forced on, still byte-identical at 19162 bytes.
+
+* fix(png): honour a custom theme font family, and refuse an unloadable font setup
+
+Second review pass on #362, five findings, all reproduced against the real
+engine before changing anything.
+
+theme.fontFamily had become a no-op in PNG. SvgRenderer writes it onto
+every <text>, and the probe path loads exactly one file, which resvg then
+uses for whatever family the SVG asks for - so `exportPng({ theme: {
+fontFamily: 'Georgia' } })` came out byte-identical to the Arial default.
+A non-default family now flows into the PNG `fontFamily` path, which keeps
+the system fonts searchable so it can actually be found; Georgia and
+Courier New now differ from the default again. An explicit `fontFamily`
+option still wins over the theme.
+
+existsSync is true for a directory, so a directory passed in fontFiles
+rather than fontDirs turned the scan off with nothing loadable behind it:
+0 painted pixels, and resvg reports nothing. The fontFiles check is now
+statSync().isFile() plus an R_OK access check, injectable as `isFile` for
+tests.
+
+Forcing the scan off with no font file and no search directory is
+unsatisfiable - it renders every label blank, silently, which is the
+failure mode this issue is about. One shared guard now throws instead,
+naming the platform and what to pass. It covers the fontFamily-only case
+as well as the no-probe-match one; a resolved fontDir is still a source,
+so that stays honoured.
+
+The nine env-var cases were still passing against a branch whose own
+default matched the expectation in the `false` half once the guard landed.
+They now run against inputs whose default is the opposite of the
+expectation, and all nine still fail under a reader-returns-undefined
+mutant.
+
+decodePng returned a fully transparent image for truncated pixel data
+instead of throwing: a short scanline reads as undefined, arithmetic goes
+NaN, and NaN & 0xff is 0. Since the helper exists to make "zero painted
+pixels" meaningful, it now checks the inflated length and that an IHDR was
+seen, with tests/decodePng.test.ts covering every way it can refuse.
+
+Also dropped the stale "or directory" from the loadSystemFonts param doc,
+which contradicted both the function doc and PngExportOptions.
+
+Default path unchanged: 17ms against 317ms forced on, byte-identical at
+19162 bytes.
+
+* fix(png): name the theme font family without claiming to be the font source
+
+Third review pass on #362, eight findings. Three shared one cause: the
+previous commit carried theme.fontFamily in the `fontFamily` param, which
+is a font *source*, so it took the first branch of resolvePngFontOptions
+and returned before the env vars and probe table were read. Verified:
+with SFN_DIAGRAM_PNG_FONT_DIRS=/mounted/fonts, a theme family gave
+`{ fontDirs: [], loadSystemFonts: true }` - the mounted directory
+silently never searched, which is the workflow the docs in this very PR
+describe. And `{ loadSystemFonts: false, theme: { fontFamily: 'Georgia' }}`
+threw, although the probe font existed and would have rendered.
+
+There is now a separate `preferredFamily` input: it names the family on
+whatever source resolves without being a source itself, so the env and
+probe branches still run, and it only raises the loadSystemFonts default
+because one font file cannot satisfy a different family. An explicit
+`fontFamily` and SFN_DIAGRAM_PNG_FONT_FAMILY both still win over it.
+
+theme.fontFamily is a CSS stack and resvg's defaultFontFamily takes one
+name without splitting a list, so the first family is extracted and
+unquoted: 'MyBrand Sans, sans-serif' now asks for 'MyBrand Sans' rather
+than the whole string, which matched nothing.
+
+The probe table was still matched with existsSync, not the readable-file
+check added for fontFiles, so a probe path that exists but is a directory
+or is unreadable by the process left the default path holding one
+unloadable file with the scan already off - a blank PNG, silently, on the
+path the Docker image takes. It now matches with isFile.
+
+Clearing the font env vars in the tests, as the review asked, surfaced a
+separate bug: `''.split(delimiter).filter(Boolean)` is an empty array,
+which is truthy, so SFN_DIAGRAM_PNG_FONT_DIRS set but blank took the env
+branch and shadowed the probe table with no font at all. Both env vars
+now treat empty as unset.
+
+Also documented the whole resolution order, the scan and what the
+single-file path gives up under Themes in the configuration guide rather
+than only in the Docker section of the CLI guide; moved `isFile` after
+`fontFiles` per the alphabetisation rule; and left a comment where the
+blank-output guard accepts a directory as a source, since a directory can
+only be known to be empty by walking it - not enough to turn the scan off
+by default, but enough not to second-guess an explicit `false`.
+
+Default path unchanged: 16ms against 254ms forced on, byte-identical at
+19162 bytes. Georgia and Courier New still differ from the default.
+
+* test(png): inject isFile where a test assumes no probe match
+
+Two cases passed only `fileExists: () => false` and relied on it to make
+the probe table miss. The probe is now matched with `isFile`, which they
+left as the real filesystem check - and the Ubuntu runners genuinely have
+Liberation Sans at the probed path, so a probe matched and both failed
+there while passing on Windows and macOS.
+
+Probed the rest of the suite for the same host dependence by making
+`isReadableFile` return true for every path: only the test whose subject
+is that predicate fails, so nothing else assumes the host lacks a font.
+
+* fix(png): read every font family as a CSS stack, not just the theme's
+
+Fourth review pass on #362, six findings, all low or medium.
+
+firstFamilyIn was only applied to theme.fontFamily, but params.fontFamily
+and SFN_DIAGRAM_PNG_FONT_FAMILY reach resvg's defaultFontFamily the same
+way and may equally be stacks. Measured through the engine:
+defaultFontFamily 'Georgia' paints 529 px, 'Georgia, serif' paints 522 -
+identical to a family that does not exist - so exportPng({ fontFamily:
+'Inter, sans-serif' }) silently did nothing, the same failure this PR
+fixes for the theme. The narrowing now lives in pngFonts and covers all
+three; PngExporter hands over the raw theme stack.
+
+A preferredFamily is also ignored once an explicit fontFamily overrides
+it. It was still forcing the scan on for a family that had been
+discarded, costing ~250ms for nothing:
+exportPng({ fontFamily: 'Inter', fontFiles: ['Inter.ttf'],
+theme: { fontFamily: 'Georgia' } }) is back on the fast path.
+
+The refusal message told callers to pass fontFiles when the usual way to
+reach it is passing fontFiles whose entries all failed the readable-file
+check. It now names the rejected paths.
+
+tests/pngThemeFont.test.ts asserted loadSystemFonts and fontFiles, which
+only hold where the host has a font at a probed path - the same host
+dependence the ubuntu legs caught one commit ago, in the file whose
+header claimed to avoid it. It now mocks the resolver and asserts what
+the exporter actually owns: which family the SVG is asking for. Mutating
+the derivation to always pass undefined fails 4 of its 9 cases, and
+mutating firstFamilyIn to an identity function fails 4 in pngFonts.
+
+* fix(png): keep the font scan on for text one face cannot cover
+
+Fifth review pass on #362. Probing the second finding turned up something
+worse than the finding: the retry-count label this package generates
+itself contains U+21BB, which Arial has no glyph for. On the fast path it
+painted 68 pixels - a tofu box - against 180 with the scan on. So every
+diagram with a Retry block was silently losing that arrow, not only
+diagrams with non-Latin state names.
+
+resolvePngFontOptions now takes the SVG as `renderedText` and keeps the
+scan on when it holds a codepoint outside the ranges every probed font
+covers: Latin and its supplements, Greek, Cyrillic, general punctuation.
+Measured against the real engine, painted pixels fast vs scanning:
+
+  latin     581 / 581     middot U+00B7     16 / 16
+  cyrillic 1003 / 1003    ellipsis U+2026   48 / 48
+  cjk       272 / 1833    retry U+21BB      68 / 180
+  emoji     400 / 936
+
+End to end: simple.asl.json 5ms, order-processing 15ms, retry.asl.json
+225ms, a CJK state name 253ms - and the retry export now differs from the
+same export with the scan pinned off, which is the arrow appearing. The
+ranges are deliberately narrow: guessing generously renders tofu, while
+guessing strictly only costs the scan.
+
+Separately, a readable regular file is not a parseable font. fontdb does
+not decompress WOFF, so a .woff - or a truncated .ttf - was readable,
+plausible, and switched the scan off: rendering with package.json as the
+only font paints 0 pixels and raises nothing. isReadableFile now reads
+the magic number (sfnt, OTTO, ttcf, true, typ1; wOFF and wOF2 are
+deliberately absent). The test that pinned the old gap, asserting a
+TypeScript file counted as a resolved font, is now a regression test for
+the opposite.
+
+Also: `[]` is truthy, so exportPng({ fontFiles: [] }) took the explicit
+branch and shadowed the env vars and probe table - which, with the scan
+forced off, threw where main rendered; the no-probe-match branch dropped
+preferredFamily while every other branch sets it; decodePng compared four
+of the eight signature bytes and threw a RangeError rather than its own
+message on a buffer shorter than four; and a preferredFamily test neither
+passed one nor sat with the env cases it actually exercised.
+
+Mutating needsWiderCoverage to always return false fails the four cases
+that depend on it.
+
+* fix(png): stat the open descriptor, not the path, before reading a font
+
+CodeQL flagged the font magic check as js/file-system-race, high: it
+called statSync on the path and then openSync on the same path, which is
+a check of one thing followed by use of another. It opens first and stats
+the descriptor now, which also drops a syscall.
+
+The four cases behave as before - a real .ttf takes the fast path, while
+a directory, a readable non-font and a missing path all keep the system
+scan on - and openSync on a directory fails outright on both platforms,
+so the fstat is belt and braces.
+
+* fix(png): stop assuming a whole Unicode block is covered
+
+Sixth review pass on #362. The coverage guard claimed all of General
+Punctuation, U+2000-U+206F, is covered by every probed font. Swept the
+block through Arial - the only win32 probe - comparing painted pixels on
+the fast path against the scanning one: 44 of those codepoints render the
+same 68-pixel tofu box the retry arrow did. The review suggested
+narrowing to U+2000-U+203A; measuring that bound found 13 gaps inside it
+too, U+2010 HYPHEN and U+2024 ONE DOT LEADER among them, so the block is
+not safe at any bound.
+
+General Punctuation is no longer a range. In its place is an allowlist of
+the eight codepoints from it that the sweep found covered and that are
+common in a state name: the en and em dash, the four curly quotes, the
+bullet, and the ellipsis this package emits itself. Everything else in
+the block now takes the scan, which renders it correctly.
+
+Also from that pass:
+
+- `fontDirs` entries were validated with `existsSync`, which is equally
+  true for a regular file. `{ fontDirs: ['/etc/hostname'],
+  loadSystemFonts: false }` was therefore honoured as a real search path
+  and rendered every label blank. The predicate is now a directory check,
+  and renamed `dirExists` since pruning directories is all it does - the
+  probe table and `fontFiles` go through `isFile`.
+- `decodePng` walked chunks with only `offset < length` checked, so a
+  buffer ending mid chunk header threw a RangeError rather than its own
+  message - the very thing the signature length check above it was added
+  to avoid.
+- A test helper had an implicit `any` parameter, which `pnpm run
+  typecheck` cannot catch because tsconfig only includes `src`, and four
+  `mkdtempSync` calls never cleaned up. Both fixed; temp dirs now go
+  through one helper that removes them after each test.
+- Stale `@default` on `isFile`, and `renderedText` was declared before
+  `preferredFamily`.
+
+Left as is, with the reasoning now in the JSDoc: an explicit `fontFamily`
+alongside `fontFiles` does not turn the scan on, even though the named
+family may not be in those files. Passing both is a deliberate pairing,
+and resvg falls back to a loaded face rather than rendering nothing, so
+second-guessing it would cost the scan on the one path where the caller
+has already said which fonts to use.
+
+Trimmed the measurements back out of the shipped JSDoc, which tsdown
+bundles: png.js gzip was at 3.5% headroom, now 4.2%.
+
+Mutation-checked both new guards: restoring the U+2000-U+206F range fails
+the two punctuation cases, and letting `dirExists` accept a file fails the
+forced-off case.
+
+* fix(png): decide the scan from the families the markup asks for
+
+Seventh review pass on #362, two medium findings, both reproduced.
+
+The coverage table was measured against the probe table, but it was also
+being applied to a font the *caller* supplied, which may be Latin-only or
+script-specific. A Cyrillic state name with such a font rendered tofu:
+586 painted pixels against 1003 with the scan on, and 472 and 744 for two
+other narrow faces. For a caller's own file, only ASCII is assumed now.
+
+preferredFamily recovered the family for a custom theme, but a
+hand-authored SVG passed to PngExporter - a documented entry point -
+names its families in the markup, where nothing was looking. font-family
+"Courier New, monospace" painted 709 pixels, exactly the Arial run,
+against 481 scanning; Comic Sans MS 709 against 770. So the decision now
+reads the font-family declarations out of the markup, attribute or style,
+and keeps the scan on unless one face can satisfy every specific family
+named. The themes' own stack is satisfied by any probed face - the Docker
+image has always drawn Arial with Liberation Sans - and so is a family
+that is the resolved face, which also fixes the low finding that a custom
+theme naming the probe font paid the scan for nothing.
+
+Checked the default path did not regress: of the 20 fixtures, 18 stay on
+the fast path on linux - distributed-map among them - and only
+retry.asl.json and parallel-edges.asl.json scan, which is the U+21BB
+label.
+
+Two more from that pass: U+2264 and U+2265, which this package itself
+writes into Distributed Map batch labels, were missing from the covered
+set although every probe has the glyph (1180 and 287 painted pixels
+either way), so those diagrams lost the optimization for nothing; and the
+refusal message never named a fontDirs entry it had pruned, only
+fontFiles, so the one path that most needs naming said "pass a fontDirs
+path" to someone who just had theirs dropped.
+
+Mutating the family check to always return true fails five cases;
+dropping the ASCII rule fails three. png.js gzip headroom 2.5% after
+trimming the new JSDoc back.
+
+* fix(png): stop treating fontFamily as an override of the markup
+
+Eighth review pass on #362. The medium finding is right, and it
+contradicts something an earlier commit of mine claimed.
+
+resvg applies defaultFontFamily/sansSerifFamily only to text that names
+no family of its own, and SvgRenderer writes theme.fontFamily onto every
+<text>. So the `fontFamily` option changes nothing about a generated
+diagram. Measured through exportPng on simple.asl.json: with and without
+`fontFamily: 'Courier New'` is byte-identical at 5661 bytes, and passing
+it on top of `theme: { fontFamily: 'Georgia' }` is byte-identical to the
+theme alone at 5787. The claim in 43bc1b4 that narrowing a stack fixed
+`exportPng({ fontFamily: 'Inter, sans-serif' })` being a no-op was
+therefore wrong: narrowing only matters for markup that omits the family.
+The option's JSDoc and the configuration guide now say what it does, and
+the PR description is corrected in place.
+
+It also means `fontFamily` must not displace `preferredFamily`, which it
+did - and that was harmful, not just inaccurate:
+`{ fontFamily: 'Arial', fontFiles: ['Arial.ttf'],
+theme: { fontFamily: 'Georgia' } }` discarded the theme family, flipped
+loadSystemFonts off, and left the markup's Georgia falling back to the
+one loaded Arial face while the layout had been measured for Georgia.
+Both survive now.
+
+Recognising the themes' own stack moved into resolvePngFontOptions, where
+the stack is already narrowed, so PngExporter hands the whole value over
+and a restated built-in stack - 'Arial,sans-serif', no space - is no
+longer mistaken for a custom family.
+
+And the markup reaching familiesIn is escaped, so a theme that quotes its
+family names arrived as `&quot;Arial&quot;` and matched nothing, costing
+the scan on every export for a configuration one probed arial.ttf fully
+satisfies. The entities are decoded first now.
+
+Checked the default path again after all of it: 18 of the 20 fixtures
+stay on the fast path on linux, only the two U+21BB ones scan,
+simple.asl.json exports in 5ms, and a custom theme.fontFamily still
+changes the rendered bytes.
+
+* fix(png): treat fontFamily as a name, not a font source
+
+Ninth review pass on #362. My own pass-8 note called fontFamily inert
+because the render is byte-identical with and without it. The render is;
+the cost is not. fontFamily was one of the three conditions selecting the
+explicit-source branch, so setting it skipped the probe table and handed
+back the full system scan - the whole regression #336 is about, on every
+export, for an option just documented as doing nothing. Measured:
+`{}` resolves to `{ fontFiles: [arial.ttf], loadSystemFonts: false }`
+while `{ fontFamily: 'Whatever' }` resolves to `{ fontDirs: [...],
+loadSystemFonts: true }`. Worse, `{ fontFamily: 'Arial', loadSystemFonts:
+false }` threw on win32 over a readable arial.ttf the table would have
+found.
+
+Only fontFiles and fontDirs select that branch now. fontFamily and
+SFN_DIAGRAM_PNG_FONT_FAMILY name a family on whichever source wins, which
+is what they were always documented to do, and the family is carried into
+the env and probe branches. So `fontFamily: 'Liberation Sans'` on linux
+keeps the fast path, and one the probed face is not keeps the scan on
+because one face cannot answer for another.
+
+The forced-off guard also took a directory's existence as proof a font
+would load - the empty `-v ./myfonts:/fonts` mount, or one holding only
+WOFF, which is exactly what FONT_MAGIC was added to catch for fontFiles.
+It now walks the configured directories for one parseable file, bounded to
+depth 4 and 2048 entries, and only when `false` was actually forced, so
+the fast path never pays for it. Running out of budget counts as a find,
+so a deep font tree is not refused on a technicality.
+
+And the configuration guide claimed general punctuation is on the fast
+path, which the code deliberately contradicts and two tests assert
+against. Corrected, with the covered marks named.
+
+* chore(build): raise the png bundle budget for the font guards
+
+#336 adds real code to the PNG path, not bloat: the magic-number check
+that tells a readable file from a loadable font, the codepoint coverage
+guard that keeps text with glyphs the probed face lacks off the fast
+path, the font-family matching that reads what the markup actually asks
+for, and the bounded directory walk behind the forced-off refusal.
+
+That is ~3.5KB gzip, which left png.js at 57401 against a 58300 budget -
+899 bytes, so the next unrelated change to that entry would have failed
+the gate instead of whatever genuinely overshot. Trimmed the shipped
+JSDoc twice already; what is left is the reasoning each guard needs.
+
+gzip 58300 -> 61000 and raw 201000 -> 205000, both formats.
+
+* fix(png): apply the source-vs-name rule to the env family too
+
+Tenth review pass on #362. Three of its four findings are the previous
+commit applied unevenly, which is fair.
+
+SFN_DIAGRAM_PNG_FONT_FAMILY was still selecting the env branch on its
+own, so the exact failure the last commit fixed for the param was live
+for the env var: with the scan forced off it threw rather than using the
+probed font. Measured - `SFN_DIAGRAM_PNG_FONT_FAMILY=Inter` plus
+`SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=false` threw on win32, while the
+equivalent param call returned the probed arial.ttf. These env vars are
+documented as the route for callers that cannot pass options, so a CLI or
+Docker user combining the two documented variables hit a hard failure on
+an image that ships a font. Only SFN_DIAGRAM_PNG_FONT_DIRS selects that
+branch now, and the family joins the others in one precedence list:
+fontFamily, then the env family, then the theme's.
+
+The bounded directory walk returned true when it ran out of budget, which
+reads as a find, so a forced-off against a broad tree with no font in the
+first 2048 entries would have been honoured and rendered blank - the
+failure the guard exists to stop. It reports `exhausted` separately now
+and the refusal says which it was, naming each directory and why it
+failed. The limits are exported so a test can shrink them; the branch is
+otherwise only reachable by writing thousands of files.
+
+The refusal also only ever named directories pruned as non-existent, so
+the empty mount case - the one it was written for - degraded to telling
+the caller to pass what they had just passed.
+
+And in decodePng, a chunk whose declared length ran past the buffer still
+reached the IHDR field reads, throwing a bare RangeError rather than the
+helper's own message.
+
+Mutating the exhausted branch back to a find fails its test; restoring the
+env family to the branch condition fails two.
+
+* fix(png): check the markup families on the caller-supplied-font path too
+
+Eleventh review pass on #362.
+
+The explicit fontFiles/fontDirs branch never looked at the font-family
+declarations in the markup, only the probe branch did. So
+`new PngExporter({ fontFiles: ['/opt/Inter.ttf'] })` with a hand-authored
+SVG asking for Georgia returned loadSystemFonts false and rendered
+Georgia text in Inter, substituted silently - and a hand-authored SVG is
+the case the new docs single out. There is no face name to compare
+against for a file the caller supplied, so on that path only the themes'
+own stack counts as satisfied.
+
+`sansSerifFamily` goes back to the probed face rather than the asked-for
+family. The review measured a case where pointing the generic at an
+absent family loses resvg's fallback; I could not reproduce a difference
+across nine configurations - present and absent family, fast path,
+fontDirs plus scan, scan alone, and a bare `sans-serif` with a bogus
+`sansSerifFamily` were byte-identical every time. Making the change
+anyway: the asked-for family belongs on defaultFontFamily, the generic is
+the one mapping certain to resolve, and this is what the code did before
+#336. Said so rather than claiming the measurement confirmed it.
+
+The bounded directory walk also refused trees resvg would have loaded
+from: deeper than four levels, or behind a symlinked subdirectory, which
+is neither isDirectory() nor isFile() and so was skipped entirely while
+fontdb follows it. Depth 8, 4096 entries, and symlinks are classified
+now; the limits are documented as set past any real font directory, so a
+search that runs out is a tree worth a different fontDirs rather than a
+verdict.
+
+End to end after all of it: simple.asl.json 6ms, retry 249ms, a CJK state
+name 282ms. png.js gzip 57853 of 61000.
+
+* fix(png): assume the marks this package emits on a caller-supplied font
+
+Twelfth review pass on #362, lows only.
+
+The caller-supplied-font path assumed ASCII and nothing more, while the
+docs described the default as off whenever a readable font file is known.
+Both could not be right, and the docs were nearer the useful behaviour:
+SUB_LABEL_SEPARATOR is ' · ', so one Map sub-label put every such diagram
+on the slow path. Checked against the fixtures - map, parallel and
+distributed-map all paid the scan with a caller's font, and all three are
+back on the fast path now, while retry still scans for its U+21BB. The
+assumption is ASCII plus the five marks this package writes itself
+(· × … ≤ ≥), which any text font carries; the docs name them, and name
+`loadSystemFonts: false` for pinning the fast path with a font you know.
+
+Also from that pass: a JSDoc sentence still described fontFamily as
+matched only within the caller's own fonts, which the code stopped doing
+two commits ago; a theme family displaced by an explicit fontFamily was
+still counted among the families to satisfy, so it could turn the scan on
+for a family nothing asks for; the directory walk shadowed its own
+`directory` parameter with a boolean and reached the module-level
+directory check instead of the injected one; a duplicated assertion; and
+the no-source refusal read "no font resolved on linux and system fonts
+are disabled" and offered only API remedies, though SFN_DIAGRAM_PNG_FONT_DIRS
+is the one a Docker caller has.
+
+The review also measured png.cjs at 58327 gzip against the old 58300
+ceiling, so the budget raise two commits ago was load-bearing rather than
+pre-emptive.

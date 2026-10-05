@@ -102,6 +102,14 @@ pnpm run build
 git commit -m "feat: add support for custom node shapes"
 ```
 
+   Do not start a commit body line with `identifier(` (for example a pasted
+   `exportPng({ fontFamily: 'Inter',` call). release-please's parser reads it as the
+   opening of a scope, fails at the line break, and silently drops the whole commit
+   from the release PR. Indent the code or wrap it in backticks. The
+   `Release Message` check fails a PR that would hit this; run it locally with
+   `pnpm run check:release-message --pr <number>`. If a message cannot be fixed, add a
+   `BEGIN_COMMIT_OVERRIDE` ... `END_COMMIT_OVERRIDE` block to the PR body.
+
 ## Code Style Guidelines
 
 ### General Principles
