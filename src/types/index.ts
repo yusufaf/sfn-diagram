@@ -1099,6 +1099,11 @@ export interface ExtractAslResult {
 
 /** Parameters for `generateFromAwsResponse`, which accepts a raw AWS SDK response. */
 export interface GenerateFromAwsParams extends DiagramOptions {
+    /**
+     * Optional layout cache from `createLayoutCache`, forwarded to `generateDiagram`. Ignored
+     * for `mermaid` output. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
     /** AWS SDK DescribeStateMachine command output */
     response: DescribeStateMachineCommandOutput;
 }

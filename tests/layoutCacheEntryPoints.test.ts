@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { exportPng } from '../src/png';
 import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS } from '../src/layout';
-import { generateDiagram, generateSvg, SfnDiagramGenerator } from '../src/index';
+import { generateDiagram, generateFromAwsResponse, generateSvg, SfnDiagramGenerator } from '../src/index';
 import type { AslDefinition, DiagramOptions } from '../src/types';
 
 const FIXTURE_DIR = join(__dirname, 'fixtures');
@@ -114,6 +114,20 @@ describe('generateDiagram', () => {
 
         expect(cache.stats()).toMatchObject({ entries: 0, hits: 0, misses: 0 });
         expect(withCache).toEqual(without);
+    });
+});
+
+describe('generateFromAwsResponse', () => {
+    test('forwards the cache through generateDiagram', () => {
+        const cache = createLayoutCache();
+        const response = { definition: JSON.stringify(DEFINITION) } as Parameters<
+            typeof generateFromAwsResponse
+        >[0]['response'];
+
+        generateFromAwsResponse({ cache, response });
+        generateFromAwsResponse({ cache, response });
+
+        expect(cache.stats().hits).toBe(1);
     });
 });
 
