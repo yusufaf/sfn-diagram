@@ -38,6 +38,16 @@ describe('checkReleaseMessage', () => {
         expect(result.ok).toBe(false);
     });
 
+    // Hit by this check's own PR (#396): prose naming the marker made release-please
+    // take the rest of the body as the commit message.
+    it('fails a PR body that merely mentions the override marker', () => {
+        const result = checkReleaseMessage({
+            message: 'feat: a',
+            prBody: 'Honors the BEGIN_COMMIT_OVERRIDE block, as release-please does.',
+        });
+        expect(result.ok).toBe(false);
+    });
+
     it('passes the same code when indented', () => {
         const result = checkReleaseMessage({ message: 'fix: a\n\n    foo(bar,\n    baz)' });
         expect(result.ok).toBe(true);

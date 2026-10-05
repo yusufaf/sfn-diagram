@@ -108,7 +108,9 @@ git commit -m "feat: add support for custom node shapes"
    from the release PR. Indent the code or wrap it in backticks. The
    `Release Message` check fails a PR that would hit this; run it locally with
    `pnpm run check:release-message --pr <number>`. If a message cannot be fixed, add a
-   `BEGIN_COMMIT_OVERRIDE` ... `END_COMMIT_OVERRIDE` block to the PR body.
+   `BEGIN_COMMIT_OVERRIDE` ... `END_COMMIT_OVERRIDE` block to the PR body. Never write
+   that marker in PR-body prose: release-please treats everything after it as the commit
+   message.
 
 ## Code Style Guidelines
 
