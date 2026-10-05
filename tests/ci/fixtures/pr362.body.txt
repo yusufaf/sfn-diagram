@@ -1,0 +1,195 @@
+Closes #336.
+
+`resolvePngFontOptions` returned `loadSystemFonts: true` from all three of its branches, so resvg
+re-parsed every installed font on every `Resvg` construction — even when the caller had named an
+exact file. The probe branch already knew the file: `FONT_PROBES` entries are `{ family, path }`,
+and the code resolved `match.path`, threw it away, and handed resvg the whole of
+`FONT_DIRS[platform]` instead.
+
+## What changed
+
+`loadSystemFonts` now resolves separately from the font source:
+
+1. the new `loadSystemFonts` PNG export option,
+2. then `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`,
+3. then `false` only when an **existing font file** is known, `true` otherwise.
+
+The probe branch hands resvg `fontFiles: [match.path]` alone. Forced back on, it returns the exact
+option shape it used to return unconditionally, so the previous rendering is reproducible.
+
+## Measured
+
+`exportPng` on `examples/order-processing.asl.json`, Windows 11, warm font cache, four runs:
+
+| | Time | Output |
+| --- | --- | --- |
+| default (one `fontFiles` entry) | 32 / 18 / 18 / 16 ms | 19162 bytes |
+| `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` (old behaviour) | 267 / 240 / 248 / 252 ms | 19162 bytes |
+
+Byte-identical. Isolated through `@resvg/resvg-js` on a 200×100 one-text SVG, three runs each:
+system scan + dirs 267/226/219 ms, dirs only 88/99/93 ms, one `fontFiles` entry 1/1/1 ms — all
+three identical in bytes *and* in painted-pixel count. Note the issue's own suggested fix (just
+flip the flag) only buys 267 → 88 ms, because `fontDirs` is still walked; the ~100× needs
+`fontFiles`.
+
+## Where the scan stays on
+
+The single face gives up resvg's fallback, so the scan is kept on wherever one face cannot be
+enough. **Reviewing this is what caught the worst case**: the retry-count label this package
+generates itself contains `↻`, which Arial has no glyph for — so the first cut silently rendered
+tofu on every diagram with a `Retry` block, not just on non-Latin state names. Painted pixels, fast
+path vs scanning:
+
+| Text | fast | scanning |
+| --- | --- | --- |
+| Latin | 581 | 581 |
+| Cyrillic | 1003 | 1003 |
+| `·` U+00B7, `…` U+2026 (both emitted by this package) | 16 / 48 | 16 / 48 |
+| **`↻` U+21BB (this package's retry label)** | **68 — a tofu box** | **180** |
+| CJK | 272 | 1833 |
+| emoji | 400 | 936 |
+
+So `resolvePngFontOptions` takes the SVG and keeps the scan on for any codepoint outside the ranges
+every probed font covers — Latin and supplements, Greek, Cyrillic, general punctuation. The ranges
+are deliberately narrow: guessing generously renders tofu, guessing strictly only costs the scan.
+End to end: `simple.asl.json` 5ms, `order-processing` 15ms, `retry.asl.json` 225ms, a CJK state name
+253ms — and the retry export now differs from the same export with the scan pinned off, which is the
+arrow appearing.
+
+A `font-weight="bold"` run still renders at regular weight rather than being synthesized (1240
+bytes for both weights with one `fontFiles` entry, against 1240 vs 1214 with `fontDirs`). No SVG
+this package generates asks for bold, but a hand-rolled one passed to `PngExporter` can.
+
+The scan also stays on wherever a *loadable* font file is not known, because nothing less proves
+text can render — each of these paints **0** pixels with the scan off:
+
+- `fontFamily` alone, and `SFN_DIAGRAM_PNG_FONT_FAMILY` alone — a family name cannot be located
+  without a search path.
+- `fontDirs` and `SFN_DIAGRAM_PNG_FONT_DIRS`. A directory that exists may hold no font fontdb can
+  parse; an empty `-v ./myfonts:/fonts` mount would otherwise have lost every label.
+- `fontFiles` whose entries are not a font resvg can parse. A readable file is not enough: fontdb
+  does not decompress WOFF, so a `.woff` — or a truncated `.ttf`, or `package.json` — is readable,
+  plausible and useless. `isReadableFile` opens the file and reads its magic number (sfnt, `OTTO`,
+  `ttcf`, `true`, `typ1`; `wOFF`/`wOF2` deliberately absent). resvg does **not** throw on any of
+  these, so the scan is what keeps them from being silent.
+- no probe match on the platform.
+
+Forcing the scan off with **no** font file and no search directory is unsatisfiable — every label
+renders blank, silently — so it now throws, naming the platform and what to pass instead.
+
+### Font families are CSS stacks
+
+resvg's `defaultFontFamily` matches one family name and does not split a list, so a stack handed to
+it matches nothing: measured through the engine, `'Georgia'` paints 529 px and `'Georgia, serif'`
+paints 522 — identical to a family that does not exist. Every family input is now narrowed to its
+first entry, unquoted.
+
+**Correction to an earlier revision of this description.** I claimed that narrowing also fixed
+`exportPng({ fontFamily: 'Inter, sans-serif' })` being a silent no-op. It does not. `fontFamily`
+sets resvg's *default* family, which applies only to text naming no family of its own — and every
+`<text>` a diagram generates carries `theme.fontFamily`. Measured: `exportPng` is byte-identical
+with and without `fontFamily`, and identical again when it is passed on top of a theme family. So
+narrowing the stack only matters for a hand-authored SVG that omits `font-family`; `theme.fontFamily`
+is what restyles a diagram. The docs and the option's JSDoc now say so, and `fontFamily` no longer
+suppresses the theme family it cannot replace — which it previously did, flipping the scan off and
+letting the markup's family fall back to the one loaded face.
+
+### theme.fontFamily
+
+`SvgRenderer` writes `theme.fontFamily` onto every `<text>`, and one loaded file is what resvg uses
+for whatever family the SVG asks for — so `exportPng({ theme: { fontFamily: 'Georgia' } })` came out
+**byte-identical** to the Arial default. A documented public option, and the CLI's
+`CUSTOM_THEME_FIELDS`, silently did nothing in PNG. A non-default family now routes into the PNG
+`fontFamily` path, which keeps the fonts searchable; Georgia and Courier New differ from the default
+again, and an explicit `fontFamily` option still wins over the theme. The built-in light/dark themes
+keep the fast path.
+
+The family goes in as a separate `preferredFamily` input rather than as `fontFamily`: the latter is
+a font *source*, so using it skipped the `fontDirs` and probe table a caller had configured — with
+`SFN_DIAGRAM_PNG_FONT_DIRS=/mounted/fonts` set, a theme family left `fontDirs: []`, silently never
+searching the mount. It is ignored outright when an explicit `fontFamily` overrides it, so a
+discarded theme family no longer forces the scan on for nothing.
+
+**Five revisions after review.** Three were the same mistake — treating "a path exists" as "a font
+will load": the scan was turned off for any existing directory, then for unchecked `fontFiles`, then
+for a *directory* passed in `fontFiles` (`existsSync` is true for one), and then the probe table
+itself was still matched with `existsSync`, stranding the default path on one unreadable file. The
+check is `statSync().isFile()` + `accessSync(R_OK)` everywhere now. Forcing the scan off with no
+font file and no directory is refused outright, naming the paths it could not read.
+
+Clearing the font env vars in the tests, as a review asked, also turned up a separate bug:
+`''.split(delimiter).filter(Boolean)` is `[]`, which is truthy, so `SFN_DIAGRAM_PNG_FONT_DIRS` set
+but *blank* took the env branch and shadowed the probe table with no font at all. Both env vars
+treat empty as unset now.
+
+See `63e8677`, `62af0b1`, `824834c` and `43bc1b4` for the pixel counts behind each case.
+
+## Tests
+
+The assertions are on **painted pixels**, not on a PNG coming out — a font that fails to resolve
+still produces a perfectly valid, entirely blank PNG, which is what made this silent. New
+`tests/decodePng.ts` inflates and unfilters the engine's own output (no new dependency); a
+fully-covered image decoding to exactly `200 * 100` opaque pixels is what keeps a zero count
+meaningful. Verified the glyph assertion fails with 0 pixels when the font is made unresolvable,
+rather than passing vacuously.
+
+The nine env-var parsing cases were vacuous as first written — the `fileExists` stub was inverted
+the wrong way, making the probe branch's own default equal the expectation every time. Stubbing the
+reader to return `undefined` left all nine green. They now run against inputs whose own default is
+the opposite of each expectation, and all nine fail under that mutant. The
+`fontFiles`-existence test is mutation-checked the same way.
+
+`decodePng` itself also returned a fully transparent image for truncated data rather than throwing
+— a short scanline reads as `undefined`, the arithmetic goes `NaN`, and `NaN & 0xff` is `0`. For a
+helper whose only job is making a zero count meaningful, that is the one bug that matters, so it now
+checks the inflated length and that an `IHDR` was seen, with `tests/decodePng.test.ts` covering
+every refusal.
+
+## Windows CI, measured against main rather than locally
+
+`REAL_PNG_EXPORT_TIMEOUT_MS` is deliberately **left at 30s**, and the Windows runner is why. Suite
+durations, main's `4ab0ea9` run vs this PR's:
+
+| Suite | main | this PR |
+| --- | --- | --- |
+| `integration.test.ts` | 9087 ms | **343 ms** |
+| `PngExporter.test.ts` | 3179 ms | **105 ms** |
+| `resvgEngine.test.ts` | 2022 ms (7 tests) | **12643 ms** (11 tests) |
+
+The PNG suites that used to scan now cost ~450 ms between them instead of ~12 s. Essentially all
+the remaining time is the one new test that forces the scan back on: it is the first thing on the
+runner to walk every installed font with a cold cache, which is the same ~9 s main's
+`integration.test.ts` was paying as whichever suite happened to go first.
+
+So the local "single-digit milliseconds" figure does not carry to a cold CI runner, and 30 s stays:
+one test is now ~12.6 s there, against a 15 s value that has already been blown once. The comment
+in `tests/pngExportTimeout.ts` records that reasoning.
+
+I kept that test rather than trading it for the free option-shape assertion, because it is the only
+thing proving the documented escape hatch actually renders glyphs end to end. 12.6 s inside a 30 s
+budget on the slowest runner is the cost.
+
+## Gate
+
+`pnpm run typecheck` · `npx eslint .` · `pnpm test` (88 files passed, plus both extra projects) ·
+`pnpm run build && pnpm run check:bundle-size` (ok, 15 entries; `png.js` gzip 58183 / 61000). The
+png budget was raised in its own `chore(build)` commit: the guards add ~3.5KB gzip to that entry and
+`png.cjs` now measures 58657, past the old 58300 ceiling.
+`exportPng` re-measured after every round of fixes: 15ms against 239ms forced on, still 19162 bytes
+either way. One CodeQL high of my own along the way — the magic-number check stat'd the path and then
+opened it, which is `js/file-system-race`; it opens first and stats the descriptor now, and CodeQL is
+clear.
+
+One CI-only failure along the way, worth recording: two tests made the probe table miss by stubbing
+`fileExists`, but the probe reads `isFile` now, and the Ubuntu runners genuinely ship Liberation Sans
+at the probed path — so they passed on Windows and macOS and failed all three Ubuntu legs. Fixed in
+`1d781d4`, and the rest of the suite was then probed for the same host dependence by making the
+readable-file check return `true` for every path: only the test whose subject *is* that check fails.
+`tests/pngThemeFont.test.ts` was rebuilt around a mocked resolver for the same reason.
+
+
+
+BEGIN_COMMIT_OVERRIDE
+feat(png): add loadSystemFonts and skip the system font scan by default (#362)
+END_COMMIT_OVERRIDE
+
