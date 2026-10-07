@@ -618,6 +618,84 @@ describe('AslParser', () => {
             });
         });
 
+        describe('Choice rule and Catch entry Next requirement', () => {
+            it('should throw when a Choice rule has no Next', () => {
+                const definition = loadFixture('invalid/choice-rule-missing-next');
+                expect(() => validateAsl({ definition })).toThrow('Choices[0] must have "Next"');
+                expect(() => parseAsl({ definition })).toThrow(AslValidationError);
+            });
+
+            it('should throw when a Catch entry has no Next', () => {
+                const definition = {
+                    StartAt: 'T',
+                    States: {
+                        T: { Catch: [{ ErrorEquals: ['States.ALL'] }], End: true, Resource: 'arn:t', Type: 'Task' },
+                    },
+                };
+                expect(() => validateAsl({ definition })).toThrow('Catch[0] must have "Next"');
+            });
+
+            it('should throw instead of crashing when an entry is not an object', () => {
+                for (const field of ['Choices', 'Catch']) {
+                    const definition = {
+                        StartAt: 'S',
+                        States: { S: { [field]: [null], Default: 'S', End: true, Resource: 'arn:s', Type: 'Task' } },
+                    };
+                    expect(() => validateAsl({ definition })).toThrow(`${field}[0] must be an object`);
+                }
+            });
+
+            it('should not require Next on And/Or/Not sub-rules', () => {
+                const definition = {
+                    StartAt: 'C',
+                    States: {
+                        C: {
+                            Choices: [
+                                {
+                                    And: [{ NumericEquals: 1, Variable: '$.a' }, { Not: { BooleanEquals: true, Variable: '$.b' } }],
+                                    Next: 'D',
+                                },
+                            ],
+                            Default: 'D',
+                            Type: 'Choice',
+                        },
+                        D: { Type: 'Succeed' },
+                    },
+                };
+                expect(() => validateAsl({ definition })).not.toThrow();
+            });
+
+            it('should qualify a missing Choice rule Next inside a Parallel branch', () => {
+                const definition = {
+                    StartAt: 'Fan',
+                    States: {
+                        Fan: {
+                            Branches: [
+                                {
+                                    StartAt: 'C',
+                                    States: { C: { Choices: [{ NumericEquals: 1, Variable: '$.a' }], Type: 'Choice' } },
+                                },
+                            ],
+                            End: true,
+                            Type: 'Parallel',
+                        },
+                    },
+                };
+                expect(() => validateAsl({ definition })).toThrow('Parallel state "Fan" branch 1: State "C": Choices[0] must have "Next"');
+            });
+
+            it('should throw when a Choice rule Next is not a string', () => {
+                const definition = {
+                    StartAt: 'C',
+                    States: {
+                        C: { Choices: [{ Next: 5, NumericEquals: 1, Variable: '$.a' }], Default: 'D', Type: 'Choice' },
+                        D: { Type: 'Succeed' },
+                    },
+                };
+                expect(() => validateAsl({ definition })).toThrow('Choices[0].Next must be a string');
+            });
+        });
+
         describe('Nested scope validation', () => {
             const parallelWith = (branch: unknown): unknown => ({
                 StartAt: 'Fanout',

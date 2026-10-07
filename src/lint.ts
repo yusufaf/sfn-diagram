@@ -190,6 +190,7 @@ function lintScope(context: ScopeContext, diagnostics: LintDiagnostic[]): void {
  * | code | severity | rule |
  * | --- | --- | --- |
  * | `unreachable-state` | warning | no path from the scope's `StartAt` reaches the state |
+ * | `missing-transition` | error | a non-terminal state has neither `Next` nor `End: true`, or a `Choices[]` rule or `Catch[]` entry has no `Next` |
  * | `dangling-transition` | error | `StartAt` / `Next` / `Default` / `Choices[].Next` / `Catch[].Next` names a state missing from its scope |
  * | `choice-without-default` | warning | a Choice has no `Default` |
  * | `duplicate-state-name` | warning | a state name is reused in another `States` block |

@@ -67849,16 +67849,20 @@ function validateState(params) {
     "Catch",
     "Retry"
   ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) report("invalid-field", `${pointer}/${arrayField}`, `State "${stateName}": ${arrayField} must be an array`);
-  if (Array.isArray(state2.Choices)) {
-    for (const [index, choice] of state2.Choices.entries()) if (choice && typeof choice === "object" && "Next" in choice) {
-      const choiceNext = choice.Next;
-      if (typeof choiceNext === "string" && !stateNames.has(choiceNext)) report("dangling-transition", `${pointer}/Choices/${index}/Next`, `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`);
-    }
-  }
-  if (Array.isArray(state2.Catch)) {
-    for (const [index, catchBlock] of state2.Catch.entries()) if (catchBlock && typeof catchBlock === "object" && "Next" in catchBlock) {
-      const catchNext = catchBlock.Next;
-      if (typeof catchNext === "string" && !stateNames.has(catchNext)) report("dangling-transition", `${pointer}/Catch/${index}/Next`, `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`);
+  for (const field of ["Choices", "Catch"]) {
+    const entries = state2[field];
+    if (!Array.isArray(entries)) continue;
+    for (const [index, entry] of entries.entries()) {
+      if (!entry || typeof entry !== "object") {
+        report("invalid-field", `${pointer}/${field}/${index}`, `State "${stateName}": ${field}[${index}] must be an object`);
+        continue;
+      }
+      const entryNext = entry.Next;
+      const entryPointer = `${pointer}/${field}/${index}/Next`;
+      const entryLabel = `${field}[${index}]`;
+      if (entryNext === void 0) report("missing-transition", entryPointer, `State "${stateName}": ${entryLabel} must have "Next"`);
+      else if (typeof entryNext !== "string") report("invalid-field", entryPointer, `State "${stateName}": ${entryLabel}.Next must be a string`);
+      else if (!stateNames.has(entryNext)) report("dangling-transition", entryPointer, `State "${stateName}": ${entryLabel}.Next references non-existent state "${entryNext}"`);
     }
   }
   if (!["Succeed", "Fail"].includes(stateType) && stateType !== "Choice") {

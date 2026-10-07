@@ -474,34 +474,28 @@ function validateState(params: ValidateStateParams): void {
         }
     }
 
-    // Check Choices reference valid states
-    if (Array.isArray(state.Choices)) {
-        for (const [index, choice] of (state.Choices as unknown[]).entries()) {
-            if (choice && typeof choice === 'object' && 'Next' in choice) {
-                const choiceNext = (choice as Record<string, unknown>).Next;
-                if (typeof choiceNext === 'string' && !stateNames.has(choiceNext)) {
-                    report(
-                        'dangling-transition',
-                        `${pointer}/Choices/${index}/Next`,
-                        `State "${stateName}": Choices[${index}].Next references non-existent state "${choiceNext}"`
-                    );
-                }
+    // Every Choice rule and Catch entry is a transition, so each must name a target in scope.
+    for (const field of ['Choices', 'Catch'] as const) {
+        const entries = state[field];
+        if (!Array.isArray(entries)) continue;
+        for (const [index, entry] of (entries as unknown[]).entries()) {
+            if (!entry || typeof entry !== 'object') {
+                report('invalid-field', `${pointer}/${field}/${index}`, `State "${stateName}": ${field}[${index}] must be an object`);
+                continue;
             }
-        }
-    }
-
-    // Check Catch references valid states
-    if (Array.isArray(state.Catch)) {
-        for (const [index, catchBlock] of (state.Catch as unknown[]).entries()) {
-            if (catchBlock && typeof catchBlock === 'object' && 'Next' in catchBlock) {
-                const catchNext = (catchBlock as Record<string, unknown>).Next;
-                if (typeof catchNext === 'string' && !stateNames.has(catchNext)) {
-                    report(
-                        'dangling-transition',
-                        `${pointer}/Catch/${index}/Next`,
-                        `State "${stateName}": Catch[${index}].Next references non-existent state "${catchNext}"`
-                    );
-                }
+            const entryNext = (entry as Record<string, unknown>).Next;
+            const entryPointer = `${pointer}/${field}/${index}/Next`;
+            const entryLabel = `${field}[${index}]`;
+            if (entryNext === undefined) {
+                report('missing-transition', entryPointer, `State "${stateName}": ${entryLabel} must have "Next"`);
+            } else if (typeof entryNext !== 'string') {
+                report('invalid-field', entryPointer, `State "${stateName}": ${entryLabel}.Next must be a string`);
+            } else if (!stateNames.has(entryNext)) {
+                report(
+                    'dangling-transition',
+                    entryPointer,
+                    `State "${stateName}": ${entryLabel}.Next references non-existent state "${entryNext}"`
+                );
             }
         }
     }

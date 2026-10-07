@@ -1,0 +1,12 @@
+{
+  "Comment": "Invalid: the only Choice rule has no Next",
+  "StartAt": "C",
+  "States": {
+    "C": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.a", "NumericEquals": 1 }],
+      "Default": "D"
+    },
+    "D": { "Type": "Succeed" }
+  }
+}

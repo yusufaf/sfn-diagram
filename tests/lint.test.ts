@@ -75,6 +75,16 @@ describe('lintAsl', () => {
             { StartAt: 'A', States: { A: { End: true } } },
             { StartAt: 'A', States: { A: { End: true, Type: 'Pass', Next: 5 } } },
             { StartAt: 'A', States: { A: { Choices: 'x', Type: 'Choice' } } },
+            {
+                StartAt: 'A',
+                States: { A: { Choices: [{ NumericEquals: 1, Variable: '$.a' }], Type: 'Choice' } },
+            },
+            {
+                StartAt: 'A',
+                States: {
+                    A: { Catch: [{ ErrorEquals: ['States.ALL'] }], End: true, Resource: 'arn:a', Type: 'Task' },
+                },
+            },
             { StartAt: 'A', States: { A: { Branches: {}, End: true, Type: 'Parallel' } } },
             {
                 StartAt: 'A',
@@ -100,6 +110,53 @@ describe('lintAsl', () => {
             expect(diagnostics[0]?.severity).toBe('error');
             expect(diagnostics[0]?.message).toBe((thrown as Error).message);
         }
+    });
+
+    it('flags a Choice rule with no Next', () => {
+        expect(lintAsl({ definition: loadFixture('invalid/choice-rule-missing-next') })).toEqual([
+            {
+                code: 'missing-transition',
+                message: 'State "C": Choices[0] must have "Next"',
+                path: '/States/C/Choices/0/Next',
+                severity: 'error',
+            },
+        ]);
+    });
+
+    it('flags a Catch entry with no Next, including inside a Parallel branch', () => {
+        const diagnostics = lintAsl({
+            definition: {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Branches: [
+                            {
+                                StartAt: 'T',
+                                States: {
+                                    T: {
+                                        Catch: [{ ErrorEquals: ['States.ALL'] }],
+                                        End: true,
+                                        Resource: 'arn:t',
+                                        Type: 'Task',
+                                    },
+                                },
+                            },
+                        ],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            },
+        });
+
+        expect(diagnostics).toEqual([
+            {
+                code: 'missing-transition',
+                message: 'Parallel state "Fan" branch 1: State "T": Catch[0] must have "Next"',
+                path: '/States/Fan/Branches/0/States/T/Catch/0/Next',
+                severity: 'error',
+            },
+        ]);
     });
 
     it('flags unreachable states per scope', () => {
