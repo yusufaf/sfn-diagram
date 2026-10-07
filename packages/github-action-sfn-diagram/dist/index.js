@@ -67853,7 +67853,10 @@ function validateState(params) {
     const entries = state2[field];
     if (!Array.isArray(entries)) continue;
     for (const [index, entry] of entries.entries()) {
-      if (!entry || typeof entry !== "object") continue;
+      if (!entry || typeof entry !== "object") {
+        report("invalid-field", `${pointer}/${field}/${index}`, `State "${stateName}": ${field}[${index}] must be an object`);
+        continue;
+      }
       const entryNext = entry.Next;
       const entryPointer = `${pointer}/${field}/${index}/Next`;
       const entryLabel = `${field}[${index}]`;

@@ -479,7 +479,10 @@ function validateState(params: ValidateStateParams): void {
         const entries = state[field];
         if (!Array.isArray(entries)) continue;
         for (const [index, entry] of (entries as unknown[]).entries()) {
-            if (!entry || typeof entry !== 'object') continue;
+            if (!entry || typeof entry !== 'object') {
+                report('invalid-field', `${pointer}/${field}/${index}`, `State "${stateName}": ${field}[${index}] must be an object`);
+                continue;
+            }
             const entryNext = (entry as Record<string, unknown>).Next;
             const entryPointer = `${pointer}/${field}/${index}/Next`;
             const entryLabel = `${field}[${index}]`;
