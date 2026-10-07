@@ -1058,22 +1058,28 @@ const ITEM_IO_ROLES = [
     nodeType: string;
 }>;
 
-/**
- * True when a state ends its enclosing branch or iterator, which is where the
- * branch's end marker is wired in. Fail also lands here, so callers that need
- * "completes normally" must use {@link endsBranchSuccessfully}.
- */
-function endsBranch(state: AslState): boolean {
-    return Boolean(state.End) || (!state.Next && state.Type !== 'Choice');
+/** Parameters for {@link endsBranchSuccessfully}. */
+interface EndsBranchSuccessfullyParams {
+    /** A state inside a Parallel branch or Map processor. */
+    state: AslState;
 }
 
 /**
- * True when a state ends its branch without failing it. A Fail never reaches the
- * container's `Next`, so it must not be connected onward; a Succeed (or any other
- * terminal state, including a nested container with `End: true`) does.
+ * True when a state ends its enclosing branch or iterator without failing it,
+ * which is where the end marker is wired in. A Fail also ends the branch but never
+ * reaches the container's `Next`, so it is excluded; a Succeed, or any other
+ * terminal state (including a nested container with `End: true`), is included.
  */
-function endsBranchSuccessfully(state: AslState): boolean {
-    return endsBranch(state) && state.Type !== 'Fail';
+function endsBranchSuccessfully(params: EndsBranchSuccessfullyParams): boolean {
+    const { state } = params;
+    const endsBranch = Boolean(state.End) || (!state.Next && state.Type !== 'Choice');
+    return endsBranch && state.Type !== 'Fail';
+}
+
+/** Parameters for {@link branchCanOnlyFail}. */
+interface BranchCanOnlyFailParams {
+    /** A Parallel branch or Map processor definition. */
+    definition: AslDefinition;
 }
 
 /**
@@ -1082,11 +1088,11 @@ function endsBranchSuccessfully(state: AslState): boolean {
  * into it. A branch with no terminal state at all (an endless loop) is not
  * treated this way, so its layout is unchanged.
  */
-function branchCanOnlyFail(definition: AslDefinition): boolean {
-    const states = Object.values(definition.States);
+function branchCanOnlyFail(params: BranchCanOnlyFailParams): boolean {
+    const states = Object.values(params.definition.States);
     return (
         states.some((state) => state.Type === 'Fail') &&
-        !states.some((state) => endsBranchSuccessfully(state))
+        !states.some((state) => endsBranchSuccessfully({ state }))
     );
 }
 
@@ -1134,7 +1140,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
 
                 // Create virtual end node for this branch, unless it can only fail:
                 // nothing flows into the marker then, so it would float unattached.
-                if (!branchCanOnlyFail(branch)) {
+                if (!branchCanOnlyFail({ definition: branch })) {
                     const endNodeId = branchEndMarkerId(stateNode.id, index);
                     const endNode: StateNode = {
                         id: endNodeId,
@@ -1187,7 +1193,7 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
             }
 
             // Create virtual end node for iterator, unless it can only fail
-            if (!branchCanOnlyFail(iterator)) {
+            if (!branchCanOnlyFail({ definition: iterator })) {
                 const endNodeId = iteratorEndMarkerId(stateNode.id);
                 const endNode: StateNode = {
                     id: endNodeId,
@@ -1349,7 +1355,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
 
                     // A state that ends the branch successfully connects to the end marker.
                     // A Fail ends it too, but never reaches the container's Next.
-                    if (endsBranchSuccessfully(branchState)) {
+                    if (endsBranchSuccessfully({ state: branchState })) {
                         edges.push({
                             from: resolver.resolve(branchScope, branchStateName),
                             to: endNodeId,
@@ -1362,7 +1368,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 // This ensures Next is centered below all branches. `Next` belongs to the
                 // container's own scope, not the branch's - a branch cannot target it.
                 // A branch that can only fail has no end marker to anchor it.
-                if (state.Next && !branchCanOnlyFail(branch)) {
+                if (state.Next && !branchCanOnlyFail({ definition: branch })) {
                     edges.push({
                         from: endNodeId,
                         to: resolver.resolve(scope, state.Next),
@@ -1419,7 +1425,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
 
                 // A state that ends the iterator successfully connects to the end marker;
                 // a Fail never reaches the Map's Next.
-                if (endsBranchSuccessfully(iteratorState)) {
+                if (endsBranchSuccessfully({ state: iteratorState })) {
                     edges.push({
                         from: resolver.resolve(processorScope, iteratorStateName),
                         to: endNodeId,
@@ -1431,7 +1437,7 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
             // Create edge from iterator end marker to Next state for layout positioning.
             // `Next` belongs to the Map's own scope, not the processor's.
             // A processor that can only fail has no end marker to anchor it.
-            if (state.Next && !branchCanOnlyFail(mapProcessor)) {
+            if (state.Next && !branchCanOnlyFail({ definition: mapProcessor })) {
                 edges.push({
                     from: endNodeId,
                     to: resolver.resolve(scope, state.Next),

@@ -68188,15 +68188,13 @@ var ITEM_IO_ROLES = [{
   label: "ResultWriter",
   nodeType: "ResultWriter"
 }];
-function endsBranch(state2) {
-  return Boolean(state2.End) || !state2.Next && state2.Type !== "Choice";
+function endsBranchSuccessfully(params) {
+  const { state: state2 } = params;
+  return (Boolean(state2.End) || !state2.Next && state2.Type !== "Choice") && state2.Type !== "Fail";
 }
-function endsBranchSuccessfully(state2) {
-  return endsBranch(state2) && state2.Type !== "Fail";
-}
-function branchCanOnlyFail(definition) {
-  const states = Object.values(definition.States);
-  return states.some((state2) => state2.Type === "Fail") && !states.some((state2) => endsBranchSuccessfully(state2));
+function branchCanOnlyFail(params) {
+  const states = Object.values(params.definition.States);
+  return states.some((state2) => state2.Type === "Fail") && !states.some((state2) => endsBranchSuccessfully({ state: state2 }));
 }
 function extractStatesRecursively(params) {
   const { definition, machineQueryLanguage, nodeIndex, nodes: nodes5, options, resolver, scope } = params;
@@ -68224,7 +68222,7 @@ function extractStatesRecursively(params) {
       });
       const branchStartId = resolver.resolve(branchScope, branch.StartAt);
       if (nodeIndex.get(branchStartId)) stateNode.children?.push(branchStartId);
-      if (!branchCanOnlyFail(branch)) {
+      if (!branchCanOnlyFail({ definition: branch })) {
         const endNodeId = branchEndMarkerId(stateNode.id, index);
         const endNode = {
           id: endNodeId,
@@ -68265,7 +68263,7 @@ function extractStatesRecursively(params) {
       });
       const iteratorStartId = resolver.resolve(processorScope, iterator2.StartAt);
       if (nodeIndex.get(iteratorStartId)) stateNode.children?.push(iteratorStartId);
-      if (!branchCanOnlyFail(iterator2)) {
+      if (!branchCanOnlyFail({ definition: iterator2 })) {
         const endNodeId = iteratorEndMarkerId(stateNode.id);
         const endNode = {
           id: endNodeId,
@@ -68355,13 +68353,13 @@ function extractNestedEdges(params) {
           stateName: branchStateName
         });
         edges.push(...branchEdges);
-        if (endsBranchSuccessfully(branchState)) edges.push({
+        if (endsBranchSuccessfully({ state: branchState })) edges.push({
           from: resolver.resolve(branchScope, branchStateName),
           to: endNodeId,
           type: "normal"
         });
       }
-      if (state2.Next && !branchCanOnlyFail(branch)) edges.push({
+      if (state2.Next && !branchCanOnlyFail({ definition: branch })) edges.push({
         from: endNodeId,
         to: resolver.resolve(scope, state2.Next),
         type: "normal"
@@ -68401,13 +68399,13 @@ function extractNestedEdges(params) {
           stateName: iteratorStateName
         });
         edges.push(...iteratorEdges);
-        if (endsBranchSuccessfully(iteratorState)) edges.push({
+        if (endsBranchSuccessfully({ state: iteratorState })) edges.push({
           from: resolver.resolve(processorScope, iteratorStateName),
           to: endNodeId,
           type: "normal"
         });
       }
-      if (state2.Next && !branchCanOnlyFail(mapProcessor)) edges.push({
+      if (state2.Next && !branchCanOnlyFail({ definition: mapProcessor })) edges.push({
         from: endNodeId,
         to: resolver.resolve(scope, state2.Next),
         type: "normal"

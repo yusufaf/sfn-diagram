@@ -247,6 +247,16 @@ describe('a Fail state inside a Parallel branch or Map processor', () => {
             expect(titles).toContain('Ok to M');
         });
 
+        it.each([
+            ['Parallel', parallelAllFail],
+            ['Map', mapAllFail],
+        ])('lays out a %s whose branches can only fail without bad coordinates', (_name, definition) => {
+            const { svg } = generateSvg({ aslDefinition: definition });
+
+            expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+            expect(svg).toContain('Done (Succeed)');
+        });
+
         it('draws no floating end marker for a branch that can only fail', () => {
             const { svg } = generateSvg({ aslDefinition: parallelPartlyFail });
 
