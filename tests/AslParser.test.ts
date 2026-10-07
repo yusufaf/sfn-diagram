@@ -618,6 +618,35 @@ describe('AslParser', () => {
             });
         });
 
+        describe('Choice rule and Catch entry Next requirement', () => {
+            it('should throw when a Choice rule has no Next', () => {
+                const definition = loadFixture('invalid/choice-rule-missing-next');
+                expect(() => validateAsl({ definition })).toThrow('Choices[0] must have "Next"');
+                expect(() => parseAsl({ definition })).toThrow(AslValidationError);
+            });
+
+            it('should throw when a Catch entry has no Next', () => {
+                const definition = {
+                    StartAt: 'T',
+                    States: {
+                        T: { Catch: [{ ErrorEquals: ['States.ALL'] }], End: true, Resource: 'arn:t', Type: 'Task' },
+                    },
+                };
+                expect(() => validateAsl({ definition })).toThrow('Catch[0] must have "Next"');
+            });
+
+            it('should throw when a Choice rule Next is not a string', () => {
+                const definition = {
+                    StartAt: 'C',
+                    States: {
+                        C: { Choices: [{ Next: 5, NumericEquals: 1, Variable: '$.a' }], Default: 'D', Type: 'Choice' },
+                        D: { Type: 'Succeed' },
+                    },
+                };
+                expect(() => validateAsl({ definition })).toThrow('Choices[0].Next must be a string');
+            });
+        });
+
         describe('Nested scope validation', () => {
             const parallelWith = (branch: unknown): unknown => ({
                 StartAt: 'Fanout',

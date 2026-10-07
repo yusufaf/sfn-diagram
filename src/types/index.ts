@@ -396,7 +396,7 @@ export type LintCode =
     | 'invalid-state-type'
     /** The definition or a nested scope is not an object, or lacks `StartAt` / `States`. */
     | 'invalid-structure'
-    /** A non-terminal state has neither `Next` nor `End: true`. */
+    /** A non-terminal state has neither `Next` nor `End: true`, or a `Choices[]` rule or `Catch[]` entry has no `Next`. */
     | 'missing-transition'
     /** A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state. */
     | 'query-language-mismatch'
