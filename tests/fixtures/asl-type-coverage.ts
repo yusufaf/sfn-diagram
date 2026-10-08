@@ -1,9 +1,10 @@
 import type { AslDefinition } from '../../src/types';
 
 /**
- * Two definitions that pass AWS `ValidateStateMachineDefinition` and together
- * exercise every field the ASL types must accept without a cast. Trimming either
- * weakens `tests/aslTypes.test.ts`.
+ * Two definitions that returned OK from `aws stepfunctions
+ * validate-state-machine-definition` on 2026-10-07 (nothing in the repo reruns
+ * it) and together exercise every field the ASL types must accept without a
+ * cast. Trimming either weakens `tests/aslTypes.test.ts`.
  */
 export const jsonPathDefinition: AslDefinition = {
     Comment: 'Exercises every JSONPath-mode field added in #373',
