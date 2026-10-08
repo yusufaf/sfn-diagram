@@ -663,6 +663,10 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         type: state.Type,
     };
 
+    if (state.End === true || state.Type === 'Succeed' || state.Type === 'Fail') {
+        baseNode.isEnd = true;
+    }
+
     // ASL Variables: record which variables the state assigns so renderers can
     // surface them. Assignment is otherwise invisible in the diagram. In JSONPath
     // mode a key's `.$` suffix marks its value as a path to resolve; the variable

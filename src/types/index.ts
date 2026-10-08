@@ -213,6 +213,12 @@ export interface StateNode {
     /** Whether this Map state runs in distributed mode (`ProcessorConfig.Mode: 'DISTRIBUTED'`) */
     isDistributedMap?: boolean;
     /**
+     * Whether this state ends its enclosing scope (the machine, a Parallel branch or a
+     * Map processor): ASL `End: true`, or a Succeed or Fail state, which are terminal by
+     * type. Absent otherwise.
+     */
+    isEnd?: boolean;
+    /**
      * A Map state's `ItemBatcher` sizing, pre-formatted for display (e.g. `batches of 50`).
      * Absent when the Map does not batch.
      */

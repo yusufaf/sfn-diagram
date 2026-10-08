@@ -1449,4 +1449,55 @@ describe('AslParser', () => {
             }
         });
     });
+    describe('isEnd', () => {
+        const isEndOf = (definition: AslDefinition, id: string): boolean | undefined =>
+            parseAsl({ definition }).nodes.find((node) => node.id === id)?.isEnd;
+
+        it('marks Pass, Succeed and Fail terminals', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Choose',
+                States: {
+                    Choose: {
+                        Choices: [{ Next: 'Bad', Variable: '$.bad', BooleanEquals: true }],
+                        Default: 'Last',
+                        Type: 'Choice',
+                    },
+                    Bad: { Type: 'Fail' },
+                    Last: { End: true, Type: 'Pass' },
+                    Win: { Type: 'Succeed' },
+                },
+            };
+            expect(isEndOf(definition, 'Last')).toBe(true);
+            expect(isEndOf(definition, 'Bad')).toBe(true);
+            expect(isEndOf(definition, 'Win')).toBe(true);
+        });
+
+        it('leaves states with Next and Choice states unmarked', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Choose',
+                States: {
+                    Choose: { Choices: [{ Next: 'Step', Variable: '$.a', BooleanEquals: true }], Default: 'Step', Type: 'Choice' },
+                    Step: { Next: 'Done', Type: 'Pass' },
+                    Done: { End: true, Type: 'Pass' },
+                },
+            };
+            expect(isEndOf(definition, 'Choose')).toBeUndefined();
+            expect(isEndOf(definition, 'Step')).toBeUndefined();
+        });
+
+        it('marks End states nested in a branch and a container that ends the machine', () => {
+            const definition: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Branches: [{ StartAt: 'Inner', States: { Inner: { End: true, Type: 'Pass' } } }],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            };
+            expect(isEndOf(definition, 'Inner')).toBe(true);
+            expect(isEndOf(definition, 'Fan')).toBe(true);
+        });
+    });
 });

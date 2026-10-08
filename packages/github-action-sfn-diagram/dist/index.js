@@ -67944,6 +67944,7 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
+  if (state2.End === true || state2.Type === "Succeed" || state2.Type === "Fail") baseNode.isEnd = true;
   const assignKeys = Object.keys(state2.Assign ?? {});
   const assignedVariables = queryLanguage === "JSONPath" ? assignKeys.map(stripJsonPathSuffix) : assignKeys;
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
