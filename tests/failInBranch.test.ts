@@ -202,7 +202,8 @@ describe('a Fail state inside a Parallel branch or Map processor', () => {
 
             expect(code).not.toContain('F --> Done');
             expect(code).toContain('F --> [*]');
-            expect(code).toContain('T --> Done');
+            expect(code).toContain('T --> [*]');
+            expect(code).toContain('P --> Done');
         });
 
         it('does not draw a Map processor Fail as continuing to Next, but keeps Succeed', () => {
@@ -210,7 +211,8 @@ describe('a Fail state inside a Parallel branch or Map processor', () => {
 
             expect(code).not.toContain('Reject --> Done');
             expect(code).toContain('Reject --> [*]');
-            expect(code).toContain('Ok --> Done');
+            expect(code).toContain('Ok --> [*]');
+            expect(code).toContain('M --> Done');
         });
 
         it('draws no continuation at all when every branch can only fail', () => {

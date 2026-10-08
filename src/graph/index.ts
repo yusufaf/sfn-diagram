@@ -13,8 +13,6 @@ export { styleCollapsedView } from './collapsedViewStyling';
 export type { StyleCollapsedViewParams, ViewNodeStyling } from './collapsedViewStyling';
 export type { ApplyCatchHandlingParams } from './catchHandling';
 export { getMapProcessor, isMarkerNode, isOpenContainer, MARKER_NODE_TYPES } from './containers';
-export { flattenMarkers } from './flattenMarkers';
-export type { FlattenMarkersParams, FlattenMarkersResult } from './flattenMarkers';
 export { assignEdgeIds } from './edgeIdentity';
 export type { AssignEdgeIdsParams, RawEdge } from './edgeIdentity';
 export {

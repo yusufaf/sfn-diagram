@@ -1220,6 +1220,16 @@ describe('generateExecutionHtmlAsync', () => {
 });
 
 describe('generateMermaidExecution', () => {
+    it('nests a Parallel as a composite without colouring phantom end markers', () => {
+        const result = generateMermaidExecution({
+            aslDefinition: loadAsl('parallel-catch'),
+            history: loadHistoryJson('execution-parallel-caught'),
+        });
+
+        expect(result.code).toContain('state ParallelExecution {');
+        expect(result.code).not.toContain('__end');
+    });
+
     it('emits execution classes and label annotations', () => {
         const result = generateMermaidExecution({
             aslDefinition: loadAsl('retry'),

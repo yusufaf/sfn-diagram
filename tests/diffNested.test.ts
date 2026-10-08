@@ -61,10 +61,18 @@ describe('nested state diff (issue #206)', () => {
     it('keeps a removed nested state as an orphan inside its own container', () => {
         const { code } = generateMermaidDiff({ after, before });
 
-        // The orphan lives in FanOut's first branch, so its End collects into the
-        // branch end and flows on to FanOut's Next — a top-level orphan would have
-        // no outgoing edge at all.
-        expect(code).toContain('Archive --> ProcessItems');
+        // The orphan is drawn inside FanOut's first branch region and ends that
+        // region; FanOut's own Next is drawn once, from the composite.
+        expect(code).toContain('Archive --> [*]');
+        expect(code).toContain('FanOut --> ProcessItems');
+        expect(code).not.toContain('Archive --> ProcessItems');
+
+        const lines = code.split('\n');
+        const firstRegion = lines.slice(
+            lines.indexOf('    state FanOut {'),
+            lines.indexOf('        --'),
+        );
+        expect(firstRegion).toContain('        Archive --> [*]');
     });
 
     it('annotates a collapsed container with the number of changes inside', () => {

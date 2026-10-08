@@ -1,0 +1,46 @@
+{
+    "Comment": "Terminal states inside a Parallel branch and a Map processor",
+    "StartAt": "Fan",
+    "States": {
+        "Fan": {
+            "Type": "Parallel",
+            "Next": "Each",
+            "Branches": [
+                {
+                    "StartAt": "Ok",
+                    "States": { "Ok": { "Type": "Succeed" } }
+                },
+                {
+                    "StartAt": "Check",
+                    "States": {
+                        "Check": {
+                            "Type": "Choice",
+                            "Choices": [{ "Variable": "$.bad", "BooleanEquals": true, "Next": "Bad" }],
+                            "Default": "Work"
+                        },
+                        "Work": { "Type": "Pass", "End": true },
+                        "Bad": { "Type": "Fail" }
+                    }
+                }
+            ]
+        },
+        "Each": {
+            "Type": "Map",
+            "End": true,
+            "ItemProcessor": {
+                "ProcessorConfig": { "Mode": "INLINE" },
+                "StartAt": "Item",
+                "States": {
+                    "Item": { "Type": "Pass", "Next": "Valid" },
+                    "Valid": {
+                        "Type": "Choice",
+                        "Choices": [{ "Variable": "$.ok", "BooleanEquals": false, "Next": "Reject" }],
+                        "Default": "Keep"
+                    },
+                    "Keep": { "Type": "Pass", "End": true },
+                    "Reject": { "Type": "Fail" }
+                }
+            }
+        }
+    }
+}

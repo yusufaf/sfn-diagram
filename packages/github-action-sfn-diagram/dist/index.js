@@ -67501,57 +67501,6 @@ function mergeOptions(options = {}) {
     ...options
   };
 }
-function flattenMarkers(params) {
-  const { edges, nodes: nodes5 } = params;
-  const markerIds = new Set(nodes5.filter((node) => isMarkerNode(node)).map((node) => node.id));
-  if (markerIds.size === 0) return {
-    edges,
-    nodes: nodes5
-  };
-  const nodesById = new Map(nodes5.map((node) => [node.id, node]));
-  const outgoingByMarker = /* @__PURE__ */ new Map();
-  for (const edge of edges) {
-    if (!markerIds.has(edge.from)) continue;
-    const outgoing = outgoingByMarker.get(edge.from) ?? [];
-    outgoing.push(edge);
-    outgoingByMarker.set(edge.from, outgoing);
-  }
-  const resolveMarkerTargets = (markerId, visited) => {
-    if (visited.has(markerId)) return [];
-    visited.add(markerId);
-    return (outgoingByMarker.get(markerId) ?? []).flatMap((edge) => markerIds.has(edge.to) ? resolveMarkerTargets(edge.to, visited) : [edge]);
-  };
-  const resultEdges = [];
-  const seenRewired = /* @__PURE__ */ new Set();
-  let flattenedCounter = 0;
-  for (const edge of edges) {
-    if (markerIds.has(edge.from)) continue;
-    if (markerIds.has(edge.to)) {
-      for (const target of resolveMarkerTargets(edge.to, /* @__PURE__ */ new Set())) {
-        const rewired = {
-          ...edge,
-          condition: edge.condition ?? target.condition,
-          id: `${edge.from}->${target.to}#flattened#${flattenedCounter++}`,
-          label: edge.label ?? target.label,
-          to: target.to,
-          type: edge.type ?? target.type
-        };
-        const dedupeKey = `${rewired.from}->${rewired.to}#${rewired.label ?? ""}`;
-        if (seenRewired.has(dedupeKey)) continue;
-        seenRewired.add(dedupeKey);
-        resultEdges.push(rewired);
-      }
-      continue;
-    }
-    const fromNode = nodesById.get(edge.from);
-    if (edge.visualOnly === true && fromNode !== void 0 && isOpenContainer(fromNode) && !(fromNode.children ?? []).includes(edge.to)) continue;
-    resultEdges.push(edge);
-  }
-  return {
-    edges: resultEdges,
-    nodes: nodes5.filter((node) => !markerIds.has(node.id))
-  };
-}
 function assignEdgeIds(params) {
   const { edges } = params;
   const ordinals = /* @__PURE__ */ new Map();
@@ -67944,6 +67893,7 @@ function createStateNode(params) {
     }),
     type: state2.Type
   };
+  if (state2.End === true || state2.Type === "Succeed" || state2.Type === "Fail") baseNode.isEnd = true;
   const assignKeys = Object.keys(state2.Assign ?? {});
   const assignedVariables = queryLanguage === "JSONPath" ? assignKeys.map(stripJsonPathSuffix) : assignKeys;
   if (assignedVariables.length > 0) baseNode.assignedVariables = assignedVariables;
@@ -68427,6 +68377,67 @@ function extractNestedEdges(params) {
     }
   }
 }
+function buildMermaidScopes(params) {
+  const nodes5 = params.nodes.filter((node) => !isMarkerNode(node));
+  const nodesById = new Map(nodes5.map((node) => [node.id, node]));
+  const root5 = {
+    memberIds: [],
+    transitions: []
+  };
+  const regionsByContainer = /* @__PURE__ */ new Map();
+  const regionOfNode = /* @__PURE__ */ new Map();
+  const entryEdges = /* @__PURE__ */ new Set();
+  const seedsByContainer = /* @__PURE__ */ new Map();
+  for (const edge of params.edges) {
+    if (!edge.visualOnly || !nodesById.has(edge.to)) continue;
+    const container = nodesById.get(edge.from);
+    if (!container || !isOpenContainer(container) || !container.children?.includes(edge.to)) continue;
+    entryEdges.add(edge);
+    seedsByContainer.set(edge.from, [...seedsByContainer.get(edge.from) ?? [], edge.to]);
+  }
+  for (const container of nodes5) {
+    if (!isOpenContainer(container) || !container.children?.length) continue;
+    const children = container.children;
+    const seeds = seedsByContainer.get(container.id) ?? [];
+    const regions = seeds.length > 0 ? seeds.map((seed) => ({
+      entryId: seed,
+      memberIds: [],
+      transitions: []
+    })) : [{
+      memberIds: [],
+      transitions: []
+    }];
+    regionsByContainer.set(container.id, regions);
+    const seedIndexes = seeds.map((seed) => children.indexOf(seed));
+    children.forEach((childId, childIndex) => {
+      let regionIndex = 0;
+      seedIndexes.forEach((seedIndex, seedPosition) => {
+        if (childIndex >= seedIndex) regionIndex = seedPosition;
+      });
+      if (nodesById.has(childId)) regionOfNode.set(childId, regions[regionIndex]);
+    });
+  }
+  for (const node of nodes5) {
+    if (!MAP_IO_NODE_TYPES.has(node.type) || regionOfNode.has(node.id)) continue;
+    for (const edge of params.edges) {
+      const otherId = edge.from === node.id ? edge.to : edge.to === node.id ? edge.from : void 0;
+      if (otherId === void 0 || nodesById.get(otherId)?.type !== "Map") continue;
+      const mapRegion = regionOfNode.get(otherId);
+      if (mapRegion) regionOfNode.set(node.id, mapRegion);
+      break;
+    }
+  }
+  for (const node of nodes5) (regionOfNode.get(node.id) ?? root5).memberIds.push(node.id);
+  for (const edge of params.edges) {
+    if (entryEdges.has(edge) || !nodesById.has(edge.from) || !nodesById.has(edge.to)) continue;
+    (regionOfNode.get(edge.from) ?? root5).transitions.push(edge);
+  }
+  return {
+    nodes: nodes5,
+    regionsByContainer,
+    root: root5
+  };
+}
 var DARK_BACKGROUND_LUMINANCE = 0.5;
 function hexLuminance(color) {
   const match2 = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
@@ -68510,10 +68521,17 @@ var MermaidRenderer = class {
   render(params) {
     const { asl, customColors, executionClasses, layout, nodeAnnotations, showVariables, stateClasses, theme } = params;
     const lines = [];
-    const { nodes: nodes5, edges } = flattenMarkers({
+    const scopes = buildMermaidScopes({
       edges: params.edges,
       nodes: params.nodes
     });
+    const { nodes: nodes5 } = scopes;
+    const context3 = {
+      nodeAnnotations,
+      nodesById: new Map(nodes5.map((node) => [node.id, node])),
+      scopes,
+      showVariables
+    };
     const resolvedTheme = getTheme(theme, customColors);
     const isDarkTheme = resolveViewerTheme({ theme }) === "dark";
     this.idMap = /* @__PURE__ */ new Map();
@@ -68523,46 +68541,23 @@ var MermaidRenderer = class {
     lines.push("stateDiagram-v2");
     lines.push(`    direction ${layout ?? "TB"}`);
     lines.push("");
-    const startState = this.findStartState({
+    scopes.root.entryId = this.findStartState({
       asl,
-      edges,
-      nodes: nodes5
+      root: scopes.root
     });
-    if (startState) lines.push(`    [*] --> ${this.mermaidId(startState)}`);
-    const stateDefinitions = /* @__PURE__ */ new Set();
-    nodes5.forEach((node) => {
-      const id = this.mermaidId(node.id);
-      if (stateDefinitions.has(id)) return;
-      const suffixParts = [
-        nodeAnnotations?.[node.id],
-        getNodeSubLabel({
-          node,
-          showStateType: false
-        }),
-        showVariables === false ? "" : getAssignedVariablesLabel(node.assignedVariables ?? [])
-      ].filter((part) => Boolean(part));
-      const displayLabel = suffixParts.length > 0 ? `${node.label} (${suffixParts.join(" \xB7 ")})` : node.label;
-      if (displayLabel !== id) {
-        lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
-        stateDefinitions.add(id);
-      }
+    const rootLines = this.regionLines({
+      context: context3,
+      depth: 0,
+      region: scopes.root
     });
-    if (stateDefinitions.size > 0) lines.push("");
-    edges.forEach((edge) => {
-      const from = this.mermaidId(edge.from);
-      const to = this.mermaidId(edge.to);
-      if (edge.label || edge.condition) {
-        const label = this.escapeLabel(edge.condition || edge.label || "");
-        lines.push(`    ${from} --> ${to}: ${label}`);
-      } else lines.push(`    ${from} --> ${to}`);
-    });
-    const endStates = nodes5.filter((node) => node.type === "Succeed" || node.type === "Fail");
-    if (endStates.length > 0) {
+    lines.push(...rootLines.entry);
+    lines.push(...rootLines.labels);
+    if (rootLines.labels.length > 0) lines.push("");
+    for (const block of rootLines.blocks) lines.push(...block, "");
+    lines.push(...rootLines.transitions);
+    if (rootLines.ends.length > 0) {
       lines.push("");
-      endStates.forEach((node) => {
-        const id = this.mermaidId(node.id);
-        lines.push(`    ${id} --> [*]`);
-      });
+      lines.push(...rootLines.ends);
     }
     lines.push("");
     for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES)) {
@@ -68592,7 +68587,7 @@ var MermaidRenderer = class {
       code: lines.join("\n"),
       metadata: {
         stateCount: nodes5.length,
-        edgeCount: edges.length
+        edgeCount: [scopes.root, ...[...scopes.regionsByContainer.values()].flat()].reduce((total, region) => total + region.transitions.length, 0)
       }
     };
   }
@@ -68629,13 +68624,85 @@ var MermaidRenderer = class {
     return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, " ");
   }
   /**
-  * Find the start state from ASL definition or by analyzing edges
+  * Build the lines of one scope: its `[*]` entry, state label lines, nested
+  * composite blocks, transitions, and `--> [*]` for each terminal state.
+  */
+  regionLines(params) {
+    const { context: context3, depth, region } = params;
+    const indent = "    ".repeat(depth + 1);
+    const members = region.memberIds.map((id) => context3.nodesById.get(id)).filter((node) => node !== void 0);
+    return {
+      blocks: members.filter((node) => context3.scopes.regionsByContainer.has(node.id)).map((node) => this.compositeBlock({
+        containerId: node.id,
+        context: context3,
+        depth: depth + 1
+      })),
+      ends: members.filter((node) => node.isEnd).map((node) => `${indent}${this.mermaidId(node.id)} --> [*]`),
+      entry: region.entryId ? [`${indent}[*] --> ${this.mermaidId(region.entryId)}`] : [],
+      labels: members.map((node) => this.stateLabelLine({
+        context: context3,
+        indent,
+        node
+      })).filter((line) => line !== void 0),
+      transitions: region.transitions.map((edge) => this.transitionLine({
+        edge,
+        indent
+      }))
+    };
+  }
+  /** Emit an open Parallel or Map as `state X { ... }`, regions separated by `--`. */
+  compositeBlock(params) {
+    const { containerId, context: context3, depth } = params;
+    const indent = "    ".repeat(depth);
+    const regions = context3.scopes.regionsByContainer.get(containerId) ?? [];
+    const lines = [`${indent}state ${this.mermaidId(containerId)} {`];
+    regions.forEach((region, regionIndex) => {
+      if (regionIndex > 0) lines.push(`${indent}    --`);
+      const regionLines = this.regionLines({
+        context: context3,
+        depth,
+        region
+      });
+      lines.push(...regionLines.entry, ...regionLines.labels, ...regionLines.blocks.flat(), ...regionLines.transitions, ...regionLines.ends);
+    });
+    lines.push(`${indent}}`);
+    return lines;
+  }
+  /**
+  * A state's label line, or undefined when the human label equals the emitted id
+  * (a sanitized/suffixed id or an annotation makes them differ, and the readable
+  * name must survive).
+  */
+  stateLabelLine(params) {
+    const { context: context3, indent, node } = params;
+    const id = this.mermaidId(node.id);
+    const suffixParts = [
+      context3.nodeAnnotations?.[node.id],
+      getNodeSubLabel({
+        node,
+        showStateType: false
+      }),
+      context3.showVariables === false ? "" : getAssignedVariablesLabel(node.assignedVariables ?? [])
+    ].filter((part) => Boolean(part));
+    const displayLabel = suffixParts.length > 0 ? `${node.label} (${suffixParts.join(" \xB7 ")})` : node.label;
+    return displayLabel === id ? void 0 : `${indent}${id}: ${this.escapeLabel(displayLabel)}`;
+  }
+  transitionLine(params) {
+    const { edge, indent } = params;
+    const from = this.mermaidId(edge.from);
+    const to = this.mermaidId(edge.to);
+    if (edge.label || edge.condition) return `${indent}${from} --> ${to}: ${this.escapeLabel(edge.condition || edge.label || "")}`;
+    return `${indent}${from} --> ${to}`;
+  }
+  /**
+  * Find the start state from the ASL definition's StartAt or, without one, the
+  * first top-level state nothing else transitions to.
   */
   findStartState(params) {
-    const { asl, edges, nodes: nodes5 } = params;
+    const { asl, root: root5 } = params;
     if (asl?.StartAt) return asl.StartAt;
-    const targetNodes = new Set(edges.map((edge) => edge.to));
-    return nodes5.find((node) => !targetNodes.has(node.id))?.id || nodes5[0]?.id || null;
+    const targetIds = new Set(root5.transitions.filter((edge) => edge.from !== edge.to).map((edge) => edge.to));
+    return root5.memberIds.find((id) => !targetIds.has(id)) ?? root5.memberIds[0];
   }
 };
 var REDACTED = "[redacted]";
