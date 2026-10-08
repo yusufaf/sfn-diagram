@@ -1,0 +1,14 @@
+{
+    "Comment": "A Task that ends the machine with End: true, plus a Fail reached through Catch",
+    "StartAt": "Prepare",
+    "States": {
+        "Prepare": { "Type": "Pass", "Next": "Work" },
+        "Work": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Work",
+            "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Failed" }],
+            "End": true
+        },
+        "Failed": { "Type": "Fail" }
+    }
+}

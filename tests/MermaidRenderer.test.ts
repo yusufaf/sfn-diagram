@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { generateMermaid } from '../src';
 import { MermaidRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
@@ -9,6 +10,16 @@ import type { AslDefinition } from '../src/types';
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
     return JSON.parse(readFileSync(path, 'utf-8'));
+};
+
+/** The diagram's structural lines: no blank lines and no styling (`class` / `classDef`). */
+const structure = (code: string): string[] =>
+    code.split('\n').filter((line) => line.trim() !== '' && !/^\s*class(Def)?\s/.test(line));
+
+const renderFixture = (name: string) => {
+    const asl = loadFixture(name);
+    const { nodes, edges } = parseAsl({ definition: asl });
+    return new MermaidRenderer().render({ nodes, edges, asl });
 };
 
 describe('MermaidRenderer', () => {
@@ -338,47 +349,64 @@ describe('MermaidRenderer', () => {
             expect(result.code).toContain('Branch2');
         });
 
-        it('should not emit branch/iterator end marker states or duplicate transitions', () => {
-            const asl = loadFixture('parallel');
-            const { nodes, edges } = parseAsl({ definition: asl });
+        it('should not emit branch/iterator end marker states or entry edges as transitions', () => {
+            const result = renderFixture('parallel');
 
-            const renderer = new MermaidRenderer();
-            const result = renderer.render({ nodes, edges, asl });
-
+            expect(structure(result.code)).toEqual([
+                'stateDiagram-v2',
+                '    direction TB',
+                '    [*] --> ParallelExecution',
+                '    state ParallelExecution {',
+                '        [*] --> Branch1',
+                '        Branch1 --> [*]',
+                '        --',
+                '        [*] --> Branch2',
+                '        Branch2 --> [*]',
+                '    }',
+                '    ParallelExecution --> FinalState',
+                '    FinalState --> [*]',
+            ]);
             expect(result.code).not.toContain('__end');
             expect(result.code).not.toContain('__branch');
-            expect(result.code).toContain('Branch1 --> FinalState');
-            expect(result.code).toContain('Branch2 --> FinalState');
-            // One arrival per branch, not a third duplicate straight from the container.
-            expect(result.code.match(/--> FinalState/g)).toHaveLength(2);
+            expect(result.code).not.toContain('ParallelExecution --> Branch1');
             expect(result.metadata.stateCount).toBe(4);
-            expect(result.metadata.edgeCount).toBe(4);
+            expect(result.metadata.edgeCount).toBe(1);
         });
 
-        it('should not emit an iterator end marker state for Map', () => {
-            const asl = loadFixture('map');
-            const { nodes, edges } = parseAsl({ definition: asl });
+        it('should nest a Map processor as a composite and draw its Next once', () => {
+            const { code } = renderFixture('map');
 
-            const renderer = new MermaidRenderer();
-            const result = renderer.render({ nodes, edges, asl });
-
-            expect(result.code).not.toContain('__iterator__end');
-            expect(result.code).toContain('ValidateItem --> Done');
-            expect(result.code.match(/--> Done/g)).toHaveLength(1);
+            expect(code).not.toContain('__iterator__end');
+            expect(code).toContain('    state ProcessItems {');
+            expect(code).toContain('        [*] --> ProcessItem');
+            expect(code).toContain('        ValidateItem --> [*]');
+            expect(code).toContain('    ProcessItems --> Done');
+            expect(code.match(/--> Done/g)).toHaveLength(1);
+            expect(code).toMatch(/^ {4}ProcessItems: ProcessItems \(/m);
         });
 
-        it('should flatten markers through a nested container without leaking them', () => {
-            const asl = loadFixture('nested-map');
-            const { nodes, edges } = parseAsl({ definition: asl });
+        it('should nest a container inside a branch without leaking markers', () => {
+            const { code } = renderFixture('nested-map');
 
-            const renderer = new MermaidRenderer();
-            const result = renderer.render({ nodes, edges, asl });
-
-            expect(result.code).not.toContain('__end');
-            // ProcessBatch (the nested Map) is itself the branch's terminal state,
-            // so its container -> Next edge is what carries the branch to Complete.
-            expect(result.code).toContain('ProcessBatch --> Complete');
-            expect(result.code).toContain('Notify --> Complete');
+            expect(structure(code)).toEqual([
+                'stateDiagram-v2',
+                '    direction TB',
+                '    [*] --> FanOut',
+                '    state FanOut {',
+                '        [*] --> ProcessBatch',
+                '        ProcessBatch: ProcessBatch (items $.batch)',
+                '        state ProcessBatch {',
+                '            [*] --> HandleRecord',
+                '            HandleRecord --> [*]',
+                '        }',
+                '        ProcessBatch --> [*]',
+                '        --',
+                '        [*] --> Notify',
+                '        Notify --> [*]',
+                '    }',
+                '    FanOut --> Complete',
+                '    Complete --> [*]',
+            ]);
         });
 
         it('should keep a collapsed container reachable via its placeholder', () => {
@@ -393,6 +421,7 @@ describe('MermaidRenderer', () => {
             // -> Next visual edge - its only remaining link to the rest of the graph -
             // must not be mistaken for a now-nonexistent duplicate and dropped too.
             expect(result.code).toContain('ParallelExecution --> FinalState');
+            expect(result.code).not.toContain('state ParallelExecution {');
         });
 
         it('should handle error transitions', () => {
@@ -404,6 +433,129 @@ describe('MermaidRenderer', () => {
 
             expect(result.code).toContain('RiskyTask');
             expect(result.code).toContain('HandleError');
+        });
+    });
+
+    describe('End states and composites (#371)', () => {
+        it('ends the machine at a Task with End: true, not only at Succeed/Fail', () => {
+            const { code } = renderFixture('end-on-task');
+
+            expect(code).toContain('    Work --> [*]');
+            expect(code).toContain('    Failed --> [*]');
+            expect(code).not.toContain('Prepare --> [*]');
+            expect(code.match(/--> \[\*\]/g)).toHaveLength(2);
+        });
+
+        it('ends a Pass with End: true', () => {
+            const asl: AslDefinition = {
+                StartAt: 'A',
+                States: {
+                    A: { Next: 'B', Type: 'Pass' },
+                    B: { End: true, Type: 'Pass' },
+                },
+            };
+            const { nodes, edges } = parseAsl({ definition: asl });
+            const { code } = new MermaidRenderer().render({ asl, edges, nodes });
+
+            expect(structure(code)).toEqual([
+                'stateDiagram-v2',
+                '    direction TB',
+                '    [*] --> A',
+                '    A --> B',
+                '    B --> [*]',
+            ]);
+        });
+
+        it('scopes terminal states to their own branch or processor', () => {
+            const { code } = renderFixture('nested-terminals');
+
+            expect(structure(code)).toEqual([
+                'stateDiagram-v2',
+                '    direction TB',
+                '    [*] --> Fan',
+                '    state Fan {',
+                '        [*] --> Ok',
+                '        Ok --> [*]',
+                '        --',
+                '        [*] --> Check',
+                '        Check --> Bad: $.bad == true',
+                '        Check --> Work: Default',
+                '        Work --> [*]',
+                '        Bad --> [*]',
+                '    }',
+                '    state Each {',
+                '        [*] --> Item',
+                '        Item --> Valid',
+                '        Valid --> Reject: $.ok == false',
+                '        Valid --> Keep: Default',
+                '        Keep --> [*]',
+                '        Reject --> [*]',
+                '    }',
+                '    Fan --> Each',
+                '    Each --> [*]',
+            ]);
+        });
+
+        it('keeps a nested Distributed Map ItemReader inside its branch', () => {
+            const aslDefinition: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Branches: [
+                            {
+                                StartAt: 'Dist',
+                                States: {
+                                    Dist: {
+                                        End: true,
+                                        ItemProcessor: {
+                                            ProcessorConfig: { ExecutionType: 'STANDARD', Mode: 'DISTRIBUTED' },
+                                            StartAt: 'Item',
+                                            States: { Item: { End: true, Type: 'Pass' } },
+                                        },
+                                        ItemReader: { Resource: 'arn:aws:states:::s3:listObjectsV2' },
+                                        Type: 'Map',
+                                    },
+                                },
+                            },
+                        ],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            };
+            const { code } = generateMermaid({ aslDefinition });
+
+            expect(code).toMatch(/^ {8}Dist__itemreader --> Dist: ItemReader$/m);
+            expect(code).toMatch(/^ {8}Dist__itemreader: /m);
+        });
+
+        it('does not resurrect a catch-hidden state through a container child list', () => {
+            const aslDefinition: AslDefinition = {
+                StartAt: 'P',
+                States: {
+                    P: {
+                        Branches: [
+                            {
+                                StartAt: 'Try',
+                                States: {
+                                    Recover: { End: true, Type: 'Pass' },
+                                    Try: {
+                                        Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Recover' }],
+                                        End: true,
+                                        Type: 'Pass',
+                                    },
+                                },
+                            },
+                        ],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            };
+            const { code } = generateMermaid({ aslDefinition, catchHandling: 'hide' });
+
+            expect(code).not.toContain('Recover');
+            expect(code).toContain('Try --> [*]');
         });
     });
 

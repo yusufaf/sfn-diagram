@@ -1,6 +1,7 @@
 import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
 import { getTheme } from '../config/themes';
-import { flattenMarkers } from '../graph';
+import { buildMermaidScopes } from './mermaidScopes';
+import type { MermaidRegion, MermaidScopes } from './mermaidScopes';
 import { resolveViewerTheme } from './viewer/viewerStyles';
 import type {
     StateNode,
@@ -120,12 +121,53 @@ interface RenderMermaidParams {
 
 interface FindStartStateParams {
     asl: AslDefinition | undefined;
-    edges: GraphEdge[];
-    nodes: StateNode[];
+    root: MermaidRegion;
+}
+
+interface MermaidRenderContext {
+    nodeAnnotations?: Record<string, string>;
+    nodesById: Map<string, StateNode>;
+    scopes: MermaidScopes;
+    showVariables?: boolean;
+}
+
+interface StateLabelLineParams {
+    context: MermaidRenderContext;
+    indent: string;
+    node: StateNode;
+}
+
+interface TransitionLineParams {
+    edge: GraphEdge;
+    indent: string;
+}
+
+interface RegionLinesParams {
+    context: MermaidRenderContext;
+    depth: number;
+    region: MermaidRegion;
+}
+
+interface RegionLines {
+    blocks: string[][];
+    ends: string[];
+    entry: string[];
+    labels: string[];
+    transitions: string[];
+}
+
+interface CompositeBlockParams {
+    containerId: string;
+    context: MermaidRenderContext;
+    depth: number;
 }
 
 /**
- * MermaidRenderer - Generates Mermaid state diagram syntax from ASL
+ * MermaidRenderer - Generates Mermaid state diagram syntax from ASL.
+ *
+ * Open Parallel and Map states are emitted as composite states (`state X { ... }`),
+ * with a Parallel's branches split into concurrent regions by `--`. Each scope's
+ * terminal states (`End: true`, Succeed, Fail) end that scope with `--> [*]`.
  */
 export class MermaidRenderer {
     /** Maps an original state id to its allocated, collision-safe Mermaid id. */
@@ -149,11 +191,18 @@ export class MermaidRenderer {
         } = params;
         const lines: string[] = [];
 
-        // Drop synthetic branch/iterator end markers and rewire around them -
-        // SvgRenderer draws them as small dots and needs the container -> Next
-        // edge they anchor, but stateDiagram-v2 has no equivalent for a marker
-        // with an empty label, so left in they render as phantom states.
-        const { nodes, edges } = flattenMarkers({ edges: params.edges, nodes: params.nodes });
+        // Regroup the graph into the scopes Mermaid nests. Synthetic branch/iterator
+        // end markers and the display-only container -> child entry edges are dropped:
+        // SvgRenderer draws them, but stateDiagram-v2 would show phantom states and
+        // fake transitions, and has `[*]` inside a composite for the same job.
+        const scopes = buildMermaidScopes({ edges: params.edges, nodes: params.nodes });
+        const { nodes } = scopes;
+        const context: MermaidRenderContext = {
+            nodeAnnotations,
+            nodesById: new Map(nodes.map((node) => [node.id, node])),
+            scopes,
+            showVariables,
+        };
 
         const resolvedTheme = getTheme(theme, customColors);
         const isDarkTheme = resolveViewerTheme({ theme }) === 'dark';
@@ -175,72 +224,21 @@ export class MermaidRenderer {
         lines.push(`    direction ${layout ?? 'TB'}`);
         lines.push('');
 
-        // Find start state from ASL or edges
-        const startState = this.findStartState({ asl, edges, nodes });
-        if (startState) {
-            lines.push(`    [*] --> ${this.mermaidId(startState)}`);
-        }
+        scopes.root.entryId = this.findStartState({ asl, root: scopes.root });
+        const rootLines = this.regionLines({ context, depth: 0, region: scopes.root });
 
-        // Define states with labels
-        const stateDefinitions = new Set<string>();
-        nodes.forEach((node) => {
-            const id = this.mermaidId(node.id);
-            if (stateDefinitions.has(id)) return;
-
-            // Append any execution annotation (duration / retries), the container's
-            // Distributed/MaxConcurrency summary, and assigned ASL variables to the
-            // label. All are collapsed into one parenthesised, `·`-separated group.
-            const suffixParts = [
-                nodeAnnotations?.[node.id],
-                getNodeSubLabel({ node, showStateType: false }),
-                showVariables === false
-                    ? ''
-                    : getAssignedVariablesLabel(node.assignedVariables ?? []),
-            ].filter((part): part is string => Boolean(part));
-
-            const displayLabel =
-                suffixParts.length > 0
-                    ? `${node.label} (${suffixParts.join(' · ')})`
-                    : node.label;
-
-            // Add a label line when the human label differs from the emitted id
-            // (covers sanitized/suffixed ids and annotations), so the readable
-            // name survives even when the id was rewritten for Mermaid.
-            if (displayLabel !== id) {
-                lines.push(`    ${id}: ${this.escapeLabel(displayLabel)}`);
-                stateDefinitions.add(id);
-            }
-        });
-
-        if (stateDefinitions.size > 0) {
+        lines.push(...rootLines.entry);
+        lines.push(...rootLines.labels);
+        if (rootLines.labels.length > 0) {
             lines.push('');
         }
-
-        // Define transitions
-        edges.forEach((edge) => {
-            const from = this.mermaidId(edge.from);
-            const to = this.mermaidId(edge.to);
-
-            if (edge.label || edge.condition) {
-                const label = this.escapeLabel(
-                    edge.condition || edge.label || '',
-                );
-                lines.push(`    ${from} --> ${to}: ${label}`);
-            } else {
-                lines.push(`    ${from} --> ${to}`);
-            }
-        });
-
-        // Add end states (Succeed/Fail)
-        const endStates = nodes.filter(
-            (node) => node.type === 'Succeed' || node.type === 'Fail',
-        );
-        if (endStates.length > 0) {
+        for (const block of rootLines.blocks) {
+            lines.push(...block, '');
+        }
+        lines.push(...rootLines.transitions);
+        if (rootLines.ends.length > 0) {
             lines.push('');
-            endStates.forEach((node) => {
-                const id = this.mermaidId(node.id);
-                lines.push(`    ${id} --> [*]`);
-            });
+            lines.push(...rootLines.ends);
         }
 
         // Add styling classes, derived from the resolved theme rather than a
@@ -303,7 +301,10 @@ export class MermaidRenderer {
             code: lines.join('\n'),
             metadata: {
                 stateCount: nodes.length,
-                edgeCount: edges.length,
+                edgeCount: [scopes.root, ...[...scopes.regionsByContainer.values()].flat()].reduce(
+                    (total, region) => total + region.transitions.length,
+                    0,
+                ),
             },
         };
     }
@@ -347,19 +348,107 @@ export class MermaidRenderer {
     }
 
     /**
-     * Find the start state from ASL definition or by analyzing edges
+     * Build the lines of one scope: its `[*]` entry, state label lines, nested
+     * composite blocks, transitions, and `--> [*]` for each terminal state.
      */
-    private findStartState(params: FindStartStateParams): string | null {
-        const { asl, edges, nodes } = params;
+    private regionLines(params: RegionLinesParams): RegionLines {
+        const { context, depth, region } = params;
+        const indent = '    '.repeat(depth + 1);
+        const members = region.memberIds
+            .map((id) => context.nodesById.get(id))
+            .filter((node): node is StateNode => node !== undefined);
 
-        // If ASL definition provided, use StartAt
+        return {
+            blocks: members
+                .filter((node) => context.scopes.regionsByContainer.has(node.id))
+                .map((node) => this.compositeBlock({ containerId: node.id, context, depth: depth + 1 })),
+            ends: members
+                .filter((node) => node.isEnd)
+                .map((node) => `${indent}${this.mermaidId(node.id)} --> [*]`),
+            entry: region.entryId ? [`${indent}[*] --> ${this.mermaidId(region.entryId)}`] : [],
+            labels: members
+                .map((node) => this.stateLabelLine({ context, indent, node }))
+                .filter((line): line is string => line !== undefined),
+            transitions: region.transitions.map((edge) => this.transitionLine({ edge, indent })),
+        };
+    }
+
+    /** Emit an open Parallel or Map as `state X { ... }`, regions separated by `--`. */
+    private compositeBlock(params: CompositeBlockParams): string[] {
+        const { containerId, context, depth } = params;
+        const indent = '    '.repeat(depth);
+        const regions = context.scopes.regionsByContainer.get(containerId) ?? [];
+        const lines = [`${indent}state ${this.mermaidId(containerId)} {`];
+
+        regions.forEach((region, regionIndex) => {
+            if (regionIndex > 0) {
+                lines.push(`${indent}    --`);
+            }
+            const regionLines = this.regionLines({ context, depth, region });
+            lines.push(
+                ...regionLines.entry,
+                ...regionLines.labels,
+                ...regionLines.blocks.flat(),
+                ...regionLines.transitions,
+                ...regionLines.ends,
+            );
+        });
+
+        lines.push(`${indent}}`);
+        return lines;
+    }
+
+    /**
+     * A state's label line, or undefined when the human label equals the emitted id
+     * (a sanitized/suffixed id or an annotation makes them differ, and the readable
+     * name must survive).
+     */
+    private stateLabelLine(params: StateLabelLineParams): string | undefined {
+        const { context, indent, node } = params;
+        const id = this.mermaidId(node.id);
+
+        // Append any execution annotation (duration / retries), the container's
+        // Distributed/MaxConcurrency summary, and assigned ASL variables to the
+        // label. All are collapsed into one parenthesised, `·`-separated group.
+        const suffixParts = [
+            context.nodeAnnotations?.[node.id],
+            getNodeSubLabel({ node, showStateType: false }),
+            context.showVariables === false
+                ? ''
+                : getAssignedVariablesLabel(node.assignedVariables ?? []),
+        ].filter((part): part is string => Boolean(part));
+
+        const displayLabel =
+            suffixParts.length > 0 ? `${node.label} (${suffixParts.join(' · ')})` : node.label;
+
+        return displayLabel === id ? undefined : `${indent}${id}: ${this.escapeLabel(displayLabel)}`;
+    }
+
+    private transitionLine(params: TransitionLineParams): string {
+        const { edge, indent } = params;
+        const from = this.mermaidId(edge.from);
+        const to = this.mermaidId(edge.to);
+
+        if (edge.label || edge.condition) {
+            return `${indent}${from} --> ${to}: ${this.escapeLabel(edge.condition || edge.label || '')}`;
+        }
+        return `${indent}${from} --> ${to}`;
+    }
+
+    /**
+     * Find the start state from the ASL definition's StartAt or, without one, the
+     * first top-level state nothing else transitions to.
+     */
+    private findStartState(params: FindStartStateParams): string | undefined {
+        const { asl, root } = params;
+
         if (asl?.StartAt) {
             return asl.StartAt;
         }
 
-        // Otherwise, find node that has no incoming edges
-        const targetNodes = new Set(edges.map((edge) => edge.to));
-        const startNode = nodes.find((node) => !targetNodes.has(node.id));
-        return startNode?.id || nodes[0]?.id || null;
+        const targetIds = new Set(
+            root.transitions.filter((edge) => edge.from !== edge.to).map((edge) => edge.to),
+        );
+        return root.memberIds.find((id) => !targetIds.has(id)) ?? root.memberIds[0];
     }
 }
