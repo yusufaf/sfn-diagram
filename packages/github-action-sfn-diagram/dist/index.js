@@ -68188,6 +68188,14 @@ var ITEM_IO_ROLES = [{
   label: "ResultWriter",
   nodeType: "ResultWriter"
 }];
+function endsBranchSuccessfully(params) {
+  const { state: state2 } = params;
+  return (Boolean(state2.End) || !state2.Next && state2.Type !== "Choice") && state2.Type !== "Fail";
+}
+function branchCanOnlyFail(params) {
+  const states = Object.values(params.definition.States);
+  return states.some((state2) => state2.Type === "Fail") && !states.some((state2) => endsBranchSuccessfully({ state: state2 }));
+}
 function extractStatesRecursively(params) {
   const { definition, machineQueryLanguage, nodeIndex, nodes: nodes5, options, resolver, scope } = params;
   for (const [stateName, state2] of Object.entries(definition.States)) {
@@ -68214,22 +68222,24 @@ function extractStatesRecursively(params) {
       });
       const branchStartId = resolver.resolve(branchScope, branch.StartAt);
       if (nodeIndex.get(branchStartId)) stateNode.children?.push(branchStartId);
-      const endNodeId = branchEndMarkerId(stateNode.id, index);
-      const endNode = {
-        id: endNodeId,
-        isContainer: false,
-        label: "",
-        style: {
-          fill: "#fff9cc",
-          shape: "circle",
-          stroke: "#687078",
-          strokeWidth: 0.6
-        },
-        type: "BranchEnd"
-      };
-      nodes5.push(endNode);
-      nodeIndex.set(endNodeId, endNode);
-      stateNode.children?.push(endNodeId);
+      if (!branchCanOnlyFail({ definition: branch })) {
+        const endNodeId = branchEndMarkerId(stateNode.id, index);
+        const endNode = {
+          id: endNodeId,
+          isContainer: false,
+          label: "",
+          style: {
+            fill: "#fff9cc",
+            shape: "circle",
+            stroke: "#687078",
+            strokeWidth: 0.6
+          },
+          type: "BranchEnd"
+        };
+        nodes5.push(endNode);
+        nodeIndex.set(endNodeId, endNode);
+        stateNode.children?.push(endNodeId);
+      }
       markBranchStatesAsChildren({
         branch,
         containerNode: stateNode,
@@ -68253,22 +68263,24 @@ function extractStatesRecursively(params) {
       });
       const iteratorStartId = resolver.resolve(processorScope, iterator2.StartAt);
       if (nodeIndex.get(iteratorStartId)) stateNode.children?.push(iteratorStartId);
-      const endNodeId = iteratorEndMarkerId(stateNode.id);
-      const endNode = {
-        id: endNodeId,
-        isContainer: false,
-        label: "",
-        style: {
-          fill: "#fff9cc",
-          shape: "circle",
-          stroke: "#687078",
-          strokeWidth: 0.6
-        },
-        type: "IteratorEnd"
-      };
-      nodes5.push(endNode);
-      nodeIndex.set(endNodeId, endNode);
-      stateNode.children?.push(endNodeId);
+      if (!branchCanOnlyFail({ definition: iterator2 })) {
+        const endNodeId = iteratorEndMarkerId(stateNode.id);
+        const endNode = {
+          id: endNodeId,
+          isContainer: false,
+          label: "",
+          style: {
+            fill: "#fff9cc",
+            shape: "circle",
+            stroke: "#687078",
+            strokeWidth: 0.6
+          },
+          type: "IteratorEnd"
+        };
+        nodes5.push(endNode);
+        nodeIndex.set(endNodeId, endNode);
+        stateNode.children?.push(endNodeId);
+      }
       markBranchStatesAsChildren({
         branch: iterator2,
         containerNode: stateNode,
@@ -68341,13 +68353,13 @@ function extractNestedEdges(params) {
           stateName: branchStateName
         });
         edges.push(...branchEdges);
-        if (branchState.End || !branchState.Next && branchState.Type !== "Choice") edges.push({
+        if (endsBranchSuccessfully({ state: branchState })) edges.push({
           from: resolver.resolve(branchScope, branchStateName),
           to: endNodeId,
           type: "normal"
         });
       }
-      if (state2.Next) edges.push({
+      if (state2.Next && !branchCanOnlyFail({ definition: branch })) edges.push({
         from: endNodeId,
         to: resolver.resolve(scope, state2.Next),
         type: "normal"
@@ -68387,25 +68399,23 @@ function extractNestedEdges(params) {
           stateName: iteratorStateName
         });
         edges.push(...iteratorEdges);
-        if (iteratorState.End || !iteratorState.Next && iteratorState.Type !== "Choice") edges.push({
+        if (endsBranchSuccessfully({ state: iteratorState })) edges.push({
           from: resolver.resolve(processorScope, iteratorStateName),
           to: endNodeId,
           type: "normal"
         });
       }
-      if (state2.Next) {
-        edges.push({
-          from: endNodeId,
-          to: resolver.resolve(scope, state2.Next),
-          type: "normal"
-        });
-        edges.push({
-          from: containerId,
-          to: resolver.resolve(scope, state2.Next),
-          type: "normal",
-          visualOnly: true
-        });
-      }
+      if (state2.Next && !branchCanOnlyFail({ definition: mapProcessor })) edges.push({
+        from: endNodeId,
+        to: resolver.resolve(scope, state2.Next),
+        type: "normal"
+      });
+      if (state2.Next) edges.push({
+        from: containerId,
+        to: resolver.resolve(scope, state2.Next),
+        type: "normal",
+        visualOnly: true
+      });
       extractNestedEdges({
         definition: mapProcessor,
         edges,

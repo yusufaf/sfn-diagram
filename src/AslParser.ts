@@ -1058,6 +1058,44 @@ const ITEM_IO_ROLES = [
     nodeType: string;
 }>;
 
+/** Parameters for {@link endsBranchSuccessfully}. */
+interface EndsBranchSuccessfullyParams {
+    /** A state inside a Parallel branch or Map processor. */
+    state: AslState;
+}
+
+/**
+ * True when a state ends its enclosing branch or iterator without failing it,
+ * which is where the end marker is wired in. A Fail also ends the branch but never
+ * reaches the container's `Next`, so it is excluded; a Succeed, or any other
+ * terminal state (including a nested container with `End: true`), is included.
+ */
+function endsBranchSuccessfully(params: EndsBranchSuccessfullyParams): boolean {
+    const { state } = params;
+    const endsBranch = Boolean(state.End) || (!state.Next && state.Type !== 'Choice');
+    return endsBranch && state.Type !== 'Fail';
+}
+
+/** Parameters for {@link branchCanOnlyFail}. */
+interface BranchCanOnlyFailParams {
+    /** A Parallel branch or Map processor definition. */
+    definition: AslDefinition;
+}
+
+/**
+ * True when a branch or iterator can only fail: it has a Fail state and no state
+ * that ends it successfully. Such a branch has no end marker, since nothing flows
+ * into it. A branch with no terminal state at all (an endless loop) is not
+ * treated this way, so its layout is unchanged.
+ */
+function branchCanOnlyFail(params: BranchCanOnlyFailParams): boolean {
+    const states = Object.values(params.definition.States);
+    return (
+        states.some((state) => state.Type === 'Fail') &&
+        !states.some((state) => endsBranchSuccessfully({ state }))
+    );
+}
+
 /**
  * Recursively extract all states including those nested in Parallel branches and Map iterators
  */
@@ -1100,23 +1138,26 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                     stateNode.children?.push(branchStartId);
                 }
 
-                // Create virtual end node for this branch
-                const endNodeId = branchEndMarkerId(stateNode.id, index);
-                const endNode: StateNode = {
-                    id: endNodeId,
-                    isContainer: false,
-                    label: '',
-                    style: {
-                        fill: '#fff9cc',
-                        shape: 'circle',
-                        stroke: '#687078',
-                        strokeWidth: 0.6,
-                    },
-                    type: 'BranchEnd',
-                };
-                nodes.push(endNode);
-                nodeIndex.set(endNodeId, endNode);
-                stateNode.children?.push(endNodeId);
+                // Create virtual end node for this branch, unless it can only fail:
+                // nothing flows into the marker then, so it would float unattached.
+                if (!branchCanOnlyFail({ definition: branch })) {
+                    const endNodeId = branchEndMarkerId(stateNode.id, index);
+                    const endNode: StateNode = {
+                        id: endNodeId,
+                        isContainer: false,
+                        label: '',
+                        style: {
+                            fill: '#fff9cc',
+                            shape: 'circle',
+                            stroke: '#687078',
+                            strokeWidth: 0.6,
+                        },
+                        type: 'BranchEnd',
+                    };
+                    nodes.push(endNode);
+                    nodeIndex.set(endNodeId, endNode);
+                    stateNode.children?.push(endNodeId);
+                }
 
                 // Track all branch states as children for bounding box
                 markBranchStatesAsChildren({
@@ -1151,23 +1192,25 @@ function extractStatesRecursively(params: ExtractStatesRecursivelyParams): void 
                 stateNode.children?.push(iteratorStartId);
             }
 
-            // Create virtual end node for iterator
-            const endNodeId = iteratorEndMarkerId(stateNode.id);
-            const endNode: StateNode = {
-                id: endNodeId,
-                isContainer: false,
-                label: '',
-                style: {
-                    fill: '#fff9cc',
-                    shape: 'circle',
-                    stroke: '#687078',
-                    strokeWidth: 0.6,
-                },
-                type: 'IteratorEnd',
-            };
-            nodes.push(endNode);
-            nodeIndex.set(endNodeId, endNode);
-            stateNode.children?.push(endNodeId);
+            // Create virtual end node for iterator, unless it can only fail
+            if (!branchCanOnlyFail({ definition: iterator })) {
+                const endNodeId = iteratorEndMarkerId(stateNode.id);
+                const endNode: StateNode = {
+                    id: endNodeId,
+                    isContainer: false,
+                    label: '',
+                    style: {
+                        fill: '#fff9cc',
+                        shape: 'circle',
+                        stroke: '#687078',
+                        strokeWidth: 0.6,
+                    },
+                    type: 'IteratorEnd',
+                };
+                nodes.push(endNode);
+                nodeIndex.set(endNodeId, endNode);
+                stateNode.children?.push(endNodeId);
+            }
 
             // Track all iterator states as children for bounding box
             markBranchStatesAsChildren({
@@ -1310,8 +1353,9 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                     });
                     edges.push(...branchEdges);
 
-                    // If this is a terminal state in the branch (End=true or no Next), connect to end marker
-                    if (branchState.End || (!branchState.Next && branchState.Type !== 'Choice')) {
+                    // A state that ends the branch successfully connects to the end marker.
+                    // A Fail ends it too, but never reaches the container's Next.
+                    if (endsBranchSuccessfully({ state: branchState })) {
                         edges.push({
                             from: resolver.resolve(branchScope, branchStateName),
                             to: endNodeId,
@@ -1323,7 +1367,8 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 // Create edge from each branch end marker to Next state for layout positioning
                 // This ensures Next is centered below all branches. `Next` belongs to the
                 // container's own scope, not the branch's - a branch cannot target it.
-                if (state.Next) {
+                // A branch that can only fail has no end marker to anchor it.
+                if (state.Next && !branchCanOnlyFail({ definition: branch })) {
                     edges.push({
                         from: endNodeId,
                         to: resolver.resolve(scope, state.Next),
@@ -1378,8 +1423,9 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
                 });
                 edges.push(...iteratorEdges);
 
-                // If this is a terminal state in the iterator, connect to end marker
-                if (iteratorState.End || (!iteratorState.Next && iteratorState.Type !== 'Choice')) {
+                // A state that ends the iterator successfully connects to the end marker;
+                // a Fail never reaches the Map's Next.
+                if (endsBranchSuccessfully({ state: iteratorState })) {
                     edges.push({
                         from: resolver.resolve(processorScope, iteratorStateName),
                         to: endNodeId,
@@ -1390,13 +1436,16 @@ function extractNestedEdges(params: ExtractNestedEdgesParams): void {
 
             // Create edge from iterator end marker to Next state for layout positioning.
             // `Next` belongs to the Map's own scope, not the processor's.
-            if (state.Next) {
+            // A processor that can only fail has no end marker to anchor it.
+            if (state.Next && !branchCanOnlyFail({ definition: mapProcessor })) {
                 edges.push({
                     from: endNodeId,
                     to: resolver.resolve(scope, state.Next),
                     type: 'normal',
                 });
+            }
 
+            if (state.Next) {
                 // Also create visual-only edge from container to Next for rendering
                 edges.push({
                     from: containerId,
