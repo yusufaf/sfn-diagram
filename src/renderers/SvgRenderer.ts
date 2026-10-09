@@ -19,6 +19,11 @@ import type {
 } from '../types';
 import type { LayoutResult } from '../layout/DagreLayout';
 import {
+    buildRoundedOrthogonalPath,
+    ORTHOGONAL_CORNER_RADIUS,
+    routeOrthogonalEdges,
+} from '../layout/orthogonalRoute';
+import {
     CONTAINER_HEADER_HEIGHT,
     COLLAPSE_CONTROL_GAP,
     COLLAPSE_CONTROL_SIZE,
@@ -173,6 +178,11 @@ export class SvgRenderer {
 
         // Build the edge path generator once - it's stateless and reused for every
         // edge, so there's no need to recreate it inside the per-edge render loop.
+        if (options.edgeStyle === 'orthogonal') {
+            this.pathGenerator = (points) =>
+                buildRoundedOrthogonalPath({ points, radius: ORTHOGONAL_CORNER_RADIUS });
+            return;
+        }
         const generator = line<{ x: number; y: number }>()
             .x((point) => point.x)
             .y((point) => point.y);
@@ -185,7 +195,20 @@ export class SvgRenderer {
     /**
      * Render the diagram to SVG string
      */
-    render(layout: LayoutResult): SvgOutput {
+    render(positioned: LayoutResult): SvgOutput {
+        // Routed here, not in DagreLayout: the layout cache key leaves edgeStyle out.
+        const layout =
+            this.options.edgeStyle === 'orthogonal'
+                ? {
+                      ...positioned,
+                      edges: routeOrthogonalEdges({
+                          edges: positioned.edges,
+                          layout: this.options.layout || 'TB',
+                          nodeOverrides: this.options.nodeOverrides,
+                          nodes: positioned.nodes,
+                      }),
+                  }
+                : positioned;
         this.edgeMidpointCache.clear();
         this.markerContainerLabels.clear();
         const nodesByIdForMarkers = new Map(

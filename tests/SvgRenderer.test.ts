@@ -463,6 +463,261 @@ describe('SvgRenderer', () => {
         });
     });
 
+    describe('Edge style "orthogonal"', () => {
+        const loopDefinition: AslDefinition = {
+            StartAt: 'Submit',
+            States: {
+                Submit: {
+                    Type: 'Task',
+                    Resource: 'arn:aws:lambda:::submit',
+                    Next: 'Wait',
+                },
+                Wait: { Type: 'Wait', Seconds: 5, Next: 'Check' },
+                Check: {
+                    Type: 'Choice',
+                    Choices: [
+                        {
+                            Variable: '$.status',
+                            StringEquals: 'PENDING',
+                            Next: 'Wait',
+                        },
+                        {
+                            Variable: '$.status',
+                            StringEquals: 'RETRY',
+                            Next: 'Submit',
+                        },
+                    ],
+                    Default: 'Done',
+                },
+                Done: { Type: 'Succeed' },
+            },
+        };
+        const layouts = ['TB', 'LR', 'BT', 'RL'] as const;
+        const fixtureNames = [
+            'choice',
+            'error-handling',
+            'parallel',
+            'nested-map',
+            'map',
+            'distributed-map',
+            'jsonata-io',
+        ];
+        const definitions: Array<[string, AslDefinition]> = [
+            ...fixtureNames.map((name): [string, AslDefinition] => [
+                name,
+                loadFixture(name),
+            ]),
+            ['loop', loopDefinition],
+        ];
+
+        interface DrawnEdge {
+            d: string;
+            id: string;
+        }
+
+        // Visible edge strokes only: hit areas are transparent.
+        const drawnEdges = (svg: string): DrawnEdge[] =>
+            [
+                ...svg.matchAll(
+                    /<path d="([^"]+)" data-edge-id="([^"]+)" fill="none" stroke="(?!transparent)/g,
+                ),
+            ].map((match) => ({
+                d: match[1],
+                id: match[2].replace(/&gt;/g, '>'),
+            }));
+
+        const isSelfLoopId = (id: string): boolean => {
+            const [from, to] = id.split('#')[0].split('->');
+            return from === to;
+        };
+
+        const render = (
+            definition: AslDefinition,
+            options: DiagramOptions,
+        ): string => generateSvg({ aslDefinition: definition, ...options }).svg;
+
+        it('renders orthogonal edges differently from straight ones', () => {
+            const aslDefinition = loadFixture('choice');
+
+            const straight = generateSvg({
+                aslDefinition,
+                edgeStyle: 'straight',
+            });
+            const orthogonal = generateSvg({
+                aslDefinition,
+                edgeStyle: 'orthogonal',
+            });
+
+            expect(orthogonal.svg).not.toBe(straight.svg);
+        });
+
+        it('draws a bent edge with rounded corners', () => {
+            const edges = drawnEdges(
+                render(loadFixture('choice'), { edgeStyle: 'orthogonal' }),
+            );
+
+            expect(
+                edges.find((edge) => edge.id.startsWith('HighValue->Done'))?.d,
+            ).toBe(
+                'M420,190L420,210C420,215,420,215,415,215L285,215C280,215,280,215,280,220L280,240',
+            );
+        });
+
+        it('draws every edge as axis-aligned segments', () => {
+            let cornerCount = 0;
+            for (const [name, definition] of definitions) {
+                for (const layout of layouts) {
+                    const edges = drawnEdges(
+                        render(definition, { edgeStyle: 'orthogonal', layout }),
+                    );
+                    expect(edges.length, `${name} ${layout}`).toBeGreaterThan(
+                        0,
+                    );
+                    for (const edge of edges.filter(
+                        (candidate) => !isSelfLoopId(candidate.id),
+                    )) {
+                        for (const segment of parsePath(edge.d).segments) {
+                            const label = `${name} ${layout} ${edge.id}`;
+                            if (segment.type === 'L') {
+                                const aligned =
+                                    Math.abs(segment.from.x - segment.to.x) <
+                                        1e-3 ||
+                                    Math.abs(segment.from.y - segment.to.y) <
+                                        1e-3;
+                                expect(aligned, label).toBe(true);
+                            } else {
+                                cornerCount += 1;
+                                const corner = segment.control1;
+                                expect(corner, label).toEqual(segment.control2);
+                                const sharesOneCoordinate = (point: {
+                                    x: number;
+                                    y: number;
+                                }) =>
+                                    Math.abs(point.x - corner!.x) < 1e-3 ||
+                                    Math.abs(point.y - corner!.y) < 1e-3;
+                                expect(
+                                    sharesOneCoordinate(segment.from),
+                                    label,
+                                ).toBe(true);
+                                expect(
+                                    sharesOneCoordinate(segment.to),
+                                    label,
+                                ).toBe(true);
+                            }
+                        }
+                    }
+                }
+            }
+            // Without this the test would pass on plain straight lines.
+            expect(cornerCount).toBeGreaterThan(0);
+        });
+
+        const layoutFor = (definition: AslDefinition, layout: 'LR' | 'TB') => {
+            const { nodes, edges } = parseAsl({ definition });
+            return new DagreLayout({ layout }).calculate(nodes, edges);
+        };
+
+        it.each([
+            ['TB', 'vertical'],
+            ['LR', 'horizontal'],
+        ] as const)(
+            'ends %s edges on the facing side, along the flow axis',
+            (layout, direction) => {
+                const positioned = layoutFor(loadFixture('choice'), layout);
+                const done = positioned.nodes.find(
+                    (node) => node.id === 'Done',
+                )!;
+                const svg = new SvgRenderer({
+                    edgeStyle: 'orthogonal',
+                    layout,
+                }).render(positioned).svg;
+                const edge = drawnEdges(svg).find((candidate) =>
+                    candidate.id.startsWith('HighValue->Done'),
+                )!;
+                const segments = parsePath(edge.d).segments;
+                const last = segments[segments.length - 1];
+
+                if (direction === 'vertical') {
+                    expect(last.to.y).toBeCloseTo(
+                        done.y! - done.height! / 2,
+                        3,
+                    );
+                    expect(Math.abs(last.to.x - done.x!)).toBeLessThanOrEqual(
+                        done.width! / 4 + 1e-3,
+                    );
+                    expect(last.from.x).toBeCloseTo(last.to.x, 3);
+                } else {
+                    expect(last.to.x).toBeCloseTo(done.x! - done.width! / 2, 3);
+                    expect(Math.abs(last.to.y - done.y!)).toBeLessThanOrEqual(
+                        done.height! / 4 + 1e-3,
+                    );
+                    expect(last.from.y).toBeCloseTo(last.to.y, 3);
+                }
+            },
+        );
+
+        it('keeps a forward/back edge pair on separate lanes', () => {
+            const edges = drawnEdges(
+                render(loopDefinition, { edgeStyle: 'orthogonal' }),
+            );
+            const forward = parsePath(
+                edges.find((edge) => edge.id.startsWith('Wait->Check'))!.d,
+            );
+            const back = parsePath(
+                edges.find((edge) => edge.id.startsWith('Check->Wait'))!.d,
+            );
+
+            const lastOf = (path: ReturnType<typeof parsePath>) =>
+                path.segments[path.segments.length - 1];
+            expect(lastOf(forward).to).not.toEqual(back.start);
+            // First and last legs run along the flow axis; unrouted dagre ends are diagonal.
+            for (const path of [forward, back]) {
+                expect(path.segments[0].from.x).toBeCloseTo(
+                    path.segments[0].to.x,
+                    3,
+                );
+                expect(lastOf(path).from.x).toBeCloseTo(lastOf(path).to.x, 3);
+            }
+            const verticalRuns = (path: ReturnType<typeof parsePath>) =>
+                path.segments.filter(
+                    (segment) => Math.abs(segment.from.x - segment.to.x) < 1e-3,
+                );
+            for (const first of verticalRuns(forward)) {
+                for (const second of verticalRuns(back)) {
+                    if (Math.abs(first.from.x - second.from.x) > 1e-3) continue;
+                    const overlap =
+                        Math.min(
+                            Math.max(first.from.y, first.to.y),
+                            Math.max(second.from.y, second.to.y),
+                        ) -
+                        Math.max(
+                            Math.min(first.from.y, first.to.y),
+                            Math.min(second.from.y, second.to.y),
+                        );
+                    expect(overlap).toBeLessThanOrEqual(1e-3);
+                }
+            }
+        });
+
+        it('leaves self-loops curved', () => {
+            const aslDefinition = loadFixture('self-loop');
+
+            const straight = drawnEdges(
+                render(aslDefinition, { edgeStyle: 'straight' }),
+            );
+            const orthogonal = drawnEdges(
+                render(aslDefinition, { edgeStyle: 'orthogonal' }),
+            );
+
+            const selfLoopPaths = (edges: DrawnEdge[]) =>
+                edges
+                    .filter((edge) => isSelfLoopId(edge.id))
+                    .map((edge) => edge.d);
+            expect(selfLoopPaths(orthogonal).length).toBeGreaterThan(0);
+            expect(selfLoopPaths(orthogonal)).toEqual(selfLoopPaths(straight));
+        });
+    });
+
     describe('Edge label midpoint (curved and straight)', () => {
         // A bent multi-point edge - straight enough for curveBasis to draw a visible
         // curve, but also a case where a straight polyline's middle *vertex* isn't
@@ -531,6 +786,27 @@ describe('SvgRenderer', () => {
             // The two legs (0,100)->(100,0) and (100,0)->(260,100) have unequal
             // lengths, so the arc-length midpoint isn't the vertex at (100, 0).
             expect(labelCenter).not.toEqual({ x: 100, y: 0 });
+        });
+
+        it('places the label on the drawn path for edgeStyle "orthogonal"', () => {
+            const result = new SvgRenderer({ edgeStyle: 'orthogonal' }).render(
+                buildLayout(),
+            );
+
+            const parsed = parsePath(extractPathD(result.svg));
+            const labelCenter = extractLabelCenter(result.svg);
+            const onPath = pointAtHalfLength(parsed);
+
+            expect(labelCenter.x).toBeCloseTo(onPath.x, 5);
+            expect(labelCenter.y).toBeCloseTo(onPath.y, 5);
+            for (const segment of parsed.segments.filter(
+                (candidate) => candidate.type === 'L',
+            )) {
+                const aligned =
+                    Math.abs(segment.from.x - segment.to.x) < 1e-3 ||
+                    Math.abs(segment.from.y - segment.to.y) < 1e-3;
+                expect(aligned).toBe(true);
+            }
         });
     });
 
