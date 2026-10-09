@@ -1,4 +1,5 @@
 import type { DiagramOptions } from '../types';
+import { withoutUndefined } from './withoutUndefined';
 
 /**
  * Default diagram options - used when options not provided
@@ -82,12 +83,21 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
 };
 
 /**
- * Merge user-provided options with defaults
+ * Merge user-provided options with defaults.
+ *
+ * A key whose value is `undefined` falls back to its default, exactly as if it
+ * were omitted, so wrappers can forward optional props without a guard. Defined
+ * falsy values (`0`, `false`, `''`) still override the default.
+ *
+ * @param options - The caller's options; defaults to none.
+ * @returns The defaults with every defined option applied on top.
+ * @example
+ * mergeOptions({ edgeStyle: undefined, padding: 0 }); // edgeStyle stays 'curved', padding is 0
  */
 export function mergeOptions(options: DiagramOptions = {}): typeof DEFAULT_DIAGRAM_OPTIONS {
     return {
         ...DEFAULT_DIAGRAM_OPTIONS,
-        ...options,
+        ...withoutUndefined(options),
     };
 }
 
