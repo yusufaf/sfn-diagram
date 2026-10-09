@@ -23,6 +23,17 @@ const loadFixture = (name: string): AslDefinition => {
 
 describe('Integration Tests', () => {
     describe('generateSvg', () => {
+        it('ignores the deprecated width and height options', () => {
+            const aslDefinition = loadFixture('simple');
+
+            const plain = generateSvg({ aslDefinition });
+            const sized = generateSvg({ aslDefinition, height: 1500, width: 2000 });
+
+            expect(sized.svg).toBe(plain.svg);
+            expect(sized.width).toBe(plain.width);
+            expect(sized.height).toBe(plain.height);
+        });
+
         it('should generate SVG from ASL definition object', () => {
             const aslDefinition = loadFixture('simple');
             const result = generateSvg({ aslDefinition });

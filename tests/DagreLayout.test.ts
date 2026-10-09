@@ -40,6 +40,16 @@ describe('DagreLayout', () => {
     ];
 
     describe('Layout calculation', () => {
+        it('ignores the deprecated width and height options', () => {
+            const withOptions = new DagreLayout({ height: 1500, width: 2000 }).calculate(
+                createTestNodes(),
+                createTestEdges(),
+            );
+            const without = new DagreLayout({}).calculate(createTestNodes(), createTestEdges());
+
+            expect(withOptions.graph).toEqual(without.graph);
+        });
+
         it('should calculate positions for nodes', () => {
             const layout = new DagreLayout({});
             const result = layout.calculate(createTestNodes(), createTestEdges());

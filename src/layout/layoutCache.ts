@@ -16,7 +16,6 @@ import type { LayoutResult } from './DagreLayout';
  */
 const LAYOUT_OPTION_KEYS = [
     'collapseControls',
-    'height',
     'iconPosition',
     'layout',
     'nodeAnnotations',
@@ -28,7 +27,6 @@ const LAYOUT_OPTION_KEYS = [
     'showIcons',
     'showStateTypes',
     'showVariables',
-    'width',
 ] as const satisfies ReadonlyArray<keyof DiagramOptions>;
 
 /** Parameters for {@link createLayoutCache}. */
