@@ -66543,6 +66543,9 @@ var Si = v((mo, Dt) => {
 var dagre_esm_default = Si();
 
 // ../../dist/ci.js
+function withoutUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== void 0));
+}
 var AWS_LIGHT_THEME = {
   background: "#ffffff",
   nodeColors: {
@@ -66649,9 +66652,6 @@ function mergeNodeColors(base, overrides) {
     };
   }
   return nodeColors;
-}
-function withoutUndefined(value) {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== void 0));
 }
 function getTheme(theme, customColors) {
   let resolved;
@@ -67498,7 +67498,7 @@ var DEFAULT_DIAGRAM_OPTIONS = {
 function mergeOptions(options = {}) {
   return {
     ...DEFAULT_DIAGRAM_OPTIONS,
-    ...options
+    ...withoutUndefined(options)
   };
 }
 function assignEdgeIds(params) {

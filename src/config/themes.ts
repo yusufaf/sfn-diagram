@@ -1,4 +1,5 @@
 import type { CustomTheme, ResolvedTheme, StateType } from '../types';
+import { withoutUndefined } from './withoutUndefined';
 
 /**
  * AWS Light Theme - matches the AWS Step Functions console light mode
@@ -75,13 +76,6 @@ function mergeNodeColors(
         nodeColors[key] = { ...nodeColors[key], ...withoutUndefined(colors) };
     }
     return nodeColors;
-}
-
-/** Copy of `value` with every `undefined` entry dropped, so a spread cannot blank a base field. */
-function withoutUndefined<T extends object>(value: T): Partial<T> {
-    return Object.fromEntries(
-        Object.entries(value).filter(([, entry]) => entry !== undefined),
-    ) as Partial<T>;
 }
 
 /**
