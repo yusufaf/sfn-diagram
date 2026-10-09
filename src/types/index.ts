@@ -28,17 +28,32 @@ export type QueryLanguage = 'JSONata' | 'JSONPath';
 
 /** An ASL `Catch` handler: routes matching errors to a fallback state. */
 export interface CatchBlock {
+    /** Variables to assign when this handler matches. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Assign?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+    /** Free-text description of the handler. */
+    Comment?: string;
     ErrorEquals: string[];
     Next?: string;
-    ResultPath?: string;
+    /** JSONata only: the state output when this handler matches. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Output?: any; // AWS ASL spec - arbitrary JSON values
+    /** JSONPath only: where to put the error output; `null` discards it. */
+    ResultPath?: string | null;
 }
 
 /** An ASL `Retry` policy: re-attempts a state on matching errors with backoff. */
 export interface RetryBlock {
     BackoffRate?: number;
+    /** Free-text description of the policy. */
+    Comment?: string;
     ErrorEquals: string[];
     IntervalSeconds?: number;
+    /** Randomises retry delays. Known values: `FULL`, `NONE` (default). */
+    JitterStrategy?: string;
     MaxAttempts?: number;
+    /** Upper bound on the delay between retries, in seconds. */
+    MaxDelaySeconds?: number;
 }
 
 /** A single rule in a Choice state: a condition plus the `Next` state to take when it matches. */
@@ -69,16 +84,42 @@ export interface ProcessorConfig {
  * one reached closes the batch.
  */
 export interface ItemBatcher {
+    /** Extra input added to each batch; an object, or (JSONata) a whole-field expression. */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    BatchInput?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
-    /** Maximum payload bytes handed to one child execution. */
-    MaxInputBytesPerBatch?: number;
+    BatchInput?: Record<string, any> | string; // AWS ASL spec - arbitrary JSON values
+    /** Maximum payload bytes handed to one child execution; can be a JSONata expression. */
+    MaxInputBytesPerBatch?: number | string;
     /** Reference path resolving to `MaxInputBytesPerBatch`. */
     MaxInputBytesPerBatchPath?: string;
-    /** Maximum items handed to one child execution. */
-    MaxItemsPerBatch?: number;
+    /** Maximum items handed to one child execution; can be a JSONata expression. */
+    MaxItemsPerBatch?: number | string;
     /** Reference path resolving to `MaxItemsPerBatch`. */
     MaxItemsPerBatchPath?: string;
+}
+
+/**
+ * A Distributed Map `ItemReader`'s dataset format and limits. Enum-like fields
+ * are plain strings because AWS keeps adding values; known ones are listed.
+ */
+export interface ReaderConfig {
+    /** CSV or MANIFEST only. Known values: `COMMA` (default), `PIPE`, `SEMICOLON`, `SPACE`, `TAB`. */
+    CSVDelimiter?: string;
+    /** CSV or MANIFEST only. Known values: `FIRST_ROW`, `GIVEN`. */
+    CSVHeaderLocation?: string;
+    /** Column names, used with `CSVHeaderLocation: 'GIVEN'`. */
+    CSVHeaders?: string[];
+    /** Known values: `CSV`, `JSON`, `JSONL`, `PARQUET`, `MANIFEST`. */
+    InputType?: string;
+    /** JSON only: a JSON Pointer to the array inside the document. */
+    ItemsPointer?: string;
+    /** Known values: `ATHENA_DATA`, `S3_INVENTORY`. */
+    ManifestType?: string;
+    /** Maximum items to read; can be a JSONata expression. Exclusive with `MaxItemsPath`. */
+    MaxItems?: number | string;
+    /** JSONPath only: reference path resolving to `MaxItems`. */
+    MaxItemsPath?: string;
+    /** Known values: `NONE`, `LOAD_AND_FLATTEN`. */
+    Transformation?: string;
 }
 
 /**
@@ -87,15 +128,26 @@ export interface ItemBatcher {
  * the same `Resource` ARN shape used by Task states.
  */
 export interface ItemIo {
+    /** JSONata only: counterpart to `Parameters`. Must be an object, not an expression string. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Arguments?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
-    ReaderConfig?: {
-        InputType?: string;
-        MaxItems?: number;
-    };
+    ReaderConfig?: ReaderConfig;
     Resource?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     WriterConfig?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
+}
+
+/**
+ * A Task's `Credentials`: the IAM role assumed before invoking `Resource`.
+ * Set exactly one field.
+ */
+export interface TaskCredentials {
+    /** The role ARN; in JSONata mode it can be an expression. */
+    RoleArn?: string;
+    /** JSONPath only: a reference path or intrinsic resolving to the role ARN. */
+    'RoleArn.$'?: string;
 }
 
 /** A single state within an ASL definition, covering fields for every state type. */
@@ -110,31 +162,45 @@ export interface AslState {
     CausePath?: string; // Fail-specific; reference path resolving to Cause
     Choices?: ChoiceRule[]; // Choice-specific
     Comment?: string;
+    /** Task-specific: the IAM role assumed before invoking `Resource`. */
+    Credentials?: TaskCredentials;
     Default?: string; // Choice-specific
     End?: boolean;
     Error?: string; // Fail-specific; can be a JSONata expression
     ErrorPath?: string; // Fail-specific; reference path resolving to Error
     HeartbeatSeconds?: number | string; // Task-specific; can be a JSONata expression
     HeartbeatSecondsPath?: string; // Task-specific; reference path resolving to HeartbeatSeconds
+    /** JSONPath only: selects the part of the state input to process; `null` passes `{}`. */
+    InputPath?: string | null;
     ItemBatcher?: ItemBatcher; // Distributed Map-specific; batching config
     ItemProcessor?: AslDefinition; // Map-specific; modern replacement for Iterator (incl. Distributed Map)
     ItemReader?: ItemIo; // Distributed Map-specific; dataset source (S3, Athena)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ItemSelector?: Record<string, any> | string; // Map-specific; per-item input shaping, an object or (JSONata) a whole-field expression
+    /** JSONata only: the Map's items — an array, an expression, or (Distributed Map only) an object. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Items?: any[] | Record<string, any> | string; // AWS ASL spec - arbitrary JSON values
     ItemsPath?: string; // Map-specific; reference path to the array to iterate (JSONPath mode)
     Iterator?: AslDefinition; // Map-specific; legacy (pre-2022) inline map processor
     Label?: string; // Distributed Map-specific; prefix for child execution names
     MaxConcurrency?: number | string; // Map-specific; can be a JSONata expression
+    /** JSONPath only: reference path resolving to `MaxConcurrency`. */
+    MaxConcurrencyPath?: string;
     Next?: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Output?: any; // AWS ASL spec - arbitrary JSON values
+    /** JSONPath only: filters the state output; `null` passes `{}`. */
+    OutputPath?: string | null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Parameters?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     QueryLanguage?: QueryLanguage; // Per-state override of the top-level query language
     Resource?: string; // Task-specific
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Result?: any; // AWS ASL spec - arbitrary JSON values
-    ResultPath?: string; // Task-specific
+    ResultPath?: string | null; // Task-specific; null discards the result
+    /** JSONPath only: reshapes a Task's result before `ResultPath` applies. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ResultSelector?: Record<string, any>; // AWS ASL spec - arbitrary JSON values
     ResultWriter?: ItemIo; // Distributed Map-specific; result sink (S3)
     Retry?: RetryBlock[]; // Task-specific
     Seconds?: number | string; // Wait-specific; Can be JSONata expression
@@ -144,7 +210,11 @@ export interface AslState {
     Timestamp?: string; // Wait-specific
     TimestampPath?: string; // Wait-specific
     ToleratedFailureCount?: number | string; // Distributed Map-specific; can be a JSONata expression
+    /** JSONPath only: reference path resolving to `ToleratedFailureCount`. */
+    ToleratedFailureCountPath?: string;
     ToleratedFailurePercentage?: number | string; // Distributed Map-specific; can be a JSONata expression
+    /** JSONPath only: reference path resolving to `ToleratedFailurePercentage`. */
+    ToleratedFailurePercentagePath?: string;
     Type: StateType;
 }
 
