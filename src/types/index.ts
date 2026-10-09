@@ -599,7 +599,12 @@ export interface DiagramOptions {
     /** Output format for the diagram */
     format?: DiagramFormat;
 
-    /** Overall diagram height in pixels (auto-calculated if not specified) */
+    /**
+     * Has no effect on any output. The SVG is sized to its content plus `padding`, and its
+     * `viewBox` lets it scale freely: set its height with CSS when embedding, or use
+     * {@link PngExportOptions.scale} for PNG resolution (`resvg` engine).
+     * @deprecated No effect; will be removed in 2.0.
+     */
     height?: number;
 
     /**
@@ -696,7 +701,12 @@ export interface DiagramOptions {
     /** Color theme: 'light', 'dark', or custom theme object */
     theme?: ThemeOption;
 
-    /** Overall diagram width in pixels (auto-calculated if not specified) */
+    /**
+     * Has no effect on any output. The SVG is sized to its content plus `padding`, and its
+     * `viewBox` lets it scale freely: set its width with CSS when embedding, or use
+     * {@link PngExportOptions.scale} for PNG resolution (`resvg` engine).
+     * @deprecated No effect; will be removed in 2.0.
+     */
     width?: number;
 
     /**

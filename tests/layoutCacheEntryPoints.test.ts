@@ -25,7 +25,6 @@ const DEFINITION: AslDefinition = {
 // One option per keyed field, each chosen to move geometry (or the key) on DEFINITION.
 const KEYED_OPTIONS: Array<{ field: string; options: DiagramOptions }> = [
     { field: 'collapseControls', options: { collapseControls: true } },
-    { field: 'height', options: { height: 4000 } },
     { field: 'iconPosition', options: { iconPosition: 'left', showIcons: true } },
     { field: 'layout', options: { layout: 'LR' } },
     { field: 'nodeAnnotations', options: { nodeAnnotations: { Done: 'annotated' } } },
@@ -37,7 +36,6 @@ const KEYED_OPTIONS: Array<{ field: string; options: DiagramOptions }> = [
     { field: 'showIcons', options: { showIcons: true } },
     { field: 'showStateTypes', options: { showStateTypes: true } },
     { field: 'showVariables', options: { showVariables: false } },
-    { field: 'width', options: { width: 4000 } },
 ];
 
 describe('warm renders match cold renders', () => {

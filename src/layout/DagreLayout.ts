@@ -328,8 +328,8 @@ export class DagreLayout {
         return {
             edges: routedEdges,
             graph: {
-                height: this.options.height || (graphDims.height ?? 600),
-                width: this.options.width || (graphDims.width ?? 800),
+                height: graphDims.height ?? 600,
+                width: graphDims.width ?? 800,
             },
             nodes: allPositionedNodes,
         };

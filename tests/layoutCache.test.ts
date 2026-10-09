@@ -152,7 +152,6 @@ describe('layout cache key covers every layout-affecting option', () => {
     // confirming that field's case below fails: each one does.
     const CASES: Array<{ field: string; options: DiagramOptions }> = [
         { field: 'collapseControls', options: { collapseControls: true } },
-        { field: 'height', options: { height: 4000 } },
         { field: 'iconPosition', options: { iconPosition: 'left', showIcons: true } },
         { field: 'layout', options: { layout: 'LR' } },
         { field: 'nodeAnnotations', options: { nodeAnnotations: { Done: 'annotated' } } },
@@ -164,7 +163,6 @@ describe('layout cache key covers every layout-affecting option', () => {
         { field: 'showIcons', options: { showIcons: true } },
         { field: 'showStateTypes', options: { showStateTypes: true } },
         { field: 'showVariables', options: { showVariables: false } },
-        { field: 'width', options: { width: 4000 } },
     ];
 
     test('the case list matches the exported key list exactly', () => {
@@ -175,6 +173,12 @@ describe('layout cache key covers every layout-affecting option', () => {
 
     test.each(CASES)('changing $field changes the cache key', ({ options }) => {
         expect(keyFor(options)).not.toBe(keyFor({}));
+    });
+
+    // width and height are deprecated no-ops (#322): DagreLayout no longer reads them,
+    // so they must not split the cache key either.
+    test.each(['height', 'width'] as const)('%s does not change the cache key (deprecated no-op)', (field) => {
+        expect(keyFor({ [field]: 4000 })).toBe(keyFor({}));
     });
 
     // The guard that survives future edits to DagreLayout: if someone adds a
