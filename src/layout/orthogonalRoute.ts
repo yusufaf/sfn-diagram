@@ -1,5 +1,6 @@
 import { isOpenContainer } from '../graph';
 import type { DiagramOptions, LayoutDirection, StateNode } from '../types';
+import type { PathPoint } from '../utils/pathSample';
 import type { LayoutResult } from './DagreLayout';
 
 /** Corner radius for orthogonal edges, matching the node rect's `rx`. */
@@ -8,10 +9,7 @@ export const ORTHOGONAL_CORNER_RADIUS = 5;
 /** Coordinates closer than this count as aligned. */
 const ALIGNMENT_EPSILON = 1e-6;
 
-interface Point {
-    x: number;
-    y: number;
-}
+type Point = PathPoint;
 
 /** Which axis edges flow along: vertical for TB/BT, horizontal for LR/RL. */
 interface Frame {
@@ -52,6 +50,7 @@ interface CentreOfParams {
     node: StateNode;
 }
 
+/** The node's centre, with a missing coordinate read as 0. */
 function centreOf(params: CentreOfParams): Point {
     return { x: params.node.x || 0, y: params.node.y || 0 };
 }
@@ -78,6 +77,7 @@ interface IsAlignedParams {
     second: number;
 }
 
+/** True when two coordinates differ by less than the alignment epsilon. */
 function isAligned(params: IsAlignedParams): boolean {
     return Math.abs(params.first - params.second) < ALIGNMENT_EPSILON;
 }
@@ -322,13 +322,24 @@ export interface BuildRoundedOrthogonalPathParams {
     radius: number;
 }
 
-/** Format like d3-shape: three decimals at most, no trailing zeros. */
-function formatNumber(value: number): string {
-    return String(Math.round(value * 1000) / 1000);
+/** Parameters for {@link formatNumber}. */
+interface FormatNumberParams {
+    value: number;
 }
 
-function formatPoint(point: Point): string {
-    return `${formatNumber(point.x)},${formatNumber(point.y)}`;
+/** Format like d3-shape: three decimals at most, no trailing zeros. */
+function formatNumber(params: FormatNumberParams): string {
+    return String(Math.round(params.value * 1000) / 1000);
+}
+
+/** Parameters for {@link formatPoint}. */
+interface FormatPointParams {
+    point: Point;
+}
+
+/** Format a point as `x,y` for a path command. */
+function formatPoint(params: FormatPointParams): string {
+    return `${formatNumber({ value: params.point.x })},${formatNumber({ value: params.point.y })}`;
 }
 
 /**
@@ -345,7 +356,7 @@ export function buildRoundedOrthogonalPath(params: BuildRoundedOrthogonalPathPar
     const { points, radius } = params;
     if (points.length < 2) return null;
 
-    let path = `M${formatPoint(points[0])}`;
+    let path = `M${formatPoint({ point: points[0] })}`;
     for (let index = 1; index < points.length - 1; index += 1) {
         const previous = points[index - 1];
         const corner = points[index];
@@ -361,7 +372,7 @@ export function buildRoundedOrthogonalPath(params: BuildRoundedOrthogonalPathPar
             x: corner.x + (cut * (next.x - corner.x)) / outgoing,
             y: corner.y + (cut * (next.y - corner.y)) / outgoing,
         };
-        path += `L${formatPoint(before)}C${formatPoint(corner)},${formatPoint(corner)},${formatPoint(after)}`;
+        path += `L${formatPoint({ point: before })}C${formatPoint({ point: corner })},${formatPoint({ point: corner })},${formatPoint({ point: after })}`;
     }
-    return `${path}L${formatPoint(points[points.length - 1])}`;
+    return `${path}L${formatPoint({ point: points[points.length - 1] })}`;
 }

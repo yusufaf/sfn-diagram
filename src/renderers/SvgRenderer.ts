@@ -181,15 +181,15 @@ export class SvgRenderer {
         if (options.edgeStyle === 'orthogonal') {
             this.pathGenerator = (points) =>
                 buildRoundedOrthogonalPath({ points, radius: ORTHOGONAL_CORNER_RADIUS });
-            return;
+        } else {
+            const generator = line<{ x: number; y: number }>()
+                .x((point) => point.x)
+                .y((point) => point.y);
+            if (options.edgeStyle === 'curved') {
+                generator.curve(curveBasis);
+            }
+            this.pathGenerator = generator;
         }
-        const generator = line<{ x: number; y: number }>()
-            .x((point) => point.x)
-            .y((point) => point.y);
-        if (options.edgeStyle === 'curved') {
-            generator.curve(curveBasis);
-        }
-        this.pathGenerator = generator;
     }
 
     /**
