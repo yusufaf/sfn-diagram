@@ -48,6 +48,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `--execution <arn> --follow` and `--watch` (#192, #283, #190), which together took
  * it from 567,677 to 613,128 raw: +45,451 bytes, +8.0%, for three features. The AWS
  * SDK is not in that number — it stays an externalised optional peer.
+ *
+ * `png.js`/`png.cjs` were last restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
+ * gained real routing (#323), which took png.cjs from 201,658 to 212,407 raw and from
+ * 59,348 to 62,343 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
@@ -63,8 +67,8 @@ export const BUNDLE_BUDGETS = {
     'element.js': { gzip: 107000, raw: 373000 },
     'index.cjs': { gzip: 154000, raw: 528000 },
     'index.js': { gzip: 154000, raw: 528000 },
-    'png.cjs': { gzip: 61000, raw: 205000 },
-    'png.js': { gzip: 61000, raw: 205000 },
+    'png.cjs': { gzip: 69000, raw: 234000 },
+    'png.js': { gzip: 69000, raw: 234000 },
 };
 
 /**

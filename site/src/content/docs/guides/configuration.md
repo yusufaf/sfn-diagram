@@ -68,7 +68,7 @@ generateSvg({ aslDefinition: asl, theme: customTheme });
 
 - `'curved'` - Smooth curved paths (default)
 - `'straight'` - Direct straight lines
-- `'orthogonal'` - Right-angled paths
+- `'orthogonal'` - Right-angled paths with rounded corners (Retry self-loops stay curved)
 
 ## Per-node and per-edge overrides
 

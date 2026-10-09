@@ -6,7 +6,8 @@
  * Only `M`, `L` and `C` commands are handled: that is the complete command set
  * `line()` emits with `curveLinear` (the default) and `curveBasis` (used for
  * `edgeStyle: 'curved'`), and it also covers the hand-built self-loop path in
- * SvgRenderer's `buildSelfLoopPath`.
+ * SvgRenderer's `buildSelfLoopPath` and the rounded right-angled paths from
+ * `buildRoundedOrthogonalPath` (`edgeStyle: 'orthogonal'`), which emit `M`/`L`/`C`.
  */
 
 export interface PathPoint {
