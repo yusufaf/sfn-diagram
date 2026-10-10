@@ -11,6 +11,7 @@ import {
     isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
+import { findLaneCollisions, routeCatchLanes, selectLaneCatchEdges } from './catchLanes';
 import { measureEdgeLabel } from './edgeLabel';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
@@ -101,6 +102,32 @@ function insetFromSide(params: InsetFromSideParams): { x: number; y: number } {
         : { x: point.x, y: point.y - amount };
 }
 
+/** An edge queued for dagre ranking, with the attributes and name it is stored under. */
+interface RankedEdge {
+    edge: GraphEdge;
+    from: string;
+    label: Record<string, unknown>;
+    name: string;
+    to: string;
+}
+
+/** Parameters for {@link DagreLayout.layoutWith}. */
+interface LayoutWithParams {
+    /** False for the plain dagre layout, with no catch lanes */
+    allowCatchLanes: boolean;
+    edges: GraphEdge[];
+    nodes: StateNode[];
+}
+
+/** Parameters for {@link DagreLayout.selectLaneEdges}. */
+interface SelectLaneEdgesParams {
+    containerIds: Set<string>;
+    edges: GraphEdge[];
+    layoutNodes: StateNode[];
+    nodes: StateNode[];
+    rankedEdges: RankedEdge[];
+}
+
 export interface LayoutResult {
     // With points for routing; loopIndex is set only for self-loops, so the renderer
     // can stagger nested loops' labels apart without inverting layout geometry.
@@ -141,6 +168,15 @@ export class DagreLayout {
      * Calculate layout positions for nodes and edges
      */
     calculate(nodes: StateNode[], edges: GraphEdge[]): LayoutResult {
+        return this.layoutWith({ allowCatchLanes: true, edges, nodes });
+    }
+
+    /**
+     * Run one layout pass. `allowCatchLanes: false` is the plain dagre layout, used as
+     * the fallback when a catch lane would cross an open container.
+     */
+    private layoutWith(params: LayoutWithParams): LayoutResult {
+        const { allowCatchLanes, edges, nodes } = params;
         const graph = new dagre.graphlib.Graph({ multigraph: true });
 
         // Configure graph layout
@@ -204,6 +240,7 @@ export class DagreLayout {
         // relies on this, since the non-visual end-marker edge that used to carry
         // ranking is deleted along with the container's descendants by applyCollapse.
         // Self-loops (Retry) are always excluded — they're never meaningfully ranked.
+        const rankedEdges: RankedEdge[] = [];
         edges
             .filter((edge) => {
                 if (edge.from === edge.to) {
@@ -226,12 +263,13 @@ export class DagreLayout {
                     // node and emit NaN routing points, so redirect onto the entry children.
                     for (const child of entryChildrenByContainer.get(edge.to) ??
                         []) {
-                        graph.setEdge(
-                            edge.from,
-                            child,
-                            { label: edge.label, type: edge.type },
-                            `${edge.id}#entry#${child}`,
-                        );
+                        rankedEdges.push({
+                            edge,
+                            from: edge.from,
+                            label: { label: edge.label, type: edge.type },
+                            name: `${edge.id}#entry#${child}`,
+                            to: child,
+                        });
                     }
                     return;
                 }
@@ -240,13 +278,27 @@ export class DagreLayout {
                     return;
                 }
 
-                graph.setEdge(
-                    edge.from,
-                    edge.to,
-                    this.dagreEdgeLabel({ edge }),
-                    edge.id,
-                );
+                rankedEdges.push({
+                    edge,
+                    from: edge.from,
+                    label: this.dagreEdgeLabel({ edge }),
+                    name: edge.id,
+                    to: edge.to,
+                });
             });
+
+        // A catch handler that many states share would otherwise make dagre insert a
+        // dummy node per rank for every long catch edge into it, which is quadratic.
+        // The edges that can be left out are routed along a lane after layout instead.
+        const laneEdgeIds = allowCatchLanes
+            ? this.selectLaneEdges({ containerIds, edges, layoutNodes, nodes, rankedEdges })
+            : new Set<string>();
+
+        for (const ranked of rankedEdges) {
+            if (!laneEdgeIds.has(ranked.edge.id)) {
+                graph.setEdge(ranked.from, ranked.to, ranked.label, ranked.name);
+            }
+        }
 
         // Run layout algorithm
         dagre.layout(graph);
@@ -305,6 +357,10 @@ export class DagreLayout {
             // Visual-only edges, any edge touching a container, and self-loops (never
             // added to the dagre graph — see the edge filter above) are routed manually.
             const isSelfLoop = edge.from === edge.to;
+            if (laneEdgeIds.has(edge.id)) {
+                // Routed along a catch lane below, once every other edge is placed.
+                return { ...edge };
+            }
             if (edge.visualOnly || touchesContainer || isSelfLoop) {
                 return {
                     ...edge,
@@ -333,6 +389,31 @@ export class DagreLayout {
             };
         });
 
+        if (laneEdgeIds.size > 0) {
+            const routes = routeCatchLanes({
+                edges: edges.filter((edge) => laneEdgeIds.has(edge.id)),
+                layout: this.options.layout || 'TB',
+                nodes: allPositionedNodes,
+                obstacleEdges: routedEdges.filter((edge) => !laneEdgeIds.has(edge.id)),
+                rankSeparation: this.options.rankSeparation ?? 50,
+                themeFontSize: this.theme.fontSize,
+            });
+            if (
+                containerNodes.length > 0 &&
+                findLaneCollisions({ boxes: containerNodes, routes: routes.values() })
+            ) {
+                // Containers are boxes dagre never saw, so a collision can only be found
+                // now. Redo the layout the way it was before lanes existed.
+                return this.layoutWith({ allowCatchLanes: false, edges, nodes });
+            }
+            routedEdges.forEach((edge, index) => {
+                const route = routes.get(edge.id);
+                if (route) {
+                    routedEdges[index] = { ...edge, ...route };
+                }
+            });
+        }
+
         // Get final graph dimensions
         const graphDims = graph.graph();
 
@@ -344,6 +425,40 @@ export class DagreLayout {
             },
             nodes: allPositionedNodes,
         };
+    }
+
+    /**
+     * The ids of the catch edges to route along a lane rather than hand to dagre. Only
+     * catch edges between two plain states qualify: an edge touching an open container,
+     * or any state inside one, is left to dagre because lanes are drawn outside the
+     * containers' boxes.
+     */
+    private selectLaneEdges(params: SelectLaneEdgesParams): Set<string> {
+        const { containerIds, edges, layoutNodes, nodes, rankedEdges } = params;
+        const enclosedIds = new Set<string>();
+        for (const node of nodes) {
+            if (isOpenContainer(node)) {
+                node.children?.forEach((child) => enclosedIds.add(child));
+            }
+        }
+        const isPlain = (id: string): boolean => !containerIds.has(id) && !enclosedIds.has(id);
+        const candidates = edges.filter(
+            (edge) =>
+                edge.type === 'error' &&
+                !edge.visualOnly &&
+                edge.from !== edge.to &&
+                isPlain(edge.from) &&
+                isPlain(edge.to),
+        );
+        return selectLaneCatchEdges({
+            candidates,
+            nodeIds: layoutNodes.map((node) => node.id),
+            rankedEdges: rankedEdges.map((ranked) => ({
+                from: ranked.from,
+                id: ranked.edge.id,
+                to: ranked.to,
+            })),
+        });
     }
 
     /**

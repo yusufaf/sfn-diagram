@@ -2,11 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { DagreLayout } from '../src/layout';
-import type { StateNode, GraphEdge, AslDefinition } from '../src/types';
+import type { StateNode, GraphEdge, AslDefinition, LayoutDirection } from '../src/types';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
 import { CONTAINER_HEADER_HEIGHT } from '../src/constants';
+import { getTheme } from '../src/config/themes';
 import { measureEdgeLabel } from '../src/layout/edgeLabel';
+import { buildSharedCatchChain } from './performance/fixtures';
+import {
+    catchersInsideMap,
+    isLaneRoute,
+    parallelInChain,
+    pulledShape,
+    sameRowFanOut,
+} from './helpers/catchLaneFixtures';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -530,5 +539,132 @@ describe('Container edge direction', () => {
 
             expect(labelled - unlabelled).toBeGreaterThanOrEqual(labelHeight - 0.5);
         });
+    });
+});
+
+describe('Shared catch handlers', () => {
+    const layoutOf = (definition: AslDefinition, layout: LayoutDirection = 'TB') => {
+        const { nodes, edges } = parseAsl({ definition });
+        return new DagreLayout({ layout }).calculate(nodes, edges);
+    };
+    const errorEdges = (result: ReturnType<typeof layoutOf>, target: string) =>
+        result.edges.filter((edge) => edge.type === 'error' && edge.to === target);
+    const laneEdges = (result: ReturnType<typeof layoutOf>, layout: LayoutDirection) =>
+        result.edges.filter((edge) => isLaneRoute({ edge, layout, nodes: result.nodes }));
+
+    it('routes all but the deepest catch edge along a lane', () => {
+        const result = layoutOf(buildSharedCatchChain({ length: 12 }));
+        const catches = errorEdges(result, 'Failed');
+        expect(catches).toHaveLength(12);
+        const lanes = laneEdges(result, 'TB');
+        expect(lanes).toHaveLength(11);
+        expect(lanes.map((edge) => edge.id)).not.toContain('Step11->Failed#error#0');
+        for (const edge of lanes) {
+            const points = edge.points ?? [];
+            expect(points).toHaveLength(10);
+            const laneX = points[2].x;
+            for (const point of points.slice(2, 8)) {
+                expect(Math.abs(point.x - laneX)).toBeLessThan(1e-6);
+            }
+        }
+    });
+
+    it('keeps the handler below every catcher when a branch rejoins late', () => {
+        const result = layoutOf(pulledShape());
+        const failed = result.nodes.find((node) => node.id === 'Failed');
+        for (const catcher of ['B0', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5']) {
+            const node = result.nodes.find((candidate) => candidate.id === catcher);
+            expect(failed?.y, catcher).toBeGreaterThan(node?.y ?? Infinity);
+        }
+    });
+
+    const segmentsOf = (points: Array<{ x: number; y: number }>) =>
+        points.slice(1).map((point, index) => [points[index], point] as const);
+
+    it.each(
+        (['TB', 'BT', 'LR', 'RL'] as const).flatMap((layout) =>
+            [
+                ['chain', () => buildSharedCatchChain({ length: 12 })],
+                ['parallel in chain', parallelInChain],
+            ].map(([name, build]) => [layout, name, build] as const),
+        ),
+    )('lane routes are axis-aligned and cross no node (%s, %s)', (layout, _name, build) => {
+        const result = layoutOf((build as () => AslDefinition)(), layout);
+        const lanes = laneEdges(result, layout);
+        expect(lanes.length).toBeGreaterThan(0);
+        for (const edge of lanes) {
+            for (const [start, end] of segmentsOf(edge.points ?? [])) {
+                expect(Math.min(Math.abs(start.x - end.x), Math.abs(start.y - end.y))).toBeLessThan(1e-6);
+                for (const node of result.nodes) {
+                    if (node.id === edge.from || node.id === edge.to) {
+                        continue;
+                    }
+                    const halfWidth = (node.width || 0) / 2 - 0.5;
+                    const halfHeight = (node.height || 0) / 2 - 0.5;
+                    const crosses =
+                        Math.max(start.x, end.x) > (node.x || 0) - halfWidth &&
+                        Math.min(start.x, end.x) < (node.x || 0) + halfWidth &&
+                        Math.max(start.y, end.y) > (node.y || 0) - halfHeight &&
+                        Math.min(start.y, end.y) < (node.y || 0) + halfHeight;
+                    expect(crosses, `${edge.id} crosses ${node.id}`).toBe(false);
+                }
+            }
+        }
+    });
+
+    it('routes a chain past a Parallel through the clear gap', () => {
+        const result = layoutOf(parallelInChain());
+        expect(laneEdges(result, 'TB').length).toBeGreaterThan(0);
+    });
+
+    it.each(['TB', 'LR'] as const)('leaves catchers inside a Map iterator to dagre (%s)', (layout) => {
+        const result = layoutOf(catchersInsideMap(), layout);
+        const catches = errorEdges(result, 'IFail');
+        expect(catches).toHaveLength(4);
+        expect(laneEdges(result, layout)).toHaveLength(0);
+        for (const edge of catches) {
+            expect((edge.points ?? []).length).toBeGreaterThanOrEqual(2);
+        }
+    });
+
+    it.each([
+        ['TB same-row fan-out', sameRowFanOut, 'TB'],
+        ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR'],
+        ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL'],
+    ] as const)('gives lane labels non-overlapping positions (%s)', (_name, build, layout) => {
+        const result = layoutOf(build(), layout);
+        const themeFontSize = getTheme().fontSize;
+        const boxes = laneEdges(result, layout)
+            .filter((edge) => edge.label && edge.labelPosition)
+            .map((edge) => {
+                const size = measureEdgeLabel({ label: edge.label as string, themeFontSize });
+                const centre = edge.labelPosition as { x: number; y: number };
+                return {
+                    bottom: centre.y + size.height / 2,
+                    id: edge.id,
+                    left: centre.x - size.width / 2,
+                    right: centre.x + size.width / 2,
+                    top: centre.y - size.height / 2,
+                };
+            });
+        expect(boxes.length).toBeGreaterThanOrEqual(2);
+        for (let first = 0; first < boxes.length; first += 1) {
+            for (let second = first + 1; second < boxes.length; second += 1) {
+                const apart =
+                    boxes[first].right <= boxes[second].left ||
+                    boxes[second].right <= boxes[first].left ||
+                    boxes[first].bottom <= boxes[second].top ||
+                    boxes[second].bottom <= boxes[first].top;
+                expect(apart, `${boxes[first].id} overlaps ${boxes[second].id}`).toBe(true);
+            }
+        }
+    });
+
+    it('leaves layouts alone below the threshold', () => {
+        const result = layoutOf(buildSharedCatchChain({ length: 3 }));
+        expect(laneEdges(result, 'TB')).toHaveLength(0);
+        for (const edge of errorEdges(result, 'Failed')) {
+            expect((edge.points ?? []).length).toBeGreaterThanOrEqual(2);
+        }
     });
 });

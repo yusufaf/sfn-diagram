@@ -12,35 +12,54 @@ const ALIGNMENT_EPSILON = 1e-6;
 type Point = PathPoint;
 
 /** Which axis edges flow along: vertical for TB/BT, horizontal for LR/RL. */
-interface Frame {
+export interface Frame {
     vertical: boolean;
 }
 
 /** Parameters for {@link flowOf} and {@link crossOf}. */
-interface AxisParams {
+export interface AxisParams {
     frame: Frame;
     point: Point;
 }
 
-/** Coordinate along the flow axis. */
-function flowOf(params: AxisParams): number {
+/**
+ * Coordinate along the flow axis.
+ *
+ * @param params.frame - Which axis edges flow along
+ * @param params.point - The point to read
+ * @returns `point.y` for a vertical frame, `point.x` otherwise
+ */
+export function flowOf(params: AxisParams): number {
     return params.frame.vertical ? params.point.y : params.point.x;
 }
 
-/** Coordinate across the flow axis. */
-function crossOf(params: AxisParams): number {
+/**
+ * Coordinate across the flow axis.
+ *
+ * @param params.frame - Which axis edges flow along
+ * @param params.point - The point to read
+ * @returns `point.x` for a vertical frame, `point.y` otherwise
+ */
+export function crossOf(params: AxisParams): number {
     return params.frame.vertical ? params.point.x : params.point.y;
 }
 
 /** Parameters for {@link toPoint}. */
-interface ToPointParams {
+export interface ToPointParams {
     cross: number;
     flow: number;
     frame: Frame;
 }
 
-/** Rebuild an x/y point from flow and cross coordinates. */
-function toPoint(params: ToPointParams): Point {
+/**
+ * Rebuild an x/y point from flow and cross coordinates.
+ *
+ * @param params.cross - Coordinate across the flow axis
+ * @param params.flow - Coordinate along the flow axis
+ * @param params.frame - Which axis edges flow along
+ * @returns The matching x/y point
+ */
+export function toPoint(params: ToPointParams): Point {
     const { cross, flow, frame } = params;
     return frame.vertical ? { x: cross, y: flow } : { x: flow, y: cross };
 }
@@ -56,13 +75,19 @@ function centreOf(params: CentreOfParams): Point {
 }
 
 /** Parameters for {@link halfExtents}. */
-interface HalfExtentsParams {
+export interface HalfExtentsParams {
     frame: Frame;
     node: StateNode;
 }
 
-/** Half the node's size along the flow axis and across it. */
-function halfExtents(params: HalfExtentsParams): { halfCross: number; halfFlow: number } {
+/**
+ * Half the node's size along the flow axis and across it.
+ *
+ * @param params.frame - Which axis edges flow along
+ * @param params.node - The node to measure
+ * @returns `halfCross` and `halfFlow`, with a missing size read as 0
+ */
+export function halfExtents(params: HalfExtentsParams): { halfCross: number; halfFlow: number } {
     const { frame, node } = params;
     const halfWidth = (node.width || 0) / 2;
     const halfHeight = (node.height || 0) / 2;
@@ -121,7 +146,7 @@ function simplifyPolyline(params: SimplifyPolylineParams): Point[] {
 }
 
 /** Parameters for {@link anchorOnNode}. */
-interface AnchorOnNodeParams {
+export interface AnchorOnNodeParams {
     adjacent: Point;
     frame: Frame;
     node: StateNode;
@@ -132,8 +157,14 @@ interface AnchorOnNodeParams {
  * The point on the node's drawn outline where an edge should attach: on the side facing
  * `adjacent`, at the lane `adjacent` is already in (kept inside the middle half of that
  * side so the corner stays clear of the node's own corners).
+ *
+ * @param params.adjacent - The neighbouring point the edge runs toward
+ * @param params.frame - Which axis edges flow along
+ * @param params.node - The node to attach to
+ * @param params.nodeOverrides - Per-node overrides, whose `shape` wins over the node's own
+ * @returns The anchor point on the node's outline
  */
-function anchorOnNode(params: AnchorOnNodeParams): Point {
+export function anchorOnNode(params: AnchorOnNodeParams): Point {
     const { adjacent, frame, node, nodeOverrides } = params;
     const centre = centreOf({ node });
     const { halfCross, halfFlow } = halfExtents({ frame, node });
