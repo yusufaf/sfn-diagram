@@ -218,6 +218,10 @@ interface FitTextParams {
  * dropping whole parts — for text with no separator-joined parts to drop the way
  * {@link fitSubLabel} does, such as a container's name.
  *
+ * The cut point is found by binary search, so a paragraph-long Comment costs a
+ * logarithmic number of measurements. That relies on `measure` never shrinking as the
+ * text grows, which `estimateTextWidth` satisfies.
+ *
  * @param params.availableWidth - Width the text must fit within
  * @param params.measure - Width of a candidate string, e.g. `estimateTextWidth`
  * @param params.text - The text to fit
@@ -238,14 +242,24 @@ export function fitText(params: FitTextParams): string {
     }
 
     const glyphs = splitGraphemes(text);
-    for (let length = glyphs.length - 1; length >= MIN_FITTED_SUB_LABEL; length--) {
-        const candidate = `${glyphs.slice(0, length).join('').trimEnd()}${SUB_LABEL_MORE}`;
+    const candidateAt = (length: number): string =>
+        `${glyphs.slice(0, length).join('').trimEnd()}${SUB_LABEL_MORE}`;
+
+    let best = '';
+    let low = MIN_FITTED_SUB_LABEL;
+    let high = glyphs.length - 1;
+    while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const candidate = candidateAt(middle);
         if (measure(candidate) <= availableWidth) {
-            return candidate;
+            best = candidate;
+            low = middle + 1;
+        } else {
+            high = middle - 1;
         }
     }
 
-    return '';
+    return best;
 }
 
 /** A state and the query language its fields are evaluated in. */
