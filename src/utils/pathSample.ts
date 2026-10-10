@@ -175,3 +175,63 @@ export function pointAtHalfLength(path: ParsedPath): PathPoint {
     }
     return points[points.length - 1];
 }
+
+/** Parameters for {@link nearestPointOnPath}. */
+export interface NearestPointOnPathParams {
+    /** The parsed path to search */
+    path: ParsedPath;
+    /** The point to find the closest path point to */
+    target: PathPoint;
+}
+
+/**
+ * Find the point on the drawn path closest to `target`.
+ *
+ * Used to keep an edge label on its edge while still honouring the spot layout
+ * reserved for it: dagre's label point is not on a `curveBasis` curve, so the label is
+ * snapped to the nearest point that is. Exact for `L` segments; for `C` segments the
+ * result lies on the flattened polyline, within its sagitta (well under 1px at diagram
+ * scale) of the true curve.
+ *
+ * @param params.path - The parsed path to search
+ * @param params.target - The point to find the closest path point to
+ * @returns The closest point on the path, or the path's start if it has no segments.
+ * A zero-length chord projects to its start, so the result is always finite.
+ *
+ * @example
+ * ```typescript
+ * nearestPointOnPath({ path: parsePath('M0,0L100,0'), target: { x: 50, y: 30 } });
+ * // { x: 50, y: 0 }
+ * ```
+ */
+export function nearestPointOnPath(params: NearestPointOnPathParams): PathPoint {
+    const { path, target } = params;
+    const points = flattenToPolyline(path);
+
+    let best = path.start;
+    let bestDistance = Infinity;
+    for (let index = 1; index < points.length; index += 1) {
+        const from = points[index - 1];
+        const to = points[index];
+        const chordX = to.x - from.x;
+        const chordY = to.y - from.y;
+        const squaredLength = chordX * chordX + chordY * chordY;
+        const t =
+            squaredLength === 0
+                ? 0
+                : Math.max(
+                      0,
+                      Math.min(
+                          1,
+                          ((target.x - from.x) * chordX + (target.y - from.y) * chordY) / squaredLength
+                      )
+                  );
+        const candidate = lerp({ from, t, to });
+        const candidateDistance = distance({ from: candidate, to: target });
+        if (candidateDistance < bestDistance) {
+            best = candidate;
+            bestDistance = candidateDistance;
+        }
+    }
+    return best;
+}
