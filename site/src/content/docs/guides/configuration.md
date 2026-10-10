@@ -470,6 +470,12 @@ truncated with `…` in SVG and PNG output. The full text stays in the node's ho
 tooltip and in the viewer's details panel. Raise `nodeWidth` or set
 `includeComments: false` to show more of each label.
 
+Edge labels (Choice conditions, `Default`, Catch and Retry labels) are cut with `…` at about
+240px of text, and a multi-line condition is shown on one line. The full condition stays in
+the edge's hover tooltip and in the viewer's details panel. The layout reserves room for
+each label between ranks, so a diagram with labelled edges is somewhat taller (or wider,
+with `layout: 'LR'`) than the same diagram without labels.
+
 ## Variables and Distributed Map
 
 Two pieces of modern ASL are rendered explicitly, because both are otherwise
