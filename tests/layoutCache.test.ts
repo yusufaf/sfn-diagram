@@ -425,3 +425,21 @@ describe('layout cache through the public API', () => {
         expect(svg).not.toContain('maxEntries');
     });
 });
+
+describe('layout cache key ignores fields layout adds to its edges', () => {
+    test('a laid-out edge keys the same as the edge it came from', () => {
+        const cache = createLayoutCache();
+        const merged = mergeOptions({});
+        const definition = JSON.parse(
+            readFileSync(join(__dirname, 'fixtures', 'long-condition.asl.json'), 'utf8'),
+        ) as AslDefinition;
+        const { edges, nodes } = buildDiagramGraph({ definition, options: merged });
+        const key = cache.keyFor({ edges, nodes, options: merged });
+        renderSvgGraph({ cache, edges, nodes, options: merged });
+
+        const laidOut = cache.get(key);
+
+        expect(laidOut?.edges.some((edge) => edge.labelPosition)).toBe(true);
+        expect(cache.keyFor({ edges: laidOut?.edges ?? [], nodes, options: merged })).toBe(key);
+    });
+});

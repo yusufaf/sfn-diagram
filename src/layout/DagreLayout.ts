@@ -11,6 +11,7 @@ import {
     isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
+import { measureEdgeLabel } from './edgeLabel';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
@@ -105,6 +106,9 @@ export interface LayoutResult {
     // can stagger nested loops' labels apart without inverting layout geometry.
     edges: Array<
         GraphEdge & {
+            // Centre of the box dagre reserved for this edge's label; set only for
+            // labelled edges dagre routed (not the manually routed container edges).
+            labelPosition?: { x: number; y: number };
             loopIndex?: number;
             points?: Array<{ x: number; y: number }>;
         }
@@ -239,7 +243,7 @@ export class DagreLayout {
                 graph.setEdge(
                     edge.from,
                     edge.to,
-                    { label: edge.label, type: edge.type },
+                    this.dagreEdgeLabel({ edge }),
                     edge.id,
                 );
             });
@@ -316,8 +320,15 @@ export class DagreLayout {
             }
 
             const dagEdge = graph.edge(edge.from, edge.to, edge.id);
+            const hasReservedLabel =
+                edge.label &&
+                Number.isFinite(dagEdge?.x) &&
+                Number.isFinite(dagEdge?.y);
             return {
                 ...edge,
+                ...(hasReservedLabel
+                    ? { labelPosition: { x: dagEdge.x, y: dagEdge.y } }
+                    : {}),
                 points: dagEdge?.points ?? [], // Array of {x, y} for routing
             };
         });
@@ -332,6 +343,32 @@ export class DagreLayout {
                 width: graphDims.width ?? 800,
             },
             nodes: allPositionedNodes,
+        };
+    }
+
+    /**
+     * The attributes dagre stores on an edge. A labelled edge also gets the label's
+     * size so dagre reserves room for it between ranks; without width and height dagre
+     * lays out as if the label did not exist.
+     *
+     * `labelpos: 'c'` keeps the reserved box on the edge itself. dagre's default `'r'`
+     * would push the box aside by `labeloffset`, away from where the label is drawn.
+     */
+    private dagreEdgeLabel(params: { edge: GraphEdge }): Record<string, unknown> {
+        const { edge } = params;
+        if (!edge.label) {
+            return { label: edge.label, type: edge.type };
+        }
+        const box = measureEdgeLabel({
+            label: edge.label,
+            themeFontSize: this.theme.fontSize,
+        });
+        return {
+            height: box.height,
+            label: edge.label,
+            labelpos: 'c',
+            type: edge.type,
+            width: box.width,
         };
     }
 

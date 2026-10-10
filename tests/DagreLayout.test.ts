@@ -6,6 +6,7 @@ import type { StateNode, GraphEdge, AslDefinition } from '../src/types';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
 import { CONTAINER_HEADER_HEIGHT } from '../src/constants';
+import { measureEdgeLabel } from '../src/layout/edgeLabel';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -472,5 +473,62 @@ describe('Container edge direction', () => {
                     break;
             }
         }
+    });
+
+    describe('Edge labels', () => {
+        const themeFontSize = 14;
+        const layoutLongCondition = (rankdir: 'LR' | 'TB', stripLabels = false) => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('long-condition') });
+            const laidOutEdges = stripLabels
+                ? edges.map((edge) => ({ ...edge, label: undefined }))
+                : edges;
+            return new DagreLayout({ layout: rankdir }).calculate(nodes, laidOutEdges);
+        };
+
+        it('reserves a label position for labelled edges only', () => {
+            const { edges } = layoutLongCondition('TB');
+
+            for (const edge of edges) {
+                if (edge.label) {
+                    expect(Number.isFinite(edge.labelPosition?.x)).toBe(true);
+                    expect(Number.isFinite(edge.labelPosition?.y)).toBe(true);
+                } else {
+                    expect(edge.labelPosition).toBeUndefined();
+                }
+            }
+            expect(edges.filter((edge) => edge.labelPosition)).toHaveLength(3);
+        });
+
+        it.each(['TB', 'LR'] as const)('keeps the reserved label box off every node (%s)', (rankdir) => {
+            const { edges, nodes } = layoutLongCondition(rankdir);
+
+            for (const edge of edges) {
+                const { labelPosition } = edge;
+                const box = measureEdgeLabel({ label: edge.label ?? '', themeFontSize });
+                for (const node of nodes) {
+                    const separatedX =
+                        Math.abs((labelPosition?.x ?? 0) - (node.x ?? 0)) >=
+                        (box.width + (node.width ?? 0)) / 2 - 0.5;
+                    const separatedY =
+                        Math.abs((labelPosition?.y ?? 0) - (node.y ?? 0)) >=
+                        (box.height + (node.height ?? 0)) / 2 - 0.5;
+                    expect(separatedX || separatedY, `${edge.id} label on ${node.id}`).toBe(true);
+                }
+            }
+        });
+
+        it('spaces ranks apart by at least the label height', () => {
+            const rankGap = (layout: ReturnType<typeof layoutLongCondition>): number => {
+                const route = layout.nodes.find((node) => node.id === 'Route');
+                const priority = layout.nodes.find((node) => node.id === 'Priority');
+                return (priority?.y ?? 0) - (route?.y ?? 0);
+            };
+            const labelHeight = measureEdgeLabel({ label: 'x', themeFontSize }).height;
+
+            const labelled = rankGap(layoutLongCondition('TB'));
+            const unlabelled = rankGap(layoutLongCondition('TB', true));
+
+            expect(labelled - unlabelled).toBeGreaterThanOrEqual(labelHeight - 0.5);
+        });
     });
 });

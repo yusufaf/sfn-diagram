@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
+import { nearestPointOnPath, parsePath, pointAtHalfLength } from '../src/utils/pathSample';
 
 describe('parsePath / pointAtHalfLength', () => {
     it('returns the exact geometric middle of a straight two-point path', () => {
@@ -32,5 +32,51 @@ describe('parsePath / pointAtHalfLength', () => {
 
     it('returns the sole point for a single-point path (M x,y Z)', () => {
         expect(pointAtHalfLength(parsePath('M5,5Z'))).toEqual({ x: 5, y: 5 });
+    });
+});
+
+describe('nearestPointOnPath', () => {
+    it('projects a target above a straight path onto its middle', () => {
+        const nearest = nearestPointOnPath({ path: parsePath('M0,0L100,0'), target: { x: 50, y: 30 } });
+        expect(nearest).toEqual({ x: 50, y: 0 });
+    });
+
+    it('clamps a target past the end to the end point', () => {
+        const nearest = nearestPointOnPath({ path: parsePath('M0,0L100,0'), target: { x: 150, y: 20 } });
+        expect(nearest).toEqual({ x: 100, y: 0 });
+    });
+
+    it('survives a zero-length chord instead of returning NaN', () => {
+        const nearest = nearestPointOnPath({
+            path: parsePath('M0,0L0,0L10,0'),
+            target: { x: 5, y: 3 },
+        });
+        expect(nearest).toEqual({ x: 5, y: 0 });
+    });
+
+    it('returns the start of a path with no segments', () => {
+        const nearest = nearestPointOnPath({ path: parsePath('M7,9'), target: { x: 1, y: 1 } });
+        expect(nearest).toEqual({ x: 7, y: 9 });
+    });
+
+    it('lands on the drawn curve, not on a control point, for a cubic', () => {
+        const target = { x: 50, y: 200 };
+        const nearest = nearestPointOnPath({ path: parsePath('M0,0C0,100,100,100,100,0'), target });
+
+        const samples = Array.from({ length: 1001 }, (_, index) => {
+            const t = index / 1000;
+            const mt = 1 - t;
+            return {
+                x: 3 * mt * t * t * 100 + t * t * t * 100,
+                y: 3 * mt * mt * t * 100 + 3 * mt * t * t * 100,
+            };
+        });
+        const gap = (point: { x: number; y: number }, other: { x: number; y: number }): number =>
+            Math.hypot(point.x - other.x, point.y - other.y);
+        const closestToTarget = Math.min(...samples.map((sample) => gap(sample, target)));
+        const distanceToCurve = Math.min(...samples.map((sample) => gap(sample, nearest)));
+
+        expect(gap(nearest, target)).toBeLessThanOrEqual(closestToTarget + 0.5);
+        expect(distanceToCurve).toBeLessThan(0.5);
     });
 });
