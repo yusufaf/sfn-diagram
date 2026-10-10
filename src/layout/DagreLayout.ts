@@ -347,16 +347,6 @@ export class DagreLayout {
     }
 
     /**
-     * Calculate bounding boxes for container nodes based on their children positions.
-     *
-     * `container.children` only lists the direct level - a nested Parallel/Map's own
-     * children are not repeated in its ancestor's list - so a container whose child is
-     * itself a container has to resolve that child's bounds first. Resolution is
-     * memoized and bottom-up (via recursion, guarded against a cyclic `children` graph)
-     * so a parent always sees its child containers' already-computed boxes, however
-     * deep the nesting goes.
-     */
-    /**
      * The attributes dagre stores on an edge. A labelled edge also gets the label's
      * size so dagre reserves room for it between ranks; without width and height dagre
      * lays out as if the label did not exist.
@@ -382,6 +372,16 @@ export class DagreLayout {
         };
     }
 
+    /**
+     * Calculate bounding boxes for container nodes based on their children positions.
+     *
+     * `container.children` only lists the direct level - a nested Parallel/Map's own
+     * children are not repeated in its ancestor's list - so a container whose child is
+     * itself a container has to resolve that child's bounds first. Resolution is
+     * memoized and bottom-up (via recursion, guarded against a cyclic `children` graph)
+     * so a parent always sees its child containers' already-computed boxes, however
+     * deep the nesting goes.
+     */
     private calculateContainerBounds(params: {
         containers: StateNode[];
         positionedNodeIndex: Map<string, StateNode>;
