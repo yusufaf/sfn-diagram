@@ -932,7 +932,7 @@ export class SvgRenderer {
                   ? NAME_TRUNCATED_MARKER
                   : '';
         const secondLineShown = secondLineText !== '';
-        const annotation =this.options.nodeAnnotations?.[node.id];
+        const annotation = this.options.nodeAnnotations?.[node.id];
         const variablesShown =
             this.options.showVariables !== false &&
             !!node.assignedVariables?.length;
