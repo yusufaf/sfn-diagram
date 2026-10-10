@@ -567,6 +567,7 @@ describe('Integration Tests', () => {
             'wait-fail',
             'map',
             'distributed-map',
+            'long-labels',
         ];
 
         describe('SVG snapshots', () => {

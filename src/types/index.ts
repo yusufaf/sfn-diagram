@@ -623,7 +623,9 @@ export interface DiagramOptions {
     iconSize?: number;
 
     /**
-     * Whether to use state comments as node labels
+     * Whether to use state comments as node labels. In SVG and PNG output a label wider
+     * than its node is cut short with `…`; the full text stays in the node's `<title>`
+     * tooltip.
      * @default true
      */
     includeComments?: boolean;
@@ -644,7 +646,8 @@ export interface DiagramOptions {
     nodeSeparation?: number;
 
     /**
-     * Width of each state node in pixels
+     * Width of each state node in pixels. Names and Comments wider than this are
+     * truncated with `…`, so widen nodes for long labels.
      * @default 120
      */
     nodeWidth?: number;

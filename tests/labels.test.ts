@@ -85,4 +85,39 @@ describe('fitText', () => {
 
         expect(fitted).toBe(`abcd${family}…`);
     });
+
+    it('measures a logarithmic number of candidates for a very long label', () => {
+        const text = 'word '.repeat(400);
+        let calls = 0;
+        const countingMeasure = (candidate: string): number => {
+            calls++;
+            return measure(candidate);
+        };
+
+        const fitted = fitText({ availableWidth: 112, measure: countingMeasure, text });
+
+        expect(fitted.endsWith('…')).toBe(true);
+        expect(measure(fitted)).toBeLessThanOrEqual(112);
+        expect(calls).toBeLessThanOrEqual(2 + Math.ceil(Math.log2(text.length)));
+    });
+
+    it('returns the widest fitting prefix', () => {
+        const text = 'Validate Order Payload';
+        const linearReference = (availableWidth: number): string => {
+            if (measure(text) <= availableWidth) {
+                return text;
+            }
+            for (let length = text.length - 1; length >= 4; length--) {
+                const candidate = `${text.slice(0, length).trimEnd()}…`;
+                if (measure(candidate) <= availableWidth) {
+                    return candidate;
+                }
+            }
+            return '';
+        };
+
+        for (let availableWidth = Math.ceil(measure(text)); availableWidth >= 0; availableWidth--) {
+            expect(fitText({ availableWidth, measure, text })).toBe(linearReference(availableWidth));
+        }
+    });
 });
