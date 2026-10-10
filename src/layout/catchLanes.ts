@@ -219,6 +219,29 @@ interface ObstacleEdge {
     points?: Point[];
 }
 
+/** Parameters for the `rowEnd` helper inside {@link routeCatchLanes}. */
+interface RowEndParams {
+    node: StateNode;
+    /** Which side of the row: 1 for the far side along the flow, -1 for the near side */
+    sign: number;
+}
+
+/** Parameters for the `clearance` helper inside {@link routeCatchLanes}. */
+interface ClearanceParams {
+    /** The flow coordinate a stub starts from */
+    rowEdge: number;
+    sign: number;
+    /** The cross range the stub travels across */
+    spanHigh: number;
+    spanLow: number;
+}
+
+/** Parameters for the `at` helper inside {@link routeCatchLanes}. */
+interface AtParams {
+    cross: number;
+    flow: number;
+}
+
 /** Parameters for {@link routeCatchLanes}. */
 export interface RouteCatchLanesParams {
     /** The lane edges, in graph order */
@@ -305,16 +328,16 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
         const flow = flowOfNode(node);
         rowHalf.set(flow, Math.max(rowHalf.get(flow) ?? 0, halfExtents({ frame, node }).halfFlow));
     }
-    const rowEnd = (rowParams: { node: StateNode; sign: number }): number => {
-        const { node, sign } = rowParams;
+    const rowEnd = (params: RowEndParams): number => {
+        const { node, sign } = params;
         const flow = flowOfNode(node);
         return flow + sign * (rowHalf.get(flow) ?? halfExtents({ frame, node }).halfFlow);
     };
 
     // The distance a stub can run past a row before it would enter an open container
     // whose cross extent it shares; Infinity when no container is in the way.
-    const clearance = (clearParams: { rowEdge: number; sign: number; spanHigh: number; spanLow: number }): number => {
-        const { rowEdge, sign, spanHigh, spanLow } = clearParams;
+    const clearance = (params: ClearanceParams): number => {
+        const { rowEdge, sign, spanHigh, spanLow } = params;
         let nearest = Infinity;
         for (const box of containerBoxes) {
             const { halfCross, halfFlow } = halfExtents({ frame, node: box });
@@ -350,9 +373,9 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
         outer = laneCross + laneSide * half;
 
         const handlerCross = crossOfNode(handler);
-        const handlerSpan: [number, number] = [Math.min(handlerCross, laneCross), Math.max(handlerCross, laneCross)];
+        const handlerSpan = { high: Math.max(handlerCross, laneCross), low: Math.min(handlerCross, laneCross) };
         const handlerEdge = rowEnd({ node: handler, sign: -dir });
-        const dstGap = handlerEdge - dir * Math.min(quarter, clearance({ rowEdge: handlerEdge, sign: -dir, spanHigh: handlerSpan[1], spanLow: handlerSpan[0] }) / 2);
+        const dstGap = handlerEdge - dir * Math.min(quarter, clearance({ rowEdge: handlerEdge, sign: -dir, spanHigh: handlerSpan.high, spanLow: handlerSpan.low }) / 2);
 
         const stubs: Array<{ edge: GraphEdge; srcGap: number }> = [];
         for (const edge of group) {
@@ -385,7 +408,7 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
                 frame,
                 node: handler,
             });
-            const at = (atParams: { cross: number; flow: number }): Point => toPoint({ ...atParams, frame });
+            const at = (params: AtParams): Point => toPoint({ ...params, frame });
             const p0Cross = crossOf({ frame, point: p0 });
             const p5Cross = crossOf({ frame, point: p5 });
             const points = [p0, at({ cross: p0Cross, flow: srcGap }), at({ cross: laneCross, flow: srcGap }), at({ cross: laneCross, flow: dstGap }), at({ cross: p5Cross, flow: dstGap }), p5];
