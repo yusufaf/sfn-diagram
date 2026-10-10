@@ -692,6 +692,31 @@ Each line is `severity`, a JSON Pointer to the offending value, the message, and
 rule code. `--resolve-cfn` / `--resource` work the same way they do for rendering;
 `--check` cannot be combined with `--diff`, `--execution` or `--output`.
 
+### Rules
+
+| Code | Severity | What it catches |
+| --- | --- | --- |
+| `invalid-json` | error | The definition string is not valid JSON |
+| `invalid-structure` | error | The definition or a nested scope is not an object, or lacks `StartAt` / `States` |
+| `invalid-state-type` | error | A state's `Type` is missing or not one of the eight ASL state types |
+| `invalid-field` | error | A field has the wrong type (`Next` not a string, `Choices` not an array, …) |
+| `missing-transition` | error | A non-terminal state has neither `Next` nor `End: true`, or a `Choices[]` rule or `Catch[]` entry has no `Next` |
+| `dangling-transition` | error | `StartAt`, `Next`, `Default`, `Choices[].Next` or `Catch[].Next` names a state that does not exist in its scope |
+| `unreachable-state` | warning | No path from the scope's `StartAt` leads to the state |
+| `choice-without-choices` | error | A Choice has no `Choices`, or an empty array |
+| `choice-without-default` | warning | A Choice has no `Default`, so an unmatched input fails the execution |
+| `duplicate-state-name` | warning | The same state name is used in more than one `States` block |
+| `end-with-next` | error | A state sets both `End: true` and `Next` |
+| `unsupported-transition` | error | `Next` or `End` on a Choice, Succeed or Fail state |
+| `unsupported-retry-catch` | error | `Retry` or `Catch` on a state type other than Task, Parallel or Map |
+| `wait-without-duration` | error | A Wait sets none of `Seconds`, `SecondsPath`, `Timestamp`, `TimestampPath` |
+| `wait-multiple-durations` | error | A Wait sets more than one of those four fields |
+| `fail-conflicting-fields` | error | A Fail sets both `Error` and `ErrorPath`, or both `Cause` and `CausePath` |
+| `state-name-too-long` | error | A state name is longer than 80 characters (counted in Unicode code points) |
+| `query-language-mismatch` | error | A JSONPath-only field in a JSONata state, or a JSONata-only field in a JSONPath state |
+
+Details and the API are on the [`lintAsl` reference](/reference/index/functions/lintasl/).
+
 ## `comment gitlab`
 
 `sfn-diagram comment gitlab` posts (or updates) a diagram/diff on a GitLab merge

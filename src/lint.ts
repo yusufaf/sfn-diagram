@@ -12,6 +12,21 @@ export interface LintAslParams {
 /** State types that accept `Retry` and `Catch`. */
 const RETRY_CATCH_TYPES: ReadonlySet<string> = new Set(['Map', 'Parallel', 'Task']);
 
+/** State types that take neither `Next` nor `End`: Choice transitions through its rules, Succeed and Fail are terminal. */
+const TRANSITIONLESS_TYPES: ReadonlySet<string> = new Set(['Choice', 'Fail', 'Succeed']);
+
+/** Wait fields that set the duration; exactly one must be present. */
+const WAIT_DURATION_FIELDS = ['Seconds', 'SecondsPath', 'Timestamp', 'TimestampPath'] as const;
+
+/** Fail fields that are mutually exclusive, as [literal, path] pairs. */
+const FAIL_EXCLUSIVE_FIELDS = [
+    ['Error', 'ErrorPath'],
+    ['Cause', 'CausePath'],
+] as const;
+
+/** Step Functions' limit on a state name, in Unicode code points. */
+const MAX_STATE_NAME_LENGTH = 80;
+
 /** Top-level state fields that only exist in JSONPath mode. */
 const JSONPATH_ONLY_FIELDS = [
     'CausePath',
@@ -74,13 +89,32 @@ function lintState(context: StateContext, diagnostics: LintDiagnostic[]): void {
     };
     const stateType = state.Type as string;
 
-    if (state.End === true && 'Next' in state && state.Next !== undefined) {
+    // Choice, Succeed and Fail get one `unsupported-transition` per field instead.
+    if (
+        state.End === true &&
+        'Next' in state &&
+        state.Next !== undefined &&
+        !TRANSITIONLESS_TYPES.has(stateType)
+    ) {
         push({
             code: 'end-with-next',
             message: `State "${stateName}" sets both "End: true" and "Next"`,
             path: `${pointer}/Next`,
             severity: 'error',
         });
+    }
+
+    if (TRANSITIONLESS_TYPES.has(stateType)) {
+        const reason = stateType === 'Choice' ? 'it transitions through Choices and Default' : 'it is a terminal state';
+        for (const field of ['Next', 'End'] as const) {
+            if (state[field] === undefined) continue;
+            push({
+                code: 'unsupported-transition',
+                message: `State "${stateName}" (Type: ${stateType}) does not support "${field}"; ${reason}`,
+                path: `${pointer}/${field}`,
+                severity: 'error',
+            });
+        }
     }
 
     for (const field of ['Retry', 'Catch'] as const) {
@@ -91,6 +125,48 @@ function lintState(context: StateContext, diagnostics: LintDiagnostic[]): void {
                 path: `${pointer}/${field}`,
                 severity: 'error',
             });
+        }
+    }
+
+    // A non-array `Choices` is already an `invalid-field`.
+    if (stateType === 'Choice' && (state.Choices === undefined || (Array.isArray(state.Choices) && state.Choices.length === 0))) {
+        push({
+            code: 'choice-without-choices',
+            message: `Choice state "${stateName}" must have a non-empty "Choices" array`,
+            path: state.Choices === undefined ? pointer : `${pointer}/Choices`,
+            severity: 'error',
+        });
+    }
+
+    if (stateType === 'Wait') {
+        const durationFields = WAIT_DURATION_FIELDS.filter((field) => state[field] !== undefined);
+        if (durationFields.length === 0) {
+            push({
+                code: 'wait-without-duration',
+                message: `Wait state "${stateName}" must set exactly one of Seconds, SecondsPath, Timestamp or TimestampPath`,
+                path: pointer,
+                severity: 'error',
+            });
+        } else if (durationFields.length > 1) {
+            push({
+                code: 'wait-multiple-durations',
+                message: `Wait state "${stateName}" sets ${durationFields.join(', ')}; exactly one duration field is allowed`,
+                path: `${pointer}/${durationFields[1]}`,
+                severity: 'error',
+            });
+        }
+    }
+
+    if (stateType === 'Fail') {
+        for (const [literalField, pathField] of FAIL_EXCLUSIVE_FIELDS) {
+            if (state[literalField] !== undefined && state[pathField] !== undefined) {
+                push({
+                    code: 'fail-conflicting-fields',
+                    message: `Fail state "${stateName}" sets both "${literalField}" and "${pathField}"`,
+                    path: `${pointer}/${pathField}`,
+                    severity: 'error',
+                });
+            }
         }
     }
 
@@ -185,16 +261,22 @@ function lintScope(context: ScopeContext, diagnostics: LintDiagnostic[]): void {
  *
  * Runs the same structural traversal as `validateAsl` (every fault that would
  * make the render path throw comes back as an `error`), plus rules a definition
- * can violate while still rendering:
+ * can violate while still rendering (most of them also rejected by Step Functions itself):
  *
  * | code | severity | rule |
  * | --- | --- | --- |
  * | `unreachable-state` | warning | no path from the scope's `StartAt` reaches the state |
  * | `missing-transition` | error | a non-terminal state has neither `Next` nor `End: true`, or a `Choices[]` rule or `Catch[]` entry has no `Next` |
  * | `dangling-transition` | error | `StartAt` / `Next` / `Default` / `Choices[].Next` / `Catch[].Next` names a state missing from its scope |
+ * | `choice-without-choices` | error | a Choice has no `Choices`, or an empty array |
  * | `choice-without-default` | warning | a Choice has no `Default` |
  * | `duplicate-state-name` | warning | a state name is reused in another `States` block |
  * | `end-with-next` | error | `End: true` together with `Next` |
+ * | `unsupported-transition` | error | `Next` or `End` on a Choice, Succeed or Fail state |
+ * | `wait-without-duration` | error | a Wait sets none of `Seconds`, `SecondsPath`, `Timestamp`, `TimestampPath` |
+ * | `wait-multiple-durations` | error | a Wait sets more than one of those four fields |
+ * | `fail-conflicting-fields` | error | a Fail sets both `Error` and `ErrorPath`, or both `Cause` and `CausePath` |
+ * | `state-name-too-long` | error | a state name is longer than 80 characters (counted in Unicode code points) |
  * | `unsupported-retry-catch` | error | `Retry` / `Catch` on a Pass, Wait, Choice, Succeed or Fail state |
  * | `query-language-mismatch` | error | a JSONPath-only field (`InputPath`, `Parameters`, `ResultPath`, …) in a JSONata state, or `Arguments` / `Output` / `Items` in a JSONPath state, judged by the resolved `QueryLanguage` |
  *
@@ -236,6 +318,16 @@ export function lintAsl(params: LintAslParams): LintDiagnostic[] {
                 lintScope(context, diagnostics);
                 for (const name of Object.keys(context.states)) {
                     const path = `${context.pointer}/States/${escapePointerToken(name)}`;
+                    const nameLength = Array.from(name).length;
+                    if (nameLength > MAX_STATE_NAME_LENGTH) {
+                        const text = `State name "${name}" is ${nameLength} characters long; Step Functions allows at most ${MAX_STATE_NAME_LENGTH}`;
+                        diagnostics.push({
+                            code: 'state-name-too-long',
+                            message: context.scope === '' ? text : `${context.scope}: ${text}`,
+                            path,
+                            severity: 'error',
+                        });
+                    }
                     const previous = firstUse.get(name);
                     if (previous === undefined) {
                         firstUse.set(name, path);

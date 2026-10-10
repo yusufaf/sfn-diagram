@@ -482,3 +482,145 @@ describe('lintAsl', () => {
         expect(modern.map(({ path }) => path)).toEqual(['/States/M/ItemProcessor/States/Y']);
     });
 });
+
+describe('structural rules', () => {
+    const pass = { End: true, Type: 'Pass' } as const;
+    const rule = { BooleanEquals: true, Next: 'A', Variable: '$.ok' };
+
+    function error(code: LintDiagnostic['code'], message: string, path: string): LintDiagnostic {
+        return { code, message, path, severity: 'error' };
+    }
+
+    it('errors on a Choice with no Choices or an empty one', () => {
+        const missing = lintAsl({
+            definition: { StartAt: 'C', States: { A: pass, C: { Default: 'A', Type: 'Choice' } } } as AslDefinition,
+        });
+        const empty = lintAsl({
+            definition: { StartAt: 'C', States: { A: pass, C: { Choices: [], Default: 'A', Type: 'Choice' } } } as AslDefinition,
+        });
+        const message = 'Choice state "C" must have a non-empty "Choices" array';
+
+        expect(missing).toEqual([error('choice-without-choices', message, '/States/C')]);
+        expect(empty).toEqual([error('choice-without-choices', message, '/States/C/Choices')]);
+        expect(
+            lintAsl({
+                definition: { StartAt: 'C', States: { A: pass, C: { Choices: [rule], Default: 'A', Type: 'Choice' } } } as AslDefinition,
+            }),
+        ).toEqual([]);
+    });
+
+    it('errors on Next or End on a Choice, Succeed or Fail state', () => {
+        const succeed = lintAsl({
+            definition: { StartAt: 'S', States: { A: pass, S: { Next: 'A', Type: 'Succeed' } } } as AslDefinition,
+        });
+        const fail = lintAsl({
+            definition: { StartAt: 'F', States: { F: { End: true, Type: 'Fail' } } } as AslDefinition,
+        });
+        const choice = lintAsl({
+            definition: {
+                StartAt: 'C',
+                States: { A: pass, C: { Choices: [rule], Default: 'A', End: true, Next: 'A', Type: 'Choice' } },
+            } as AslDefinition,
+        });
+
+        expect(succeed).toEqual([
+            error('unsupported-transition', 'State "S" (Type: Succeed) does not support "Next"; it is a terminal state', '/States/S/Next'),
+        ]);
+        expect(fail).toEqual([
+            error('unsupported-transition', 'State "F" (Type: Fail) does not support "End"; it is a terminal state', '/States/F/End'),
+        ]);
+        expect(choice).toEqual([
+            error('unsupported-transition', 'State "C" (Type: Choice) does not support "Next"; it transitions through Choices and Default', '/States/C/Next'),
+            error('unsupported-transition', 'State "C" (Type: Choice) does not support "End"; it transitions through Choices and Default', '/States/C/End'),
+        ]);
+        expect(
+            lintAsl({ definition: { StartAt: 'S', States: { S: { Type: 'Succeed' } } } as AslDefinition }),
+        ).toEqual([]);
+        expect(lintAsl({ definition: { StartAt: 'F', States: { F: { Type: 'Fail' } } } as AslDefinition })).toEqual([]);
+    });
+
+    it('errors on a Wait with no duration', () => {
+        const wait = (extra: Record<string, unknown>) =>
+            ({ StartAt: 'W', States: { W: { End: true, Type: 'Wait', ...extra } } }) as AslDefinition;
+
+        expect(lintAsl({ definition: wait({}) })).toEqual([
+            error(
+                'wait-without-duration',
+                'Wait state "W" must set exactly one of Seconds, SecondsPath, Timestamp or TimestampPath',
+                '/States/W',
+            ),
+        ]);
+        expect(lintAsl({ definition: wait({ Seconds: 1 }) })).toEqual([]);
+        expect(
+            lintAsl({
+                definition: { ...wait({ Timestamp: '{% $now() %}' }), QueryLanguage: 'JSONata' } as AslDefinition,
+            }),
+        ).toEqual([]);
+    });
+
+    it('errors on a Wait with more than one duration', () => {
+        const diagnostics = lintAsl({
+            definition: {
+                StartAt: 'W',
+                States: { W: { End: true, Seconds: 1, TimestampPath: '$.t', Type: 'Wait' } },
+            } as AslDefinition,
+        });
+
+        expect(diagnostics).toEqual([
+            error(
+                'wait-multiple-durations',
+                'Wait state "W" sets Seconds, TimestampPath; exactly one duration field is allowed',
+                '/States/W/TimestampPath',
+            ),
+        ]);
+    });
+
+    it('errors on a Fail with both a literal and a path field', () => {
+        const fail = (extra: Record<string, unknown>) =>
+            ({ StartAt: 'F', States: { F: { Type: 'Fail', ...extra } } }) as AslDefinition;
+
+        expect(
+            lintAsl({ definition: fail({ Cause: 'c', CausePath: '$.c', Error: 'e', ErrorPath: '$.e' }) }),
+        ).toEqual([
+            error('fail-conflicting-fields', 'Fail state "F" sets both "Error" and "ErrorPath"', '/States/F/ErrorPath'),
+            error('fail-conflicting-fields', 'Fail state "F" sets both "Cause" and "CausePath"', '/States/F/CausePath'),
+        ]);
+        expect(lintAsl({ definition: fail({ CausePath: '$.c', Error: 'e' }) })).toEqual([]);
+    });
+
+    it('errors on a state name over 80 characters, counting code points', () => {
+        const only = (name: string) =>
+            ({ StartAt: name, States: { [name]: { End: true, Type: 'Pass' } } }) as AslDefinition;
+        const long = 'x'.repeat(81);
+
+        expect(lintAsl({ definition: only(long) })).toEqual([
+            error(
+                'state-name-too-long',
+                `State name "${long}" is 81 characters long; Step Functions allows at most 80`,
+                `/States/${long}`,
+            ),
+        ]);
+        expect(lintAsl({ definition: only('x'.repeat(80)) })).toEqual([]);
+        expect(lintAsl({ definition: only('😀'.repeat(80)) })).toEqual([]);
+
+        const nested = lintAsl({
+            definition: {
+                StartAt: 'Fan',
+                States: {
+                    Fan: {
+                        Branches: [{ StartAt: long, States: { [long]: { End: true, Type: 'Pass' } } }],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            } as AslDefinition,
+        });
+        expect(nested).toEqual([
+            error(
+                'state-name-too-long',
+                `Parallel state "Fan" branch 1: State name "${long}" is 81 characters long; Step Functions allows at most 80`,
+                `/States/Fan/Branches/0/States/${long}`,
+            ),
+        ]);
+    });
+});
