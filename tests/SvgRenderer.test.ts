@@ -1187,25 +1187,26 @@ describe('SvgRenderer', () => {
             return new SvgRenderer({ edgeOverrides }).render(positioned).svg;
         };
 
-        const escapeXml = (text: string): string => text.replace(/>/g, '&gt;').replace(/</g, '&lt;');
-        const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+        // Plain substring lookups over the serialized tags: the serializer writes `->` in
+        // an attribute as `-&gt;`, and every tag is `<tag ...>...</tag>` with no whitespace.
         const pathTag = (svg: string, edgeId: string): string => {
-            const match = svg.match(
-                new RegExp(`<path [^>]*data-edge-id="${escapeRegex(escapeXml(edgeId))}"[^>]*>`),
-            );
-            expect(match, `path for ${edgeId}`).not.toBeNull();
-            return match![0];
+            const wanted = `data-edge-id="${edgeId.split('->').join('-&gt;')}"`;
+            const tag = (svg.match(/<path [^>]*>/g) ?? []).find((candidate) => candidate.includes(wanted));
+            expect(tag, `path for ${edgeId}`).toBeDefined();
+            return tag!;
         };
         const markerEndId = (tag: string): string => tag.match(/marker-end="url\(#([^)]+)\)"/)![1];
-        const markerFill = (svg: string, id: string): string | undefined =>
-            svg.match(new RegExp(`<marker id="${id}"[^>]*><polygon [^>]*fill="([^"]+)"`))?.[1];
-        const labelTags = (svg: string, escapedText: string): { rect: string; text: string } => {
-            const match = svg.match(
-                new RegExp(`(<rect [^>]*>)</rect>(<text [^>]*>)${escapeRegex(escapedText)}</text>`),
+        const markerFill = (svg: string, id: string): string | undefined => {
+            const marker = (svg.match(/<marker [^>]*>.*?<\/marker>/g) ?? []).find((candidate) =>
+                candidate.startsWith(`<marker id="${id}"`),
             );
-            expect(match, `label ${escapedText}`).not.toBeNull();
-            return { rect: match![1], text: match![2] };
+            return marker?.match(/<polygon [^>]*fill="([^"]+)"/)?.[1];
+        };
+        const labelTags = (svg: string, escapedText: string): { rect: string; text: string } => {
+            const labels = Array.from(svg.matchAll(/(<rect [^>]*>)<\/rect>(<text [^>]*>)([^<]*)<\/text>/g));
+            const label = labels.find((candidate) => candidate[3] === escapedText);
+            expect(label, `label ${escapedText}`).toBeDefined();
+            return { rect: label![1], text: label![2] };
         };
         const markerCount = (svg: string): number => (svg.match(/<marker /g) ?? []).length;
 
@@ -1252,11 +1253,11 @@ describe('SvgRenderer', () => {
                 [LOW]: { strokeOpacity: 0.2 },
             });
 
-            const high = labelTags(svg, escapeXml('$.value > 10'));
+            const high = labelTags(svg, '$.value &gt; 10');
             expect(high.rect).toContain('stroke="#ff0000"');
             expect(high.text).toContain('fill="#ff0000"');
 
-            const low = labelTags(svg, escapeXml('$.value <= 10'));
+            const low = labelTags(svg, '$.value &lt;= 10');
             expect(low.rect).toContain('stroke-opacity="0.2"');
             expect(low.text).toContain('fill-opacity="0.2"');
             // The label box must keep masking the line beneath it, so only its

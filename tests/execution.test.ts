@@ -1142,21 +1142,25 @@ describe('retry self-loops in the overlay', () => {
             aslDefinition: loadAsl('choice'),
             history: loadHistoryJson('execution-choice-highvalue'),
         });
-        const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const pathTag = (edgeId: string): string =>
-            svg.match(new RegExp(`<path [^>]*data-edge-id="${escapeRegex(edgeId.replace('>', '&gt;'))}"[^>]*>`))![0];
+        // Plain substring lookups over the serialized tags: the serializer writes `->` in
+        // an attribute as `-&gt;`, and every tag is `<tag ...>...</tag>` with no whitespace.
+        const pathTag = (edgeId: string): string => {
+            const wanted = `data-edge-id="${edgeId.split('->').join('-&gt;')}"`;
+            return (svg.match(/<path [^>]*>/g) ?? []).find((candidate) => candidate.includes(wanted))!;
+        };
         const labelTags = (escapedText: string): { rect: string; text: string } => {
-            const match = svg.match(
-                new RegExp(`(<rect [^>]*>)</rect>(<text [^>]*>)${escapeRegex(escapedText)}</text>`),
-            )!;
-            return { rect: match[1], text: match[2] };
+            const labels = Array.from(svg.matchAll(/(<rect [^>]*>)<\/rect>(<text [^>]*>)([^<]*)<\/text>/g));
+            const label = labels.find((candidate) => candidate[3] === escapedText)!;
+            return { rect: label[1], text: label[2] };
         };
 
         it("draws a taken edge's arrowhead in the taken colour", () => {
             const markerId = pathTag('CheckValue->HighValue#choice#0').match(/marker-end="url\(#([^)]+)\)"/)![1];
-            const fill = svg.match(new RegExp(`<marker id="${markerId}"[^>]*><polygon [^>]*fill="([^"]+)"`))?.[1];
+            const marker = (svg.match(/<marker [^>]*>.*?<\/marker>/g) ?? []).find((candidate) =>
+                candidate.startsWith(`<marker id="${markerId}"`),
+            );
 
-            expect(fill).toBe('#2e7d32');
+            expect(marker?.match(/<polygon [^>]*fill="([^"]+)"/)?.[1]).toBe('#2e7d32');
         });
 
         it("dims an untaken edge's arrowhead and label with its path", () => {
