@@ -359,7 +359,7 @@ export class DagreLayout {
             const isSelfLoop = edge.from === edge.to;
             if (laneEdgeIds.has(edge.id)) {
                 // Routed along a catch lane below, once every other edge is placed.
-                return { ...edge };
+                return { ...edge, points: [] };
             }
             if (edge.visualOnly || touchesContainer || isSelfLoop) {
                 return {
