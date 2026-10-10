@@ -393,11 +393,14 @@ export interface NodeStyle {
  * Per-edge visual override applied on top of an edge's computed style.
  * Used by the execution overlay to emphasize taken transitions and dim untaken ones.
  * All fields are optional — only specified fields are overridden.
+ *
+ * The SVG renderer applies `strokeOpacity` as element `opacity` on the edge path, so
+ * the arrowhead dims with the line rather than staying at full strength.
  */
 export interface EdgeStyleOverride {
-    /** Stroke colour for the edge path and arrowhead */
+    /** Colour for the edge's path, arrowhead and label */
     stroke?: string;
-    /** Stroke opacity (0-1); used to dim transitions the run did not take */
+    /** Opacity (0-1) of the edge's path, arrowhead and label; used to dim transitions the run did not take */
     strokeOpacity?: number;
     /** Stroke width in pixels */
     strokeWidth?: number;

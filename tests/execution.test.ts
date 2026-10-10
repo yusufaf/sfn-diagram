@@ -971,7 +971,7 @@ describe('generateExecution (SVG overlay)', () => {
         expect(result.svg).toContain('#c8e6c9'); // succeeded
         expect(result.svg).toContain('#f5f5f5'); // notReached (LowValue/DefaultPath)
         // Untaken edges dimmed.
-        expect(result.svg).toContain('stroke-opacity="0.2"');
+        expect(result.svg).toMatch(/<path [^>]* opacity="0\.2"/);
 
         expect(result.metadata.succeeded).toEqual(
             expect.arrayContaining(['CheckValue', 'HighValue', 'Done']),
@@ -1021,7 +1021,7 @@ describe('generateExecution (SVG overlay)', () => {
         // Default branch to Done - and both fired in execution-self-loop.json, so
         // nothing in this diagram should be dimmed as untaken. Before the fix the
         // self-loop was unconditionally excluded from takenEdges and rendered dimmed.
-        expect(result.svg).not.toContain('stroke-opacity="0.2"');
+        expect(result.svg).not.toMatch(/opacity="0\.2"/);
         expect(result.metadata.succeeded).toEqual(
             expect.arrayContaining(['CheckStatus', 'Done']),
         );
@@ -1129,11 +1129,50 @@ describe('retry self-loops in the overlay', () => {
         const retryPath = svg.match(/<path[^>]*marker-end="url\(#arrowhead-retry\)"[^>]*>/)?.[0];
         expect(retryPath).toBeDefined();
 
-        // UNTAKEN_EDGE_STYLE in src/execution.ts is `{ strokeOpacity: 0.2 }`.
-        expect(retryPath).toContain('stroke-opacity="0.2"');
+        // UNTAKEN_EDGE_STYLE in src/execution.ts is `{ strokeOpacity: 0.2 }`, which the
+        // renderer emits as element `opacity` so the arrowhead dims with the path.
+        expect(retryPath).toContain(' opacity="0.2"');
         // TAKEN_EDGE_STYLE in src/execution.ts is `{ stroke: '#2e7d32', strokeWidth: 3 }`.
         expect(retryPath).not.toContain('#2e7d32');
         expect(retryPath).not.toContain('stroke-width="3"');
+    });
+
+    describe('arrowheads and labels follow their edge', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+        });
+        const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pathTag = (edgeId: string): string =>
+            svg.match(new RegExp(`<path [^>]*data-edge-id="${escapeRegex(edgeId.replace('>', '&gt;'))}"[^>]*>`))![0];
+        const labelTags = (escapedText: string): { rect: string; text: string } => {
+            const match = svg.match(
+                new RegExp(`(<rect [^>]*>)</rect>(<text [^>]*>)${escapeRegex(escapedText)}</text>`),
+            )!;
+            return { rect: match[1], text: match[2] };
+        };
+
+        it("draws a taken edge's arrowhead in the taken colour", () => {
+            const markerId = pathTag('CheckValue->HighValue#choice#0').match(/marker-end="url\(#([^)]+)\)"/)![1];
+            const fill = svg.match(new RegExp(`<marker id="${markerId}"[^>]*><polygon [^>]*fill="([^"]+)"`))?.[1];
+
+            expect(fill).toBe('#2e7d32');
+        });
+
+        it("dims an untaken edge's arrowhead and label with its path", () => {
+            expect(pathTag('CheckValue->LowValue#choice#0')).toContain(' opacity="0.2"');
+
+            const label = labelTags('$.value &lt;= 10');
+            expect(label.rect).toContain('stroke-opacity="0.2"');
+            expect(label.text).toContain('fill-opacity="0.2"');
+        });
+
+        it("colours a taken edge's label", () => {
+            const label = labelTags('$.value &gt; 10');
+
+            expect(label.text).toContain('fill="#2e7d32"');
+            expect(label.rect).toContain('stroke="#2e7d32"');
+        });
     });
 });
 
@@ -1150,7 +1189,7 @@ describe('generateExecutionHtml', () => {
         expect(result.html).toContain('data-sfn="minimap"');
         // The execution overlay's own styling still made it into the embedded SVG.
         expect(result.html).toContain('#c8e6c9'); // succeeded fill
-        expect(result.html).toContain('stroke-opacity="0.2"'); // untaken edge
+        expect(result.html).toMatch(/<path [^>]* opacity="0\.2"/); // untaken edge
     });
 
     it('reports the same metadata as generateExecution for the same inputs', () => {

@@ -111,7 +111,23 @@ interface RenderNodeParams {
     node: StateNode;
 }
 
+interface AppendArrowMarkerParams {
+    defs: SvgElement;
+    fill: string;
+    id: string;
+}
+
+interface ArrowMarkerIdParams {
+    /** The `<defs>` a new marker variant is added to. */
+    defs: SvgElement;
+    /** The colour the edge's path is drawn in. */
+    fill: string;
+    type: NonNullable<GraphEdge['type']>;
+}
+
 interface RenderEdgeParams {
+    /** The `<defs>` holding the arrowhead markers, which a recoloured edge adds to. */
+    defs: SvgElement;
     edge: GraphEdge & {
         loopIndex?: number;
         points?: Array<{ x: number; y: number }>;
@@ -179,6 +195,10 @@ export class SvgRenderer {
     // the top of render() even though every call site constructs a fresh renderer per
     // render, so a reused instance can never see a stale entry.
     private edgeMidpointCache = new Map<string, { x: number; y: number }>();
+    // Fill colour -> id of the arrowhead marker variant drawn in that colour, for edges
+    // whose `edgeOverrides` stroke differs from their type's colour - see arrowMarkerId.
+    // Cleared at the top of render() for the same reason as edgeMidpointCache.
+    private arrowMarkerIds = new Map<string, string>();
     // Branch/iterator end marker id -> its owning container's label. edgeAccessibleTitle
     // uses this so an edge ending at a marker announces the container it feeds into
     // rather than the marker's internal synthetic id. Populated at the top of render().
@@ -222,6 +242,7 @@ export class SvgRenderer {
                   }
                 : positioned;
         this.edgeMidpointCache.clear();
+        this.arrowMarkerIds.clear();
         this.markerContainerLabels.clear();
         const nodesByIdForMarkers = new Map(
             layout.nodes.map((node) => [node.id, node]),
@@ -276,65 +297,34 @@ export class SvgRenderer {
         // Define arrow markers for edges
         const defs = svg.append('defs');
 
-        // Normal arrow
-        defs.append('marker')
-            .attr('id', 'arrowhead-normal')
-            .attr('markerWidth', 10)
-            .attr('markerHeight', 10)
-            .attr('refX', 9)
-            .attr('refY', 3)
-            .attr('orient', 'auto')
-            .append('polygon')
-            .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', this.theme.edgeColors.normal);
-
-        // Error arrow
-        defs.append('marker')
-            .attr('id', 'arrowhead-error')
-            .attr('markerWidth', 10)
-            .attr('markerHeight', 10)
-            .attr('refX', 9)
-            .attr('refY', 3)
-            .attr('orient', 'auto')
-            .append('polygon')
-            .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', this.theme.edgeColors.error);
-
-        // Choice arrow
-        defs.append('marker')
-            .attr('id', 'arrowhead-choice')
-            .attr('markerWidth', 10)
-            .attr('markerHeight', 10)
-            .attr('refX', 9)
-            .attr('refY', 3)
-            .attr('orient', 'auto')
-            .append('polygon')
-            .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', this.theme.edgeColors.choice);
-
-        // Default arrow
-        defs.append('marker')
-            .attr('id', 'arrowhead-default')
-            .attr('markerWidth', 10)
-            .attr('markerHeight', 10)
-            .attr('refX', 9)
-            .attr('refY', 3)
-            .attr('orient', 'auto')
-            .append('polygon')
-            .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', this.theme.edgeColors.default);
-
+        // One marker per edge type; an edge restyled through `edgeOverrides` gets a
+        // colour variant of its own - see arrowMarkerId.
+        this.appendArrowMarker({
+            defs,
+            fill: this.theme.edgeColors.normal,
+            id: 'arrowhead-normal',
+        });
+        this.appendArrowMarker({
+            defs,
+            fill: this.theme.edgeColors.error,
+            id: 'arrowhead-error',
+        });
+        this.appendArrowMarker({
+            defs,
+            fill: this.theme.edgeColors.choice,
+            id: 'arrowhead-choice',
+        });
+        this.appendArrowMarker({
+            defs,
+            fill: this.theme.edgeColors.default,
+            id: 'arrowhead-default',
+        });
         // Retry arrow (self-loops)
-        defs.append('marker')
-            .attr('id', 'arrowhead-retry')
-            .attr('markerWidth', 10)
-            .attr('markerHeight', 10)
-            .attr('refX', 9)
-            .attr('refY', 3)
-            .attr('orient', 'auto')
-            .append('polygon')
-            .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', this.resolveEdgeColor('retry'));
+        this.appendArrowMarker({
+            defs,
+            fill: this.resolveEdgeColor('retry'),
+            id: 'arrowhead-retry',
+        });
 
         // Create groups for edges, container nodes, and regular nodes.
         //
@@ -376,6 +366,7 @@ export class SvgRenderer {
             }
 
             this.renderEdge({
+                defs,
                 edge,
                 group: edgesGroup,
                 hitAreaGroup: edgeHitAreasGroup,
@@ -1173,7 +1164,7 @@ export class SvgRenderer {
      * Render an edge
      */
     private renderEdge(params: RenderEdgeParams): void {
-        const { edge, group, hitAreaGroup, nodes, selfLoopLabelWidths } =
+        const { defs, edge, group, hitAreaGroup, nodes, selfLoopLabelWidths } =
             params;
         if (!edge.points || edge.points.length < 2) {
             return;
@@ -1194,6 +1185,8 @@ export class SvgRenderer {
         // `edge.id`, and the legacy bare `${from}->${to}`, which broad-matches every
         // edge of that pair. The qualified key is merged on top, field by field, so a
         // caller can set a pair-wide width and still restyle one branch's stroke.
+        // The override reaches the whole edge - path, arrowhead and label - so the
+        // head and the label never disagree with the line they belong to.
         const broadOverride =
             this.options.edgeOverrides?.[`${edge.from}->${edge.to}`];
         const exactOverride = this.options.edgeOverrides?.[edge.id];
@@ -1237,12 +1230,17 @@ export class SvgRenderer {
             .attr('fill', 'none')
             .attr('stroke', strokeColor)
             .attr('stroke-width', strokeWidth)
-            .attr('marker-end', `url(#arrowhead-${markerType})`);
+            .attr(
+                'marker-end',
+                `url(#${this.arrowMarkerId({ defs, fill: strokeColor, type: markerType })})`,
+            );
 
         pathElement.append('title').text(edgeTitle);
 
+        // Element `opacity`, not `stroke-opacity`: only the former also dims the
+        // arrowhead, which a marker does not inherit a stroke's opacity for.
         if (override?.strokeOpacity !== undefined) {
-            pathElement.attr('stroke-opacity', override.strokeOpacity);
+            pathElement.attr('opacity', override.strokeOpacity);
         }
 
         // Add dashed style for error, default, and retry edges
@@ -1270,7 +1268,7 @@ export class SvgRenderer {
                 .attr('width', labelDimensions.width)
                 .attr('height', labelDimensions.height)
                 .attr('fill', this.theme.background || '#ffffff')
-                .attr('stroke', edgeColor)
+                .attr('stroke', strokeColor)
                 .attr('stroke-width', 0.5)
                 .attr('rx', 3);
 
@@ -1280,10 +1278,17 @@ export class SvgRenderer {
                 .attr('y', midpoint.y)
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
-                .attr('fill', edgeColor)
+                .attr('fill', strokeColor)
                 .attr('font-size', labelDimensions.fontSize)
                 .attr('font-family', this.theme.fontFamily)
                 .text(labelDimensions.text);
+
+            // Dim the label's stroke and glyphs, not the whole element: the box's own
+            // fill must stay opaque so it keeps hiding the line drawn beneath it.
+            if (override?.strokeOpacity !== undefined) {
+                labelRect.attr('stroke-opacity', override.strokeOpacity);
+                labelText.attr('fill-opacity', override.strokeOpacity);
+            }
 
             // The label is drawn over the midpoint of its own edge, exactly where a
             // reader aims. Without the id it would swallow the click; with it, clicking
@@ -1294,6 +1299,48 @@ export class SvgRenderer {
                 labelText.attr('data-edge-id', edge.id);
             }
         }
+    }
+
+    /**
+     * Append one arrowhead `<marker>` to `<defs>`. The `id` attribute must stay first:
+     * the viewer prefixes marker ids with a regex that expects `<marker id="arrowhead-`.
+     */
+    private appendArrowMarker(params: AppendArrowMarkerParams): void {
+        const { defs, fill, id } = params;
+        defs.append('marker')
+            .attr('id', id)
+            .attr('markerWidth', 10)
+            .attr('markerHeight', 10)
+            .attr('refX', 9)
+            .attr('refY', 3)
+            .attr('orient', 'auto')
+            .append('polygon')
+            .attr('points', '0 0, 10 3, 0 6')
+            .attr('fill', fill);
+    }
+
+    /**
+     * Id of the arrowhead marker an edge should point at.
+     *
+     * A marker's fill is fixed where it is defined - it does not inherit from the path
+     * that references it - so an edge restyled through `edgeOverrides` needs a marker
+     * in its own colour. The type's shared marker is reused when the colour already
+     * matches it; otherwise one variant per distinct colour is added to `<defs>` and
+     * shared by every edge in that colour. Variants keep the `arrowhead-` prefix so the
+     * viewer's marker-id namespacing covers them.
+     */
+    private arrowMarkerId(params: ArrowMarkerIdParams): string {
+        const { defs, fill, type } = params;
+        if (fill === this.resolveEdgeColor(type)) {
+            return `arrowhead-${type}`;
+        }
+        let id = this.arrowMarkerIds.get(fill);
+        if (id === undefined) {
+            id = `arrowhead-override-${this.arrowMarkerIds.size}`;
+            this.arrowMarkerIds.set(fill, id);
+            this.appendArrowMarker({ defs, fill, id });
+        }
+        return id;
     }
 
     /**

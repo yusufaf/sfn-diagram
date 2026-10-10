@@ -2236,6 +2236,115 @@ describe('execution playback runtime', () => {
     });
 });
 
+describe('execution playback keeps arrowheads and labels with their edge', () => {
+    const HIGH = 'CheckValue->HighValue#choice#0';
+    let edgePage: Page;
+
+    const loadFixture = (name: string): string =>
+        readFileSync(join(__dirname, '..', 'fixtures', name), 'utf-8');
+
+    const openPlayback = async (fixture: string, history: string): Promise<Page> => {
+        const opened = await browser.newPage();
+        await opened.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({
+            aslDefinition: JSON.parse(loadFixture(`${fixture}.asl.json`)) as AslDefinition,
+            history: loadFixture(`${history}.json`),
+        });
+        await opened.setContent(html, { waitUntil: 'load' });
+        return opened;
+    };
+
+    /** Press next until `selector` carries `className`, for at most `steps` steps. */
+    const stepUntil = async (
+        opened: Page,
+        params: { className: string; selector: string; steps: number },
+    ): Promise<void> => {
+        const { className, selector, steps } = params;
+        for (let step = 0; step < steps; step++) {
+            await opened.click('[data-sfn-playback="next"]');
+            const reached = await opened.$eval(selector, (element, name) => element.classList.contains(name), className);
+            if (reached) return;
+        }
+        throw new Error(`${selector} never got ${className}`);
+    };
+
+    const pathSelector = (edgeId: string): string =>
+        `[data-sfn="content"] svg path[data-edge-id="${edgeId}"]:not([data-edge-hit-area])`;
+    const labelStyle = (opened: Page, edgeId: string) =>
+        opened.evaluate((id) => {
+            const svg = document.querySelector('[data-sfn="content"] svg')!;
+            const rect = getComputedStyle(svg.querySelector(`rect[data-edge-id="${id}"]`)!);
+            const text = getComputedStyle(svg.querySelector(`text[data-edge-id="${id}"]`)!);
+            return {
+                rectStrokeOpacity: rect.strokeOpacity,
+                textFill: text.fill,
+                textFillOpacity: text.fillOpacity,
+            };
+        }, edgeId);
+    const pathOpacity = (opened: Page, edgeId: string): Promise<string> =>
+        opened.$eval(pathSelector(edgeId), (element) => getComputedStyle(element).opacity);
+
+    beforeAll(async () => {
+        edgePage = await openPlayback('choice', 'execution-choice-highvalue');
+    }, 60_000);
+
+    afterAll(async () => {
+        await edgePage.close();
+    });
+
+    it('dims the path, its arrowhead and its label together before the edge is taken', async () => {
+        await edgePage.keyboard.press('Home');
+
+        expect(await pathOpacity(edgePage, HIGH)).toBe('0.2');
+        const label = await labelStyle(edgePage, HIGH);
+        expect(label.rectStrokeOpacity).toBe('0.2');
+        expect(label.textFillOpacity).toBe('0.2');
+    });
+
+    it('brings the path and label to full strength in the taken colour once the edge is taken', async () => {
+        await stepUntil(edgePage, { className: 'sfn-exec-taken', selector: pathSelector(HIGH), steps: 3 });
+
+        expect(await pathOpacity(edgePage, HIGH)).toBe('1');
+        const label = await labelStyle(edgePage, HIGH);
+        expect(label.textFill).toBe('rgb(46, 125, 50)');
+        expect(label.textFillOpacity).toBe('1');
+    });
+
+    it('serves the finished overlay with a taken-colour arrowhead and label', async () => {
+        await edgePage.keyboard.press('End');
+
+        const served = await edgePage.evaluate((selector) => {
+            const path = document.querySelector(selector)!;
+            const markerId = /url\(#([^)]+)\)/.exec(path.getAttribute('marker-end')!)![1];
+            const polygon = document.getElementById(markerId)!.querySelector('polygon')!;
+            return { markerFill: polygon.getAttribute('fill') };
+        }, pathSelector(HIGH));
+        expect(served.markerFill).toBe('#2e7d32');
+        expect((await labelStyle(edgePage, HIGH)).textFill).toBe('rgb(46, 125, 50)');
+    });
+
+    it('never paints a retry self-loop taken, matching the static overlay', async () => {
+        const retryPage = await openPlayback('parallel-edges', 'execution-parallel-edges');
+        try {
+            await retryPage.keyboard.press('Home');
+            // The timeline ends with Work re-entering itself through Next.
+            await stepUntil(retryPage, {
+                className: 'sfn-exec-taken',
+                selector: pathSelector('Work->Work#normal#0'),
+                steps: 6,
+            });
+
+            const retryClasses = await retryPage.$eval(pathSelector('Work->Work#retry#0'), (element) =>
+                Array.from(element.classList),
+            );
+            expect(retryClasses).toContain('sfn-exec-untaken');
+            expect(retryClasses).not.toContain('sfn-exec-taken');
+        } finally {
+            await retryPage.close();
+        }
+    }, 60_000);
+});
+
 describe('execution playback across a setContent update', () => {
     let updatePage: Page;
 
