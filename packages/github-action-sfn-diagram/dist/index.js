@@ -69445,6 +69445,19 @@ var RETRY_CATCH_TYPES = /* @__PURE__ */ new Set([
   "Parallel",
   "Task"
 ]);
+var TRANSITIONLESS_TYPES = /* @__PURE__ */ new Set([
+  "Choice",
+  "Fail",
+  "Succeed"
+]);
+var WAIT_DURATION_FIELDS = [
+  "Seconds",
+  "SecondsPath",
+  "Timestamp",
+  "TimestampPath"
+];
+var FAIL_EXCLUSIVE_FIELDS = [["Error", "ErrorPath"], ["Cause", "CausePath"]];
+var MAX_STATE_NAME_LENGTH = 80;
 var JSONPATH_ONLY_FIELDS = [
   "CausePath",
   "ErrorPath",
@@ -69516,18 +69529,59 @@ function lintState(context3, diagnostics) {
     });
   };
   const stateType = state2.Type;
-  if (state2.End === true && "Next" in state2 && state2.Next !== void 0) push({
+  if (state2.End === true && "Next" in state2 && state2.Next !== void 0 && !TRANSITIONLESS_TYPES.has(stateType)) push({
     code: "end-with-next",
     message: `State "${stateName}" sets both "End: true" and "Next"`,
     path: `${pointer}/Next`,
     severity: "error"
   });
+  if (TRANSITIONLESS_TYPES.has(stateType)) {
+    const reason = stateType === "Choice" ? "it transitions through Choices and Default" : "it is a terminal state";
+    for (const field of ["Next", "End"]) {
+      if (state2[field] === void 0) continue;
+      push({
+        code: "unsupported-transition",
+        message: `State "${stateName}" (Type: ${stateType}) does not support "${field}"; ${reason}`,
+        path: `${pointer}/${field}`,
+        severity: "error"
+      });
+    }
+  }
   for (const field of ["Retry", "Catch"]) if (state2[field] !== void 0 && !RETRY_CATCH_TYPES.has(stateType)) push({
     code: "unsupported-retry-catch",
     message: `State "${stateName}" (Type: ${stateType}) does not support ${field}; only Task, Parallel and Map do`,
     path: `${pointer}/${field}`,
     severity: "error"
   });
+  if (stateType === "Choice" && (state2.Choices === void 0 || Array.isArray(state2.Choices) && state2.Choices.length === 0)) push({
+    code: "choice-without-choices",
+    message: `Choice state "${stateName}" must have a non-empty "Choices" array`,
+    path: state2.Choices === void 0 ? pointer : `${pointer}/Choices`,
+    severity: "error"
+  });
+  if (stateType === "Wait") {
+    const durationFields = WAIT_DURATION_FIELDS.filter((field) => state2[field] !== void 0);
+    if (durationFields.length === 0) push({
+      code: "wait-without-duration",
+      message: `Wait state "${stateName}" must set exactly one of Seconds, SecondsPath, Timestamp or TimestampPath`,
+      path: pointer,
+      severity: "error"
+    });
+    else if (durationFields.length > 1) push({
+      code: "wait-multiple-durations",
+      message: `Wait state "${stateName}" sets ${durationFields.join(", ")}; exactly one duration field is allowed`,
+      path: `${pointer}/${durationFields[1]}`,
+      severity: "error"
+    });
+  }
+  if (stateType === "Fail") {
+    for (const [literalField, pathField] of FAIL_EXCLUSIVE_FIELDS) if (state2[literalField] !== void 0 && state2[pathField] !== void 0) push({
+      code: "fail-conflicting-fields",
+      message: `Fail state "${stateName}" sets both "${literalField}" and "${pathField}"`,
+      path: `${pointer}/${pathField}`,
+      severity: "error"
+    });
+  }
   if (stateType === "Choice" && state2.Default === void 0) push({
     code: "choice-without-default",
     message: `Choice state "${stateName}" has no Default; an input matching no rule fails the execution`,
@@ -69607,6 +69661,16 @@ function lintAsl(params) {
         lintScope(context3, diagnostics);
         for (const name of Object.keys(context3.states)) {
           const path2 = `${context3.pointer}/States/${escapePointerToken(name)}`;
+          const nameLength = name.length > MAX_STATE_NAME_LENGTH ? Array.from(name).length : 0;
+          if (nameLength > MAX_STATE_NAME_LENGTH) {
+            const text2 = `State name "${name}" is ${nameLength} characters long; Step Functions allows at most ${MAX_STATE_NAME_LENGTH}`;
+            diagnostics.push({
+              code: "state-name-too-long",
+              message: context3.scope === "" ? text2 : `${context3.scope}: ${text2}`,
+              path: path2,
+              severity: "error"
+            });
+          }
           const previous = firstUse.get(name);
           if (previous === void 0) {
             firstUse.set(name, path2);
