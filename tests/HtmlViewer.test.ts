@@ -471,6 +471,25 @@ describe('collapse toggle', () => {
         }
     });
 
+    it('namespaces the per-colour marker an edge override adds in each view', () => {
+        // `FanOut->Done` is drawn in both views, so the override's variant marker is
+        // defined twice and only the collapsed copy gets a prefix.
+        const html = generateViewerUpdate({
+            aslDefinition: parallelAsl,
+            edgeOverrides: { 'FanOut->Done': { stroke: '#ff0000' } },
+        }).contentHtml;
+
+        const markerIds = html.match(/id="arrowhead-[^"]*"/g) ?? [];
+        expect(markerIds.filter((attribute) => attribute.includes('override'))).toHaveLength(2);
+        expect(new Set(markerIds).size).toBe(markerIds.length);
+
+        const definedIds = new Set(markerIds.map((attribute) => attribute.slice('id="'.length, -1)));
+        const references = html.match(/url\(#(arrowhead-[^)]*)\)/g) ?? [];
+        for (const reference of references) {
+            expect(definedIds).toContain(reference.slice('url(#'.length, -1));
+        }
+    });
+
     it('does not corrupt a state literally named like a marker id', () => {
         // The state must survive collapse (stay outside the container) so it appears
         // in the namespaced collapsed view too, where the corruption would show up.

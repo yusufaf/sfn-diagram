@@ -16,6 +16,7 @@ import type {
     StateNode,
 } from '../src/types';
 import type { LayoutResult } from '../src/layout/DagreLayout';
+import { AWS_LIGHT_THEME } from '../src/config';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -1150,7 +1151,7 @@ describe('SvgRenderer', () => {
                 'Route->Work#choice#0': { stroke: '#ff0000' },
             });
 
-            expect(svg.match(/stroke="#ff0000"/g) ?? []).toHaveLength(1);
+            expect(svg.match(/<path [^>]*stroke="#ff0000"/g) ?? []).toHaveLength(1);
         });
 
         it('applies a bare legacy key to every edge of the pair', () => {
@@ -1158,7 +1159,7 @@ describe('SvgRenderer', () => {
                 'Route->Work': { stroke: '#00ff00' },
             });
 
-            expect(svg.match(/stroke="#00ff00"/g) ?? []).toHaveLength(2);
+            expect(svg.match(/<path [^>]*stroke="#00ff00"/g) ?? []).toHaveLength(2);
         });
 
         it('lets a qualified key win over a bare key, merging field-wise', () => {
@@ -1171,7 +1172,98 @@ describe('SvgRenderer', () => {
             // from the bare key.
             expect(svg).toContain('stroke="#0000ff"');
             expect(svg.match(/stroke-width="7"/g) ?? []).toHaveLength(2);
-            expect(svg.match(/stroke="#00ff00"/g) ?? []).toHaveLength(1);
+            expect(svg.match(/<path [^>]*stroke="#00ff00"/g) ?? []).toHaveLength(1);
+        });
+    });
+
+    describe('edgeOverrides on arrowheads and labels', () => {
+        const HIGH = 'CheckValue->HighValue#choice#0';
+        const LOW = 'CheckValue->LowValue#choice#0';
+        const DEFAULT = 'CheckValue->DefaultPath#default#0';
+
+        const renderChoice = (edgeOverrides: Record<string, EdgeStyleOverride>): string => {
+            const { edges, nodes } = parseAsl({ definition: loadFixture('choice') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            return new SvgRenderer({ edgeOverrides }).render(positioned).svg;
+        };
+
+        // Plain substring lookups over the serialized tags: the serializer writes `->` in
+        // an attribute as `-&gt;`, and every tag is `<tag ...>...</tag>` with no whitespace.
+        const pathTag = (svg: string, edgeId: string): string => {
+            const wanted = `data-edge-id="${edgeId.split('->').join('-&gt;')}"`;
+            const tag = (svg.match(/<path [^>]*>/g) ?? []).find((candidate) => candidate.includes(wanted));
+            expect(tag, `path for ${edgeId}`).toBeDefined();
+            return tag!;
+        };
+        const markerEndId = (tag: string): string => tag.match(/marker-end="url\(#([^)]+)\)"/)![1];
+        const markerFill = (svg: string, id: string): string | undefined => {
+            const marker = (svg.match(/<marker [^>]*>.*?<\/marker>/g) ?? []).find((candidate) =>
+                candidate.startsWith(`<marker id="${id}"`),
+            );
+            return marker?.match(/<polygon [^>]*fill="([^"]+)"/)?.[1];
+        };
+        const labelTags = (svg: string, escapedText: string): { rect: string; text: string } => {
+            const labels = Array.from(svg.matchAll(/(<rect [^>]*>)<\/rect>(<text [^>]*>)([^<]*)<\/text>/g));
+            const label = labels.find((candidate) => candidate[3] === escapedText);
+            expect(label, `label ${escapedText}`).toBeDefined();
+            return { rect: label![1], text: label![2] };
+        };
+        const markerCount = (svg: string): number => (svg.match(/<marker /g) ?? []).length;
+
+        it("draws an overridden stroke's arrowhead in the same colour", () => {
+            const svg = renderChoice({ [HIGH]: { stroke: '#ff0000' } });
+
+            const highId = markerEndId(pathTag(svg, HIGH));
+            expect(highId).not.toBe('arrowhead-choice');
+            expect(highId).toMatch(/^arrowhead-/);
+            expect(markerFill(svg, highId)).toBe('#ff0000');
+            expect(markerEndId(pathTag(svg, LOW))).toBe('arrowhead-choice');
+        });
+
+        it('shares one arrowhead marker between edges overridden to the same colour', () => {
+            const svg = renderChoice({
+                [HIGH]: { stroke: '#ff0000' },
+                [DEFAULT]: { stroke: '#ff0000' },
+            });
+
+            expect(markerEndId(pathTag(svg, HIGH))).toBe(markerEndId(pathTag(svg, DEFAULT)));
+            expect(markerCount(svg)).toBe(6);
+        });
+
+        it("keeps the type's own arrowhead when the override repeats the type colour", () => {
+            const svg = renderChoice({
+                [HIGH]: { stroke: AWS_LIGHT_THEME.edgeColors.choice },
+            });
+
+            expect(markerEndId(pathTag(svg, HIGH))).toBe('arrowhead-choice');
+            expect(markerCount(svg)).toBe(5);
+        });
+
+        it('dims the whole edge, arrowhead included, not just its stroke', () => {
+            const svg = renderChoice({ [LOW]: { strokeOpacity: 0.2 } });
+
+            const tag = pathTag(svg, LOW);
+            expect(tag).toContain(' opacity="0.2"');
+            expect(tag).not.toContain('stroke-opacity');
+        });
+
+        it("carries the override's colour and opacity onto the edge label", () => {
+            const svg = renderChoice({
+                [HIGH]: { stroke: '#ff0000' },
+                [LOW]: { strokeOpacity: 0.2 },
+            });
+
+            const high = labelTags(svg, '$.value &gt; 10');
+            expect(high.rect).toContain('stroke="#ff0000"');
+            expect(high.text).toContain('fill="#ff0000"');
+
+            const low = labelTags(svg, '$.value &lt;= 10');
+            expect(low.rect).toContain('stroke-opacity="0.2"');
+            expect(low.text).toContain('fill-opacity="0.2"');
+            // The label box must keep masking the line beneath it, so only its
+            // stroke dims, never the whole element.
+            expect(low.rect).not.toContain('fill-opacity');
+            expect(low.rect).not.toMatch(/ opacity=/);
         });
     });
 

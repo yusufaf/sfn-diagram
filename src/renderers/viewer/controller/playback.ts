@@ -169,6 +169,15 @@ function edgePairOf(edgeId: string): string {
     return parts.slice(0, Math.max(1, parts.length - 2)).join('#');
 }
 
+/**
+ * The `${type}` segment of an edge id (`${from}->${to}#${type}#${ordinal}`), or `''`.
+ * Read from the end, never the first `#`, for the same reason as {@link edgePairOf}.
+ */
+function edgeTypeOf(edgeId: string): string {
+    const parts = edgeId.split('#');
+    return parts.length >= 3 ? parts[parts.length - 2] : '';
+}
+
 /** Format a real duration as `1.2s`, matching the overlay's own annotations. */
 function formatSeconds(ms: number): string {
     if (ms < 1000) return Math.round(ms) + 'ms';
@@ -296,7 +305,11 @@ export function createPlayback(params: CreatePlaybackParams): Playback {
             }
         }
         for (const edge of paintedEdges) {
-            const taken = takenPairs.has(edgePairOf(edge.getAttribute('data-edge-id') ?? ''));
+            const edgeId = edge.getAttribute('data-edge-id') ?? '';
+            // A retry self-loop shares its `X->X` pair with a genuine self-transition,
+            // but the static overlay never counts it taken (execution.ts `isTaken`), so
+            // playback must not either.
+            const taken = edgeTypeOf(edgeId) !== 'retry' && takenPairs.has(edgePairOf(edgeId));
             edge.classList.toggle('sfn-exec-taken', taken);
             edge.classList.toggle('sfn-exec-untaken', !taken);
         }

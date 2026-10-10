@@ -79,7 +79,8 @@ fields it changes. The execution overlay is built on the same three options.
 - `nodeOverrides` — `Partial<NodeStyle>` (`fill`, `stroke`, `strokeWidth`, `shape`)
   keyed by state name.
 - `nodeAnnotations` — extra text rendered under a node's label, keyed by state name.
-- `edgeOverrides` — `stroke`, `strokeOpacity`, and `strokeWidth`, keyed by edge.
+- `edgeOverrides` — `stroke`, `strokeOpacity`, and `strokeWidth`, keyed by edge;
+  `stroke` and `strokeOpacity` also apply to the edge's arrowhead and label.
 
 ```typescript
 generateSvg({

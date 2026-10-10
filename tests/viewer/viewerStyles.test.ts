@@ -134,6 +134,21 @@ describe('buildViewerStyles', () => {
             expect(guarded).toContain('animation: sfn-exec-pulse 1.1s ease-in-out infinite;');
             expect(guarded).toContain('@keyframes sfn-exec-pulse { 50% { stroke-width: 4; } }');
         });
+
+        it('dims and recolours a played edge as one unit: path (arrowhead included) and label', () => {
+            const css = buildViewerStyles({});
+            const rules = [
+                'path.sfn-exec-taken:not([data-edge-hit-area]) { stroke: #2e7d32; stroke-width: 3; opacity: 1; }',
+                'path.sfn-exec-untaken:not([data-edge-hit-area]) { opacity: .2; }',
+                'rect.sfn-exec-taken { stroke: #2e7d32; stroke-opacity: 1; }',
+                'text.sfn-exec-taken { fill: #2e7d32; fill-opacity: 1; }',
+                'rect.sfn-exec-untaken { stroke-opacity: .2; }',
+                'text.sfn-exec-untaken { fill-opacity: .2; }',
+            ];
+            for (const rule of rules) {
+                expect(css).toContain(rule);
+            }
+        });
     });
 
     describe('responsive detail panel', () => {

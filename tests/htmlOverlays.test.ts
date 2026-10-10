@@ -204,7 +204,7 @@ describe('generateHtml with both overlays', () => {
     });
 
     it('still dims the untaken edges', () => {
-        expect(both.html).toContain('stroke-opacity="0.2"');
+        expect(both.html).toMatch(/<path [^>]* opacity="0\.2"/);
     });
 
     it('reports both summaries, with the execution summary scoped to the after definition', () => {

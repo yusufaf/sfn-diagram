@@ -229,7 +229,7 @@ describe('duplicate nested state names', () => {
                     new RegExp(`<path [^>]*data-edge-id="${escapedId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`)
                 );
                 expect(path, `no rendered path for ${edge.id}`).not.toBeNull();
-                expect(path![0]).not.toContain('stroke-opacity="0.2"');
+                expect(path![0]).not.toMatch(/ opacity="0\.2"/);
             }
         });
     });

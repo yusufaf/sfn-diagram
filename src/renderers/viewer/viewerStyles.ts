@@ -221,9 +221,15 @@ function playbackRules(palette: ChromePalette): string {
     font-size: 12px; color: ${palette.mutedText}; }
 ${statusRules}
   /* An edge lights up once the run it leads into has begun, and stays dim until then -
-     the same emphasis the static overlay bakes in, moved onto the playhead. */
-  path.sfn-exec-taken:not([data-edge-hit-area]) { stroke: #2e7d32; stroke-width: 3; stroke-opacity: 1; }
-  path.sfn-exec-untaken:not([data-edge-hit-area]) { stroke-opacity: .2; }
+     the same emphasis the static overlay bakes in, moved onto the playhead. The path
+     uses element opacity so its arrowhead dims with it; the label's box keeps an opaque
+     fill, so only its stroke and glyphs take the opacity. */
+  path.sfn-exec-taken:not([data-edge-hit-area]) { stroke: #2e7d32; stroke-width: 3; opacity: 1; }
+  path.sfn-exec-untaken:not([data-edge-hit-area]) { opacity: .2; }
+  rect.sfn-exec-taken { stroke: #2e7d32; stroke-opacity: 1; }
+  text.sfn-exec-taken { fill: #2e7d32; fill-opacity: 1; }
+  rect.sfn-exec-untaken { stroke-opacity: .2; }
+  text.sfn-exec-untaken { fill-opacity: .2; }
   /* No media query: the duration token is already 0ms under reduced motion, so the
      repaint lands in the same frame the playhead moved. */
   .sfn-playing [data-state-id] > rect, .sfn-playing [data-state-id] > circle,
