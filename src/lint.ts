@@ -318,7 +318,8 @@ export function lintAsl(params: LintAslParams): LintDiagnostic[] {
                 lintScope(context, diagnostics);
                 for (const name of Object.keys(context.states)) {
                     const path = `${context.pointer}/States/${escapePointerToken(name)}`;
-                    const nameLength = Array.from(name).length;
+                    // The UTF-16 length is never below the code-point count, so most names skip the allocation.
+                    const nameLength = name.length > MAX_STATE_NAME_LENGTH ? Array.from(name).length : 0;
                     if (nameLength > MAX_STATE_NAME_LENGTH) {
                         const text = `State name "${name}" is ${nameLength} characters long; Step Functions allows at most ${MAX_STATE_NAME_LENGTH}`;
                         diagnostics.push({

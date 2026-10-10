@@ -69661,7 +69661,7 @@ function lintAsl(params) {
         lintScope(context3, diagnostics);
         for (const name of Object.keys(context3.states)) {
           const path2 = `${context3.pointer}/States/${escapePointerToken(name)}`;
-          const nameLength = Array.from(name).length;
+          const nameLength = name.length > MAX_STATE_NAME_LENGTH ? Array.from(name).length : 0;
           if (nameLength > MAX_STATE_NAME_LENGTH) {
             const text2 = `State name "${name}" is ${nameLength} characters long; Step Functions allows at most ${MAX_STATE_NAME_LENGTH}`;
             diagnostics.push({
