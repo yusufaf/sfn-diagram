@@ -49,6 +49,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * it from 567,677 to 613,128 raw: +45,451 bytes, +8.0%, for three features. The AWS
  * SDK is not in that number — it stays an externalised optional peer.
  *
+ * Every entry was restated again, to about 5% above its measurement, when catch edges into
+ * a shared handler gained their own lane router (#364): `src/layout/catchLanes.ts` is
+ * bundled into every entry that lays out a diagram, which took index.js from 516,479 to
+ * 538,656 raw (+4.3%). Most entries were already within 3% of their old budget.
+ *
  * `png.js`/`png.cjs` were last restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
  * gained real routing (#323), which took png.cjs from 201,658 to 212,407 raw and from
  * 59,348 to 62,343 gzip.
@@ -56,19 +61,19 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
-    'bin.js': { gzip: 197500, raw: 674000 },
+    'bin.js': { gzip: 213000, raw: 722000 },
     'cfn.cjs': { gzip: 3600, raw: 9800 },
     'cfn.js': { gzip: 3600, raw: 9800 },
-    'ci.cjs': { gzip: 83500, raw: 287000 },
-    'ci.js': { gzip: 83500, raw: 287000 },
-    'element-auto.cjs': { gzip: 107000, raw: 373000 },
-    'element-auto.js': { gzip: 107000, raw: 373000 },
-    'element.cjs': { gzip: 107000, raw: 373000 },
-    'element.js': { gzip: 107000, raw: 373000 },
-    'index.cjs': { gzip: 154000, raw: 528000 },
-    'index.js': { gzip: 154000, raw: 528000 },
-    'png.cjs': { gzip: 69000, raw: 234000 },
-    'png.js': { gzip: 69000, raw: 234000 },
+    'ci.cjs': { gzip: 93000, raw: 319000 },
+    'ci.js': { gzip: 92000, raw: 317000 },
+    'element-auto.cjs': { gzip: 114500, raw: 398000 },
+    'element-auto.js': { gzip: 114000, raw: 396000 },
+    'element.cjs': { gzip: 114500, raw: 397000 },
+    'element.js': { gzip: 114000, raw: 396000 },
+    'index.cjs': { gzip: 166500, raw: 568000 },
+    'index.js': { gzip: 166000, raw: 566000 },
+    'png.cjs': { gzip: 73000, raw: 248000 },
+    'png.js': { gzip: 72500, raw: 247000 },
 };
 
 /**

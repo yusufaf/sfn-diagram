@@ -40,7 +40,7 @@ node is elided rather than drawn over its neighbours.
 
 ## Error handling & retries
 
-- **`Catch`** blocks render as dashed error edges to their handler states.
+- **`Catch`** blocks render as dashed error edges to their handler states. When four or more states catch into the same handler, the catch edges from states that lead on to another of those catchers run along a shared lane beside the diagram rather than each taking its own path, which keeps large machines fast to lay out.
 - **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output.
 
 ## Query languages

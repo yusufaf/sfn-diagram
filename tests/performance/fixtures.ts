@@ -35,6 +35,36 @@ export function buildLinearChain(params: BuildLinearChainParams): AslDefinition 
     return { StartAt: 'Step0', States: states };
 }
 
+interface BuildSharedCatchChainParams {
+    /** Number of Task states in the chain */
+    length: number;
+}
+
+/**
+ * Build a linear chain of Task states that each `Catch` into one shared `Failed`
+ * handler - the common "notify and fail" pattern. Stresses layout with a long
+ * error edge per state all converging on a single sink.
+ */
+export function buildSharedCatchChain(params: BuildSharedCatchChainParams): AslDefinition {
+    const { length } = params;
+    const states: Record<string, AslState> = {};
+
+    for (let index = 0; index < length; index++) {
+        const isLast = index === length - 1;
+        states[`Step${index}`] = {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:Worker',
+            Next: isLast ? 'Done' : `Step${index + 1}`,
+            Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Failed' }],
+        };
+    }
+
+    states.Done = { Type: 'Succeed' };
+    states.Failed = { Type: 'Fail' };
+
+    return { StartAt: 'Step0', States: states };
+}
+
 interface BuildWideChoiceParams {
     /** Number of choice branches (fan-out width) */
     width: number;
