@@ -1,0 +1,32 @@
+{
+  "Comment": "State names and Comments wider than their fixed-width nodes (#368)",
+  "StartAt": "ProcessIncomingCustomerOrderAndNotifyDownstreamSystems",
+  "States": {
+    "ProcessIncomingCustomerOrderAndNotifyDownstreamSystems": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Next": "ValidateOrder"
+    },
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Validate the incoming order payload against the schema and reject bad ones",
+      "Next": "IsOrderAcceptableForImmediateFulfillment"
+    },
+    "IsOrderAcceptableForImmediateFulfillment": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ok",
+          "BooleanEquals": true,
+          "Next": "Done"
+        }
+      ],
+      "Default": "Done"
+    },
+    "Done": {
+      "Type": "Succeed",
+      "Comment": "Order processed and every downstream system notified successfully"
+    }
+  }
+}

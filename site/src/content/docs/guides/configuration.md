@@ -463,6 +463,13 @@ Big, branchy state machines are hard to read as a static image. A few options he
 - **`--layout LR`** (or `layout: 'LR'`) — the default `TB` layout makes catch-heavy
   or deeply branching machines extremely tall; `LR` reads better for wide graphs.
 
+## Long labels
+
+Nodes keep a fixed width, so a state name or `Comment` wider than its node is
+truncated with `…` in SVG and PNG output. The full text stays in the node's hover
+tooltip and in the viewer's details panel. Raise `nodeWidth` or set
+`includeComments: false` to show more of each label.
+
 ## Variables and Distributed Map
 
 Two pieces of modern ASL are rendered explicitly, because both are otherwise

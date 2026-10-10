@@ -51,6 +51,16 @@ const EDGE_HIT_AREA_WIDTH = 12;
  */
 const SUB_LABEL_PADDING = 8;
 
+/**
+ * Breathing room on each side of a node's name when no side icon is drawn. Smaller
+ * than SUB_LABEL_PADDING so names that already sit inside their node today are not
+ * cut: 3 px would trim "CancelOrder" in an 84 px enhanced terminal circle.
+ */
+const NAME_LABEL_PADDING = 2;
+
+/** Drawn on its own when not even the shortest fitted prefix of a name fits. */
+const NAME_TRUNCATED_MARKER = '…';
+
 /** Node width assumed when neither the layout nor the options supply one. */
 const DEFAULT_NODE_WIDTH = 120;
 
@@ -900,8 +910,29 @@ export class SvgRenderer {
                 showStateType: this.options.showStateTypes === true,
             }),
         });
+        // The layout keeps node width fixed (AWS parity), so an over-long name or Comment
+        // is cut to the box here; the full text stays in the node's <title>. The budget is
+        // the bounding-box width for every shape, as for the sub-label. A side icon's
+        // shift already holds the icon's inset and the gap after it, and the name is
+        // centred in what is left, so no further padding is taken in that case.
+        const measureName = (text: string) =>
+            estimateTextWidth(text, this.theme.fontSize);
+        const nameBudget =
+            (node.width || this.options.nodeWidth || DEFAULT_NODE_WIDTH) -
+            (sideIconShift > 0 ? sideIconShift : NAME_LABEL_PADDING * 2);
+        const fittedName = fitText({
+            availableWidth: nameBudget,
+            measure: measureName,
+            text: node.label,
+        });
+        const nameText =
+            fittedName !== '' || node.label === ''
+                ? fittedName
+                : measureName(NAME_TRUNCATED_MARKER) <= nameBudget
+                  ? NAME_TRUNCATED_MARKER
+                  : '';
         const secondLineShown = secondLineText !== '';
-        const annotation = this.options.nodeAnnotations?.[node.id];
+        const annotation =this.options.nodeAnnotations?.[node.id];
         const variablesShown =
             this.options.showVariables !== false &&
             !!node.assignedVariables?.length;
@@ -938,7 +969,7 @@ export class SvgRenderer {
             .attr('fill', this.theme.textColor)
             .attr('font-size', this.theme.fontSize)
             .attr('font-family', this.theme.fontFamily)
-            .text(node.label);
+            .text(nameText);
 
         if (secondLineText) {
             nodeGroup

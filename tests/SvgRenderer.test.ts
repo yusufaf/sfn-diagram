@@ -1290,6 +1290,174 @@ describe('sub-label geometry with icons', () => {
     });
 });
 
+describe('node name fitting (#368)', () => {
+    // Node width is fixed for AWS parity, so a name or Comment wider than its node is
+    // cut to the box with a trailing ellipsis. The full text stays in the <title>.
+    const LAMBDA = 'arn:aws:lambda:us-east-1:123456789012:function:Work';
+    const LONG_COMMENT = 'Validate the incoming order payload against the schema and reject bad ones';
+    const LONG_NAME = 'ProcessIncomingCustomerOrderAndNotifyDownstreamSystems';
+
+    const single = (name: string, state: Record<string, unknown>): AslDefinition =>
+        ({ StartAt: name, States: { [name]: state } }) as unknown as AslDefinition;
+
+    const longCommentTask = single('ValidateOrder', {
+        Comment: LONG_COMMENT,
+        End: true,
+        Resource: LAMBDA,
+        Type: 'Task',
+    });
+
+    interface NameLine {
+        imageLeft?: number;
+        imageRight?: number;
+        left: number;
+        markup: string;
+        right: number;
+        shapeLeft: number;
+        shapeRight: number;
+        text: string;
+    }
+
+    /** The name's estimated horizontal extent and its node's shape, in node-local coordinates. */
+    const measureNameLine = (svg: string, stateId: string): NameLine => {
+        const start = svg.indexOf(`data-state-id="${stateId}"`);
+        expect(start).toBeGreaterThan(-1);
+        const markup = svg.slice(start, svg.indexOf('</g>', start));
+
+        const name = markup.match(/<text x="([^"]+)" y="[^"]+"[^>]*font-size="(\d+)"[^>]*>([^<]*)<\/text>/);
+        expect(name).not.toBeNull();
+        const text = name![3];
+        const halfWidth = estimateTextWidth(text, Number(name![2])) / 2;
+
+        const rect = markup.match(/<rect x="([^"]+)" y="[^"]+" width="([^"]+)"/);
+        const circle = markup.match(/<circle[^>]*\sr="([^"]+)"/);
+        const diamond = markup.match(/<path d="M 0,-[\d.]+ L ([\d.]+),0/);
+        let shapeLeft: number;
+        let shapeRight: number;
+        if (rect) {
+            shapeLeft = Number(rect[1]);
+            shapeRight = shapeLeft + Number(rect[2]);
+        } else {
+            const halfShape = Number((circle ?? diamond)![1]);
+            shapeLeft = -halfShape;
+            shapeRight = halfShape;
+        }
+
+        const image = markup.match(/<image x="([^"]+)"[^>]*width="([^"]+)"/);
+
+        return {
+            imageLeft: image ? Number(image[1]) : undefined,
+            imageRight: image ? Number(image[1]) + Number(image[2]) : undefined,
+            left: Number(name![1]) - halfWidth,
+            markup,
+            right: Number(name![1]) + halfWidth,
+            shapeLeft,
+            shapeRight,
+            text,
+        };
+    };
+
+    const expectInsideShape = (line: NameLine): void => {
+        expect(line.left).toBeGreaterThanOrEqual(line.shapeLeft);
+        expect(line.right).toBeLessThanOrEqual(line.shapeRight);
+    };
+
+    it('truncates an over-long Comment to the node width and ends it with an ellipsis', () => {
+        const { svg } = generateSvg({ aslDefinition: longCommentTask, nodeWidth: 160 });
+        const line = measureNameLine(svg, 'ValidateOrder');
+
+        expect(line.text.endsWith('…')).toBe(true);
+        expect(estimateTextWidth(line.text, 14)).toBeLessThanOrEqual(160 - 4);
+        expectInsideShape(line);
+        expect(line.markup).toContain(`<title>${LONG_COMMENT} (Task)</title>`);
+    });
+
+    it('truncates an over-long state name when the state has no Comment', () => {
+        const { svg } = generateSvg({
+            aslDefinition: single(LONG_NAME, { End: true, Resource: LAMBDA, Type: 'Task' }),
+        });
+        const line = measureNameLine(svg, LONG_NAME);
+
+        expect(line.text.endsWith('…')).toBe(true);
+        expect(estimateTextWidth(line.text, 14)).toBeLessThanOrEqual(116);
+    });
+
+    it.each([
+        ['ChargeCustomer', { End: true, Resource: LAMBDA, Type: 'Task' }, {}],
+        ['ResultWriter (s3)', { End: true, Resource: LAMBDA, Type: 'Task' }, {}],
+        ['CancelOrder', { Type: 'Fail' }, { stylePreset: 'enhanced' }],
+    ] as const)('leaves %s untouched because it already fits inside its node', (name, state, options) => {
+        const { svg } = generateSvg({ aslDefinition: single(name, { ...state }), ...options });
+
+        expect(measureNameLine(svg, name).text).toBe(name);
+    });
+
+    it.each(['left', 'right'] as const)(
+        'keeps a truncated name inside the node and clear of a %s icon',
+        (iconPosition) => {
+            const { svg } = generateSvg({ aslDefinition: longCommentTask, iconPosition, showIcons: true });
+            const line = measureNameLine(svg, 'ValidateOrder');
+
+            expect(line.text.endsWith('…')).toBe(true);
+            expectInsideShape(line);
+            if (iconPosition === 'left') {
+                expect(line.left).toBeGreaterThanOrEqual(line.imageRight!);
+            } else {
+                expect(line.right).toBeLessThanOrEqual(line.imageLeft!);
+            }
+        },
+    );
+
+    it.each([
+        [
+            'Choice',
+            'IsOrderAcceptableForImmediateFulfillment',
+            {
+                StartAt: 'IsOrderAcceptableForImmediateFulfillment',
+                States: {
+                    Done: { Type: 'Succeed' },
+                    IsOrderAcceptableForImmediateFulfillment: {
+                        Choices: [{ BooleanEquals: true, Next: 'Done', Variable: '$.ok' }],
+                        Default: 'Done',
+                        Type: 'Choice',
+                    },
+                },
+            },
+        ],
+        ['Succeed', 'Done', { StartAt: 'Done', States: { Done: { Comment: LONG_COMMENT, Type: 'Succeed' } } }],
+    ] as const)("fits a long %s name inside its enhanced shape's bounding box", (_type, stateId, definition) => {
+        const { svg } = generateSvg({
+            aslDefinition: definition as unknown as AslDefinition,
+            stylePreset: 'enhanced',
+        });
+        const line = measureNameLine(svg, stateId);
+
+        expect(line.text.endsWith('…')).toBe(true);
+        expectInsideShape(line);
+    });
+
+    it('shows an ellipsis rather than dropping the name when even four glyphs do not fit', () => {
+        const { svg } = generateSvg({ aslDefinition: longCommentTask, nodeWidth: 24 });
+        const line = measureNameLine(svg, 'ValidateOrder');
+
+        expect(line.text).toBe('…');
+        expectInsideShape(line);
+    });
+
+    it('leaves the name line empty when not even an ellipsis fits', () => {
+        const { svg } = generateSvg({
+            aslDefinition: longCommentTask,
+            iconPosition: 'left',
+            nodeWidth: 40,
+            showIcons: true,
+        });
+        const line = measureNameLine(svg, 'ValidateOrder');
+
+        expect(line.text).toBe('');
+        expect(line.markup).toContain(`<title>${LONG_COMMENT} (Task)</title>`);
+    });
+});
+
 describe('collapsed containers', () => {
     it('renders a collapsed container via the regular-node path, not the bounding-box path', () => {
         const asl = loadFixture('parallel');

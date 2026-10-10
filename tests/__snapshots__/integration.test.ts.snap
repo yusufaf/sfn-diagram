@@ -133,6 +133,42 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 }
 `;
 
+exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for long-labels 1`] = `
+"stateDiagram-v2
+    direction TB
+
+    [*] --> ProcessIncomingCustomerOrderAndNotifyDownstreamSystems
+    ValidateOrder: Validate the incoming order payload against the schema and reject bad ones
+    Done: Order processed and every downstream system notified successfully
+
+    ProcessIncomingCustomerOrderAndNotifyDownstreamSystems --> ValidateOrder
+    ValidateOrder --> IsOrderAcceptableForImmediateFulfillment
+    IsOrderAcceptableForImmediateFulfillment --> Done: $.ok == true
+
+    Done --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+
+    class ProcessIncomingCustomerOrderAndNotifyDownstreamSystems taskState
+    class ValidateOrder taskState
+    class IsOrderAcceptableForImmediateFulfillment choiceState
+    class Done successState"
+`;
+
+exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for long-labels 2`] = `
+{
+  "edgeCount": 3,
+  "stateCount": 4,
+}
+`;
+
 exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match Mermaid snapshot for map 1`] = `
 "stateDiagram-v2
     direction TB
@@ -306,6 +342,15 @@ exports[`Integration Tests > Snapshot tests > SVG snapshots > should match SVG s
 exports[`Integration Tests > Snapshot tests > SVG snapshots > should match SVG snapshot for error-handling 2`] = `
 {
   "edgeCount": 5,
+  "nodeCount": 4,
+}
+`;
+
+exports[`Integration Tests > Snapshot tests > SVG snapshots > should match SVG snapshot for long-labels 1`] = `"<svg width="160" height="430" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 430" role="graphics-document" aria-label="State names and Comments wider than their fixed-width nodes (#368)"><title>State names and Comments wider than their fixed-width nodes (#368)</title><desc>4 states, 3 transitions.</desc><rect x="0" y="0" width="160" height="430" fill="#ffffff"></rect><defs><marker id="arrowhead-normal" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#546e7a"></polygon></marker><marker id="arrowhead-error" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#c62828"></polygon></marker><marker id="arrowhead-choice" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#7b1fa2"></polygon></marker><marker id="arrowhead-default" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#9c27b0"></polygon></marker><marker id="arrowhead-retry" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><polygon points="0 0, 10 3, 0 6" fill="#8f6200"></polygon></marker></defs><g class="edges"><path d="M80,80L80,84.167C80,88.333,80,96.667,80,105C80,113.333,80,121.667,80,125.833L80,130" data-edge-id="ProcessIncomingCustomerOrderAndNotifyDownstreamSystems-&gt;ValidateOrder#normal#0" fill="none" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrowhead-normal)"><title>ProcessIncomingCustomerOrderAndNotifyDownstreamSystems to ValidateOrder</title></path><path d="M80,190L80,194.167C80,198.333,80,206.667,80,215C80,223.333,80,231.667,80,235.833L80,240" data-edge-id="ValidateOrder-&gt;IsOrderAcceptableForImmediateFulfillment#normal#0" fill="none" stroke="#546e7a" stroke-width="1.5" marker-end="url(#arrowhead-normal)"><title>ValidateOrder to IsOrderAcceptableForImmediateFulfillment</title></path><path d="M80,300L80,304.167C80,308.333,80,316.667,80,325C80,333.333,80,341.667,80,345.833L80,350" data-edge-id="IsOrderAcceptableForImmediateFulfillment-&gt;Done#choice#0" fill="none" stroke="#7b1fa2" stroke-width="1.5" marker-end="url(#arrowhead-choice)"><title>IsOrderAcceptableForImmediateFulfillment to Done: $.ok == true</title></path><rect x="38.94" y="315" width="82.12" height="20" fill="#ffffff" stroke="#7b1fa2" stroke-width="0.5" rx="3"></rect><text x="80" y="325" text-anchor="middle" dominant-baseline="middle" fill="#7b1fa2" font-size="12" font-family="Arial, sans-serif">$.ok == true</text></g><g class="containers"></g><g class="nodes"><g class="node node-Task" data-state-id="ProcessIncomingCustomerOrderAndNotifyDownstreamSystems" data-state-type="Task" transform="translate(80, 50)"><title>ProcessIncomingCustomerOrderAndNotifyDownstreamSystems (Task)</title><rect x="-60" y="-30" width="120" height="60" rx="5" fill="#fff3e0" stroke="#d84315" stroke-width="2"></rect><text x="0" y="0" text-anchor="middle" dominant-baseline="middle" fill="#212121" font-size="14" font-family="Arial, sans-serif">ProcessIncomin…</text></g><g class="node node-Task" data-state-id="ValidateOrder" data-state-type="Task" transform="translate(80, 160)"><title>Validate the incoming order payload against the schema and reject bad ones (Task)</title><rect x="-60" y="-30" width="120" height="60" rx="5" fill="#fff3e0" stroke="#d84315" stroke-width="2"></rect><text x="0" y="0" text-anchor="middle" dominant-baseline="middle" fill="#212121" font-size="14" font-family="Arial, sans-serif">Validate the inc…</text></g><g class="node node-Choice" data-state-id="IsOrderAcceptableForImmediateFulfillment" data-state-type="Choice" transform="translate(80, 270)"><title>IsOrderAcceptableForImmediateFulfillment (Choice)</title><rect x="-60" y="-30" width="120" height="60" rx="5" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"></rect><text x="0" y="0" text-anchor="middle" dominant-baseline="middle" fill="#212121" font-size="14" font-family="Arial, sans-serif">IsOrderAccepta…</text></g><g class="node node-Succeed" data-state-id="Done" data-state-type="Succeed" transform="translate(80, 380)"><title>Order processed and every downstream system notified successfully (Succeed)</title><rect x="-60" y="-30" width="120" height="60" rx="5" fill="#e8f5e8" stroke="#2e7d32" stroke-width="3"></rect><text x="0" y="0" text-anchor="middle" dominant-baseline="middle" fill="#212121" font-size="14" font-family="Arial, sans-serif">Order processed…</text></g></g></svg>"`;
+
+exports[`Integration Tests > Snapshot tests > SVG snapshots > should match SVG snapshot for long-labels 2`] = `
+{
+  "edgeCount": 3,
   "nodeCount": 4,
 }
 `;
