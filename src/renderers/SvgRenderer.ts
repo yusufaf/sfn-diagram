@@ -6,7 +6,8 @@ import {
     getNodeSubLabelParts,
 } from '../constants/labels';
 import { isMarkerNode, isOpenContainer } from '../graph';
-import { parsePath, pointAtHalfLength } from '../utils/pathSample';
+import { measureEdgeLabel, type EdgeLabelBox } from '../layout/edgeLabel';
+import { nearestPointOnPath, parsePath, pointAtHalfLength } from '../utils/pathSample';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
     StateNode,
@@ -135,6 +136,7 @@ interface CalculateBoundsParams {
 
 interface EdgeLabelCenterParams {
     edge: GraphEdge & {
+        labelPosition?: { x: number; y: number };
         loopIndex?: number;
         points?: Array<{ x: number; y: number }>;
     };
@@ -1279,9 +1281,9 @@ export class SvgRenderer {
                 .attr('text-anchor', 'middle')
                 .attr('dominant-baseline', 'middle')
                 .attr('fill', edgeColor)
-                .attr('font-size', this.theme.fontSize - 2)
+                .attr('font-size', labelDimensions.fontSize)
                 .attr('font-family', this.theme.fontFamily)
-                .text(edge.label);
+                .text(labelDimensions.text);
 
             // The label is drawn over the midpoint of its own edge, exactly where a
             // reader aims. Without the id it would swallow the click; with it, clicking
@@ -1313,12 +1315,15 @@ export class SvgRenderer {
     }
 
     /**
-     * Compute where an edge's label should be centered. Normal edges center on the
-     * path midpoint; self-loops anchor off the loop's apex instead, falling back to a
-     * spot clear of neighbouring nodes if the default placement would land on one.
+     * Compute where an edge's label should be centered. A normal edge's label sits on
+     * the drawn path at the point closest to the spot layout reserved for it
+     * (`labelPosition`), or at the path's arc-length midpoint when layout reserved none
+     * (hand-routed container edges). Self-loops anchor off the loop's apex instead,
+     * falling back to a spot clear of neighbouring nodes if the default placement
+     * would land on one.
      *
      * `calculateBounds` and `renderEdge` both call this for the same edge - the
-     * non-self-loop midpoint is cached by edge id (`edgeMidpointCache`, cleared at
+     * non-self-loop centre is cached by edge id (`edgeMidpointCache`, cleared at
      * the top of `render()`) so sampling the drawn path only happens once per edge.
      */
     private edgeLabelCenter(params: EdgeLabelCenterParams): {
@@ -1339,9 +1344,16 @@ export class SvgRenderer {
         if (cached) {
             return cached;
         }
-        const midpoint = this.getPathMidpoint(points);
-        this.edgeMidpointCache.set(edge.id, midpoint);
-        return midpoint;
+        const pathData = edge.labelPosition ? this.pathGenerator(points) : null;
+        const center =
+            edge.labelPosition && pathData
+                ? nearestPointOnPath({
+                      path: parsePath(pathData),
+                      target: edge.labelPosition,
+                  })
+                : this.getPathMidpoint(points);
+        this.edgeMidpointCache.set(edge.id, center);
+        return center;
     }
 
     /**
@@ -1512,19 +1524,12 @@ export class SvgRenderer {
     }
 
     /**
-     * Calculate dimensions for edge label
+     * The text drawn for an edge label (cut if over budget) and its box size.
      */
-    private calculateLabelDimensions(label: string): {
-        height: number;
-        width: number;
-    } {
-        const fontSize = this.theme.fontSize - 2;
-        const padding = 8; // Horizontal padding
-        const verticalPadding = 4; // Vertical padding
-
-        const width = estimateTextWidth(label, fontSize) + padding * 2;
-        const height = fontSize + verticalPadding * 2;
-
-        return { height, width };
+    private calculateLabelDimensions(label: string): EdgeLabelBox {
+        return measureEdgeLabel({
+            label,
+            themeFontSize: this.theme.fontSize,
+        });
     }
 }

@@ -568,6 +568,7 @@ describe('Integration Tests', () => {
             'map',
             'distributed-map',
             'long-labels',
+            'long-condition',
         ];
 
         describe('SVG snapshots', () => {

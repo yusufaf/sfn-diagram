@@ -3,7 +3,7 @@ import { SvgRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import { applyCollapse } from '../src/graph';
-import { parsePath, pointAtHalfLength } from '../src/utils/pathSample';
+import { nearestPointOnPath, parsePath, pointAtHalfLength } from '../src/utils/pathSample';
 import { estimateTextWidth } from '../src/utils/textMeasure';
 import { generateSvg } from '../src';
 import { readFileSync } from 'fs';
@@ -559,7 +559,7 @@ describe('SvgRenderer', () => {
             expect(
                 edges.find((edge) => edge.id.startsWith('HighValue->Done'))?.d,
             ).toBe(
-                'M420,190L420,210C420,215,420,215,415,215L285,215C280,215,280,215,280,220L280,240',
+                'M420,210L420,230C420,235,420,235,415,235L285,235C280,235,280,235,280,240L280,260',
             );
         });
 
@@ -807,6 +807,91 @@ describe('SvgRenderer', () => {
                     Math.abs(segment.from.y - segment.to.y) < 1e-3;
                 expect(aligned).toBe(true);
             }
+        });
+    });
+
+    describe('Edge label placement from layout', () => {
+        const reservedEdge = (): GraphEdge & {
+            labelPosition: { x: number; y: number };
+            points: Array<{ x: number; y: number }>;
+        } => ({
+            from: 'A',
+            id: 'A->B#normal#0',
+            to: 'B',
+            type: 'normal',
+            label: 'go',
+            labelPosition: { x: 100, y: 0 },
+            points: [
+                { x: 0, y: 100 },
+                { x: 100, y: 0 },
+                { x: 260, y: 100 },
+            ],
+        });
+
+        const buildLayout = (): LayoutResult => ({
+            nodes: [
+                { id: 'A', label: 'A', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 0, y: 100, width: 120, height: 60 },
+                { id: 'B', label: 'B', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 260, y: 100, width: 120, height: 60 },
+            ],
+            edges: [reservedEdge()],
+            graph: { height: 300, width: 400 },
+        });
+
+        const labelCenter = (svg: string): { x: number; y: number } => {
+            const match = svg.match(/<text x="([\d.-]+)" y="([\d.-]+)"[^>]*>go<\/text>/)!;
+            return { x: Number(match[1]), y: Number(match[2]) };
+        };
+
+        it('centres the label on the layout-reserved spot when it lies on the drawn path', () => {
+            const { svg } = new SvgRenderer({}).render(buildLayout());
+
+            expect(labelCenter(svg)).toEqual({ x: 100, y: 0 });
+        });
+
+        it('snaps the label to the curve nearest the reserved spot for edgeStyle "curved"', () => {
+            const { svg } = new SvgRenderer({ edgeStyle: 'curved' }).render(buildLayout());
+
+            const pathD = svg.match(/<path d="([^"]+)"[^>]*data-edge-id="A-&gt;B[^"]*"/)![1];
+            const expected = nearestPointOnPath({
+                path: parsePath(pathD),
+                target: { x: 100, y: 0 },
+            });
+            const center = labelCenter(svg);
+
+            expect(center.x).toBeCloseTo(expected.x, 5);
+            expect(center.y).toBeCloseTo(expected.y, 5);
+            // curveBasis never reaches the interior control point, so the label must
+            // not sit on the reserved spot itself.
+            expect(Math.hypot(center.x - 100, center.y - 0)).toBeGreaterThan(1);
+        });
+
+        it('cuts a long drawn label but keeps the full condition in the edge title', () => {
+            const decodeEntities = (text: string): string =>
+                text
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/&quot;/g, '"')
+                    .replace(/&nbsp;/g, '\u00a0')
+                    .replace(/&amp;/g, '&');
+            const definition = loadFixture('long-condition');
+            const longLabel = parseAsl({ definition }).edges.find(
+                (edge) => (edge.label?.length ?? 0) > 100,
+            )?.label as string;
+            const collapsed = longLabel.replace(/\s+/g, ' ').trim();
+
+            const { svg } = generateSvg({ aslDefinition: definition });
+
+            const drawn = [...svg.matchAll(/<text [^>]*font-size="12"[^>]*>([^<]*…)<\/text>/g)].map(
+                (match) => decodeEntities(match[1]),
+            );
+            expect(drawn).toHaveLength(1);
+            expect(drawn[0].length).toBeLessThan(collapsed.length);
+            expect(collapsed.startsWith(drawn[0].slice(0, -1))).toBe(true);
+
+            const titles = [...svg.matchAll(/<title>([^<]*)<\/title>/g)].map((match) =>
+                decodeEntities(match[1]),
+            );
+            expect(titles.some((title) => title.includes(longLabel))).toBe(true);
         });
     });
 

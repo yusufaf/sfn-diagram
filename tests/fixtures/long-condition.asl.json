@@ -1,0 +1,32 @@
+{
+  "Comment": "Choice conditions far wider than a node (#369)",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Route",
+  "States": {
+    "Route": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.order.total > 1000\n    and $states.input.customer.tier = 'gold'\n    and $count($states.input.order.items) > 5 %}",
+          "Next": "Priority"
+        },
+        {
+          "Condition": "{% $states.input.order.total > 10 %}",
+          "Next": "Standard"
+        }
+      ],
+      "Default": "Reject"
+    },
+    "Priority": {
+      "Type": "Pass",
+      "End": true
+    },
+    "Standard": {
+      "Type": "Pass",
+      "End": true
+    },
+    "Reject": {
+      "Type": "Fail"
+    }
+  }
+}
