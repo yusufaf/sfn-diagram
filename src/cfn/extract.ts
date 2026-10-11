@@ -80,7 +80,7 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
         throw new Error(
             `State machine '${chosenId}' loads its definition from ${externalKey}${where}, ` +
                 `which cannot be read from the template alone. ` +
-                `Fetch and render that ASL file directly, or inline the definition in the template.`,
+                `Render that ASL file directly (download it first if it is in S3), or inline the definition in the template.`,
         );
     }
 
