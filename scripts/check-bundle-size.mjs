@@ -52,13 +52,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `png.js`/`png.cjs` were last restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
  * gained real routing (#323), which took png.cjs from 201,658 to 212,407 raw and from
  * 59,348 to 62,343 gzip.
+ *
+ * `cfn.js`/`cfn.cjs` were last restated at 14,600 / 4,900 when `DefinitionSubstitutions` gained
+ * value resolution and a definition-wide pass (#377), which put cfn.cjs at 13,286 raw and
+ * 4,480 gzip against the previous 9,800 / 3,600 budget.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
     'bin.js': { gzip: 197500, raw: 674000 },
-    'cfn.cjs': { gzip: 3600, raw: 9800 },
-    'cfn.js': { gzip: 3600, raw: 9800 },
+    'cfn.cjs': { gzip: 4900, raw: 14600 },
+    'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.cjs': { gzip: 83500, raw: 287000 },
     'ci.js': { gzip: 83500, raw: 287000 },
     'element-auto.cjs': { gzip: 107000, raw: 373000 },
