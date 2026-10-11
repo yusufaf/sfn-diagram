@@ -32,7 +32,8 @@ function findStateMachineIds(resources: Record<string, CfnResource>): string[] {
  * `AWS::Serverless::StateMachine` resource (disambiguated with `resourceId`
  * when the template has more than one), flattens the intrinsics in its
  * `DefinitionString`/`Definition`, applies `DefinitionSubstitutions` to every
- * string in it (whichever form it takes), and parses the result as ASL. SAM resources share the CloudFormation pipeline.
+ * string in it (whichever form it takes), and parses the result as ASL. SAM
+ * resources share the CloudFormation pipeline.
  *
  * @param params - Template source, optional format, optional resource id.
  * @returns The extracted ASL definition, the logical id used, and any warnings.

@@ -258,8 +258,7 @@ describe('DefinitionSubstitutions', () => {
         });
     });
 
-    // Guard: already green on base (base never substitutes a plain string). Its red is
-    // shown by reverting `Object.hasOwn` to `in`, which resolves `${constructor}`.
+    // A name that exists on Object.prototype must not resolve through the prototype chain.
     it('leaves unknown names, pseudo-params and prototype names literal', () => {
         const resource = '${Missing}:${AWS::Region}:${constructor}';
         const { aslDefinition } = extractAslFromTemplate({
@@ -281,7 +280,7 @@ describe('DefinitionSubstitutions', () => {
         expect(aslDefinition.States.W.Seconds).toBe(5);
     });
 
-    // Guard: green on base through Fn::Sub. Substituting after JSON.parse breaks it.
+    // Substitution must run before JSON.parse, or an unquoted placeholder is a syntax error.
     it('substitutes unquoted placeholders in a Fn::Sub DefinitionString', () => {
         const { aslDefinition } = extractAslFromTemplate({
             template: machine({
@@ -420,8 +419,7 @@ describe('DefinitionSubstitutions', () => {
         expect(aslDefinition.States.A.Resource).toBe('${B}');
     });
 
-    // Guard: green on base. Its red is shown by passing substitutions to
-    // resolveIntrinsics again while keeping the post-pass (double expansion).
+    // A substituted value is not rescanned, so Fn::Sub output is not expanded twice.
     it('substitutes in a single pass, Fn::Sub', () => {
         const { aslDefinition } = extractAslFromTemplate({
             template: machine({
