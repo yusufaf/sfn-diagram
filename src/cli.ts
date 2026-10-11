@@ -8,6 +8,7 @@ import {
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
+import { STATE_MACHINE_TYPES } from './cfn/extract';
 import type { SFNClient } from '@aws-sdk/client-sfn';
 import {
     CliAwsError,
@@ -1127,8 +1128,9 @@ function isCfnTemplate(source: string): boolean {
             !!resources &&
             Object.values(resources).some(
                 (resource) =>
-                    (resource as { Type?: string })?.Type ===
-                    'AWS::StepFunctions::StateMachine',
+                    STATE_MACHINE_TYPES.includes(
+                        (resource as { Type?: string })?.Type ?? '',
+                    ),
             )
         );
     } catch {

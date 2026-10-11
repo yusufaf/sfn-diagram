@@ -1130,6 +1130,40 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('Done');
     });
 
+    it('auto-detects a SAM JSON template', async () => {
+        const inputPath = writeTemplate(
+            'sam.json',
+            JSON.stringify({
+                Resources: {
+                    M: {
+                        Type: 'AWS::Serverless::StateMachine',
+                        Properties: {
+                            Definition: {
+                                StartAt: 'Hello',
+                                States: { Hello: { Type: 'Pass', End: true } },
+                            },
+                        },
+                    },
+                },
+            }),
+        );
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Hello');
+    });
+
+    it('reports a SAM DefinitionUri instead of rendering', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
+            '--resolve-cfn',
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('DefinitionUri');
+        expect(stderrData).toContain('statemachine/order.asl.json');
+    });
+
     it('resolves a YAML template with --resolve-cfn', async () => {
         const yamlTemplate = [
             'Resources:',
@@ -3604,7 +3638,7 @@ describe('run --from-aws', () => {
         // applies to the head only: a live definition is already ASL, and feeding it
         // to extractAslFromTemplate failed with a message about templates that named
         // nothing the caller typed.
-        const template = join(__dirname, 'fixtures', 'cfn', 'sam-template.yaml');
+        const template = join(__dirname, 'fixtures', 'cfn', 'cfn-template.yaml');
         expect(
             await run([
                 template,

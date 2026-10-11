@@ -1,6 +1,21 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
 Resources:
-  Sam:
-    Type: AWS::StepFunctions::StateMachine
+  OrderFunction:
+    Type: AWS::Serverless::Function
     Properties:
-      DefinitionString: !Sub |
-        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}
+      Handler: index.handler
+      Runtime: nodejs20.x
+      CodeUri: src/
+  OrderStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Definition:
+        StartAt: Process
+        States:
+          Process:
+            Type: Task
+            Resource: !GetAtt OrderFunction.Arn
+            Next: Done
+          Done:
+            Type: Succeed

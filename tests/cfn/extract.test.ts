@@ -22,12 +22,102 @@ describe('extractAslFromTemplate', () => {
         expect(aslDefinition.States.Run.Next).toBe('Done');
     });
 
-    it('recovers ASL from a SAM YAML !Sub definition', () => {
+    it('recovers ASL from a CloudFormation YAML !Sub DefinitionString', () => {
         const { aslDefinition } = extractAslFromTemplate({
-            template: fixture('sam-template.yaml'),
+            template: fixture('cfn-template.yaml'),
             format: 'yaml',
         });
         expect(aslDefinition.StartAt).toBe('Go');
+    });
+
+    it('recovers ASL from an AWS::Serverless::StateMachine inline Definition', () => {
+        const { aslDefinition, resourceId } = extractAslFromTemplate({
+            template: {
+                Resources: {
+                    SM: {
+                        Type: 'AWS::Serverless::StateMachine',
+                        Properties: {
+                            Definition: { StartAt: 'A', States: { A: { Type: 'Pass', End: true } } },
+                        },
+                    },
+                },
+            },
+        });
+        expect(resourceId).toBe('SM');
+        expect(aslDefinition.StartAt).toBe('A');
+        expect(aslDefinition.States.A.Type).toBe('Pass');
+    });
+
+    it('recovers ASL from a SAM YAML template', () => {
+        const { aslDefinition, resourceId } = extractAslFromTemplate({
+            template: fixture('sam-template.yaml'),
+        });
+        expect(resourceId).toBe('OrderStateMachine');
+        expect(aslDefinition.States.Process.Resource).toBe('<OrderFunction.Arn>');
+        expect(aslDefinition.States.Process.Next).toBe('Done');
+    });
+
+    it('names the path when a SAM machine uses a local DefinitionUri', () => {
+        expect(() =>
+            extractAslFromTemplate({ template: fixture('sam-definition-uri.yaml') }),
+        ).toThrow(/DefinitionUri.*'statemachine\/order\.asl\.json'/);
+    });
+
+    it('diagnoses an S3Location DefinitionUri without stringifying the object', () => {
+        const template = {
+            Resources: {
+                SM: {
+                    Type: 'AWS::Serverless::StateMachine',
+                    Properties: { DefinitionUri: { Bucket: 'b', Key: 'k' } },
+                },
+            },
+        };
+        expect(() => extractAslFromTemplate({ template })).toThrow(/DefinitionUri/);
+        expect(() => extractAslFromTemplate({ template })).not.toThrow(/\[object Object\]/);
+    });
+
+    it('diagnoses a CloudFormation DefinitionS3Location', () => {
+        const template = {
+            Resources: {
+                M: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: { DefinitionS3Location: { Bucket: 'b', Key: 'k' } },
+                },
+            },
+        };
+        expect(() => extractAslFromTemplate({ template })).toThrow(/DefinitionS3Location/);
+    });
+
+    it('treats SAM and CloudFormation machines alike when disambiguating', () => {
+        const template = {
+            Resources: {
+                Cfn: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        DefinitionString: '{"StartAt":"C","States":{"C":{"Type":"Succeed"}}}',
+                    },
+                },
+                Sam: {
+                    Type: 'AWS::Serverless::StateMachine',
+                    Properties: {
+                        Definition: { StartAt: 'S', States: { S: { Type: 'Succeed' } } },
+                    },
+                },
+            },
+        };
+        expect(() => extractAslFromTemplate({ template })).toThrow(/Cfn.*Sam|Sam.*Cfn/s);
+        expect(extractAslFromTemplate({ template, resourceId: 'Sam' }).aslDefinition.StartAt).toBe(
+            'S',
+        );
+    });
+
+    it('rejects a resourceId that is not a state machine', () => {
+        expect(() =>
+            extractAslFromTemplate({
+                template: fixture('sam-template.yaml'),
+                resourceId: 'OrderFunction',
+            }),
+        ).toThrow(/OrderFunction.*not a state machine/);
     });
 
     it('applies DefinitionSubstitutions', () => {

@@ -1,0 +1,6 @@
+Resources:
+  Machine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      DefinitionString: !Sub |
+        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}
