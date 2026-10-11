@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.6.0...github-action-sfn-diagram-v1.6.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **cfn:** bound Fn::Sub names so a template cannot be quadratic to parse ([#352](https://github.com/yusufaf/sfn-diagram/issues/352)) ([04f0c26](https://github.com/yusufaf/sfn-diagram/commit/04f0c26af8fb4f3e1fd82e8ba1dc2fdc5d760d86))
+* **lint:** add the missing structural rules ([#372](https://github.com/yusufaf/sfn-diagram/issues/372)) ([#418](https://github.com/yusufaf/sfn-diagram/issues/418)) ([3593b4b](https://github.com/yusufaf/sfn-diagram/commit/3593b4bf14e3137ebf9f2412a199f53d755837ee))
+* **mermaid:** scope end transitions and nest Parallel/Map as composites ([#401](https://github.com/yusufaf/sfn-diagram/issues/401)) ([c5ecb87](https://github.com/yusufaf/sfn-diagram/commit/c5ecb8748d38207b0c13a031363e797ee57d6da1)), closes [#371](https://github.com/yusufaf/sfn-diagram/issues/371)
+* **options:** treat an explicit undefined option as omitted ([#403](https://github.com/yusufaf/sfn-diagram/issues/403)) ([514d079](https://github.com/yusufaf/sfn-diagram/commit/514d079d8ced7cb89da492484626d97815cd0300)), closes [#367](https://github.com/yusufaf/sfn-diagram/issues/367)
+* **parser:** do not connect a Fail in a Parallel branch or Map iterator to the container Next ([#400](https://github.com/yusufaf/sfn-diagram/issues/400)) ([1930738](https://github.com/yusufaf/sfn-diagram/commit/193073881fdda9cdef42248415d27bf3a9c6c9a7))
+* **parser:** report choice rules and catch entries missing next ([#399](https://github.com/yusufaf/sfn-diagram/issues/399)) ([8e2f1b6](https://github.com/yusufaf/sfn-diagram/commit/8e2f1b6ab3a0de6de51557b084e840e282744ba6)), closes [#365](https://github.com/yusufaf/sfn-diagram/issues/365)
+
 ## [1.6.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.5.0...github-action-sfn-diagram-v1.6.0) (2026-10-02)
 
 
