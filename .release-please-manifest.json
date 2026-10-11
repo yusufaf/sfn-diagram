@@ -1,6 +1,6 @@
 {
-  ".": "1.8.0",
-  "packages/github-action-sfn-diagram": "1.6.0",
+  ".": "1.9.0",
+  "packages/github-action-sfn-diagram": "1.6.1",
   "packages/sfn-diagram-react": "0.6.0",
-  "packages/vscode-sfn-diagram": "0.3.0"
+  "packages/vscode-sfn-diagram": "0.3.1"
 }
