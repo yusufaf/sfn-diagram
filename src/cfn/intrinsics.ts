@@ -197,7 +197,7 @@ export function resolveIntrinsics(params: ResolveIntrinsicsParams): ResolveIntri
             }
             if (key === 'Fn::Sub') {
                 if (typeof inner === 'string') {
-                    return substitute({ substitutions, template: inner, unescapeLiterals: false });
+                    return substitute({ substitutions, template: inner, unescapeLiterals: true });
                 }
                 if (Array.isArray(inner)) {
                     const [subTemplate, localMap] = inner as [string, Record<string, unknown>];
@@ -208,7 +208,7 @@ export function resolveIntrinsics(params: ResolveIntrinsicsParams): ResolveIntri
                     return substitute({
                         substitutions: localResolved,
                         template: subTemplate,
-                        unescapeLiterals: false,
+                        unescapeLiterals: true,
                     });
                 }
             }

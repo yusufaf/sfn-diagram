@@ -400,6 +400,16 @@ describe('DefinitionSubstitutions', () => {
         expect(warnings).toEqual([expect.stringMatching(/not a key-value map/)]);
     });
 
+    it('applies them after Fn::Sub unescapes ${!Name}', () => {
+        const { aslDefinition } = extractAslFromTemplate({
+            template: machine({
+                definitionString: { 'Fn::Sub': taskDefinition('${!FnArn}') },
+                substitutions: { FnArn: fnArn },
+            }),
+        });
+        expect(aslDefinition.States.A.Resource).toBe(fnArn);
+    });
+
     it('substitutes in a single pass, plain string', () => {
         const { aslDefinition } = extractAslFromTemplate({
             template: machine({

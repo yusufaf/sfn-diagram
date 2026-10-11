@@ -73,6 +73,11 @@ describe('resolveIntrinsics', () => {
         expect(value).toBe('a-${AWS::Region}-b');
     });
 
+    it('renders an escaped ${!Literal} in Fn::Sub as ${Literal}', () => {
+        const { value } = resolveIntrinsics({ value: { 'Fn::Sub': 'a ${!Literal} b' } });
+        expect(value).toBe('a ${Literal} b');
+    });
+
     it('replaces unknown intrinsics with a placeholder and warns', () => {
         const { value, warnings } = resolveIntrinsics({
             value: { 'Fn::FindInMap': ['a', 'b', 'c'] },
