@@ -3,7 +3,16 @@ import { parseAslSource } from '../AslParser';
 import { resolveIntrinsics } from './intrinsics';
 import { parseTemplate } from './templateParser';
 
-const STATE_MACHINE_TYPE = 'AWS::StepFunctions::StateMachine';
+/** Resource types that declare a Step Functions state machine: CloudFormation's own and SAM's. */
+export const STATE_MACHINE_TYPES: readonly string[] = [
+    'AWS::StepFunctions::StateMachine',
+    'AWS::Serverless::StateMachine',
+];
+
+/** Properties that point at a definition stored elsewhere: SAM's, then CloudFormation's. */
+const EXTERNAL_DEFINITION_KEYS: readonly string[] = ['DefinitionUri', 'DefinitionS3Location'];
+
+const STATE_MACHINE_TYPE_LIST = STATE_MACHINE_TYPES.join(' or ');
 
 interface CfnResource {
     Properties?: Record<string, unknown>;
@@ -11,23 +20,24 @@ interface CfnResource {
 }
 
 function findStateMachineIds(resources: Record<string, CfnResource>): string[] {
-    return Object.keys(resources).filter(
-        (logicalId) => resources[logicalId]?.Type === STATE_MACHINE_TYPE,
+    return Object.keys(resources).filter((logicalId) =>
+        STATE_MACHINE_TYPES.includes(resources[logicalId]?.Type ?? ''),
     );
 }
 
 /**
  * Recovers a renderable ASL definition from a CloudFormation/SAM/CDK template.
  *
- * Locates the `AWS::StepFunctions::StateMachine` resource (disambiguated with
- * `resourceId` when the template has more than one), flattens the intrinsics in
- * its `DefinitionString`/`Definition`, applies `DefinitionSubstitutions`, and
- * parses the result as ASL.
+ * Locates the `AWS::StepFunctions::StateMachine` or SAM
+ * `AWS::Serverless::StateMachine` resource (disambiguated with `resourceId`
+ * when the template has more than one), flattens the intrinsics in its
+ * `DefinitionString`/`Definition`, applies `DefinitionSubstitutions`, and
+ * parses the result as ASL. SAM resources share the CloudFormation pipeline.
  *
  * @param params - Template source, optional format, optional resource id.
  * @returns The extracted ASL definition, the logical id used, and any warnings.
  * @throws If no state machine is found, the choice is ambiguous, or the
- * definition is external (`DefinitionUri`).
+ * definition is external (`DefinitionUri`/`DefinitionS3Location`).
  *
  * @example
  * ```typescript
@@ -42,14 +52,14 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
     const machineIds = findStateMachineIds(resources);
 
     if (machineIds.length === 0) {
-        throw new Error(`Template contains no ${STATE_MACHINE_TYPE} resource.`);
+        throw new Error(`Template contains no ${STATE_MACHINE_TYPE_LIST} resource.`);
     }
 
     let chosenId: string;
     if (resourceId) {
         if (!machineIds.includes(resourceId)) {
             throw new Error(
-                `Resource '${resourceId}' is not an ${STATE_MACHINE_TYPE}. Found: ${machineIds.join(', ')}.`,
+                `Resource '${resourceId}' is not a state machine (${STATE_MACHINE_TYPE_LIST}). Found: ${machineIds.join(', ')}.`,
             );
         }
         chosenId = resourceId;
@@ -63,14 +73,14 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
     }
 
     const properties = resources[chosenId].Properties ?? {};
-    if (
-        'DefinitionUri' in properties &&
-        !('DefinitionString' in properties) &&
-        !('Definition' in properties)
-    ) {
+    const externalKey = EXTERNAL_DEFINITION_KEYS.find((key) => key in properties);
+    if (externalKey && !('DefinitionString' in properties) && !('Definition' in properties)) {
+        const location = properties[externalKey];
+        const where = typeof location === 'string' ? ` ('${location}')` : '';
         throw new Error(
-            `State machine '${chosenId}' uses an external DefinitionUri, which is not supported. ` +
-                `Pass a template with an inline DefinitionString or Definition.`,
+            `State machine '${chosenId}' loads its definition from ${externalKey}${where}, ` +
+                `which cannot be read from the template alone. ` +
+                `Render that ASL file directly, or inline the definition in the template.`,
         );
     }
 
