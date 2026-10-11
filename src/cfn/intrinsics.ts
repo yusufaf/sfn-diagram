@@ -24,13 +24,127 @@ function isPseudoParam(name: string): boolean {
 // the literal placeholder, as an unknown name already does. See tests/performance.
 const SUBSTITUTION_PATTERN = /\$\{([^}]{1,255})\}/g;
 
-function substitute(template: string, substitutions: Record<string, string>): string {
+interface SubstituteParams {
+    substitutions: Record<string, string>;
+    template: string;
+    /** Fn::Sub only: render `${!Literal}` as `${Literal}`. */
+    unescapeLiterals: boolean;
+}
+
+function substitute(params: SubstituteParams): string {
+    const { substitutions, template, unescapeLiterals } = params;
     // Replace ${Var} with a substitution when known; keep ${AWS::X} pseudo-params.
     return template.replace(SUBSTITUTION_PATTERN, (match, name: string) => {
+        if (unescapeLiterals && name.startsWith('!')) return `\${${name.slice(1)}}`;
         if (isPseudoParam(name)) return match;
-        if (name in substitutions) return substitutions[name];
+        // Own keys only: `${constructor}` must not resolve through the prototype.
+        if (Object.hasOwn(substitutions, name)) return substitutions[name];
         return match;
     });
+}
+
+/** Parameters for {@link applySubstitutions}. */
+export interface ApplySubstitutionsParams {
+    /** Resolved DefinitionSubstitutions (string to string). */
+    substitutions: Record<string, string>;
+    /** A definition: a string (unparsed JSON text), or a parsed object, array or scalar. */
+    value: unknown;
+}
+
+/**
+ * Applies `DefinitionSubstitutions` to a state machine definition.
+ *
+ * A string is substituted as raw text, the way CloudFormation does for a
+ * `DefinitionString`, so an unquoted `"Seconds":${Wait}` works; run this
+ * *before* `JSON.parse`. For a parsed object or array, every string value and
+ * every object key is substituted. Unknown names and `${AWS::X}`
+ * pseudo-parameters stay literal, and `${!Literal}` is not unescaped (that is
+ * `Fn::Sub` syntax).
+ *
+ * This is a single pass: a substituted value is not rescanned for placeholders.
+ *
+ * @param params - The substitutions map and the definition to apply it to.
+ * @returns The substituted definition, or `value` itself when the map is empty.
+ *
+ * @example
+ * ```typescript
+ * applySubstitutions({ substitutions: { Fn: 'arn:f' }, value: '{"Resource":"${Fn}"}' });
+ * // '{"Resource":"arn:f"}'
+ * ```
+ */
+export function applySubstitutions(params: ApplySubstitutionsParams): unknown {
+    const { substitutions, value } = params;
+    if (Object.keys(substitutions).length === 0) return value;
+
+    function walk(current: unknown): unknown {
+        if (typeof current === 'string') {
+            return substitute({ substitutions, template: current, unescapeLiterals: false });
+        }
+        if (Array.isArray(current)) return current.map(walk);
+        if (current === null || typeof current !== 'object') return current;
+        return Object.fromEntries(
+            Object.entries(current).map(([key, entry]) => [walk(key) as string, walk(entry)]),
+        );
+    }
+
+    return walk(value);
+}
+
+/** Parameters for {@link resolveSubstitutions}. */
+export interface ResolveSubstitutionsParams {
+    /** The raw DefinitionSubstitutions property, as parsed from the template. */
+    value: unknown;
+}
+
+/** Result of {@link resolveSubstitutions}. */
+export interface ResolveSubstitutionsResult {
+    /** Every value flattened to a string. */
+    substitutions: Record<string, string>;
+    /** Non-fatal notes about values replaced with placeholders. */
+    warnings: string[];
+}
+
+/**
+ * Flattens a `DefinitionSubstitutions` property into a string-to-string map.
+ *
+ * String values are kept and numbers or booleans stringified (YAML parses
+ * `Timeout: 30` as a number). Intrinsic values (`Ref`, `Fn::GetAtt`, `Fn::Sub`,
+ * ...) go through {@link resolveIntrinsics}, so they render the same
+ * placeholders as inside the definition. A value that cannot become a string
+ * is replaced with `<Key>` and reported in `warnings`.
+ *
+ * @param params - The raw `DefinitionSubstitutions` property.
+ * @returns The flattened map and any non-fatal warnings.
+ *
+ * @example
+ * ```typescript
+ * resolveSubstitutions({ value: { Fn: { 'Fn::GetAtt': ['Fn', 'Arn'] } } });
+ * // { substitutions: { Fn: '<Fn.Arn>' }, warnings: [] }
+ * ```
+ */
+export function resolveSubstitutions(params: ResolveSubstitutionsParams): ResolveSubstitutionsResult {
+    const { value } = params;
+    const warnings: string[] = [];
+
+    if (value === undefined) return { substitutions: {}, warnings };
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        warnings.push('DefinitionSubstitutions is not a key-value map; ignored');
+        return { substitutions: {}, warnings };
+    }
+
+    const entries = Object.entries(value).map(([name, entry]): [string, string] => {
+        if (typeof entry === 'string') return [name, entry];
+        if (typeof entry === 'number' || typeof entry === 'boolean') return [name, String(entry)];
+        const { value: resolved, warnings: entryWarnings } = resolveIntrinsics({ value: entry });
+        warnings.push(...entryWarnings);
+        if (typeof resolved === 'string') return [name, resolved];
+        warnings.push(
+            `DefinitionSubstitutions value for '${name}' is not a string or a supported intrinsic; replaced with placeholder <${name}>`,
+        );
+        return [name, `<${name}>`];
+    });
+
+    return { substitutions: Object.fromEntries(entries), warnings };
 }
 
 /**
@@ -83,7 +197,7 @@ export function resolveIntrinsics(params: ResolveIntrinsicsParams): ResolveIntri
             }
             if (key === 'Fn::Sub') {
                 if (typeof inner === 'string') {
-                    return substitute(inner, substitutions);
+                    return substitute({ substitutions, template: inner, unescapeLiterals: false });
                 }
                 if (Array.isArray(inner)) {
                     const [subTemplate, localMap] = inner as [string, Record<string, unknown>];
@@ -91,7 +205,11 @@ export function resolveIntrinsics(params: ResolveIntrinsicsParams): ResolveIntri
                     for (const localKey of Object.keys(localMap)) {
                         localResolved[localKey] = String(walk(localMap[localKey]));
                     }
-                    return substitute(subTemplate, localResolved);
+                    return substitute({
+                        substitutions: localResolved,
+                        template: subTemplate,
+                        unescapeLiterals: false,
+                    });
                 }
             }
             if (key.startsWith('Fn::')) {
