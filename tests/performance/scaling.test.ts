@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { generateSvg, generateMermaid } from '../../src';
 import { parseAsl } from '../../src/AslParser';
 import { computeCollapsePlan } from '../../src/graph';
-import { resolveIntrinsics } from '../../src/cfn/intrinsics';
+import { applySubstitutions, resolveIntrinsics } from '../../src/cfn/intrinsics';
 import type { AslDefinition, AslState } from '../../src';
 import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
 
@@ -242,6 +242,23 @@ describe('Fn::Sub substitution scaling', () => {
         const large = timeResolve(32000); // 4x the input
 
         // Linear is ~4x and quadratic ~16x. 8 sits clear of both.
+        expect(large / small).toBeLessThan(8);
+    });
+
+    // The same pattern now also scans the whole DefinitionString once, outside Fn::Sub.
+    function timeApply(repeats: number): number {
+        const value = '${'.repeat(repeats);
+        const start = performance.now();
+        applySubstitutions({ substitutions: { X: 'y' }, value });
+        return performance.now() - start;
+    }
+
+    test('substituting a definition of repeated "${" does not degrade quadratically', () => {
+        timeApply(8000);
+
+        const small = Math.max(timeApply(8000), 0.5);
+        const large = timeApply(32000);
+
         expect(large / small).toBeLessThan(8);
     });
 });

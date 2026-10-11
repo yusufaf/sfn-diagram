@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveIntrinsics } from '../../src/cfn/intrinsics';
+import { applySubstitutions, resolveIntrinsics, resolveSubstitutions } from '../../src/cfn/intrinsics';
 
 describe('Fn::Sub substitution name bound', () => {
     // js/polynomial-redos. The pattern was `[^}]+`, unanchored on the right, so on a
@@ -73,6 +73,11 @@ describe('resolveIntrinsics', () => {
         expect(value).toBe('a-${AWS::Region}-b');
     });
 
+    it('renders an escaped ${!Literal} in Fn::Sub as ${Literal}', () => {
+        const { value } = resolveIntrinsics({ value: { 'Fn::Sub': 'a ${!Literal} b' } });
+        expect(value).toBe('a ${Literal} b');
+    });
+
     it('replaces unknown intrinsics with a placeholder and warns', () => {
         const { value, warnings } = resolveIntrinsics({
             value: { 'Fn::FindInMap': ['a', 'b', 'c'] },
@@ -86,5 +91,73 @@ describe('resolveIntrinsics', () => {
             value: { StartAt: 'A', States: { A: { Resource: { Ref: 'AWS::Partition' } } } },
         });
         expect(value).toEqual({ StartAt: 'A', States: { A: { Resource: '${AWS::Partition}' } } });
+    });
+});
+
+describe('applySubstitutions', () => {
+    it('returns the same reference when the map is empty', () => {
+        const value = { Resource: '${FnArn}' };
+        expect(applySubstitutions({ substitutions: {}, value })).toBe(value);
+    });
+
+    it('substitutes keys and values in nested arrays and objects', () => {
+        const result = applySubstitutions({
+            substitutions: { Name: 'dev', Arn: 'arn:f' },
+            value: { '${Name}A': [{ Resource: '${Arn}', Retry: 3, Skip: null }, '${Name}'] },
+        });
+        expect(result).toEqual({ devA: [{ Resource: 'arn:f', Retry: 3, Skip: null }, 'dev'] });
+    });
+
+    it('substitutes a string as raw text', () => {
+        const result = applySubstitutions({
+            substitutions: { Seconds: '5' },
+            value: '{"Seconds":${Seconds}}',
+        });
+        expect(result).toBe('{"Seconds":5}');
+    });
+
+    it('does not apply the Fn::Sub ${!x} unescape', () => {
+        const result = applySubstitutions({
+            substitutions: { x: 'y' },
+            value: '${!x} ${AWS::Region} ${constructor}',
+        });
+        expect(result).toBe('${!x} ${AWS::Region} ${constructor}');
+    });
+});
+
+describe('resolveSubstitutions', () => {
+    it('returns an empty map with no warnings when the property is absent', () => {
+        expect(resolveSubstitutions({ value: undefined })).toEqual({ substitutions: {}, warnings: [] });
+    });
+
+    it('flattens strings, scalars and intrinsics, warning only for what it cannot resolve', () => {
+        const { substitutions, warnings } = resolveSubstitutions({
+            value: {
+                Arn: { 'Fn::GetAtt': ['Fn', 'Arn'] },
+                Count: 3,
+                Flag: true,
+                Odd: { a: 1, b: 2 },
+                Plain: 'text',
+                Ref: { Ref: 'Fn' },
+                Unknown: { 'Fn::FindInMap': ['m', 'k', 'v'] },
+            },
+        });
+        expect(substitutions).toEqual({
+            Arn: '<Fn.Arn>',
+            Count: '3',
+            Flag: 'true',
+            Odd: '<Odd>',
+            Plain: 'text',
+            Ref: '<Ref:Fn>',
+            Unknown: '<Fn::FindInMap>',
+        });
+        expect(warnings).toHaveLength(2);
+    });
+
+    it.each([null, 'oops', ['a'], 7])('ignores %j with a warning', (value) => {
+        expect(resolveSubstitutions({ value })).toEqual({
+            substitutions: {},
+            warnings: ['DefinitionSubstitutions is not a key-value map; ignored'],
+        });
     });
 });

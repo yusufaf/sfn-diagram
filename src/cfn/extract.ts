@@ -1,6 +1,6 @@
 import type { AslDefinition, ExtractAslFromTemplateParams, ExtractAslResult } from '../types';
 import { parseAslSource } from '../AslParser';
-import { resolveIntrinsics } from './intrinsics';
+import { applySubstitutions, resolveIntrinsics, resolveSubstitutions } from './intrinsics';
 import { parseTemplate } from './templateParser';
 
 /** Resource types that declare a Step Functions state machine: CloudFormation's own and SAM's. */
@@ -31,8 +31,9 @@ function findStateMachineIds(resources: Record<string, CfnResource>): string[] {
  * Locates the `AWS::StepFunctions::StateMachine` or SAM
  * `AWS::Serverless::StateMachine` resource (disambiguated with `resourceId`
  * when the template has more than one), flattens the intrinsics in its
- * `DefinitionString`/`Definition`, applies `DefinitionSubstitutions`, and
- * parses the result as ASL. SAM resources share the CloudFormation pipeline.
+ * `DefinitionString`/`Definition`, applies `DefinitionSubstitutions` to every
+ * string in it (whichever form it takes), and parses the result as ASL. SAM
+ * resources share the CloudFormation pipeline.
  *
  * @param params - Template source, optional format, optional resource id.
  * @returns The extracted ASL definition, the logical id used, and any warnings.
@@ -84,15 +85,19 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
         );
     }
 
-    const substitutions = (properties.DefinitionSubstitutions ?? {}) as Record<string, string>;
+    const { substitutions, warnings: substitutionWarnings } = resolveSubstitutions({
+        value: properties.DefinitionSubstitutions,
+    });
     const rawDefinition = properties.DefinitionString ?? properties.Definition;
     if (rawDefinition === undefined) {
         throw new Error(`State machine '${chosenId}' has no DefinitionString or Definition.`);
     }
 
-    const { value: resolved, warnings } = resolveIntrinsics({ substitutions, value: rawDefinition });
+    // Substitute before parsing: a string definition is filled as raw text (as CloudFormation
+    // does), so an unquoted `"Seconds":${Wait}` is still valid JSON by the time it is parsed.
+    const { value: resolved, warnings } = resolveIntrinsics({ value: rawDefinition });
+    const substituted = applySubstitutions({ substitutions, value: resolved });
+    const aslDefinition = parseAslSource({ source: substituted as AslDefinition | string });
 
-    const aslDefinition = parseAslSource({ source: resolved as AslDefinition | string });
-
-    return { aslDefinition, resourceId: chosenId, warnings };
+    return { aslDefinition, resourceId: chosenId, warnings: [...substitutionWarnings, ...warnings] };
 }
