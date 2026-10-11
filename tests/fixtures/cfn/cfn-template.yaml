@@ -1,5 +1,5 @@
 Resources:
-  Sam:
+  Machine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
       DefinitionString: !Sub |
