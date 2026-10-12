@@ -69033,17 +69033,17 @@ function enteredName(event) {
 function exitedName(event) {
   return event.stateExitedEventDetails?.name;
 }
-function failureDetails(event) {
+function failureField(event, field) {
   for (const key of FAILURE_DETAILS_KEYS) {
-    const details = event[key];
-    if (details) return details;
+    const value = event[key]?.[field];
+    if (value !== void 0) return value;
   }
 }
 function extractError(event) {
-  return failureDetails(event)?.error;
+  return failureField(event, "error");
 }
 function extractCause(event) {
-  return failureDetails(event)?.cause;
+  return failureField(event, "cause");
 }
 var EXECUTION_PAYLOAD_CAP = 4096;
 function createPayloadCapture(params) {
