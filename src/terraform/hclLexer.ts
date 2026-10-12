@@ -44,8 +44,8 @@ export interface ScanStandaloneTemplateParams {
 const IDENTIFIER = /[\p{ID_Start}_][\p{ID_Continue}-]*/uy;
 const NUMBER = /\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 const HEREDOC_OPEN = /<<-?([\p{ID_Start}_][\p{ID_Continue}-]*)[ \t]*\r?\n/uy;
-const THREE_CHAR_PUNCT = ['...'];
-const TWO_CHAR_PUNCT = ['==', '!=', '<=', '>=', '&&', '||', '=>'];
+const THREE_CHAR_PUNCT = new Set(['...']);
+const TWO_CHAR_PUNCT = new Set(['==', '!=', '<=', '>=', '&&', '||', '=>']);
 const ONE_CHAR_PUNCT = '+-*/%<>!?:=.,()[]{}';
 const SIMPLE_ESCAPES: Record<string, string> = { '"': '"', '\\': '\\', n: '\n', r: '\r', t: '\t' };
 
@@ -200,8 +200,8 @@ class HclLexer {
 
     private punctLengthAt(): number {
         const { source } = this;
-        if (THREE_CHAR_PUNCT.includes(source.slice(this.pos, this.pos + 3))) return 3;
-        if (TWO_CHAR_PUNCT.includes(source.slice(this.pos, this.pos + 2))) return 2;
+        if (THREE_CHAR_PUNCT.has(source.slice(this.pos, this.pos + 3))) return 3;
+        if (TWO_CHAR_PUNCT.has(source.slice(this.pos, this.pos + 2))) return 2;
         return ONE_CHAR_PUNCT.includes(source[this.pos]) ? 1 : 0;
     }
 

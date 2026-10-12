@@ -49,6 +49,17 @@ export default defineConfig([
         clean: false,
         dts: true,
         entry: {
+            terraform: './src/terraform.ts',
+        },
+        format: ['cjs', 'esm'],
+        hash: false,
+        outDir: './dist',
+        platform: 'neutral',
+    },
+    {
+        clean: false,
+        dts: true,
+        entry: {
             ci: './src/ci/index.ts',
         },
         format: ['cjs', 'esm'],

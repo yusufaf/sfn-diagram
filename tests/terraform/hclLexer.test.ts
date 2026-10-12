@@ -72,8 +72,8 @@ describe('tokenizeHcl', () => {
     });
 
     it('records interpolation tokens relative to the interpolation source', () => {
-        const [part] = partsOf('"a ${ foo.bar }"').filter((entry) => entry.kind === 'interpolation');
-        if (part.kind !== 'interpolation') throw new Error('expected interpolation');
+        const part = partsOf('"a ${ foo.bar }"').find((entry) => entry.kind === 'interpolation');
+        if (part?.kind !== 'interpolation') throw new Error('expected interpolation');
         const [first] = part.tokens;
         expect(part.source.slice(first.start, first.end)).toBe('foo');
     });

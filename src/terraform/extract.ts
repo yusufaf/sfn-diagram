@@ -266,7 +266,9 @@ function resolveCandidate(candidate: Candidate): ResolvedDefinition {
         }
         return resolveDefinitionTemplate({ name, parts: scanStandaloneTemplate({ text: definition.value }) });
     } catch (error) {
-        if (error instanceof HclUnsupportedError) throw new Error(`${quoteLabel(name)}: ${error.message}`);
+        if (error instanceof HclUnsupportedError) {
+            throw new Error(`${quoteLabel(name)}: ${error.message}`, { cause: error });
+        }
         throw error;
     }
 }
@@ -279,6 +281,7 @@ function parseJsonConfig(config: string | Record<string, unknown>): Record<strin
     } catch (error) {
         throw new Error(
             `Terraform configuration is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+            { cause: error },
         );
     }
     throw new Error('Terraform configuration is not valid JSON: expected an object at the top level.');
@@ -350,7 +353,9 @@ export function extractAslFromTerraform(params: ExtractAslFromTerraformParams): 
         const { aslDefinition, warnings } = resolveCandidate(chosen);
         return { aslDefinition, resourceId: chosen.name, warnings };
     } catch (error) {
-        if (error instanceof HclSyntaxError) throw new Error(`Terraform syntax error: ${error.message}`);
+        if (error instanceof HclSyntaxError) {
+            throw new Error(`Terraform syntax error: ${error.message}`, { cause: error });
+        }
         throw error;
     }
 }

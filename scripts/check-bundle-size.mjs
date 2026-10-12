@@ -44,10 +44,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * growth eats the headroom, the right move is to re-measure and restate the budget in
  * the same commit — not to leave it at 2% and let an unrelated PR take the blame.
  *
- * `bin.js` was last restated at 674,000 / 197,500 after the CLI gained `--from-aws`,
- * `--execution <arn> --follow` and `--watch` (#192, #283, #190), which together took
- * it from 567,677 to 613,128 raw: +45,451 bytes, +8.0%, for three features. The AWS
- * SDK is not in that number — it stays an externalised optional peer.
+ * `bin.js` was last restated at 776,500 / 228,000 when the CLI gained Terraform input
+ * (#287), which took it from 668,986 to 705,838 raw and from 197,331 to 207,038 gzip:
+ * +36,852 bytes, +5.5%. Before that it was 674,000 / 197,500, set after the CLI gained
+ * `--from-aws`, `--execution <arn> --follow` and `--watch` (#192, #283, #190), which
+ * together took it from 567,677 to 613,128 raw. The AWS SDK is not in that number — it
+ * stays an externalised optional peer.
+ *
+ * `terraform.js`/`terraform.cjs` were set at 39,600 / 11,200 when `sfn-diagram/terraform`
+ * arrived (#287), measuring 35,981 raw and 10,161 gzip for terraform.cjs. It is its own entry
+ * rather than part of `cfn` so that CloudFormation users do not ship an HCL lexer.
  *
  * `png.js`/`png.cjs` were last restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
  * gained real routing (#323), which took png.cjs from 201,658 to 212,407 raw and from
@@ -60,7 +66,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
-    'bin.js': { gzip: 197500, raw: 674000 },
+    'bin.js': { gzip: 228000, raw: 776500 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.cjs': { gzip: 83500, raw: 287000 },
@@ -73,6 +79,8 @@ export const BUNDLE_BUDGETS = {
     'index.js': { gzip: 154000, raw: 528000 },
     'png.cjs': { gzip: 69000, raw: 234000 },
     'png.js': { gzip: 69000, raw: 234000 },
+    'terraform.cjs': { gzip: 11200, raw: 39600 },
+    'terraform.js': { gzip: 11200, raw: 39600 },
 };
 
 /**
