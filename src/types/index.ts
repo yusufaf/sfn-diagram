@@ -1346,7 +1346,7 @@ export type ExecutionStateStatus =
 
 /** Per-state result derived from an execution's event history. */
 export interface ExecutionStateResult {
-    /** Number of attempts (1 + retries); always ≥ 1 for states that were entered */
+    /** Number of attempts (1 + retries, and one more for each redrive that resumed the state); always ≥ 1 for states that were entered */
     attempts: number;
     /** Total time spent in the state in milliseconds (summed across re-entries) */
     durationMs?: number;
@@ -1400,7 +1400,7 @@ export interface TimelinePayload {
  * than being summed the way {@link ExecutionStateResult} sums them.
  */
 export interface TimelineEntry {
-    /** 1-based attempt number within this entry of the state; a `Retry` increments it. */
+    /** 1-based attempt number within this entry of the state; a `Retry` increments it, and so does a redrive that resumes the state. */
     attempt: number;
     /** Branches this Parallel started, from the history. Absent for any other state. */
     branchCount?: number;

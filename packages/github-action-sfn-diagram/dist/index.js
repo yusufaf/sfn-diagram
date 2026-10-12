@@ -68955,20 +68955,27 @@ function generateMermaidDiff(params) {
     }
   };
 }
-var FAILURE_EVENT_TYPES = /* @__PURE__ */ new Set([
-  "ActivityFailed",
-  "ActivityScheduleFailed",
-  "ActivityTimedOut",
-  "EvaluationFailed",
-  "LambdaFunctionFailed",
-  "LambdaFunctionScheduleFailed",
-  "LambdaFunctionStartFailed",
-  "LambdaFunctionTimedOut",
-  "TaskFailed",
-  "TaskStartFailed",
-  "TaskSubmitFailed",
-  "TaskTimedOut"
+var TASK_FAILURE_DETAILS = /* @__PURE__ */ new Map([
+  ["ActivityFailed", "activityFailedEventDetails"],
+  ["ActivityScheduleFailed", "activityScheduleFailedEventDetails"],
+  ["ActivityTimedOut", "activityTimedOutEventDetails"],
+  ["EvaluationFailed", "evaluationFailedEventDetails"],
+  ["LambdaFunctionFailed", "lambdaFunctionFailedEventDetails"],
+  ["LambdaFunctionScheduleFailed", "lambdaFunctionScheduleFailedEventDetails"],
+  ["LambdaFunctionStartFailed", "lambdaFunctionStartFailedEventDetails"],
+  ["LambdaFunctionTimedOut", "lambdaFunctionTimedOutEventDetails"],
+  ["TaskFailed", "taskFailedEventDetails"],
+  ["TaskStartFailed", "taskStartFailedEventDetails"],
+  ["TaskSubmitFailed", "taskSubmitFailedEventDetails"],
+  ["TaskTimedOut", "taskTimedOutEventDetails"]
 ]);
+var FAILURE_DETAILS_KEYS = [
+  ...TASK_FAILURE_DETAILS.values(),
+  "executionAbortedEventDetails",
+  "executionFailedEventDetails",
+  "executionTimedOutEventDetails",
+  "mapRunFailedEventDetails"
+];
 var CONTAINER_FAILURE_EVENT_TYPES = /* @__PURE__ */ new Map([
   ["MapRunFailed", {
     enteredType: "MapStateEntered",
@@ -69026,11 +69033,17 @@ function enteredName(event) {
 function exitedName(event) {
   return event.stateExitedEventDetails?.name;
 }
+function failureDetails(event) {
+  for (const key of FAILURE_DETAILS_KEYS) {
+    const details = event[key];
+    if (details) return details;
+  }
+}
 function extractError(event) {
-  return event.taskFailedEventDetails?.error ?? event.lambdaFunctionFailedEventDetails?.error ?? event.activityFailedEventDetails?.error ?? event.executionFailedEventDetails?.error ?? event.taskTimedOutEventDetails?.error ?? event.lambdaFunctionTimedOutEventDetails?.error ?? event.evaluationFailedEventDetails?.error ?? event.mapRunFailedEventDetails?.error ?? void 0;
+  return failureDetails(event)?.error;
 }
 function extractCause(event) {
-  return event.taskFailedEventDetails?.cause ?? event.lambdaFunctionFailedEventDetails?.cause ?? event.activityFailedEventDetails?.cause ?? event.executionFailedEventDetails?.cause ?? event.taskTimedOutEventDetails?.cause ?? event.lambdaFunctionTimedOutEventDetails?.cause ?? event.evaluationFailedEventDetails?.cause ?? event.mapRunFailedEventDetails?.cause ?? void 0;
+  return failureDetails(event)?.cause;
 }
 var EXECUTION_PAYLOAD_CAP = 4096;
 function createPayloadCapture(params) {
@@ -69133,6 +69146,36 @@ function walkExecutionHistory(params) {
     };
     return results[name];
   };
+  const statusTally = /* @__PURE__ */ new Map();
+  const contribute = (name, status) => {
+    const tally = statusTally.get(name) ?? /* @__PURE__ */ new Map();
+    tally.set(status, (tally.get(status) ?? 0) + 1);
+    statusTally.set(name, tally);
+    const result = ensure2(name);
+    result.status = mergeStatus(result.status, status);
+  };
+  const withdrawFailure = (name) => {
+    const tally = statusTally.get(name);
+    if (!tally) return;
+    tally.set("failed", Math.max((tally.get("failed") ?? 0) - 1, 0));
+    ensure2(name).status = [...tally].filter(([, count]) => count > 0).reduce((status, [incoming]) => mergeStatus(status, incoming), "succeeded");
+  };
+  const retired = /* @__PURE__ */ new Set();
+  let resumable = /* @__PURE__ */ new Map();
+  const resumeFrame = (frame, ms) => {
+    resumable.delete(frame.enteredEventId);
+    const result = ensure2(frame.name);
+    result.attempts -= frame.retiredAttempts ?? 0;
+    withdrawFailure(frame.name);
+    frame.failures = Math.max(frame.failures, 1);
+    frame.lastOutcome = void 0;
+    frame.failureClosed = false;
+    frame.failureCounted = false;
+    if (frame.enteredMs !== void 0 && frame.retiredMs !== void 0) frame.enteredMs += ms - frame.retiredMs;
+    openStack.push(frame);
+    openEntry(frame, ms, frame.failures + 1);
+    if (frame.parent) frame.parent.childStarts += 1;
+  };
   const findFrameIndex = (predicate) => {
     for (let i5 = openStack.length - 1; i5 >= 0; i5--) if (predicate(openStack[i5])) return i5;
     return -1;
@@ -69144,6 +69187,11 @@ function walkExecutionHistory(params) {
       seen.add(cursorId);
       const owner = openStack.find((frame) => frame.enteredEventId === cursorId);
       if (owner) return owner;
+      const paused = resumable.get(cursorId);
+      if (paused) {
+        resumeFrame(paused, lastKnownMs);
+        return paused;
+      }
       const prev = eventById.get(cursorId);
       if (!prev?.type) return void 0;
       if (prev.type.endsWith("StateEntered") || prev.type.endsWith("StateExited")) return;
@@ -69191,8 +69239,11 @@ function walkExecutionHistory(params) {
   };
   const closeAsFailed = (frame, ms, fallbackError, cause) => {
     const result = ensure2(frame.name);
-    result.status = mergeStatus(result.status, "failed");
+    contribute(frame.name, "failed");
     result.attempts += Math.max(frame.failures, 1);
+    frame.retiredAttempts = Math.max(frame.failures, 1);
+    frame.retiredMs = ms;
+    if (frame.enteredEventId !== void 0) retired.add(frame);
     const error2 = frame.error ?? fallbackError;
     if (error2 && !result.error) result.error = error2;
     closeEntry(frame, ms, "failed", error2, { cause: frame.payloadCause ?? cause });
@@ -69216,6 +69267,7 @@ function walkExecutionHistory(params) {
         lastEntryIndex: -1,
         name,
         nodeId: resolver ? resolver.resolve(scope, name) : name,
+        parent,
         ...includePayloads ? { payloadInput: capturePayload({
           field: "input",
           raw: event.stateEnteredEventDetails?.input,
@@ -69238,7 +69290,7 @@ function walkExecutionHistory(params) {
       if (parent && from === void 0) parent.childStarts += 1;
       if (type === "FailStateEntered") {
         const result = ensure2(name);
-        result.status = "failed";
+        contribute(name, "failed");
         result.attempts = Math.max(result.attempts, 1);
         closeEntry(frame, nowMs, "failed");
       }
@@ -69256,7 +69308,7 @@ function walkExecutionHistory(params) {
       const wasCaught = frame?.lastOutcome === "failure";
       const failures = frame?.failures ?? 0;
       result.attempts += Math.max(failures + (wasCaught ? 0 : 1), 1);
-      result.status = mergeStatus(result.status, wasCaught ? "caught" : "succeeded");
+      contribute(name, wasCaught ? "caught" : "succeeded");
       if (frame?.error && !result.error) result.error = frame.error;
       if (frame) {
         if (frame.openEntryIndex !== void 0) closeEntry(frame, exitMs ?? nowMs, "succeeded", void 0, { output: includePayloads ? capturePayload({
@@ -69306,9 +69358,21 @@ function walkExecutionHistory(params) {
       }
       continue;
     }
+    if (type === "ExecutionRedriven") {
+      executionStatus = "running";
+      const allAncestorsRetired = (frame) => {
+        for (let ancestor = frame.parent; ancestor; ancestor = ancestor.parent) if (!retired.has(ancestor)) return false;
+        return true;
+      };
+      resumable = new Map([...retired].filter(allAncestorsRetired).map((frame) => [frame.enteredEventId, frame]));
+      retired.clear();
+      const containers = [...resumable.values()].filter((frame) => CONTAINER_ENTERED_TYPES.has(frame.enteredType)).sort((left, right) => left.enteredEventId - right.enteredEventId);
+      for (const container of containers) resumeFrame(container, nowMs);
+      continue;
+    }
     const activeFrame = frameForEvent(event) ?? openStack[openStack.length - 1];
     if (activeFrame !== void 0 && activeFrame.openEntryIndex === void 0 && ATTEMPT_START_EVENT_TYPES.has(type)) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
-    if (FAILURE_EVENT_TYPES.has(type)) {
+    if (TASK_FAILURE_DETAILS.has(type)) {
       if (activeFrame) {
         if (activeFrame.openEntryIndex === void 0) openEntry(activeFrame, nowMs, activeFrame.failures + 1);
         activeFrame.failures += 1;
@@ -69346,7 +69410,7 @@ function walkExecutionHistory(params) {
   }
   for (const frame of openStack) {
     const result = ensure2(frame.name);
-    result.status = mergeStatus(result.status, "running");
+    contribute(frame.name, "running");
     result.attempts += Math.max(frame.failures, 1);
     if (frame.openEntryIndex !== void 0) stampChildCount(frame, entries[frame.openEntryIndex]);
   }

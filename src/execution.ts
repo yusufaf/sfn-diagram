@@ -42,21 +42,41 @@ const TAKEN_EDGE_STYLE: EdgeStyleOverride = { stroke: '#2e7d32', strokeWidth: 3 
 /** Dimming applied to edges the execution did not follow. */
 const UNTAKEN_EDGE_STYLE: EdgeStyleOverride = { strokeOpacity: 0.2 };
 
-/** Task-level events that count as a failed attempt of the active state. */
-const FAILURE_EVENT_TYPES = new Set<string>([
-    'ActivityFailed',
-    'ActivityScheduleFailed',
-    'ActivityTimedOut',
-    'EvaluationFailed',
-    'LambdaFunctionFailed',
-    'LambdaFunctionScheduleFailed',
-    'LambdaFunctionStartFailed',
-    'LambdaFunctionTimedOut',
-    'TaskFailed',
-    'TaskStartFailed',
-    'TaskSubmitFailed',
-    'TaskTimedOut',
+/** A {@link HistoryEvent} key whose details carry a failure's `error` and `cause`. */
+type FailureDetailsKey = {
+    [Key in keyof HistoryEvent]-?: 'error' extends keyof NonNullable<HistoryEvent[Key]> ? Key : never;
+}[keyof HistoryEvent];
+
+/**
+ * Task-level events that count as a failed attempt of the active state, each with the
+ * details key its `error` and `cause` arrive under.
+ *
+ * One table drives both the failure check and the decoding, so a type added here is
+ * decoded without a second edit.
+ */
+const TASK_FAILURE_DETAILS: ReadonlyMap<string, FailureDetailsKey> = new Map<HistoryEventType, FailureDetailsKey>([
+    ['ActivityFailed', 'activityFailedEventDetails'],
+    ['ActivityScheduleFailed', 'activityScheduleFailedEventDetails'],
+    ['ActivityTimedOut', 'activityTimedOutEventDetails'],
+    ['EvaluationFailed', 'evaluationFailedEventDetails'],
+    ['LambdaFunctionFailed', 'lambdaFunctionFailedEventDetails'],
+    ['LambdaFunctionScheduleFailed', 'lambdaFunctionScheduleFailedEventDetails'],
+    ['LambdaFunctionStartFailed', 'lambdaFunctionStartFailedEventDetails'],
+    ['LambdaFunctionTimedOut', 'lambdaFunctionTimedOutEventDetails'],
+    ['TaskFailed', 'taskFailedEventDetails'],
+    ['TaskStartFailed', 'taskStartFailedEventDetails'],
+    ['TaskSubmitFailed', 'taskSubmitFailedEventDetails'],
+    ['TaskTimedOut', 'taskTimedOutEventDetails'],
 ]);
+
+/** Every details key {@link failureDetails} reads: the task-level ones plus the execution- and Map-run-level ones. */
+const FAILURE_DETAILS_KEYS: readonly FailureDetailsKey[] = [
+    ...TASK_FAILURE_DETAILS.values(),
+    'executionAbortedEventDetails',
+    'executionFailedEventDetails',
+    'executionTimedOutEventDetails',
+    'mapRunFailedEventDetails',
+];
 
 /** What a container-level failure event says about the frame it belongs to. */
 interface ContainerFailureEvent {
@@ -167,34 +187,29 @@ function exitedName(event: HistoryEvent): string | undefined {
     return event.stateExitedEventDetails?.name;
 }
 
+/**
+ * The failure details an event carries, whichever of the detail shapes it is.
+ *
+ * Scanned by key rather than looked up by event type: a history puts one details object
+ * on an event, but not always the one its type suggests (a container failure can carry
+ * `executionFailedEventDetails`).
+ */
+function failureDetails(event: HistoryEvent): { cause?: string; error?: string } | undefined {
+    for (const key of FAILURE_DETAILS_KEYS) {
+        const details = event[key];
+        if (details) return details;
+    }
+    return undefined;
+}
+
 /** Extract an error name from any of the failure detail shapes on an event. */
 function extractError(event: HistoryEvent): string | undefined {
-    return (
-        event.taskFailedEventDetails?.error ??
-        event.lambdaFunctionFailedEventDetails?.error ??
-        event.activityFailedEventDetails?.error ??
-        event.executionFailedEventDetails?.error ??
-        event.taskTimedOutEventDetails?.error ??
-        event.lambdaFunctionTimedOutEventDetails?.error ??
-        event.evaluationFailedEventDetails?.error ??
-        event.mapRunFailedEventDetails?.error ??
-        undefined
-    );
+    return failureDetails(event)?.error;
 }
 
 /** Extract a failure's `cause` from any of the failure detail shapes on an event. */
 function extractCause(event: HistoryEvent): string | undefined {
-    return (
-        event.taskFailedEventDetails?.cause ??
-        event.lambdaFunctionFailedEventDetails?.cause ??
-        event.activityFailedEventDetails?.cause ??
-        event.executionFailedEventDetails?.cause ??
-        event.taskTimedOutEventDetails?.cause ??
-        event.lambdaFunctionTimedOutEventDetails?.cause ??
-        event.evaluationFailedEventDetails?.cause ??
-        event.mapRunFailedEventDetails?.cause ??
-        undefined
-    );
+    return failureDetails(event)?.cause;
 }
 
 /**
@@ -282,10 +297,16 @@ interface OpenFrame {
     nodeId: string;
     /** Index in `entries` of this frame's open run, or undefined between attempts. */
     openEntryIndex?: number;
+    /** The container that was open when this frame was entered, if any. */
+    parent?: OpenFrame;
     /** The failure cause this frame recorded, beside `error`. */
     payloadCause?: TimelinePayload;
     /** The state's input, stamped on every attempt of this entry when captured. */
     payloadInput?: TimelinePayload;
+    /** The attempts `closeAsFailed` added to the state's result, so a redrive can take them back. */
+    retiredAttempts?: number;
+    /** When `closeAsFailed` closed this frame, so the wait for a redrive is not counted as duration. */
+    retiredMs?: number;
 }
 
 /** The entered-event types that open a container frame (a Parallel or a Map). */
@@ -446,6 +467,59 @@ function walkExecutionHistory(params: {
         return results[name];
     };
 
+    // A state's status is the worst outcome it has had, which cannot be undone once folded
+    // into a single value. A redrive has to take a failure back, so each outcome is also
+    // counted and the status can be recomputed without it.
+    const statusTally = new Map<string, Map<ExecutionStateStatus, number>>();
+    /** Fold an outcome into a state's status, and count it so it can be withdrawn. */
+    const contribute = (name: string, status: ExecutionStateStatus): void => {
+        const tally = statusTally.get(name) ?? new Map<ExecutionStateStatus, number>();
+        tally.set(status, (tally.get(status) ?? 0) + 1);
+        statusTally.set(name, tally);
+        const result = ensure(name);
+        result.status = mergeStatus(result.status, status);
+    };
+    /** Take one failure back from a state's status, which then reflects what is left. */
+    const withdrawFailure = (name: string): void => {
+        const tally = statusTally.get(name);
+        if (!tally) return;
+        tally.set('failed', Math.max((tally.get('failed') ?? 0) - 1, 0));
+        ensure(name).status = [...tally]
+            .filter(([, count]) => count > 0)
+            .reduce<ExecutionStateStatus>((status, [incoming]) => mergeStatus(status, incoming), 'succeeded');
+    };
+
+    // A redrive appends to the history of the failed run and starts no new `*StateEntered`
+    // for what it picks up again: the resumed Task's events point back at the original
+    // entry. So a frame that `closeAsFailed` retires stays recoverable until a redrive
+    // says which ones to take up.
+    /** Frames closed as failed since the last redrive. */
+    const retired = new Set<OpenFrame>();
+    /** Frames the last redrive can resume, keyed by the event that entered them. */
+    let resumable = new Map<number, OpenFrame>();
+
+    /**
+     * Resume a retired frame as its next attempt, the way a Retry would: the earlier
+     * failure's attempts and status are taken back, its error is kept, and the wait
+     * for the redrive is not counted as the state's duration.
+     */
+    const resumeFrame = (frame: OpenFrame, ms: number): void => {
+        resumable.delete(frame.enteredEventId!);
+        const result = ensure(frame.name);
+        result.attempts -= frame.retiredAttempts ?? 0;
+        withdrawFailure(frame.name);
+        frame.failures = Math.max(frame.failures, 1);
+        frame.lastOutcome = undefined;
+        frame.failureClosed = false;
+        frame.failureCounted = false;
+        if (frame.enteredMs !== undefined && frame.retiredMs !== undefined) {
+            frame.enteredMs += ms - frame.retiredMs;
+        }
+        openStack.push(frame);
+        openEntry(frame, ms, frame.failures + 1);
+        if (frame.parent) frame.parent.childStarts += 1;
+    };
+
     /** Index of the innermost open frame matching `predicate`, or -1. */
     const findFrameIndex = (predicate: (frame: OpenFrame) => boolean): number => {
         for (let i = openStack.length - 1; i >= 0; i--) {
@@ -472,6 +546,13 @@ function walkExecutionHistory(params: {
             seen.add(cursorId);
             const owner = openStack.find((frame) => frame.enteredEventId === cursorId);
             if (owner) return owner;
+            // A redriven leaf is not re-entered: its first event points back at the
+            // original entry, which is how it is found and resumed.
+            const paused = resumable.get(cursorId);
+            if (paused) {
+                resumeFrame(paused, lastKnownMs);
+                return paused;
+            }
             const prev = eventById.get(cursorId);
             if (!prev?.type) return undefined;
             // Reaching another state's boundary means the chain left this run entirely.
@@ -560,8 +641,11 @@ function walkExecutionHistory(params: {
         cause?: TimelinePayload
     ): void => {
         const result = ensure(frame.name);
-        result.status = mergeStatus(result.status, 'failed');
+        contribute(frame.name, 'failed');
         result.attempts += Math.max(frame.failures, 1);
+        frame.retiredAttempts = Math.max(frame.failures, 1);
+        frame.retiredMs = ms;
+        if (frame.enteredEventId !== undefined) retired.add(frame);
         const error = frame.error ?? fallbackError;
         if (error && !result.error) result.error = error;
         // Paired with the error, so an entry never shows one state's error name beside
@@ -593,6 +677,7 @@ function walkExecutionHistory(params: {
                 lastEntryIndex: -1,
                 name,
                 nodeId: resolver ? resolver.resolve(scope, name) : name,
+                parent,
                 ...(includePayloads
                     ? {
                           payloadInput: capturePayload({
@@ -632,7 +717,7 @@ function walkExecutionHistory(params: {
             // Fail states are terminal and never emit a StateExited.
             if (type === 'FailStateEntered') {
                 const result = ensure(name);
-                result.status = 'failed';
+                contribute(name, 'failed');
                 result.attempts = Math.max(result.attempts, 1);
                 closeEntry(frame, nowMs, 'failed');
             }
@@ -665,7 +750,7 @@ function walkExecutionHistory(params: {
             const wasCaught = frame?.lastOutcome === 'failure';
             const failures = frame?.failures ?? 0;
             result.attempts += Math.max(failures + (wasCaught ? 0 : 1), 1);
-            result.status = mergeStatus(result.status, wasCaught ? 'caught' : 'succeeded');
+            contribute(name, wasCaught ? 'caught' : 'succeeded');
             if (frame?.error && !result.error) result.error = frame.error;
             if (frame) {
                 if (frame.openEntryIndex !== undefined) {
@@ -763,6 +848,35 @@ function walkExecutionHistory(params: {
             continue;
         }
 
+        // A redrive picks up where the failed run stopped. It must be handled before the
+        // task-level attribution below, or `frameForEvent` would follow this event's own
+        // chain into a retired leaf and resume it.
+        if (type === 'ExecutionRedriven') {
+            executionStatus = 'running';
+            // Only frames whose every ancestor also failed are resumable. A leaf under a
+            // container whose failure a Catch later handled stays as it ended.
+            const allAncestorsRetired = (frame: OpenFrame): boolean => {
+                for (let ancestor = frame.parent; ancestor; ancestor = ancestor.parent) {
+                    if (!retired.has(ancestor)) return false;
+                }
+                return true;
+            };
+            resumable = new Map(
+                [...retired]
+                    .filter(allAncestorsRetired)
+                    .map((frame) => [frame.enteredEventId!, frame])
+            );
+            retired.clear();
+            // Containers resume now: no event is emitted when one restarts, and the
+            // branch events that follow need it open to be scoped and exited. Outer
+            // before inner.
+            const containers = [...resumable.values()]
+                .filter((frame) => CONTAINER_ENTERED_TYPES.has(frame.enteredType))
+                .sort((left, right) => left.enteredEventId! - right.enteredEventId!);
+            for (const container of containers) resumeFrame(container, nowMs);
+            continue;
+        }
+
         // --- Task-level failure / success attributed to the state the event belongs to ---
         const activeFrame = frameForEvent(event) ?? openStack[openStack.length - 1];
 
@@ -776,7 +890,7 @@ function walkExecutionHistory(params: {
             openEntry(activeFrame, nowMs, activeFrame.failures + 1);
         }
 
-        if (FAILURE_EVENT_TYPES.has(type)) {
+        if (TASK_FAILURE_DETAILS.has(type)) {
             if (activeFrame) {
                 // Each attempt is its own entry: a Retry emits no further StateEntered,
                 // so an attempt's own failure is the only marker of where it ended, and
@@ -844,7 +958,7 @@ function walkExecutionHistory(params: {
     // States entered but never exited on a still-running execution are in progress.
     for (const frame of openStack) {
         const result = ensure(frame.name);
-        result.status = mergeStatus(result.status, 'running');
+        contribute(frame.name, 'running');
         result.attempts += Math.max(frame.failures, 1);
         // Their entries stay open - no `exitedMs`, still `running` - but a container
         // has already started whatever branches or iterations it is waiting on.
@@ -947,6 +1061,9 @@ export interface BuildExecutionTimelineParams {
  *
  * An entry is `running` only if it never closed: on a finished execution that means
  * the state the run was still inside when it ended.
+ *
+ * A redrive resumes the states that failed as their next attempt, so a redriven run
+ * reads like a retried one: the failed run and the resumed run are separate entries.
  */
 export function buildExecutionTimeline(
     params: BuildExecutionTimelineParams

@@ -1,0 +1,14 @@
+{
+  "events": [
+    { "id": 1, "previousEventId": 0, "type": "ExecutionStarted", "timestamp": "2026-10-12T05:47:59.633Z", "executionStartedEventDetails": { "input": "{\"probe\":375}" } },
+    { "id": 2, "previousEventId": 0, "type": "PassStateEntered", "timestamp": "2026-10-12T05:47:59.652Z", "stateEnteredEventDetails": { "name": "Prep", "input": "{\"probe\":375}" } },
+    { "id": 3, "previousEventId": 2, "type": "PassStateExited", "timestamp": "2026-10-12T05:47:59.652Z", "stateExitedEventDetails": { "name": "Prep", "output": "{\"probe\":375}" } },
+    { "id": 4, "previousEventId": 3, "type": "ParallelStateEntered", "timestamp": "2026-10-12T05:47:59.652Z", "stateEnteredEventDetails": { "name": "Fan", "input": "{\"probe\":375}" } },
+    { "id": 5, "previousEventId": 4, "type": "ParallelStateStarted", "timestamp": "2026-10-12T05:47:59.652Z" },
+    { "id": 6, "previousEventId": 5, "type": "PassStateEntered", "timestamp": "2026-10-12T05:47:59.652Z", "stateEnteredEventDetails": { "name": "Left", "input": "{\"probe\":375}" } },
+    { "id": 7, "previousEventId": 6, "type": "PassStateExited", "timestamp": "2026-10-12T05:47:59.652Z", "stateExitedEventDetails": { "name": "Left", "output": "{\"probe\":375}" } },
+    { "id": 8, "previousEventId": 5, "type": "TaskStateEntered", "timestamp": "2026-10-12T05:47:59.652Z", "stateEnteredEventDetails": { "name": "Right", "input": "{\"probe\":375}" } },
+    { "id": 9, "previousEventId": 8, "type": "ActivityScheduled", "timestamp": "2026-10-12T05:47:59.652Z", "activityScheduledEventDetails": { "resource": "arn:aws:states:us-west-2:123456789012:activity:right", "input": "{\"probe\":375}" } },
+    { "id": 10, "previousEventId": 0, "type": "ExecutionAborted", "timestamp": "2026-10-12T05:48:05.095Z", "executionAbortedEventDetails": { "error": "ManualStop", "cause": "probe abort cause" } }
+  ]
+}
