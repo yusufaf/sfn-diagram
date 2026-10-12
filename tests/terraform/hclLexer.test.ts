@@ -133,7 +133,7 @@ describe('tokenizeHcl', () => {
     });
 
     it('strips a leading BOM', () => {
-        expect(textsOf('﻿a = 1')).toEqual(['a', '=', '1']);
+        expect(textsOf(`${String.fromCharCode(0xfeff)}a = 1`)).toEqual(['a', '=', '1']);
     });
 });
 

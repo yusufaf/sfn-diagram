@@ -1191,11 +1191,27 @@ export interface ExtractAslFromTemplateParams {
     template: string | Record<string, unknown>;
 }
 
-/** Result of extracting an ASL definition from a CloudFormation/SAM template. */
+/** Parameters for `extractAslFromTerraform` (from the `sfn-diagram/terraform` subpath). */
+export interface ExtractAslFromTerraformParams {
+    /**
+     * Raw Terraform configuration: HCL (`.tf`) text, `.tf.json` text, or an already-parsed
+     * `.tf.json` object.
+     */
+    config: string | Record<string, unknown>;
+    /** Input format. 'auto' (default) treats text starting with `{` as `.tf.json` and anything else as HCL. */
+    format?: 'auto' | 'hcl' | 'json';
+    /**
+     * Name of the `aws_sfn_state_machine` resource to extract when the configuration has more
+     * than one: the bare name (`orders`) or the address (`aws_sfn_state_machine.orders`).
+     */
+    resourceId?: string;
+}
+
+/** Result of extracting an ASL definition from a CloudFormation/SAM template or Terraform configuration. */
 export interface ExtractAslResult {
     /** The recovered ASL definition, ready for generateSvg/generateMermaid/etc. */
     aslDefinition: AslDefinition;
-    /** Logical id of the state machine that was extracted. */
+    /** CloudFormation logical id, or Terraform resource name, of the state machine that was extracted. */
     resourceId: string;
     /** Non-fatal notes (e.g. unresolved intrinsics replaced with placeholders). */
     warnings: string[];

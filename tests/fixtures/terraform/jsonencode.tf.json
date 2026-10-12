@@ -1,0 +1,17 @@
+{
+  "resource": [
+    {
+      "aws_sfn_state_machine": [
+        {
+          "encoded": [
+            {
+              "name": "encoded",
+              "role_arn": "arn:aws:iam::123456789012:role/sfn",
+              "definition": "${jsonencode({StartAt = \"A\", States = {A = {Type = \"Pass\", Next = \"B\"}, B = {Type = \"Task\", Resource = aws_lambda_function.b.arn, End = true}}})}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

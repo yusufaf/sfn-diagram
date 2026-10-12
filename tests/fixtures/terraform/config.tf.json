@@ -1,0 +1,14 @@
+{
+  "//": "A comment at the root is ignored.",
+  "resource": {
+    "aws_sfn_state_machine": {
+      "//": "So is one at the resource-name level.",
+      "orders": {
+        "//": "And one inside the resource body.",
+        "name": "orders",
+        "role_arn": "arn:aws:iam::123456789012:role/sfn",
+        "definition": "{\"StartAt\":\"Charge\",\"States\":{\"Charge\":{\"Type\":\"Task\",\"Resource\":\"${aws_lambda_function.charge.arn}\",\"Next\":\"Pause\"},\"Pause\":{\"Type\":\"Wait\",\"Seconds\":${var.wait},\"Next\":\"Done\"},\"Done\":{\"Type\":\"Succeed\"}}}"
+      }
+    }
+  }
+}
