@@ -959,6 +959,242 @@ describe('buildExecutionTimeline', () => {
     });
 });
 
+describe('failure details and redrives', () => {
+    /** `nodeId#attempt status` per entry, the shape most assertions here care about. */
+    const summarizeEntries = (timeline: ExecutionTimeline): string[] =>
+        timeline.entries.map((entry) => `${entry.nodeId}#${entry.attempt} ${entry.status}`);
+
+    // Every task-level failure event, with the details key its error and cause arrive under.
+    const taskFailureEvents: [HistoryEvent['type'] & string, keyof HistoryEvent][] = [
+        ['ActivityFailed', 'activityFailedEventDetails'],
+        ['ActivityScheduleFailed', 'activityScheduleFailedEventDetails'],
+        ['ActivityTimedOut', 'activityTimedOutEventDetails'],
+        ['EvaluationFailed', 'evaluationFailedEventDetails'],
+        ['LambdaFunctionFailed', 'lambdaFunctionFailedEventDetails'],
+        ['LambdaFunctionScheduleFailed', 'lambdaFunctionScheduleFailedEventDetails'],
+        ['LambdaFunctionStartFailed', 'lambdaFunctionStartFailedEventDetails'],
+        ['LambdaFunctionTimedOut', 'lambdaFunctionTimedOutEventDetails'],
+        ['TaskFailed', 'taskFailedEventDetails'],
+        ['TaskStartFailed', 'taskStartFailedEventDetails'],
+        ['TaskSubmitFailed', 'taskSubmitFailedEventDetails'],
+        ['TaskTimedOut', 'taskTimedOutEventDetails'],
+    ];
+
+    it.each(taskFailureEvents)('decodes the error and cause of a %s event', (type, detailsKey) => {
+        const timestamp = new Date('2024-01-01T00:00:00.000Z');
+        const events = [
+            { id: 1, previousEventId: 0, timestamp, type: 'ExecutionStarted' },
+            {
+                id: 2,
+                previousEventId: 1,
+                stateEnteredEventDetails: { name: 'Work' },
+                timestamp,
+                type: 'TaskStateEntered',
+            },
+            {
+                id: 3,
+                previousEventId: 2,
+                [detailsKey]: { cause: `C.${type}`, error: `E.${type}` },
+                timestamp,
+                type,
+            },
+            { id: 4, previousEventId: 3, executionFailedEventDetails: {}, timestamp, type: 'ExecutionFailed' },
+        ] as HistoryEvent[];
+
+        const timeline = buildExecutionTimeline({ events, includePayloads: true });
+        const [entry] = timeline.entries;
+
+        expect(`${entry.nodeId}#${entry.attempt} ${entry.status}`).toBe('Work#1 failed');
+        expect(entry.error).toBe(`E.${type}`);
+        expect(entry.cause?.text).toBe(`C.${type}`);
+        expect(parseExecutionHistory({ events }).states.Work.error).toBe(`E.${type}`);
+    });
+
+    it('skips a details object that carries no error to find the one that does', () => {
+        const timestamp = new Date('2024-01-01T00:00:00.000Z');
+        const events = [
+            { id: 1, previousEventId: 0, timestamp, type: 'ExecutionStarted' },
+            {
+                id: 2,
+                previousEventId: 1,
+                stateEnteredEventDetails: { name: 'Work' },
+                timestamp,
+                type: 'TaskStateEntered',
+            },
+            {
+                id: 3,
+                previousEventId: 2,
+                executionFailedEventDetails: { cause: 'the real cause', error: 'TheRealError' },
+                taskFailedEventDetails: {},
+                timestamp,
+                type: 'TaskFailed',
+            },
+            { id: 4, previousEventId: 3, executionFailedEventDetails: {}, timestamp, type: 'ExecutionFailed' },
+        ] as HistoryEvent[];
+
+        const [entry] = buildExecutionTimeline({ events, includePayloads: true }).entries;
+
+        expect(entry.error).toBe('TheRealError');
+        expect(entry.cause?.text).toBe('the real cause');
+    });
+
+    it('never pairs an error with the cause of a different details object', () => {
+        const timestamp = new Date('2024-01-01T00:00:00.000Z');
+        const events = [
+            { id: 1, previousEventId: 0, timestamp, type: 'ExecutionStarted' },
+            {
+                id: 2,
+                previousEventId: 1,
+                stateEnteredEventDetails: { name: 'Work' },
+                timestamp,
+                type: 'TaskStateEntered',
+            },
+            {
+                id: 3,
+                previousEventId: 2,
+                executionFailedEventDetails: { cause: 'another failure', error: 'Other' },
+                taskFailedEventDetails: { error: 'TaskError' },
+                timestamp,
+                type: 'TaskFailed',
+            },
+            { id: 4, previousEventId: 3, executionFailedEventDetails: {}, timestamp, type: 'ExecutionFailed' },
+        ] as HistoryEvent[];
+
+        const [entry] = buildExecutionTimeline({ events, includePayloads: true }).entries;
+
+        expect(entry.error).toBe('TaskError');
+        expect(entry.cause).toBeUndefined();
+    });
+
+    it('reads the error of an execution that timed out', () => {
+        const events = loadEvents('execution-timed-out');
+
+        const overlay = parseExecutionHistory({ events });
+        const timeline = buildExecutionTimeline({ events });
+
+        expect(overlay.executionStatus).toBe('timedOut');
+        expect(overlay.states.Hold.status).toBe('failed');
+        expect(overlay.states.Hold.error).toBe('States.Timeout');
+        expect(summarizeEntries(timeline)).toEqual(['Hold#1 failed']);
+        expect(timeline.entries[0].error).toBe('States.Timeout');
+        expect(timeline.entries[0].cause).toBeUndefined();
+    });
+
+    it('reads the error and cause an abort carried', () => {
+        const events = loadEvents('execution-aborted');
+        const definition = loadAsl('redrive');
+
+        const overlay = parseExecutionHistory({ definition, events });
+        const timeline = buildExecutionTimeline({ definition, events, includePayloads: true });
+        const entryFor = (nodeId: string) => timeline.entries.find((entry) => entry.nodeId === nodeId)!;
+
+        expect(overlay.executionStatus).toBe('aborted');
+        expect(overlay.states.Fan.error).toBe('ManualStop');
+        expect(overlay.states.Right.error).toBe('ManualStop');
+        for (const nodeId of ['Fan', 'Right']) {
+            expect(entryFor(nodeId).status).toBe('failed');
+            expect(entryFor(nodeId).error).toBe('ManualStop');
+            expect(entryFor(nodeId).cause?.text).toBe('probe abort cause');
+        }
+    });
+
+    describe('a redriven execution', () => {
+        const definition = loadAsl('redrive');
+        const events = loadEvents('execution-redriven');
+
+        it('resumes the states a redrive picks up as their next attempt', () => {
+            const timeline = buildExecutionTimeline({ definition, events });
+            const entryFor = (nodeId: string, attempt: number) =>
+                timeline.entries.find((entry) => entry.nodeId === nodeId && entry.attempt === attempt)!;
+
+            expect(timeline.status).toBe('succeeded');
+            expect(summarizeEntries(timeline)).toEqual([
+                'Prep#1 succeeded',
+                'Fan#1 failed',
+                'Left#1 succeeded',
+                'Right#1 failed',
+                'Fan#2 succeeded',
+                'Right#2 succeeded',
+                'Work#1 failed',
+                'Work#2 succeeded',
+                'Done#1 succeeded',
+            ]);
+            expect(entryFor('Fan', 1).branchCount).toBe(2);
+            expect(entryFor('Fan', 2).branchCount).toBe(1);
+        });
+
+        it('reports a redriven state by its final outcome, like a retried one', () => {
+            const overlay = parseExecutionHistory({ definition, events });
+
+            expect(overlay.executionStatus).toBe('succeeded');
+            for (const name of ['Fan', 'Right', 'Work']) {
+                expect(overlay.states[name].status).toBe('succeeded');
+                expect(overlay.states[name].attempts).toBe(2);
+            }
+            // The earlier failure's name is kept, as it is for a retried state.
+            expect(overlay.states.Right.error).toBe('RightFailed');
+            expect(overlay.states.Work.error).toBe('WorkFailed');
+            // The time between the failure and the redrive is not the state's duration.
+            expect(overlay.states.Fan.durationMs).toBe(8953);
+            expect(overlay.states.Right.durationMs).toBe(8916);
+        });
+
+        it('shows a redrive still in flight as running', () => {
+            const inFlight = events.slice(0, 16);
+
+            const overlay = parseExecutionHistory({ definition, events: inFlight });
+            const timeline = buildExecutionTimeline({ definition, events: inFlight });
+
+            expect(overlay.executionStatus).toBe('running');
+            expect(overlay.states.Fan.status).toBe('running');
+            expect(overlay.states.Right.status).toBe('running');
+            expect(timeline.status).toBe('running');
+            expect(summarizeEntries(timeline).slice(-2)).toEqual(['Fan#2 running', 'Right#2 running']);
+        });
+
+        it('does not resume a container whose failure a Catch already handled', () => {
+            const at = (second: number) => new Date(Date.UTC(2024, 0, 1, 0, 0, second));
+            const redriveEvents = [
+                { id: 1, previousEventId: 0, timestamp: at(0), type: 'ExecutionStarted' },
+                { id: 2, previousEventId: 0, stateEnteredEventDetails: { name: 'Outer' }, timestamp: at(1), type: 'ParallelStateEntered' },
+                { id: 3, previousEventId: 2, timestamp: at(1), type: 'ParallelStateStarted' },
+                { id: 4, previousEventId: 3, stateEnteredEventDetails: { name: 'Inner' }, timestamp: at(2), type: 'ParallelStateEntered' },
+                { id: 5, previousEventId: 4, timestamp: at(2), type: 'ParallelStateStarted' },
+                { id: 6, previousEventId: 5, stateEnteredEventDetails: { name: 'Leaf' }, timestamp: at(3), type: 'TaskStateEntered' },
+                { id: 7, previousEventId: 6, timestamp: at(3), type: 'TaskScheduled' },
+                { id: 8, previousEventId: 7, taskFailedEventDetails: { error: 'LeafFailed' }, timestamp: at(4), type: 'TaskFailed' },
+                { id: 9, previousEventId: 8, timestamp: at(4), type: 'ParallelStateFailed' },
+                { id: 10, previousEventId: 9, timestamp: at(4), type: 'ParallelStateFailed' },
+                { id: 11, previousEventId: 10, stateExitedEventDetails: { name: 'Outer' }, timestamp: at(5), type: 'ParallelStateExited' },
+                { id: 12, previousEventId: 11, stateEnteredEventDetails: { name: 'Work' }, timestamp: at(6), type: 'TaskStateEntered' },
+                { id: 13, previousEventId: 12, timestamp: at(6), type: 'TaskScheduled' },
+                { id: 14, previousEventId: 13, taskFailedEventDetails: { error: 'WorkFailed' }, timestamp: at(7), type: 'TaskFailed' },
+                { id: 15, previousEventId: 14, executionFailedEventDetails: { error: 'WorkFailed' }, timestamp: at(7), type: 'ExecutionFailed' },
+                { id: 16, previousEventId: 15, executionRedrivenEventDetails: { redriveCount: 1 }, timestamp: at(20), type: 'ExecutionRedriven' },
+                { id: 17, previousEventId: 12, timestamp: at(21), type: 'TaskScheduled' },
+                { id: 18, previousEventId: 17, timestamp: at(22), type: 'TaskSucceeded' },
+                { id: 19, previousEventId: 18, stateExitedEventDetails: { name: 'Work' }, timestamp: at(22), type: 'TaskStateExited' },
+                { id: 20, previousEventId: 19, timestamp: at(22), type: 'ExecutionSucceeded' },
+            ] as HistoryEvent[];
+
+            const overlay = parseExecutionHistory({ events: redriveEvents });
+            const timeline = buildExecutionTimeline({ events: redriveEvents });
+
+            const tallies = Object.entries(overlay.states).map(
+                ([name, state]) => `${name}:${state.status}x${state.attempts}`,
+            );
+            expect(tallies).toEqual(['Outer:caughtx1', 'Inner:failedx1', 'Leaf:failedx1', 'Work:succeededx2']);
+            expect(summarizeEntries(timeline)).toEqual([
+                'Outer#1 caught',
+                'Inner#1 failed',
+                'Leaf#1 failed',
+                'Work#1 failed',
+                'Work#2 succeeded',
+            ]);
+        });
+    });
+});
+
 describe('generateExecution (SVG overlay)', () => {
     it('colours states by status and dims untaken edges', () => {
         const result = generateExecution({
@@ -994,6 +1230,16 @@ describe('generateExecution (SVG overlay)', () => {
         expect(result.metadata.caught).toContain('ParallelExecution');
         // The running blue must be gone from a finished run.
         expect(result.svg).not.toContain('#bbdefb');
+    });
+
+    it('paints the states a redrive resumed as succeeded, not failed', () => {
+        const result = generateExecution({
+            aslDefinition: loadAsl('redrive'),
+            history: loadHistoryJson('execution-redriven'),
+        });
+
+        expect(result.metadata.failed).toEqual([]);
+        expect(result.metadata.succeeded).toEqual(expect.arrayContaining(['Fan', 'Right', 'Work']));
     });
 
     it('reports the ordered timeline alongside the status summary', () => {

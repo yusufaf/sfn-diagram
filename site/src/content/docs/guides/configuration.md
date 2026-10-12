@@ -361,7 +361,8 @@ Big, branchy state machines are hard to read as a static image. A few options he
   `buildExecutionTimeline()` computes the same thing from a history alone. Every
   `Retry` attempt, Map iteration and pass through a Parallel branch is its own entry,
   in the order the execution entered them, carrying the node id the diagram stamps as
-  `data-state-id`:
+  `data-state-id`. A redriven execution resumes where it failed: each resumed state gets
+  its next attempt, so a redrive reads like a `Retry`:
 
   ```typescript
   import { buildExecutionTimeline } from 'sfn-diagram';

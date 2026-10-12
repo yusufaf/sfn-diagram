@@ -1,0 +1,21 @@
+{
+  "StartAt": "Prep",
+  "States": {
+    "Prep": { "Type": "Pass", "Next": "Fan" },
+    "Fan": {
+      "Type": "Parallel",
+      "Next": "Work",
+      "Branches": [
+        { "StartAt": "Left", "States": { "Left": { "Type": "Pass", "End": true } } },
+        {
+          "StartAt": "Right",
+          "States": {
+            "Right": { "Type": "Task", "Resource": "arn:aws:states:us-west-2:123456789012:activity:right", "End": true }
+          }
+        }
+      ]
+    },
+    "Work": { "Type": "Task", "Resource": "arn:aws:states:us-west-2:123456789012:activity:work", "Next": "Done" },
+    "Done": { "Type": "Succeed" }
+  }
+}

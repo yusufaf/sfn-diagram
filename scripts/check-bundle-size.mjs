@@ -62,6 +62,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `cfn.js`/`cfn.cjs` were last restated at 14,600 / 4,900 when `DefinitionSubstitutions` gained
  * value resolution and a definition-wide pass (#377), which put cfn.cjs at 13,286 raw and
  * 4,480 gzip against the previous 9,800 / 3,600 budget.
+ *
+ * `ci.js`/`ci.cjs` were last restated at 319,000 / 93,100 when the execution overlay gained
+ * redrive handling and a decoder for every failure event (#375), which took ci.cjs from
+ * 286,322 to 290,001 raw and from 83,469 to 84,611 gzip. The previous 287,000 / 83,500 left it
+ * at 0.0% gzip headroom before that change landed.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
@@ -69,8 +74,8 @@ export const BUNDLE_BUDGETS = {
     'bin.js': { gzip: 228000, raw: 776500 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
-    'ci.cjs': { gzip: 83500, raw: 287000 },
-    'ci.js': { gzip: 83500, raw: 287000 },
+    'ci.cjs': { gzip: 93100, raw: 319000 },
+    'ci.js': { gzip: 93100, raw: 319000 },
     'element-auto.cjs': { gzip: 107000, raw: 373000 },
     'element-auto.js': { gzip: 107000, raw: 373000 },
     'element.cjs': { gzip: 107000, raw: 373000 },
