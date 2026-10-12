@@ -174,10 +174,10 @@ $ echo $?
 
 ### `comment gitlab` does not read it
 
-The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags. Its options are
-CI-shaped (`--asl-glob`, `--comment-tag`, `--output-dir`, `--execution-mode`) and mostly
-disjoint from the render options, and a file on disk quietly changing what a pipeline
-posts to a merge request is worse than restating a flag in the job.
+The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags: the CI-shaped ones
+(`--asl-glob`, `--comment-tag`, `--out-dir`, `--execution-mode`) plus the render flags it
+shares with the main CLI. A file on disk quietly changing what a pipeline posts to a
+merge request is worse than restating a flag in the job.
 
 ## Rendering several files
 

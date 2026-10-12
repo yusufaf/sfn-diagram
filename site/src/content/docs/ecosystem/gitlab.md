@@ -22,11 +22,11 @@ sfn-preview:
     when: on_success
 ```
 
-Options: `--asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `--comment-tag` (marker used to find/update the note, default `sfn-diagram-preview`), `--theme`, `--hide-catch`, `--output-dir` (default `sfn-diagram-artifacts`). Run `sfn-diagram comment gitlab --help` for the full list, including the `execution-mode` / `state-machine-arn` overlay (same idea as the GitHub Action's).
+Options: `--asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `--comment-tag` (marker used to find/update the note, default `sfn-diagram-preview`), `--theme`, `--layout`, `--collapse` (bare for every container, or `--collapse=GroupA,GroupB`), `--hide-catch`, `--out-dir` (default `sfn-diagram-artifacts`; `--output-dir` still works). Every value flag also takes the `--flag=value` form. Run `sfn-diagram comment gitlab --help` for the full list, including the `execution-mode` / `state-machine-arn` overlay (same idea as the GitHub Action's).
 
 ## The Mermaid size limit
 
-GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--output-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `comment gitlab`'s own `--hide-catch` can shrink a plain added/deleted file's diagram back under the limit; it has no effect on a diff diagram, which the underlying library renders without size-affecting options. (The plain `sfn-diagram` CLI also has a `--collapse` flag, but `comment gitlab` doesn't expose it.)
+GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--out-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `--hide-catch` and `--collapse` can shrink a plain added/deleted file's diagram back under the limit; neither affects a diff diagram, which the underlying library renders without size-affecting options (`--layout` does apply to diffs).
 
 ## Posting the comment
 

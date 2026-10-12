@@ -14,7 +14,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateDiff } from '../diff';
 import { generateSvg } from '../index';
-import type { AslDefinition, CatchHandling, ThemeOption } from '../types';
+import type {
+    AslDefinition,
+    CatchHandling,
+    LayoutDirection,
+    ThemeOption,
+} from '../types';
 import {
     assembleCommentBody,
     buildAslFileSection,
@@ -196,8 +201,10 @@ export interface RunGitlabCommentParams {
     /** Comma-separated glob patterns matching ASL definition files. */
     aslGlob: string;
     awsRegion?: string;
-    /** Drop error-handler (Catch) branches — shrinks plain (added/deleted) diagrams; has no effect on a diff diagram, which takes no render options. */
+    /** Drop error-handler (Catch) branches — shrinks plain (added/deleted) diagrams. A diff diagram ignores catch handling and collapse but still honours layout and theme. */
     catchHandling?: CatchHandling;
+    /** Collapse Parallel/Map containers into one node: `true` for every container, or the names of the ones to collapse. Plain (added/deleted) diagrams only. */
+    collapse?: boolean | string[];
     /** Unique tag used to find/update this run's note on later pushes. */
     commentTag: string;
     cwd?: string;
@@ -205,6 +212,8 @@ export interface RunGitlabCommentParams {
     executionMode: ExecutionMode;
     /** Injectable for tests; defaults to the global `fetch`. */
     fetchImpl?: typeof fetch;
+    /** Layout direction for every diagram, diffs included. */
+    layout?: LayoutDirection;
     /** Where SVG fallback diagrams are written once the report exceeds GitLab's inline Mermaid budget. */
     outputDir: string;
     stateMachineArn: string;
@@ -232,11 +241,13 @@ export async function runGitlabComment(
         aslGlob,
         awsRegion,
         catchHandling,
+        collapse,
         commentTag,
         cwd = process.cwd(),
         env = process.env,
         executionMode,
         fetchImpl = fetch,
+        layout,
         outputDir,
         stateMachineArn,
         theme,
@@ -314,7 +325,7 @@ export async function runGitlabComment(
 
         const section = buildAslFileSection(
             { afterAsl, beforeAsl, filename: file.filename },
-            { catchHandling, theme },
+            { catchHandling, collapse, layout, theme },
         );
         if (section) sections.push(section);
     }
@@ -378,7 +389,13 @@ export async function runGitlabComment(
             const parsed = parsedByFilename.get(section.filename);
             if (!parsed) continue;
 
-            const svg = renderFallbackSvg({ ...parsed, catchHandling, theme });
+            const svg = renderFallbackSvg({
+                ...parsed,
+                catchHandling,
+                collapse,
+                layout,
+                theme,
+            });
             if (!svg) continue;
 
             const artifactPath = join(
@@ -440,24 +457,37 @@ export async function runGitlabComment(
     return { exitCode: 0, logs };
 }
 
-function renderFallbackSvg(params: {
+interface RenderFallbackSvgParams {
     afterAsl: AslDefinition | null;
     beforeAsl: AslDefinition | null;
     catchHandling?: CatchHandling;
+    collapse?: boolean | string[];
+    layout?: LayoutDirection;
     theme: ThemeOption;
-}): string | null {
-    const { afterAsl, beforeAsl, catchHandling, theme } = params;
+}
+
+function renderFallbackSvg(params: RenderFallbackSvgParams): string | null {
+    const { afterAsl, beforeAsl, catchHandling, collapse, layout, theme } =
+        params;
 
     if (afterAsl && beforeAsl) {
-        return generateDiff({ after: afterAsl, before: beforeAsl, theme }).svg;
+        // Layout and theme only, matching the inline diff section (see buildReport's diff branch).
+        return generateDiff({
+            after: afterAsl,
+            before: beforeAsl,
+            layout,
+            theme,
+        }).svg;
     }
-    if (afterAsl) {
-        return generateSvg({ aslDefinition: afterAsl, catchHandling, theme })
-            .svg;
-    }
-    if (beforeAsl) {
-        return generateSvg({ aslDefinition: beforeAsl, catchHandling, theme })
-            .svg;
+    const aslDefinition = afterAsl ?? beforeAsl;
+    if (aslDefinition) {
+        return generateSvg({
+            aslDefinition,
+            catchHandling,
+            collapse,
+            layout,
+            theme,
+        }).svg;
     }
     return null;
 }
