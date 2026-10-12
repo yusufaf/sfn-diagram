@@ -296,6 +296,9 @@ describe('deriveOutputName', () => {
         ['template.yml', 'svg', 'template.svg'],
         ['machine.json', 'svg', 'machine.svg'],
         ['machine.asl.yaml', 'svg', 'machine.svg'],
+        ['main.tf', 'svg', 'main.svg'],
+        ['infra/main.tf.json', 'svg', 'main.svg'],
+        ['MAIN.TF', 'mermaid', 'MAIN.mmd'],
     ] as const)('maps %s at --format %s to %s', (input, format, expected) => {
         expect(deriveOutputName({ format, input })).toBe(expected);
     });

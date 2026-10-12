@@ -25,6 +25,12 @@ interface BarePackagesReachableFromParams {
     entry: string;
 }
 
+/** Parameters for {@link nodeSpecifiersReachableFrom}. */
+interface NodeSpecifiersReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
 /** Reduce a specifier to the package that installs it, keeping the scope. */
 function packageNameOf(specifier: string): string {
     const segments = specifier.split('/');
@@ -144,9 +150,41 @@ function resolveLocalModule(fromFile: string, specifier: string): string {
 function barePackagesReachableFrom(
     params: BarePackagesReachableFromParams,
 ): Set<string> {
+    const bare = new Set<string>();
+    for (const specifier of externalSpecifiersReachableFrom(params)) {
+        if (!specifier.startsWith('node:')) bare.add(packageNameOf(specifier));
+    }
+    return bare;
+}
+
+/**
+ * Every `node:` specifier the transitive runtime-import graph of an entry reaches.
+ * Node built-ins cost an installer nothing, but they break browsers and edge runtimes, so an
+ * entry documented as platform-agnostic must reach none.
+ *
+ * @param params - The entry module to walk from.
+ * @returns The `node:` specifiers, e.g. `['node:fs']`; empty when the entry is platform-agnostic.
+ *
+ * @example
+ * ```typescript
+ * nodeSpecifiersReachableFrom({ entry: join(repoRoot, 'src/bin.ts') }).includes('node:fs'); // true
+ * ```
+ */
+function nodeSpecifiersReachableFrom(
+    params: NodeSpecifiersReachableFromParams,
+): string[] {
+    return externalSpecifiersReachableFrom(params)
+        .filter((specifier) => specifier.startsWith('node:'))
+        .sort();
+}
+
+/** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
+function externalSpecifiersReachableFrom(
+    params: NodeSpecifiersReachableFromParams,
+): string[] {
     const { entry } = params;
     const visited = new Set<string>();
-    const bare = new Set<string>();
+    const external = new Set<string>();
     const queue = [entry];
 
     while (queue.length > 0) {
@@ -155,18 +193,16 @@ function barePackagesReachableFrom(
         visited.add(file);
 
         for (const specifier of runtimeSpecifiersOf(file)) {
-            if (specifier.startsWith('node:')) continue;
-
             if (specifier.startsWith('.')) {
                 queue.push(resolveLocalModule(file, specifier));
                 continue;
             }
 
-            bare.add(packageNameOf(specifier));
+            external.add(specifier);
         }
     }
 
-    return bare;
+    return [...external];
 }
 
 describe("the browser-facing entries' runtime dependency surface", () => {
@@ -204,6 +240,28 @@ describe("the browser-facing entries' runtime dependency surface", () => {
                 entry: join(repoRoot, 'src/ci/index.ts'),
             }).has('minimatch'),
         ).toBe(true);
+    });
+
+    it('keeps the terraform entry free of packages, so its "no dependencies" claim holds', () => {
+        expect([
+            ...barePackagesReachableFrom({
+                entry: join(repoRoot, 'src/terraform.ts'),
+            }),
+        ]).toEqual([]);
+    });
+
+    it('keeps the terraform entry free of node: built-ins, so it runs in browsers and edge runtimes', () => {
+        expect(
+            nodeSpecifiersReachableFrom({
+                entry: join(repoRoot, 'src/terraform.ts'),
+            }),
+        ).toEqual([]);
+        // The walker must see node: imports at all, or the assertion above proves nothing.
+        expect(
+            nodeSpecifiersReachableFrom({
+                entry: join(repoRoot, 'src/bin.ts'),
+            }),
+        ).toContain('node:fs');
     });
 
     it('reaches both from the CLI, which is why neither can be an optional peer', () => {

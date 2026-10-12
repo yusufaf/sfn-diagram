@@ -13,6 +13,7 @@ raw Markdown by appending `.md` to its URL.
 | `sfn-diagram/png` | `exportPng` | Node only |
 | `sfn-diagram/aws` | `fetchExecutionHistory` | Node only |
 | `sfn-diagram/cfn` | `extractAslFromTemplate` for CloudFormation/SAM/CDK | Node, browser, edge |
+| `sfn-diagram/terraform` | `extractAslFromTerraform` for Terraform `aws_sfn_state_machine` (`.tf`, `.tf.json`) | Node, browser, edge |
 | `sfn-diagram/ci` | `assembleCommentBody`, `getChangedAslFiles`, `fetchExecutionForOverlay`, `runGitlabComment` — CI/PR comment building blocks | Node only |
 | `sfn-diagram/element` | `SfnDiagramElement`, `defineSfnDiagram` — the `<sfn-diagram>` custom element, no registration side effect | Browser only |
 | `sfn-diagram/element/auto` | Side-effect-only: registers `<sfn-diagram>` on import | Browser only |

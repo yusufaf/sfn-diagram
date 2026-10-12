@@ -67,7 +67,7 @@ export default defineConfig({
             },
             customCss: ['./src/styles/custom.css'],
             description:
-                'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, or live AWS state machines.',
+                'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, Terraform configs, or live AWS state machines.',
             editLink: {
                 baseUrl: 'https://github.com/yusufaf/sfn-diagram/edit/main/site/',
             },
@@ -78,6 +78,7 @@ export default defineConfig({
                         '../src/png.ts',
                         '../src/aws.ts',
                         '../src/cfn.ts',
+                        '../src/terraform.ts',
                         '../src/ci/index.ts',
                         '../src/element/index.ts',
                     ],
@@ -116,10 +117,10 @@ export default defineConfig({
                 }),
                 starlightLlmsTxt({
                     description:
-                        'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL (Amazon States Language) definitions, CloudFormation/SAM/CDK templates, or live AWS state machines. Runs in Node, the browser, and edge runtimes.',
+                        'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL (Amazon States Language) definitions, CloudFormation/SAM/CDK templates, Terraform configs, or live AWS state machines. Runs in Node, the browser, and edge runtimes.',
                     details: [
                         'Core (`sfn-diagram`) is platform-agnostic. Only `sfn-diagram/png` and the CLI are Node-only.',
-                        'Four entry points: `sfn-diagram` (SVG/Mermaid/HTML), `sfn-diagram/png`, `sfn-diagram/aws`, `sfn-diagram/cfn`.',
+                        'Entry points: `sfn-diagram` (SVG/Mermaid/HTML), `sfn-diagram/png`, `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`, `sfn-diagram/ci`, `sfn-diagram/element`, `sfn-diagram/element/auto`.',
                     ].join('\n'),
                     demote: ['ecosystem/**'],
                     // `exclude` applies to llms-small.txt only — llms-full.txt is

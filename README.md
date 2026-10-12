@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://img.shields.io/badge/docs-sfn.yusufaf.dev-brightgreen)](https://sfn.yusufaf.dev)
 
-Generate diagrams from AWS Step Functions ASL (Amazon States Language) definitions, CloudFormation/SAM/CDK templates, or live AWS state machines. Outputs SVG, Mermaid, standalone HTML, and PNG.
+Generate diagrams from AWS Step Functions ASL (Amazon States Language) definitions, CloudFormation/SAM/CDK templates, Terraform configs, or live AWS state machines. Outputs SVG, Mermaid, standalone HTML, and PNG.
 
 **📖 [Documentation](https://sfn.yusufaf.dev)** · **▶ [Live playground](https://sfn.yusufaf.dev/playground/)** — paste any ASL definition and preview the diagram instantly, no install required.
 
@@ -81,7 +81,7 @@ There's no shortage of ways to look at a state machine — this is where sfn-dia
 
 | | **sfn-diagram** | AWS Console visualizer | Mermaid Live Editor |
 |---|---|---|---|
-| Input | ASL, CloudFormation/SAM/CDK templates, live AWS state machines | Deployed state machine only | Manual Mermaid you write by hand |
+| Input | ASL, CloudFormation/SAM/CDK templates, Terraform configs, live AWS state machines | Deployed state machine only | Manual Mermaid you write by hand |
 | Output | SVG, Mermaid, PNG, interactive HTML | Static graph in-browser | Mermaid diagram only |
 | CI / PR integration | [GitHub Action](https://sfn.yusufaf.dev/ecosystem/github-action/) or [GitLab CI](https://sfn.yusufaf.dev/ecosystem/gitlab/) posts a diff overlay on every PR/MR that touches ASL | None | None |
 | Execution overlays | Paints a real run's path/status/duration onto the diagram | Basic per-execution highlighting, console-only | Not applicable |

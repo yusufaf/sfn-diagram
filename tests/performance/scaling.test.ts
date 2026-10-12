@@ -3,6 +3,8 @@ import { generateSvg, generateMermaid } from '../../src';
 import { parseAsl } from '../../src/AslParser';
 import { computeCollapsePlan } from '../../src/graph';
 import { applySubstitutions, resolveIntrinsics } from '../../src/cfn/intrinsics';
+import { evaluateHclLiteral } from '../../src/terraform/hclExpression';
+import { tokenizeHcl } from '../../src/terraform/hclLexer';
 import type { AslDefinition, AslState } from '../../src';
 import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
 
@@ -258,6 +260,64 @@ describe('Fn::Sub substitution scaling', () => {
 
         const small = Math.max(timeApply(8000), 0.5);
         const large = timeApply(32000);
+
+        expect(large / small).toBeLessThan(8);
+    });
+});
+
+describe('Terraform scanning', () => {
+    // Terraform files are untrusted input to the CLI, the library and the Action, like CFN
+    // templates (#352). The HCL lexer must visit each character once: a scanner that rescans
+    // from the next character after a failed `${` or `%{` is quadratic. Asserted as a ratio
+    // (4x the input costs ~4x when linear, ~16x when quadratic; 8 sits clear of both).
+    function timeTokenize(source: string): number {
+        return minTimeMs({
+            fn: () => {
+                try {
+                    tokenizeHcl({ source });
+                } catch {
+                    // Inputs built to be rejected must be rejected in linear time too.
+                }
+            },
+        });
+    }
+
+    function expectLinear(build: (repeats: number) => string): void {
+        timeTokenize(build(8000)); // warm up, so JIT cost does not land on the first measurement
+        const small = Math.max(timeTokenize(build(8000)), 0.5);
+        const large = timeTokenize(build(32000));
+        expect(large / small).toBeLessThan(8);
+    }
+
+    test('a heredoc full of interpolations scans in linear time', () => {
+        expectLinear((repeats) => `x = <<EOF\n${'"a": "${x.y}",'.repeat(repeats)}\nEOF\n`);
+    });
+
+    test('a quoted string full of interpolations scans in linear time', () => {
+        expectLinear((repeats) => `x = "${'a${x}'.repeat(repeats)}"`);
+    });
+
+    test('an unterminated %{ directive is rejected in linear time', () => {
+        expectLinear((repeats) => `x = <<EOF\n%{ ${'a '.repeat(repeats)}\nEOF\n`);
+        expectLinear((repeats) => `x = "%{ ${'a '.repeat(repeats)}"`);
+    });
+
+    test('repeated "%{" is rejected in linear time', () => {
+        expectLinear((repeats) => `x = <<EOF\n${'%{'.repeat(repeats)}\nEOF\n`);
+        expectLinear((repeats) => `x = "${'%{'.repeat(repeats)}"`);
+    });
+
+    test('a jsonencode object with many keys evaluates in linear time', () => {
+        function timeEvaluate(repeats: number): number {
+            const keys = Array.from({ length: repeats }, (_, index) => `k${index} = ${index}`);
+            const source = `{\n${keys.join('\n')}\n}`;
+            const tokens = tokenizeHcl({ source }).filter((token) => token.kind !== 'eof');
+            return minTimeMs({ fn: () => evaluateHclLiteral({ source, tokens }) });
+        }
+
+        timeEvaluate(8000);
+        const small = Math.max(timeEvaluate(8000), 0.5);
+        const large = timeEvaluate(32000);
 
         expect(large / small).toBeLessThan(8);
     });

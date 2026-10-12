@@ -1,7 +1,7 @@
 {
   "name": "sfn-diagram",
   "version": "1.8.0",
-  "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, or live AWS state machines",
+  "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, Terraform configs, or live AWS state machines",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
   "sideEffects": [
@@ -55,6 +55,16 @@
         "default": "./dist/cfn.cjs"
       }
     },
+    "./terraform": {
+      "import": {
+        "types": "./dist/terraform.d.ts",
+        "default": "./dist/terraform.js"
+      },
+      "require": {
+        "types": "./dist/terraform.d.cts",
+        "default": "./dist/terraform.cjs"
+      }
+    },
     "./ci": {
       "import": {
         "types": "./dist/ci.d.ts",
@@ -96,6 +106,9 @@
       ],
       "cfn": [
         "./dist/cfn.d.ts"
+      ],
+      "terraform": [
+        "./dist/terraform.d.ts"
       ],
       "ci": [
         "./dist/ci.d.ts"
