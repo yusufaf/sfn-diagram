@@ -69,7 +69,7 @@ const TASK_FAILURE_DETAILS: ReadonlyMap<string, FailureDetailsKey> = new Map<His
     ['TaskTimedOut', 'taskTimedOutEventDetails'],
 ]);
 
-/** Every details key {@link failureField} reads: the task-level ones plus the execution- and Map-run-level ones. */
+/** Every details key {@link failureDetails} reads: the task-level ones plus the execution- and Map-run-level ones. */
 const FAILURE_DETAILS_KEYS: readonly FailureDetailsKey[] = [
     ...TASK_FAILURE_DETAILS.values(),
     'executionAbortedEventDetails',
@@ -188,29 +188,30 @@ function exitedName(event: HistoryEvent): string | undefined {
 }
 
 /**
- * The first `error` or `cause` any of an event's failure detail shapes carries.
+ * The failure details an event carries, whichever of the detail shapes it is.
  *
  * Scanned by key rather than looked up by event type: a history puts one details object
  * on an event, but not always the one its type suggests (a container failure can carry
- * `executionFailedEventDetails`). A details object that lacks the field is skipped, so an
- * empty one never hides a populated one beside it.
+ * `executionFailedEventDetails`). A details object with neither an `error` nor a `cause`
+ * is skipped, so an empty one never hides a populated one beside it. Both fields come
+ * from the one object, so an error is never paired with another failure's cause.
  */
-function failureField(event: HistoryEvent, field: 'cause' | 'error'): string | undefined {
+function failureDetails(event: HistoryEvent): { cause?: string; error?: string } | undefined {
     for (const key of FAILURE_DETAILS_KEYS) {
-        const value = event[key]?.[field];
-        if (value !== undefined) return value;
+        const details = event[key];
+        if (details?.error !== undefined || details?.cause !== undefined) return details;
     }
     return undefined;
 }
 
 /** Extract an error name from any of the failure detail shapes on an event. */
 function extractError(event: HistoryEvent): string | undefined {
-    return failureField(event, 'error');
+    return failureDetails(event)?.error;
 }
 
 /** Extract a failure's `cause` from any of the failure detail shapes on an event. */
 function extractCause(event: HistoryEvent): string | undefined {
-    return failureField(event, 'cause');
+    return failureDetails(event)?.cause;
 }
 
 /**

@@ -1038,6 +1038,34 @@ describe('failure details and redrives', () => {
         expect(entry.cause?.text).toBe('the real cause');
     });
 
+    it('never pairs an error with the cause of a different details object', () => {
+        const timestamp = new Date('2024-01-01T00:00:00.000Z');
+        const events = [
+            { id: 1, previousEventId: 0, timestamp, type: 'ExecutionStarted' },
+            {
+                id: 2,
+                previousEventId: 1,
+                stateEnteredEventDetails: { name: 'Work' },
+                timestamp,
+                type: 'TaskStateEntered',
+            },
+            {
+                id: 3,
+                previousEventId: 2,
+                executionFailedEventDetails: { cause: 'another failure', error: 'Other' },
+                taskFailedEventDetails: { error: 'TaskError' },
+                timestamp,
+                type: 'TaskFailed',
+            },
+            { id: 4, previousEventId: 3, executionFailedEventDetails: {}, timestamp, type: 'ExecutionFailed' },
+        ] as HistoryEvent[];
+
+        const [entry] = buildExecutionTimeline({ events, includePayloads: true }).entries;
+
+        expect(entry.error).toBe('TaskError');
+        expect(entry.cause).toBeUndefined();
+    });
+
     it('reads the error of an execution that timed out', () => {
         const events = loadEvents('execution-timed-out');
 
