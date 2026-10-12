@@ -55,6 +55,13 @@ describe('extractAslFromTerraform', () => {
         expect(aslDefinition.States.Charge.Resource).toBe('${aws_lambda_function.charge.arn}');
     });
 
+    it('reads a .tf.json file that starts with a byte order mark', () => {
+        const { aslDefinition } = extractAslFromTerraform({
+            config: `${String.fromCharCode(0xfeff)}${fixture('config.tf.json')}`,
+        });
+        expect(aslDefinition.StartAt).toBe('Charge');
+    });
+
     describe('HCL quoted string', () => {
         it('decodes the escaped JSON', () => {
             const { aslDefinition, resourceId } = extractAslFromTerraform({ config: fixture('quoted.tf') });
@@ -270,6 +277,12 @@ describe('isTerraformConfig', () => {
         expect(isTerraformConfig({ source: 'Resources:\n  M:\n    Type: AWS::StepFunctions::StateMachine\n' })).toBe(
             false,
         );
+    });
+
+    it('recognises HCL and .tf.json that start with a byte order mark', () => {
+        const bom = String.fromCharCode(0xfeff);
+        expect(isTerraformConfig({ source: `${bom}${fixture('multi.tf')}` })).toBe(true);
+        expect(isTerraformConfig({ source: `${bom}${fixture('config.tf.json')}` })).toBe(true);
     });
 
     it('rejects a configuration with no state machine, such as a module-only one', () => {

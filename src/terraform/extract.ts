@@ -82,7 +82,7 @@ function asObjects(value: unknown): Record<string, unknown>[] {
  * ```
  */
 export function isTerraformConfig(params: IsTerraformConfigParams): boolean {
-    const { source } = params;
+    const source = stripBom(params.source);
     if (!source.includes(TERRAFORM_STATE_MACHINE_TYPE)) return false;
     if (!source.trimStart().startsWith('{')) return HCL_RESOURCE_DECLARATION.test(source);
     try {
@@ -276,7 +276,7 @@ function resolveCandidate(candidate: Candidate): ResolvedDefinition {
 function parseJsonConfig(config: string | Record<string, unknown>): Record<string, unknown> {
     if (typeof config !== 'string') return config;
     try {
-        const parsed: unknown = JSON.parse(config);
+        const parsed: unknown = JSON.parse(stripBom(config));
         if (isPlainObject(parsed)) return parsed;
     } catch (error) {
         throw new Error(

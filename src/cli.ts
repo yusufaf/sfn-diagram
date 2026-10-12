@@ -1219,11 +1219,17 @@ function writeExtractionWarnings(params: WriteExtractionWarningsParams): void {
     }
 }
 
+interface IsTerraformInputParams {
+    /** The input file's path, or null for stdin and live sources. */
+    path: string | null;
+    source: string;
+}
+
 /**
  * Whether the input is Terraform: a `.tf` or `.tf.json` file by extension, or any input whose
  * contents declare an `aws_sfn_state_machine` (stdin and extensionless files).
  */
-function isTerraformInput(params: { path: string | null; source: string }): boolean {
+function isTerraformInput(params: IsTerraformInputParams): boolean {
     const { path, source } = params;
     const lowerPath = path?.toLowerCase();
     return (
