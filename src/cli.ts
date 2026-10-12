@@ -9,6 +9,8 @@ import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import { STATE_MACHINE_TYPES } from './cfn/extract';
+import { extractAslFromTerraform } from './terraform';
+import { TERRAFORM_EXTENSIONS, isTerraformConfig } from './terraform/extract';
 import type { SFNClient } from '@aws-sdk/client-sfn';
 import {
     CliAwsError,
@@ -234,8 +236,11 @@ Options:
   --follow-timeout <seconds>       Give up after this long and exit 1, so a CI job
                                    cannot wait forever on a run that never ends
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
-                                   (JSON templates are detected automatically)
-  --resource <logicalId>           State machine to extract when the template has several
+                                   (JSON templates are detected automatically; Terraform
+                                   .tf and .tf.json files are detected automatically too)
+  --resource <id>                  State machine to extract when a template or Terraform
+                                   config has several (CloudFormation logical id or
+                                   Terraform resource name)
   --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
                                    directory, so new files count), the config file and
@@ -315,6 +320,7 @@ Examples:
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+  sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
   sfn-diagram state.asl.json --watch -o diagram.svg
   sfn-diagram 'machines/**/*.asl.json' --watch --out-dir diagrams
@@ -1195,20 +1201,56 @@ async function loadSource(source: CliInputSource): Promise<string> {
 }
 
 interface ResolveDefinitionSourceParams {
+    /** The input file's path, or null for stdin and live sources. */
+    path: string | null;
     resolveCfn: boolean;
     resource: string | null;
     source: string;
 }
 
+interface WriteExtractionWarningsParams {
+    warnings: string[];
+}
+
+/** Extraction warnings go to stderr so stdout stays a clean diagram stream. */
+function writeExtractionWarnings(params: WriteExtractionWarningsParams): void {
+    for (const warning of params.warnings) {
+        process.stderr.write(`warning: ${warning}\n`);
+    }
+}
+
 /**
- * Turn a raw file body into something the generators accept: a CloudFormation/SAM/CDK
- * template is unwrapped to its ASL definition, anything else is passed through as-is.
- * Extraction warnings go to stderr so stdout stays a clean diagram stream.
+ * Whether the input is Terraform: a `.tf` or `.tf.json` file by extension, or any input whose
+ * contents declare an `aws_sfn_state_machine` (stdin and extensionless files).
+ */
+function isTerraformInput(params: { path: string | null; source: string }): boolean {
+    const { path, source } = params;
+    const lowerPath = path?.toLowerCase();
+    return (
+        (lowerPath !== undefined &&
+            TERRAFORM_EXTENSIONS.some((extension) => lowerPath.endsWith(extension))) ||
+        isTerraformConfig({ source })
+    );
+}
+
+/**
+ * Turn a raw file body into something the generators accept: a Terraform configuration or a
+ * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
+ * through as-is. Terraform is checked first, so `--resolve-cfn` on a `.tf` file still reads it
+ * as Terraform. Extraction warnings go to stderr.
  */
 function resolveDefinitionSource(
     params: ResolveDefinitionSourceParams,
 ): AslDefinition | string {
-    const { resolveCfn, resource, source } = params;
+    const { path, resolveCfn, resource, source } = params;
+    if (isTerraformInput({ path, source })) {
+        const { aslDefinition, warnings } = extractAslFromTerraform({
+            config: source,
+            resourceId: resource ?? undefined,
+        });
+        writeExtractionWarnings({ warnings });
+        return aslDefinition;
+    }
     if (!resolveCfn && !isCfnTemplate(source)) {
         return source;
     }
@@ -1216,9 +1258,7 @@ function resolveDefinitionSource(
         resourceId: resource ?? undefined,
         template: source,
     });
-    for (const warning of warnings) {
-        process.stderr.write(`warning: ${warning}\n`);
-    }
+    writeExtractionWarnings({ warnings });
     return aslDefinition;
 }
 
@@ -1533,12 +1573,14 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     let baselineDefinition: AslDefinition | string | null = null;
     try {
         definitionSource = resolveDefinitionSource({
+            path: source.kind === 'file' ? source.path : null,
             resolveCfn: args.resolveCfn,
             resource: args.resource,
             source: aslSource,
         });
         if (baselineSource !== null) {
             baselineDefinition = resolveDefinitionSource({
+                path: baselineIsLive ? null : args.diff,
                 // A live baseline is already ASL; only the head can be a template.
                 resolveCfn: args.resolveCfn && !baselineIsLive,
                 resource: baselineIsLive ? null : args.resource,

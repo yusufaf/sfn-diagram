@@ -1248,6 +1248,141 @@ describe('CFN template input', () => {
     });
 });
 
+describe('Terraform input', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    const terraformFixture = (name: string): string =>
+        join(__dirname, 'fixtures', 'terraform', name);
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-terraform-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('renders a .tf heredoc definition', async () => {
+        const code = await run([terraformFixture('heredoc.tf'), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Charge');
+        expect(stdoutData).toContain('Pause');
+        expect(stderrData).toBe('');
+    });
+
+    it('renders a .tf.json definition', async () => {
+        const code = await run([terraformFixture('jsonencode.tf.json'), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('A');
+    });
+
+    it('selects a machine with --resource, by name or by address', async () => {
+        for (const resource of ['refunds', 'aws_sfn_state_machine.refunds']) {
+            stdoutData = '';
+            const code = await run([
+                terraformFixture('multi.tf'),
+                '--resource',
+                resource,
+                '--format',
+                'mermaid',
+            ]);
+            expect(code).toBe(0);
+            expect(stdoutData).toContain('Refund');
+            expect(stdoutData).not.toContain('Order');
+        }
+    });
+
+    it('lists the machines when several exist and --resource is missing', async () => {
+        const code = await run([terraformFixture('multi.tf'), '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('orders, refunds');
+    });
+
+    it('names aws_sfn_state_machine when a .tf file declares none', async () => {
+        const code = await run([terraformFixture('module-only.tf'), '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('aws_sfn_state_machine');
+    });
+
+    it('routes a .tf file to Terraform even with --resolve-cfn', async () => {
+        const code = await run([
+            terraformFixture('heredoc.tf'),
+            '--resolve-cfn',
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Charge');
+    });
+
+    it('detects Terraform by content when the file has no .tf extension', async () => {
+        const inputPath = join(tempDir, 'main');
+        writeFileSync(inputPath, readFileSync(terraformFixture('heredoc.tf'), 'utf-8'));
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Charge');
+    });
+
+    it('prints extraction warnings to stderr', async () => {
+        const code = await run([terraformFixture('jsonencode.tf'), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('warning: Expression format(');
+    });
+
+    it('extracts a --diff baseline written in Terraform', async () => {
+        const head = join(tempDir, 'head.asl.json');
+        writeFileSync(
+            head,
+            JSON.stringify({
+                StartAt: 'Charge',
+                States: { Charge: { Type: 'Succeed' } },
+            }),
+        );
+        const code = await run([
+            head,
+            '--diff',
+            terraformFixture('jsonencode.tf'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).not.toContain('not valid JSON');
+    });
+
+    it('derives the output name from a .tf input', async () => {
+        const outDir = join(tempDir, 'out');
+        const code = await run([
+            terraformFixture('heredoc.tf'),
+            '--out-dir',
+            outDir,
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(existsSync(join(outDir, 'heredoc.mmd'))).toBe(true);
+    });
+});
+
 describe('standalone binary build info', () => {
     const buildGlobal = globalThis as { __SFN_DIAGRAM_BUILD__?: unknown };
     let stdout: ReturnType<typeof vi.spyOn>;

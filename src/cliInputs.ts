@@ -239,13 +239,15 @@ export const OUTPUT_EXTENSIONS: Readonly<Record<DiagramFormat, string>> = {
  * Input suffixes stripped before the output extension is appended, longest first.
  *
  * Order matters: `order.asl.json` must lose all of `.asl.json`, and matching `.json`
- * first would leave `order.asl.svg`.
+ * first would leave `order.asl.svg`; likewise `main.tf.json` must lose all of `.tf.json`.
  */
 const INPUT_SUFFIXES: readonly string[] = [
     '.asl.json',
     '.asl.yaml',
     '.asl.yml',
     '.asl',
+    '.tf.json',
+    '.tf',
     '.json',
     '.yaml',
     '.yml',
