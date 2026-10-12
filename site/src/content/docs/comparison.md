@@ -8,7 +8,7 @@ the other two most common options:
 
 | | **sfn-diagram** | AWS Console visualizer | Mermaid Live Editor |
 |---|---|---|---|
-| Input | ASL, CloudFormation/SAM/CDK templates, live AWS state machines | Deployed state machine only | Manual Mermaid you write by hand |
+| Input | ASL, CloudFormation/SAM/CDK templates, Terraform configs, live AWS state machines | Deployed state machine only | Manual Mermaid you write by hand |
 | Output | SVG, Mermaid, PNG, interactive HTML | Static graph in-browser | Mermaid diagram only |
 | CI / PR integration | [GitHub Action](/ecosystem/github-action/) posts a diff overlay on every PR that touches ASL | None | None |
 | Execution overlays | Paints a real run's path/status/duration onto the diagram | Basic per-execution highlighting, console-only | Not applicable |
