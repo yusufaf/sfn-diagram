@@ -33,12 +33,13 @@ its runtime in one file, so nothing else needs to be installed.
 brew install yusufaf/tap/sfn-diagram
 ```
 
-**Direct download** (substitute your platform; see the
-[releases page](https://github.com/yusufaf/sfn-diagram/releases) for the full list):
+**Direct download** (substitute your platform and the newest version from the
+[core releases](https://github.com/yusufaf/sfn-diagram/releases?q=sfn-diagram-v1+OR+sfn-diagram-v2&expanded=true);
+the repository's "Latest" release is often the VS Code extension's, which has no binaries):
 
 ```bash
 curl -fsSL -o sfn-diagram \
-  https://github.com/yusufaf/sfn-diagram/releases/latest/download/sfn-diagram-linux-x64
+  https://github.com/yusufaf/sfn-diagram/releases/download/sfn-diagram-v1.8.0/sfn-diagram-linux-x64
 chmod +x sfn-diagram
 ./sfn-diagram --version
 ```

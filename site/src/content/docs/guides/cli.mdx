@@ -5,7 +5,9 @@ description: Use the sfn-diagram CLI to render diagrams, diffs, and execution ov
 
 import { PackageManagers } from 'starlight-package-managers'
 
-The package ships a CLI for use without writing any JavaScript:
+The package ships a CLI for use without writing any JavaScript.
+
+**Install:** nothing to install when you run it through `npx` as below, or `brew install yusufaf/tap/sfn-diagram` for a build that needs no Node.js. [Standalone binaries](#standalone-binary) and a [Docker image](#docker) are also available.
 
 <PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format svg -o diagram.svg" />
 <PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format mermaid > diagram.mmd" />

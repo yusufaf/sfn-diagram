@@ -5,7 +5,7 @@ description: Comment a Step Functions diagram and diff on every pull request.
 
 Comment a Step Functions diagram on every pull request that touches an ASL file. For **changed** files the comment highlights the diff — added states green, modified yellow, removed red — plus a summary table of what changed; **new** and **deleted** files get a plain diagram. When [`lintAsl`](/reference/index/functions/lintasl/) finds something in a new or changed definition — an unreachable state, a Choice without a `Default`, a JSONPath field in a JSONata state — the findings sit in a collapsed **🔍 Lint** section above the diagram. Everything is Mermaid, so it renders inline in the PR with no image hosting. The comment is upserted (updated in place) on each push.
 
-Available on the [GitHub Marketplace](https://github.com/marketplace/actions/step-functions-diagram-preview) as [`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action) — pin the moving major tag `@v1`. (Source lives here in [`packages/github-action-sfn-diagram/`](https://github.com/yusufaf/sfn-diagram/tree/main/packages/github-action-sfn-diagram/); the Marketplace repo is generated from it.)
+**Install:** add `uses: yusufaf/sfn-diagram-action@v1` to a workflow that runs on `pull_request`, as below. It is on the [GitHub Marketplace](https://github.com/marketplace/actions/step-functions-diagram-preview) as [`yusufaf/sfn-diagram-action`](https://github.com/yusufaf/sfn-diagram-action) — pin the moving major tag `@v1`. (Source lives here in [`packages/github-action-sfn-diagram/`](https://github.com/yusufaf/sfn-diagram/tree/main/packages/github-action-sfn-diagram/); the Marketplace repo is generated from it.)
 
 ```yaml
 # .github/workflows/sfn-preview.yml
