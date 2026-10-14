@@ -1,9 +1,25 @@
 # Step Functions Diagram Preview
 
-[![Marketplace](https://img.shields.io/badge/marketplace-sfn--diagram--preview-blue?logo=github)](https://github.com/marketplace/actions/step-functions-diagram-preview)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Marketplace](https://img.shields.io/badge/marketplace-sfn--diagram--preview-blue?logo=github)](https://github.com/marketplace/actions/step-functions-diagram-preview) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Comment an **AWS Step Functions diagram** on every pull request that touches an ASL file — with the changes highlighted inline.
+
+```yaml
+# .github/workflows/sfn-preview.yml
+on:
+  pull_request:
+    paths: ['**/*.asl.json', '**/*.asl']
+permissions:
+  contents: read
+  pull-requests: write   # required to post the comment
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: yusufaf/sfn-diagram-action@v1
+```
+
+<a href="https://github.com/yusufaf/sfn-diagram/pull/13#issuecomment-4911865117"><img src="https://raw.githubusercontent.com/yusufaf/sfn-diagram/main/docs/images/action-pr-comment.png" alt="A pull request comment posted by the action: a table listing the added, modified and removed states, above a Mermaid diagram with FraudCheck highlighted green, CheckStock and ChargePayment yellow, and CancelOrder red" width="600"></a>
 
 On each PR the action finds changed ASL files, compares the base and head revisions, and posts (or updates) a single comment containing:
 
@@ -15,7 +31,7 @@ Built on the [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram) library 
 
 ## Example
 
-A PR that adds a `FraudCheck` step, changes `ChargePayment`, and removes `CancelOrder` gets a comment like this:
+The screenshot above is a [real comment](https://github.com/yusufaf/sfn-diagram/pull/13#issuecomment-4911865117) from a PR that adds a `FraudCheck` step, changes `ChargePayment`, and removes `CancelOrder`. Its diagram is plain Mermaid, which GitHub renders like this:
 
 ```mermaid
 stateDiagram-v2
@@ -43,25 +59,7 @@ stateDiagram-v2
 
 ## Usage
 
-```yaml
-# .github/workflows/sfn-preview.yml
-name: Step Functions Preview
-on:
-  pull_request:
-    paths: ['**/*.asl.json', '**/*.asl']
-
-permissions:
-  contents: read
-  pull-requests: write   # required to post the comment
-
-jobs:
-  preview:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: yusufaf/sfn-diagram-action@v1
-```
-
-No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
+The workflow at the top of this page is the whole setup. No checkout step needed — the action reads file contents through the GitHub API, not the local working tree.
 
 Pin to the moving major tag `@v1` (recommended) or an exact release like `@v1.0.0`.
 
