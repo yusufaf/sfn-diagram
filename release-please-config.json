@@ -5,7 +5,8 @@
     ".": {
       "release-type": "node",
       "extra-files": [
-        { "type": "json", "path": "jsr.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "jsr.json", "jsonpath": "$.version" },
+        { "type": "generic", "path": "site/src/content/docs/guides/other-languages.md" }
       ],
       "exclude-paths": [
         "packages/github-action-sfn-diagram",
