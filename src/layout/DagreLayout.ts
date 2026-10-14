@@ -11,7 +11,12 @@ import {
     isBottomHeaderLayout,
 } from '../constants';
 import { getTheme } from '../config/themes';
-import { findLaneCollisions, routeCatchLanes, selectLaneCatchEdges } from './catchLanes';
+import {
+    CATCH_LANE_MIN_RANK_SEPARATION,
+    findLaneCollisions,
+    routeCatchLanes,
+    selectLaneCatchEdges,
+} from './catchLanes';
 import { measureEdgeLabel } from './edgeLabel';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { estimateTextWidth } from '../utils/textMeasure';
@@ -117,7 +122,18 @@ interface LayoutWithParams {
     allowCatchLanes: boolean;
     edges: GraphEdge[];
     nodes: StateNode[];
+    /** Catch edges handed back to dagre because their lane crossed a container on an earlier pass */
+    rejectedLaneEdgeIds: Set<string>;
+    /** How many earlier passes ended in a lane crossing a container */
+    retries: number;
 }
+
+/**
+ * Layout passes with catch lanes before lanes are given up for the whole layout. A pass
+ * whose lanes cross a container hands just those edges back to dagre and runs again;
+ * that moves nodes, so it can expose new collisions, and each pass is a full dagre run.
+ */
+const MAX_CATCH_LANE_RETRIES = 3;
 
 /** Parameters for {@link DagreLayout.selectLaneEdges}. */
 interface SelectLaneEdgesParams {
@@ -133,8 +149,11 @@ export interface LayoutResult {
     // can stagger nested loops' labels apart without inverting layout geometry.
     edges: Array<
         GraphEdge & {
-            // Centre of the box dagre reserved for this edge's label; set only for
-            // labelled edges dagre routed (not the manually routed container edges).
+            // True for a catch edge routed along a shared handler's lane rather than by
+            // dagre; the renderer re-anchors its ends when nodeOverrides changes a shape.
+            catchLane?: boolean;
+            // Centre of the box dagre reserved for this edge's label; set for labelled
+            // edges dagre routed and for lane edges, not the manually routed container edges.
             labelPosition?: { x: number; y: number };
             loopIndex?: number;
             points?: Array<{ x: number; y: number }>;
@@ -168,15 +187,22 @@ export class DagreLayout {
      * Calculate layout positions for nodes and edges
      */
     calculate(nodes: StateNode[], edges: GraphEdge[]): LayoutResult {
-        return this.layoutWith({ allowCatchLanes: true, edges, nodes });
+        return this.layoutWith({
+            allowCatchLanes: true,
+            edges,
+            nodes,
+            rejectedLaneEdgeIds: new Set(),
+            retries: 0,
+        });
     }
 
     /**
      * Run one layout pass. `allowCatchLanes: false` is the plain dagre layout, used as
-     * the fallback when a catch lane would cross an open container.
+     * the fallback when catch lanes keep crossing open containers.
      */
     private layoutWith(params: LayoutWithParams): LayoutResult {
-        const { allowCatchLanes, edges, nodes } = params;
+        const { allowCatchLanes, edges, nodes, rejectedLaneEdgeIds, retries } = params;
+        const rankSeparation = this.options.rankSeparation ?? 50;
         const graph = new dagre.graphlib.Graph({ multigraph: true });
 
         // Configure graph layout
@@ -187,7 +213,7 @@ export class DagreLayout {
             marginy: this.options.padding ?? 20,
             nodesep: this.options.nodeSeparation ?? 50,
             rankdir: this.options.layout || 'TB',
-            ranksep: this.options.rankSeparation ?? 50,
+            ranksep: rankSeparation,
         });
 
         // Set default edge labels
@@ -290,9 +316,13 @@ export class DagreLayout {
         // A catch handler that many states share would otherwise make dagre insert a
         // dummy node per rank for every long catch edge into it, which is quadratic.
         // The edges that can be left out are routed along a lane after layout instead.
-        const laneEdgeIds = allowCatchLanes
-            ? this.selectLaneEdges({ containerIds, edges, layoutNodes, nodes, rankedEdges })
-            : new Set<string>();
+        const laneEdgeIds =
+            allowCatchLanes && rankSeparation >= CATCH_LANE_MIN_RANK_SEPARATION
+                ? this.selectLaneEdges({ containerIds, edges, layoutNodes, nodes, rankedEdges })
+                : new Set<string>();
+        for (const id of rejectedLaneEdgeIds) {
+            laneEdgeIds.delete(id);
+        }
 
         for (const ranked of rankedEdges) {
             if (!laneEdgeIds.has(ranked.edge.id)) {
@@ -346,7 +376,7 @@ export class DagreLayout {
         }
 
         // Extract edge routing points
-        const routedEdges = edges.map((edge) => {
+        const routedEdges: LayoutResult['edges'] = edges.map((edge) => {
             const fromNode = positionedNodesById.get(edge.from);
             const toNode = positionedNodesById.get(edge.to);
             const touchesContainer = Boolean(
@@ -395,21 +425,29 @@ export class DagreLayout {
                 layout: this.options.layout || 'TB',
                 nodes: allPositionedNodes,
                 obstacleEdges: routedEdges.filter((edge) => !laneEdgeIds.has(edge.id)),
-                rankSeparation: this.options.rankSeparation ?? 50,
+                rankSeparation,
                 themeFontSize: this.theme.fontSize,
             });
-            if (
-                containerNodes.length > 0 &&
-                findLaneCollisions({ boxes: containerNodes, routes: routes.values() })
-            ) {
+            const colliding =
+                containerNodes.length > 0
+                    ? findLaneCollisions({ boxes: containerNodes, routes })
+                    : new Set<string>();
+            if (colliding.size > 0) {
                 // Containers are boxes dagre never saw, so a collision can only be found
-                // now. Redo the layout the way it was before lanes existed.
-                return this.layoutWith({ allowCatchLanes: false, edges, nodes });
+                // now. Hand just the colliding edges back to dagre and lay out again; if
+                // lanes still collide after a few rounds, drop them altogether.
+                return this.layoutWith({
+                    allowCatchLanes: retries + 1 < MAX_CATCH_LANE_RETRIES,
+                    edges,
+                    nodes,
+                    rejectedLaneEdgeIds: new Set([...rejectedLaneEdgeIds, ...colliding]),
+                    retries: retries + 1,
+                });
             }
             routedEdges.forEach((edge, index) => {
                 const route = routes.get(edge.id);
                 if (route) {
-                    routedEdges[index] = { ...edge, ...route };
+                    routedEdges[index] = { ...edge, ...route, catchLane: true };
                 }
             });
         }

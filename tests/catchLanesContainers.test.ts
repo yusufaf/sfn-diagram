@@ -6,7 +6,7 @@ import { catchersInsideMap, isLaneRoute } from './helpers/catchLaneFixtures';
 // With collision checks off, the fallback cannot hide a catcher that was wrongly bundled.
 vi.mock('../src/layout/catchLanes', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../src/layout/catchLanes')>()),
-    findLaneCollisions: () => false,
+    findLaneCollisions: () => new Set<string>(),
 }));
 
 describe('catch lanes and open containers', () => {

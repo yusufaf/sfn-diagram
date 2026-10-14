@@ -1,7 +1,8 @@
 import { isOpenContainer } from '../graph';
-import type { GraphEdge, LayoutDirection, StateNode } from '../types';
+import type { DiagramOptions, GraphEdge, LayoutDirection, StateNode } from '../types';
+import type { PathPoint } from '../utils/pathSample';
 import { measureEdgeLabel } from './edgeLabel';
-import { anchorOnNode, crossOf, flowOf, halfExtents, toPoint } from './orthogonalRoute';
+import { anchorOnNode, centreOf, crossOf, flowOf, halfExtents, toPoint } from './orthogonalRoute';
 import type { Frame } from './orthogonalRoute';
 
 /**
@@ -11,20 +12,22 @@ import type { Frame } from './orthogonalRoute';
  */
 export const CATCH_LANE_MIN_SOURCES = 4;
 
+/**
+ * The smallest `rankSeparation` lanes are used at. A stub runs a quarter of the rank
+ * separation past its row, so below this it would be drawn along the node borders.
+ */
+export const CATCH_LANE_MIN_RANK_SEPARATION = 16;
+
 /** Gap in px between the content edge and a lane, and between neighbouring lanes. */
 const CATCH_LANE_GAP = 20;
 
-/** Gap in px between two labels stacked on the same lane. */
+/** Gap in px between two labels stacked on the same lane, or a label and a stub. */
 const LANE_LABEL_GAP = 4;
 
 /** Flow coordinates closer than this count as the same row. */
 const ROW_EPSILON = 1e-6;
 
-/** A point in layout space. */
-interface Point {
-    x: number;
-    y: number;
-}
+type Point = PathPoint;
 
 /** A directed edge, reduced to what ancestry needs. */
 interface FlowEdge {
@@ -144,7 +147,10 @@ export interface SelectLaneCatchEdgesParams {
  * those edges are withheld, and the handler stays exactly where dagre puts it today.
  *
  * Ancestry is read off the edges dagre also ranks, minus the candidates themselves, so
- * a withheld catcher is always above a kept one in dagre's own ranking.
+ * in an acyclic machine a withheld catcher is always above a kept one in dagre's own
+ * ranking. In a loop dagre may break a different edge than this search does and rank
+ * the handler above some catchers; {@link routeCatchLanes} routes each stub toward the
+ * handler's side, so that layout still draws correctly.
  *
  * @param params.candidates - Catch edges eligible for bundling
  * @param params.nodeIds - Every node id dagre lays out, in layout order
@@ -219,6 +225,196 @@ interface ObstacleEdge {
     points?: Point[];
 }
 
+/** A label's size across the flow axis and along it. */
+interface LabelExtent {
+    cross: number;
+    flow: number;
+}
+
+/** One lane edge's stubs, fixed before any lane is placed. */
+interface LaneStub {
+    /** Flow coordinate of the gap the edge steps into its handler from */
+    dstGap: number;
+    edge: GraphEdge;
+    source: StateNode;
+    /** Flow coordinate of the gap the edge leaves its source through */
+    srcGap: number;
+    /** 1 when the handler lies further along the flow axis than the source, else -1 */
+    toward: number;
+}
+
+/** A lane edge with its trunk chosen and its label placed. */
+interface PackedStub {
+    /** The trunk the edge runs along, counted outward from the diagram */
+    column: number;
+    /** The label's centre on the flow axis; absent for an unlabelled edge */
+    labelFlow?: number;
+    stub: LaneStub;
+}
+
+/** Parameters for {@link laneSideOf}. */
+interface LaneSideOfParams {
+    frame: Frame;
+}
+
+/**
+ * The side lanes run on, as a sign on the cross axis: left in TB/BT, below in LR/RL.
+ * Self-loops use the other side, so lanes never meet them.
+ */
+function laneSideOf(params: LaneSideOfParams): number {
+    return params.frame.vertical ? -1 : 1;
+}
+
+/** Parameters for {@link laneAnchor}. */
+interface LaneAnchorParams {
+    frame: Frame;
+    /** Flow coordinate of the gap the stub runs along */
+    gap: number;
+    node: StateNode;
+    nodeOverrides?: DiagramOptions['nodeOverrides'];
+}
+
+/** Where a lane stub attaches to a node: on its side facing `gap`, toward the lane. */
+function laneAnchor(params: LaneAnchorParams): Point {
+    const { frame, gap, node, nodeOverrides } = params;
+    const cross = crossOf({ frame, point: centreOf({ node }) }) + laneSideOf({ frame }) * halfExtents({ frame, node }).halfCross;
+    return anchorOnNode({ adjacent: toPoint({ cross, flow: gap, frame }), frame, node, nodeOverrides });
+}
+
+/** Parameters for {@link placeLabel}. */
+interface PlaceLabelParams {
+    /** Rows the label has to keep off, scaled by `toward` and sorted highest first */
+    blocked: number[];
+    desired: number;
+    /** The label's length along the trunk */
+    extent: number;
+    /** The furthest the label's far end may reach */
+    limit: number;
+}
+
+/**
+ * The centre for a label on a trunk: as near `desired` as `limit` allows, then moved back
+ * past every blocked row it would cover. Coordinates are scaled by the side's `toward`, so
+ * the handler is always the high end and moving back is moving lower.
+ */
+function placeLabel(params: PlaceLabelParams): number {
+    const { blocked, desired, extent, limit } = params;
+    const margin = extent / 2 + LANE_LABEL_GAP / 2;
+    let centre = Math.min(desired, limit - extent / 2);
+    let low = 0;
+    let high = blocked.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (blocked[middle] >= centre + margin) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    for (let index = low; index < blocked.length && blocked[index] > centre - margin; index += 1) {
+        centre = blocked[index] - margin;
+    }
+    return centre;
+}
+
+/** Parameters for {@link packLaneLabels}. */
+interface PackLaneLabelsParams {
+    /** Rows of later lanes' stubs, which cross this lane, in ascending flow order */
+    blocked: number[];
+    labelExtent: (label: string) => LabelExtent;
+    /** Every lane edge into one handler */
+    stubs: LaneStub[];
+}
+
+/** What {@link packLaneLabels} returns. */
+interface PackLaneLabelsResult {
+    /** For each trunk, half the cross size of its widest label */
+    halfCross: number[];
+    packed: PackedStub[];
+}
+
+/**
+ * Give each lane edge into one handler a trunk, and its label a place on that trunk.
+ *
+ * The renderer draws a label at the point of its own path nearest `labelPosition`, so a
+ * label has to sit on its own trunk stretch: past its own stub and short of the handler's.
+ * Each side of the handler is packed separately, nearest stub first. A label wants the
+ * middle of the stretch between its row and the next row toward the handler. When the
+ * trunk has no room left, that edge and every edge further from the handler move to a new
+ * trunk one step further out. Outer trunks therefore only take stubs from rows further
+ * from the handler, and no stub crosses an inner trunk where its labels are.
+ */
+function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
+    const { blocked, labelExtent, stubs } = params;
+    const halfCross = [0];
+    const packed: PackedStub[] = [];
+    for (const side of [1, -1]) {
+        const sideStubs = stubs
+            .filter((stub) => stub.toward === side)
+            .sort((first, second) => (second.srcGap - first.srcGap) * side);
+        if (sideStubs.length === 0) {
+            continue;
+        }
+        const end = sideStubs[0].dstGap * side;
+        const sideBlocked = side === 1 ? [...blocked].reverse() : blocked.map((row) => -row);
+        let column = 0;
+        // The current trunk's labels on this side, in the order they were placed.
+        let columnLabels: Array<{ entry: PackedStub; extent: number }> = [];
+        let limit = end - LANE_LABEL_GAP;
+        let row = end;
+        let nextRow = end;
+        for (const stub of sideStubs) {
+            const own = stub.srcGap * side;
+            if (row - own > ROW_EPSILON) {
+                nextRow = row;
+                row = own;
+            }
+            if (!stub.edge.label) {
+                packed.push({ column, stub });
+                continue;
+            }
+            const extent = labelExtent(stub.edge.label);
+            const desired = (own + nextRow) / 2;
+            const floor = own + LANE_LABEL_GAP + extent.flow / 2;
+            let centre = placeLabel({ blocked: sideBlocked, desired, extent: extent.flow, limit });
+            if (centre < floor && columnLabels.length > 0) {
+                // Before opening another trunk, slide this trunk's labels as far toward the
+                // handler as they go. Each only moves up, so each stays past its own stub.
+                let top = end - LANE_LABEL_GAP;
+                const squeezed = columnLabels.map((placed) => {
+                    const placedCentre = placeLabel({ blocked: sideBlocked, desired: Infinity, extent: placed.extent, limit: top });
+                    top = placedCentre - placed.extent / 2 - LANE_LABEL_GAP;
+                    return placedCentre;
+                });
+                const squeezedCentre = placeLabel({ blocked: sideBlocked, desired, extent: extent.flow, limit: top });
+                if (squeezedCentre >= floor) {
+                    columnLabels.forEach((placed, index) => {
+                        placed.entry.labelFlow = squeezed[index] * side;
+                    });
+                    centre = squeezedCentre;
+                } else {
+                    column += 1;
+                    columnLabels = [];
+                    limit = end - LANE_LABEL_GAP;
+                    centre = placeLabel({ blocked: sideBlocked, desired, extent: extent.flow, limit });
+                }
+            }
+            if (centre < floor) {
+                // Alone on its trunk and still no room: the stretch is shorter than the
+                // label, or blocked rows fill it. Keep it on the stretch regardless.
+                const ceiling = limit - extent.flow / 2;
+                centre = floor <= ceiling ? Math.min(Math.max(desired, floor), ceiling) : (own + end) / 2;
+            }
+            limit = centre - extent.flow / 2 - LANE_LABEL_GAP;
+            halfCross[column] = Math.max(halfCross[column] ?? 0, extent.cross / 2);
+            const entry: PackedStub = { column, labelFlow: centre * side, stub };
+            columnLabels.push({ entry, extent: extent.flow });
+            packed.push(entry);
+        }
+    }
+    return { halfCross, packed };
+}
+
 /** Parameters for the `rowEnd` helper inside {@link routeCatchLanes}. */
 interface RowEndParams {
     node: StateNode;
@@ -228,12 +424,18 @@ interface RowEndParams {
 
 /** Parameters for the `clearance` helper inside {@link routeCatchLanes}. */
 interface ClearanceParams {
+    /** The cross coordinate the stub starts from; it runs from there to the lane */
+    cross: number;
     /** The flow coordinate a stub starts from */
     rowEdge: number;
     sign: number;
-    /** The cross range the stub travels across */
-    spanHigh: number;
-    spanLow: number;
+}
+
+/** Parameters for the `gapPast` helper inside {@link routeCatchLanes}. */
+interface GapPastParams {
+    node: StateNode;
+    /** Which side of the node's row: 1 for the far side along the flow, -1 for the near side */
+    sign: number;
 }
 
 /** Parameters for the `at` helper inside {@link routeCatchLanes}. */
@@ -256,15 +458,16 @@ export interface RouteCatchLanesParams {
 }
 
 /**
- * Route withheld catch edges along one lane per handler, after dagre has positioned
- * everything.
+ * Route withheld catch edges along lanes, after dagre has positioned everything.
  *
  * A lane is a trunk running parallel to the flow just outside the finished diagram, on
  * the side self-loops never use (left in TB/BT, below in LR/RL). Each edge leaves its
- * source through the gap between ranks, runs sideways to the trunk, follows it to the
- * handler's gap and steps back in. Horizontal runs stay inside the gaps (a quarter of
- * `rankSeparation` past a row), so nothing crosses a node or one of dagre's label boxes.
- * Labels sit on the trunk, packed so they never overlap each other.
+ * source through the gap between ranks on the handler's side, runs sideways to the trunk,
+ * follows it to the handler's gap and steps back in. Horizontal runs stay inside the gaps
+ * (a quarter of `rankSeparation` past a row), so nothing crosses a node or one of dagre's
+ * label boxes. Labels sit on their own edge's trunk and never overlap each other or a
+ * stub; a handler whose labels do not fit on one trunk gets more, side by side (see
+ * {@link packLaneLabels}). Each handler's lane lies outside the previous one's.
  *
  * @param params.edges - The lane edges, in graph order
  * @param params.layout - The layout direction
@@ -284,17 +487,20 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
     const { edges, layout, nodes, obstacleEdges, rankSeparation, themeFontSize } = params;
     const frame: Frame = { vertical: layout === 'TB' || layout === 'BT' };
     const dir = layout === 'TB' || layout === 'LR' ? 1 : -1;
-    const laneSide = frame.vertical ? -1 : 1;
+    const laneSide = laneSideOf({ frame });
     const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
-    const centreOf = (node: StateNode): Point => ({ x: node.x || 0, y: node.y || 0 });
-    const flowOfNode = (node: StateNode): number => flowOf({ frame, point: centreOf(node) });
-    const crossOfNode = (node: StateNode): number => crossOf({ frame, point: centreOf(node) });
-    const labelBox = (label: string): { cross: number; flow: number } => {
-        const box = measureEdgeLabel({ label, themeFontSize });
-        return frame.vertical
-            ? { cross: box.width, flow: box.height }
-            : { cross: box.height, flow: box.width };
+    const flowOfNode = (node: StateNode): number => flowOf({ frame, point: centreOf({ node }) });
+    const crossOfNode = (node: StateNode): number => crossOf({ frame, point: centreOf({ node }) });
+    const labelExtents = new Map<string, LabelExtent>();
+    const labelExtent = (label: string): LabelExtent => {
+        let extent = labelExtents.get(label);
+        if (!extent) {
+            const box = measureEdgeLabel({ label, themeFontSize });
+            extent = frame.vertical ? { cross: box.width, flow: box.height } : { cross: box.height, flow: box.width };
+            labelExtents.set(label, extent);
+        }
+        return extent;
     };
 
     // The extreme cross coordinate on the lane side over everything already drawn.
@@ -308,12 +514,22 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
         reach(crossOfNode(node) + laneSide * halfExtents({ frame, node }).halfCross);
     }
     for (const edge of obstacleEdges) {
-        for (const point of edge.points ?? []) {
+        const points = edge.points ?? [];
+        for (const point of points) {
             reach(crossOf({ frame, point }));
         }
-        if (edge.label && edge.labelPosition) {
-            const half = labelBox(edge.label).cross / 2;
+        if (!edge.label) {
+            continue;
+        }
+        const half = labelExtent(edge.label).cross / 2;
+        if (edge.labelPosition) {
             reach(crossOf({ frame, point: edge.labelPosition }) + laneSide * half);
+            continue;
+        }
+        // Without a reserved spot the renderer centres the label on the path's midpoint,
+        // which lies inside the points' hull, so the outermost point bounds it.
+        for (const point of points) {
+            reach(crossOf({ frame, point }) + laneSide * half);
         }
     }
 
@@ -335,14 +551,16 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
     };
 
     // The distance a stub can run past a row before it would enter an open container
-    // whose cross extent it shares; Infinity when no container is in the way.
+    // between it and the lane; Infinity when no container is in the way. Every lane lies
+    // beyond every node, so which containers are in the way does not depend on where the
+    // stub's lane ends up.
     const clearance = (params: ClearanceParams): number => {
-        const { rowEdge, sign, spanHigh, spanLow } = params;
+        const { cross, rowEdge, sign } = params;
         let nearest = Infinity;
         for (const box of containerBoxes) {
             const { halfCross, halfFlow } = halfExtents({ frame, node: box });
             const boxCross = crossOfNode(box);
-            if (boxCross + halfCross < spanLow || boxCross - halfCross > spanHigh) {
+            if (laneSide * (boxCross + laneSide * halfCross) < laneSide * cross) {
                 continue;
             }
             const facing = flowOfNode(box) - sign * halfFlow;
@@ -354,61 +572,65 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
         return nearest;
     };
 
-    const byHandler = new Map<string, GraphEdge[]>();
-    for (const edge of edges) {
-        const group = byHandler.get(edge.to) ?? [];
-        group.push(edge);
-        byHandler.set(edge.to, group);
-    }
-
     const quarter = rankSeparation / 4;
-    const routes = new Map<string, CatchLaneRoute>();
-    for (const [handlerId, group] of byHandler) {
-        const handler = nodesById.get(handlerId);
-        if (!handler) {
+    const gapPast = (params: GapPastParams): number => {
+        const { node, sign } = params;
+        const rowEdge = rowEnd({ node, sign });
+        return rowEdge + sign * Math.min(quarter, clearance({ cross: crossOfNode(node), rowEdge, sign }) / 2);
+    };
+
+    // A loop in the machine can rank a handler above some of its catchers, so each stub
+    // leaves its source on whichever side the handler is.
+    const groups = new Map<string, { handler: StateNode; stubs: LaneStub[] }>();
+    for (const edge of edges) {
+        const handler = nodesById.get(edge.to);
+        const source = nodesById.get(edge.from);
+        if (!handler || !source) {
             continue;
         }
-        const half = group.reduce((widest, edge) => Math.max(widest, edge.label ? labelBox(edge.label).cross / 2 : 0), 0);
-        const laneCross = outer + laneSide * (CATCH_LANE_GAP + half);
-        outer = laneCross + laneSide * half;
+        let group = groups.get(handler.id);
+        if (!group) {
+            group = { handler, stubs: [] };
+            groups.set(handler.id, group);
+        }
+        const toward = Math.sign(flowOfNode(handler) - flowOfNode(source)) || dir;
+        group.stubs.push({
+            dstGap: gapPast({ node: handler, sign: -toward }),
+            edge,
+            source,
+            srcGap: gapPast({ node: source, sign: toward }),
+            toward,
+        });
+    }
 
-        const handlerCross = crossOfNode(handler);
-        const handlerSpan = { high: Math.max(handlerCross, laneCross), low: Math.min(handlerCross, laneCross) };
-        const handlerEdge = rowEnd({ node: handler, sign: -dir });
-        const dstGap = handlerEdge - dir * Math.min(quarter, clearance({ rowEdge: handlerEdge, sign: -dir, spanHigh: handlerSpan.high, spanLow: handlerSpan.low }) / 2);
+    // A later handler's lane lies further out, so its stubs cross every earlier lane, and
+    // an earlier lane's labels keep off their rows.
+    const groupList = [...groups.values()];
+    const blockedRows: number[][] = new Array(groupList.length);
+    const laterRows = new Set<number>();
+    for (let index = groupList.length - 1; index >= 0; index -= 1) {
+        blockedRows[index] = [...laterRows].sort((first, second) => first - second);
+        for (const stub of groupList[index].stubs) {
+            laterRows.add(stub.srcGap);
+            laterRows.add(stub.dstGap);
+        }
+    }
 
-        const stubs: Array<{ edge: GraphEdge; srcGap: number }> = [];
-        for (const edge of group) {
-            const source = nodesById.get(edge.from);
-            if (!source) {
-                continue;
-            }
-            const sourceCross = crossOfNode(source);
-            const sourceEdge = rowEnd({ node: source, sign: dir });
-            const srcGap =
-                sourceEdge +
-                dir *
-                    Math.min(
-                        quarter,
-                        clearance({
-                            rowEdge: sourceEdge,
-                            sign: dir,
-                            spanHigh: Math.max(sourceCross, laneCross),
-                            spanLow: Math.min(sourceCross, laneCross),
-                        }) /
-                            2,
-                    );
-            const p0 = anchorOnNode({
-                adjacent: toPoint({ cross: sourceCross + laneSide * halfExtents({ frame, node: source }).halfCross, flow: srcGap, frame }),
-                frame,
-                node: source,
-            });
-            const p5 = anchorOnNode({
-                adjacent: toPoint({ cross: handlerCross + laneSide * halfExtents({ frame, node: handler }).halfCross, flow: dstGap, frame }),
-                frame,
-                node: handler,
-            });
-            const at = (params: AtParams): Point => toPoint({ ...params, frame });
+    const at = (params: AtParams): Point => toPoint({ ...params, frame });
+    const routes = new Map<string, CatchLaneRoute>();
+    for (const [index, { handler, stubs }] of groupList.entries()) {
+        const { halfCross, packed } = packLaneLabels({ blocked: blockedRows[index], labelExtent, stubs });
+        const columnCross = halfCross.map((half) => {
+            const cross = outer + laneSide * (CATCH_LANE_GAP + half);
+            outer = cross + laneSide * half;
+            return cross;
+        });
+
+        for (const { column, labelFlow, stub } of packed) {
+            const { dstGap, srcGap } = stub;
+            const laneCross = columnCross[column];
+            const p0 = laneAnchor({ frame, gap: srcGap, node: stub.source });
+            const p5 = laneAnchor({ frame, gap: dstGap, node: handler });
             const p0Cross = crossOf({ frame, point: p0 });
             const p5Cross = crossOf({ frame, point: p5 });
             const points = [p0, at({ cross: p0Cross, flow: srcGap }), at({ cross: laneCross, flow: srcGap }), at({ cross: laneCross, flow: dstGap }), at({ cross: p5Cross, flow: dstGap }), p5];
@@ -429,40 +651,63 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
                     at({ cross: laneCross, flow: dstGap - step }),
                 );
             }
-            routes.set(edge.id, { points });
-            stubs.push({ edge, srcGap });
-        }
-
-        // Labels are packed per handler in one pass. Each wants the middle of the trunk
-        // stretch between its own source's row and the next source's row, so on a chain
-        // they sit one row apart beside their sources. Where the trunk is too full they
-        // slide on toward the handler rather than overlap.
-        if (stubs.length === 0) {
-            continue;
-        }
-        const toward = Math.sign(dstGap - stubs[0].srcGap) || dir;
-        const distinctGaps = [...new Set(stubs.map((stub) => stub.srcGap * toward))].sort((first, second) => first - second);
-        const wanted = stubs
-            .filter((stub) => stub.edge.label)
-            .map((stub) => {
-                const own = stub.srcGap * toward;
-                const next = distinctGaps.find((gap) => gap - own > ROW_EPSILON);
-                const stop = next === undefined ? dstGap * toward : Math.min(next, dstGap * toward);
-                return { desired: (own + Math.max(stop, own)) / 2, edge: stub.edge };
-            })
-            .sort((first, second) => first.desired - second.desired);
-        let previousEnd = -Infinity;
-        for (const { desired, edge } of wanted) {
-            const extent = labelBox(edge.label as string).flow;
-            const centre = Math.max(desired, previousEnd + LANE_LABEL_GAP + extent / 2);
-            previousEnd = centre + extent / 2;
-            const route = routes.get(edge.id);
-            if (route) {
-                route.labelPosition = toPoint({ cross: laneCross, flow: centre * toward, frame });
-            }
+            routes.set(stub.edge.id, {
+                ...(labelFlow === undefined ? {} : { labelPosition: at({ cross: laneCross, flow: labelFlow }) }),
+                points,
+            });
         }
     }
     return routes;
+}
+
+/** Parameters for {@link anchorCatchLaneEnds}. */
+export interface AnchorCatchLaneEndsParams {
+    /** A lane edge as {@link routeCatchLanes} routed it */
+    edge: { from: string; points?: Point[]; to: string };
+    layout: LayoutDirection;
+    /** Per-node overrides, whose `shape` wins over the node's own */
+    nodeOverrides?: DiagramOptions['nodeOverrides'];
+    nodesById: Map<string, StateNode>;
+}
+
+/**
+ * Re-attach a lane route's two ends to the shapes `nodeOverrides` draws. The layout
+ * attaches them to each node's own shape, since the layout cache does not key on
+ * overrides; orthogonal routing re-anchors every edge itself, so this is for the curved
+ * and straight styles.
+ *
+ * @param params.edge - The lane edge
+ * @param params.layout - The layout direction
+ * @param params.nodeOverrides - Per-node overrides
+ * @param params.nodesById - Positioned nodes by id
+ * @returns The route with both ends re-anchored, still axis-aligned; the original
+ *   points when the route is not a lane route
+ *
+ * @example
+ * ```typescript
+ * const points = anchorCatchLaneEnds({ edge, layout: 'TB', nodeOverrides: { Failed: { shape: 'rect' } }, nodesById });
+ * ```
+ */
+export function anchorCatchLaneEnds(params: AnchorCatchLaneEndsParams): Point[] {
+    const { edge, layout, nodeOverrides, nodesById } = params;
+    const points = edge.points ?? [];
+    const source = nodesById.get(edge.from);
+    const target = nodesById.get(edge.to);
+    if (points.length < 6 || !source || !target) {
+        return points;
+    }
+    const frame: Frame = { vertical: layout === 'TB' || layout === 'BT' };
+    const last = points.length - 1;
+    const srcGap = flowOf({ frame, point: points[1] });
+    const dstGap = flowOf({ frame, point: points[last - 1] });
+    const start = laneAnchor({ frame, gap: srcGap, node: source, nodeOverrides });
+    const end = laneAnchor({ frame, gap: dstGap, node: target, nodeOverrides });
+    const anchored = [...points];
+    anchored[0] = start;
+    anchored[1] = toPoint({ cross: crossOf({ frame, point: start }), flow: srcGap, frame });
+    anchored[last - 1] = toPoint({ cross: crossOf({ frame, point: end }), flow: dstGap, frame });
+    anchored[last] = end;
+    return anchored;
 }
 
 /** A centre-based axis-aligned box, like a positioned StateNode (a missing value reads as 0). */
@@ -476,29 +721,31 @@ interface Box {
 /** Parameters for {@link findLaneCollisions}. */
 export interface FindLaneCollisionsParams {
     boxes: Box[];
-    routes: Iterable<CatchLaneRoute>;
+    /** Lane routes keyed by edge id */
+    routes: Map<string, CatchLaneRoute>;
 }
 
 /** How far a box is shrunk before testing, so a segment grazing its edge is not a hit. */
 const COLLISION_INSET = 0.5;
 
 /**
- * Whether any lane segment passes through the inside of any box. Lane routes are
+ * The lane edges with a segment through the inside of any box. Lane routes are
  * axis-aligned, so a segment's bounding box is the segment.
  *
  * @param params.boxes - Centre-based boxes to keep clear, such as open containers
- * @param params.routes - The lane routes to test
- * @returns True if at least one segment enters a box
+ * @param params.routes - The lane routes to test, keyed by edge id
+ * @returns The ids of the edges whose route enters a box; empty when all are clear
  *
  * @example
  * ```typescript
- * findLaneCollisions({ boxes: containers, routes: routes.values() }); // false when clear
+ * findLaneCollisions({ boxes: containers, routes }); // Set {} when clear
  * ```
  */
-export function findLaneCollisions(params: FindLaneCollisionsParams): boolean {
+export function findLaneCollisions(params: FindLaneCollisionsParams): Set<string> {
     const { boxes, routes } = params;
-    for (const route of routes) {
-        for (let index = 1; index < route.points.length; index += 1) {
+    const colliding = new Set<string>();
+    for (const [id, route] of routes) {
+        for (let index = 1; index < route.points.length && !colliding.has(id); index += 1) {
             const start = route.points[index - 1];
             const end = route.points[index];
             const low = { x: Math.min(start.x, end.x), y: Math.min(start.y, end.y) };
@@ -514,10 +761,11 @@ export function findLaneCollisions(params: FindLaneCollisionsParams): boolean {
                     high.y > centreY - halfHeight + COLLISION_INSET &&
                     low.y < centreY + halfHeight - COLLISION_INSET
                 ) {
-                    return true;
+                    colliding.add(id);
+                    break;
                 }
             }
         }
     }
-    return false;
+    return colliding;
 }

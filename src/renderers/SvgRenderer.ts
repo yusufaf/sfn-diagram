@@ -18,6 +18,7 @@ import type {
     NodeStyle,
     StateType,
 } from '../types';
+import { anchorCatchLaneEnds } from '../layout/catchLanes';
 import type { LayoutResult } from '../layout/DagreLayout';
 import {
     buildRoundedOrthogonalPath,
@@ -228,7 +229,8 @@ export class SvgRenderer {
      * Render the diagram to SVG string
      */
     render(positioned: LayoutResult): SvgOutput {
-        // Routed here, not in DagreLayout: the layout cache key leaves edgeStyle out.
+        // Routed here, not in DagreLayout: the layout cache key leaves edgeStyle and
+        // nodeOverrides out.
         const layout =
             this.options.edgeStyle === 'orthogonal'
                 ? {
@@ -240,7 +242,7 @@ export class SvgRenderer {
                           nodes: positioned.nodes,
                       }),
                   }
-                : positioned;
+                : this.anchorCatchLanes(positioned);
         this.edgeMidpointCache.clear();
         this.arrowMarkerIds.clear();
         this.markerContainerLabels.clear();
@@ -1359,6 +1361,44 @@ export class SvgRenderer {
     private buildSelfLoopPath(points: Array<{ x: number; y: number }>): string {
         const [entry, apex, exit] = points;
         return `M ${entry.x},${entry.y} C ${apex.x},${apex.y} ${apex.x},${apex.y} ${exit.x},${exit.y}`;
+    }
+
+    /**
+     * Re-attach catch-lane ends to the shapes `nodeOverrides` draws, for the curved and
+     * straight styles (orthogonal routing re-anchors every edge itself). The layout only
+     * knows each node's own shape, because the layout cache does not key on overrides.
+     *
+     * @param positioned - The layout to draw
+     * @returns The same layout when no override changes a shape, else a copy with the
+     *   affected lane edges re-anchored; a cached layout is never mutated
+     */
+    private anchorCatchLanes(positioned: LayoutResult): LayoutResult {
+        const nodeOverrides = this.options.nodeOverrides;
+        const reshaped = new Set(
+            Object.entries(nodeOverrides ?? {})
+                .filter(([, override]) => override?.shape !== undefined)
+                .map(([id]) => id),
+        );
+        if (reshaped.size === 0) {
+            return positioned;
+        }
+        const nodesById = new Map(positioned.nodes.map((node) => [node.id, node]));
+        return {
+            ...positioned,
+            edges: positioned.edges.map((edge) =>
+                edge.catchLane && (reshaped.has(edge.from) || reshaped.has(edge.to))
+                    ? {
+                          ...edge,
+                          points: anchorCatchLaneEnds({
+                              edge,
+                              layout: this.options.layout || 'TB',
+                              nodeOverrides,
+                              nodesById,
+                          }),
+                      }
+                    : edge,
+            ),
+        };
     }
 
     /**

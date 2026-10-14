@@ -127,6 +127,100 @@ export const sameRowFanOut = (): AslDefinition => {
     return { StartAt: 'Route', States: states };
 };
 
+/**
+ * Choice fanning out to `count` branches of two Tasks each, every Task catching
+ * `States.TaskFailed` and `States.Timeout` into `Failed`, the branches rejoining at
+ * `Join`. Every first Task shares one row, so all of their long labels want the same
+ * short trunk stretch.
+ */
+export const wideFanOut = (count: number): AslDefinition => {
+    const states: Record<string, AslState> = {
+        Route: {
+            Type: 'Choice',
+            Choices: Array.from({ length: count - 1 }, (_, index) => ({
+                Variable: '$.x',
+                NumericEquals: index,
+                Next: `B${index}a`,
+            })),
+            Default: `B${count - 1}a`,
+        },
+        Join: { Type: 'Succeed' },
+        Failed: { Type: 'Fail' },
+    };
+    const catchBoth = { Catch: [{ ErrorEquals: ['States.TaskFailed', 'States.Timeout'], Next: 'Failed' }] };
+    for (let branch = 0; branch < count; branch += 1) {
+        states[`B${branch}a`] = { ...task({ next: `B${branch}b` }), ...catchBoth };
+        states[`B${branch}b`] = { ...task({ next: 'Join' }), ...catchBoth };
+    }
+    return { StartAt: 'Route', States: states };
+};
+
+/**
+ * Step0 -> ... -> Step9, every Step catching into `Recover`, a Pass listed first that
+ * loops back to Step0. dagre breaks the loop at a catch edge and ranks `Recover` above
+ * the chain.
+ */
+export const loopBackIntoChain = (): AslDefinition => {
+    const states: Record<string, AslState> = { Recover: { Type: 'Pass', Next: 'Step0' } };
+    for (let index = 0; index < 10; index += 1) {
+        states[`Step${index}`] = task({ catchInto: 'Recover', next: index === 9 ? undefined : `Step${index + 1}` });
+    }
+    return { StartAt: 'Step0', States: states };
+};
+
+/**
+ * Step0 -> ... -> Step7 -> Done, even Steps catching into `H1` and odd ones into `H2`.
+ * H2's lane lies outside H1's, so H2's stubs cross H1's lane between H1's own rows.
+ */
+export const interleavedHandlers = (): AslDefinition => {
+    const states: Record<string, AslState> = {
+        Done: { Type: 'Succeed' },
+        H1: { Type: 'Fail' },
+        H2: { Type: 'Fail' },
+    };
+    for (let index = 0; index < 8; index += 1) {
+        states[`Step${index}`] = task({
+            catchInto: index % 2 === 0 ? 'H1' : 'H2',
+            next: index === 7 ? 'Done' : `Step${index + 1}`,
+        });
+    }
+    return { StartAt: 'Step0', States: states };
+};
+
+/**
+ * Choice -> C0 -> ... -> C(length - 1), every C catching into `Failed`, with a Parallel
+ * as the Choice's default branch. dagre puts the Parallel on the lane side, beside the
+ * top of the chain, so the stubs leaving the rows it spans would run through it.
+ */
+export const parallelBesideChain = (length: number): AslDefinition => {
+    const states: Record<string, AslState> = {
+        Route: {
+            Type: 'Choice',
+            Choices: [{ Variable: '$.x', BooleanEquals: true, Next: 'C0' }],
+            Default: 'Par',
+        },
+        Par: {
+            Type: 'Parallel',
+            Branches: [
+                {
+                    StartAt: 'P1',
+                    States: {
+                        P1: { Type: 'Pass', Next: 'P2' },
+                        P2: { Type: 'Pass', Next: 'P3' },
+                        P3: { Type: 'Pass', End: true },
+                    },
+                },
+            ],
+            End: true,
+        },
+        Failed: { Type: 'Fail' },
+    };
+    for (let index = 0; index < length; index += 1) {
+        states[`C${index}`] = task({ catchInto: 'Failed', next: index === length - 1 ? undefined : `C${index + 1}` });
+    }
+    return { StartAt: 'Route', States: states };
+};
+
 interface IsLaneRouteParams {
     edge: LayoutResult['edges'][number];
     layout: LayoutDirection;

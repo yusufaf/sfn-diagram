@@ -65,12 +65,17 @@ export function toPoint(params: ToPointParams): Point {
 }
 
 /** Parameters for {@link centreOf}. */
-interface CentreOfParams {
+export interface CentreOfParams {
     node: StateNode;
 }
 
-/** The node's centre, with a missing coordinate read as 0. */
-function centreOf(params: CentreOfParams): Point {
+/**
+ * The node's centre, with a missing coordinate read as 0.
+ *
+ * @param params.node - The node to read
+ * @returns The node's centre point
+ */
+export function centreOf(params: CentreOfParams): Point {
     return { x: params.node.x || 0, y: params.node.y || 0 };
 }
 

@@ -9,12 +9,17 @@ import { CONTAINER_HEADER_HEIGHT } from '../src/constants';
 import { getTheme } from '../src/config/themes';
 import { measureEdgeLabel } from '../src/layout/edgeLabel';
 import { buildSharedCatchChain } from './performance/fixtures';
+import { CATCH_LANE_MIN_RANK_SEPARATION, findLaneCollisions } from '../src/layout/catchLanes';
 import {
     catchersInsideMap,
+    interleavedHandlers,
     isLaneRoute,
+    loopBackIntoChain,
+    parallelBesideChain,
     parallelInChain,
     pulledShape,
     sameRowFanOut,
+    wideFanOut,
 } from './helpers/catchLaneFixtures';
 
 const loadFixture = (name: string): AslDefinition => {
@@ -627,26 +632,38 @@ describe('Shared catch handlers', () => {
         }
     });
 
-    it.each([
-        ['TB same-row fan-out', sameRowFanOut, 'TB'],
-        ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR'],
-        ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL'],
-    ] as const)('gives lane labels non-overlapping positions (%s)', (_name, build, layout) => {
-        const result = layoutOf(build(), layout);
+    const labelBoxesOf = (result: ReturnType<typeof layoutOf>, layout: LayoutDirection) => {
         const themeFontSize = getTheme().fontSize;
-        const boxes = laneEdges(result, layout)
+        return laneEdges(result, layout)
             .filter((edge) => edge.label && edge.labelPosition)
             .map((edge) => {
                 const size = measureEdgeLabel({ label: edge.label as string, themeFontSize });
                 const centre = edge.labelPosition as { x: number; y: number };
                 return {
                     bottom: centre.y + size.height / 2,
-                    id: edge.id,
+                    centre,
+                    edge,
                     left: centre.x - size.width / 2,
                     right: centre.x + size.width / 2,
                     top: centre.y - size.height / 2,
                 };
             });
+    };
+
+    const labelFixtures = [
+        ['TB same-row fan-out', sameRowFanOut, 'TB'],
+        ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR'],
+        ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL'],
+        ['TB 8-way fan-out', () => wideFanOut(8), 'TB'],
+        ['LR 6-way fan-out', () => wideFanOut(6), 'LR'],
+        ['BT 8-way fan-out', () => wideFanOut(8), 'BT'],
+        ['TB interleaved handlers', interleavedHandlers, 'TB'],
+        ['LR interleaved handlers', interleavedHandlers, 'LR'],
+        ['TB loop back into the chain', loopBackIntoChain, 'TB'],
+    ] as const;
+
+    it.each(labelFixtures)('gives lane labels non-overlapping positions (%s)', (_name, build, layout) => {
+        const boxes = labelBoxesOf(layoutOf(build(), layout), layout);
         expect(boxes.length).toBeGreaterThanOrEqual(2);
         for (let first = 0; first < boxes.length; first += 1) {
             for (let second = first + 1; second < boxes.length; second += 1) {
@@ -655,9 +672,108 @@ describe('Shared catch handlers', () => {
                     boxes[second].right <= boxes[first].left ||
                     boxes[first].bottom <= boxes[second].top ||
                     boxes[second].bottom <= boxes[first].top;
-                expect(apart, `${boxes[first].id} overlaps ${boxes[second].id}`).toBe(true);
+                expect(apart, `${boxes[first].edge.id} overlaps ${boxes[second].edge.id}`).toBe(true);
             }
         }
+    });
+
+    // The renderer draws a label at the point of its own path nearest labelPosition, so a
+    // label off its trunk is drawn somewhere else - on a fan-out, all on one corner.
+    it.each(labelFixtures)('keeps each lane label on its own trunk stretch (%s)', (_name, build, layout) => {
+        const vertical = layout === 'TB' || layout === 'BT';
+        const flow = (point: { x: number; y: number }) => (vertical ? point.y : point.x);
+        const cross = (point: { x: number; y: number }) => (vertical ? point.x : point.y);
+        for (const { bottom, centre, edge, left, right, top } of labelBoxesOf(layoutOf(build(), layout), layout)) {
+            const points = edge.points ?? [];
+            const trunkStart = points[2];
+            const trunkEnd = points[points.length - 3];
+            expect(Math.abs(cross(centre) - cross(trunkStart)), edge.id).toBeLessThan(1e-6);
+            const low = Math.min(flow(trunkStart), flow(trunkEnd));
+            const high = Math.max(flow(trunkStart), flow(trunkEnd));
+            const [labelLow, labelHigh] = vertical ? [top, bottom] : [left, right];
+            expect(labelLow, edge.id).toBeGreaterThan(low);
+            expect(labelHigh, edge.id).toBeLessThan(high);
+        }
+    });
+
+    it.each(labelFixtures)('keeps lane labels off stubs that cross their lane (%s)', (_name, build, layout) => {
+        const result = layoutOf(build(), layout);
+        const vertical = layout === 'TB' || layout === 'BT';
+        const cross = (point: { x: number; y: number }) => (vertical ? point.x : point.y);
+        const flow = (point: { x: number; y: number }) => (vertical ? point.y : point.x);
+        const stubs = laneEdges(result, layout).flatMap((edge) =>
+            segmentsOf(edge.points ?? [])
+                .filter(([start, end]) => Math.abs(flow(start) - flow(end)) < 1e-6)
+                .map(([start, end]) => ({ edge, end, start })),
+        );
+        for (const box of labelBoxesOf(result, layout)) {
+            const laneCross = cross(box.centre);
+            for (const stub of stubs) {
+                // A stub ending at this label's own trunk joins it; only one passing
+                // through to a lane further out crosses it.
+                const reach = [cross(stub.start), cross(stub.end)];
+                const passes = Math.min(...reach) < laneCross - 1e-6 && Math.max(...reach) > laneCross + 1e-6;
+                if (stub.edge.id === box.edge.id || !passes) {
+                    continue;
+                }
+                const row = flow(stub.start);
+                const [labelLow, labelHigh] = vertical ? [box.top, box.bottom] : [box.left, box.right];
+                expect(row <= labelLow || row >= labelHigh, `${stub.edge.id} crosses the label of ${box.edge.id}`).toBe(true);
+            }
+        }
+    });
+
+    it('stacks a crowded handler onto as few extra trunks as its labels need', () => {
+        const result = layoutOf(wideFanOut(8));
+        const lanes = laneEdges(result, 'TB');
+        expect(lanes).toHaveLength(8);
+        const trunks = new Set(lanes.map((edge) => Math.round((edge.points ?? [])[2].x)));
+        // Labels slide toward the handler before a new trunk opens: six fit on the
+        // first trunk's stretch, so eight need two trunks, not three.
+        expect(trunks.size).toBe(2);
+    });
+
+    it('routes lane edges into the side of a handler ranked above its catchers', () => {
+        const result = layoutOf(loopBackIntoChain());
+        const recover = result.nodes.find((node) => node.id === 'Recover');
+        const lanes = laneEdges(result, 'TB');
+        expect(lanes.length).toBeGreaterThan(0);
+        for (const edge of lanes) {
+            const source = result.nodes.find((node) => node.id === edge.from);
+            expect(recover?.y ?? Infinity).toBeLessThan(source?.y ?? -Infinity);
+            const points = edge.points ?? [];
+            const end = points[points.length - 1];
+            // Leaves its source upward and enters Recover through the bottom, the side
+            // facing its catchers.
+            expect(points[1].y, edge.id).toBeLessThan(points[0].y);
+            expect(end.y, edge.id).toBeGreaterThan(recover?.y ?? Infinity);
+        }
+    });
+
+    it('hands only the colliding catch edges back to dagre when a container sits on the lane side', () => {
+        const result = layoutOf(parallelBesideChain(30));
+        const parallel = result.nodes.find((node) => node.id === 'Par');
+        const lanes = laneEdges(result, 'TB');
+        expect(lanes.length).toBeGreaterThan(20);
+        expect(lanes.every((edge) => edge.catchLane)).toBe(true);
+        expect(
+            findLaneCollisions({
+                boxes: [parallel as StateNode],
+                routes: new Map(lanes.map((edge) => [edge.id, { points: edge.points ?? [] }])),
+            }).size,
+        ).toBe(0);
+    });
+
+    it.each([0, 8])('leaves catch edges to dagre at rankSeparation %i', (rankSeparation) => {
+        const { nodes, edges } = parseAsl({ definition: buildSharedCatchChain({ length: 12 }) });
+        const result = new DagreLayout({ layout: 'TB', rankSeparation }).calculate(nodes, edges);
+        expect(laneEdges(result, 'TB')).toHaveLength(0);
+    });
+
+    it('uses lanes from CATCH_LANE_MIN_RANK_SEPARATION up', () => {
+        const { nodes, edges } = parseAsl({ definition: buildSharedCatchChain({ length: 12 }) });
+        const result = new DagreLayout({ layout: 'TB', rankSeparation: CATCH_LANE_MIN_RANK_SEPARATION }).calculate(nodes, edges);
+        expect(laneEdges(result, 'TB')).toHaveLength(11);
     });
 
     it('leaves layouts alone below the threshold', () => {

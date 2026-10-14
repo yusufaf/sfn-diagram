@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { generateSvg } from '../src';
+import { parseAsl } from '../src/AslParser';
+import { DagreLayout } from '../src/layout';
 import {
+    anchorCatchLaneEnds,
     buildAcyclicPredecessors,
     CATCH_LANE_MIN_SOURCES,
     findLaneCollisions,
+    routeCatchLanes,
     selectLaneCatchEdges,
 } from '../src/layout/catchLanes';
-import type { GraphEdge } from '../src/types';
+import { measureEdgeLabel } from '../src/layout/edgeLabel';
+import type { GraphEdge, StateNode } from '../src/types';
+import { buildSharedCatchChain } from './performance/fixtures';
 
 const flow = (from: string, to: string): { from: string; id: string; to: string } => ({
     from,
@@ -130,35 +137,116 @@ describe('selectLaneCatchEdges', () => {
 
 describe('findLaneCollisions', () => {
     const box = { height: 100, width: 100, x: 0, y: 0 };
+    const through = {
+        points: [
+            { x: -80, y: 0 },
+            { x: 80, y: 0 },
+        ],
+    };
+    const grazing = {
+        points: [
+            { x: -80, y: 50 },
+            { x: 80, y: 50 },
+        ],
+    };
+    const clear = {
+        points: [
+            { x: -80, y: -200 },
+            { x: -80, y: 200 },
+            { x: 200, y: 200 },
+        ],
+    };
 
     it('reports a route segment through a box', () => {
-        const route = {
-            points: [
-                { x: -80, y: 0 },
-                { x: 80, y: 0 },
-            ],
-        };
-        expect(findLaneCollisions({ boxes: [box], routes: [route] })).toBe(true);
+        expect([...findLaneCollisions({ boxes: [box], routes: new Map([['through', through]]) })]).toEqual(['through']);
     });
 
     it('ignores a segment that only grazes a box edge', () => {
-        const route = {
-            points: [
-                { x: -80, y: 50 },
-                { x: 80, y: 50 },
-            ],
-        };
-        expect(findLaneCollisions({ boxes: [box], routes: [route] })).toBe(false);
+        expect(findLaneCollisions({ boxes: [box], routes: new Map([['grazing', grazing]]) }).size).toBe(0);
     });
 
     it('reports nothing for routes clear of every box', () => {
-        const route = {
-            points: [
-                { x: -80, y: -200 },
-                { x: -80, y: 200 },
-                { x: 200, y: 200 },
+        expect(findLaneCollisions({ boxes: [box], routes: new Map([['clear', clear]]) }).size).toBe(0);
+    });
+
+    it('reports only the colliding routes', () => {
+        const routes = new Map([
+            ['clear', clear],
+            ['through', through],
+            ['grazing', grazing],
+        ]);
+        expect([...findLaneCollisions({ boxes: [box], routes })]).toEqual(['through']);
+    });
+});
+
+describe('routeCatchLanes', () => {
+    const node = (id: string, y: number): StateNode => ({ height: 40, id, label: id, type: 'Task', width: 100, x: 100, y });
+
+    it('keeps the lane clear of a label the renderer centres on its path', () => {
+        const label = 'A fairly long label on a hand-routed edge';
+        const width = measureEdgeLabel({ label, themeFontSize: 14 }).width;
+        const routes = routeCatchLanes({
+            edges: [catchEdge('S', 'H')],
+            layout: 'TB',
+            nodes: [node('S', 100), node('H', 300)],
+            obstacleEdges: [
+                {
+                    label,
+                    points: [
+                        { x: 40, y: 150 },
+                        { x: 40, y: 250 },
+                    ],
+                },
             ],
+            rankSeparation: 50,
+            themeFontSize: 14,
+        });
+        const laneX = routes.get('S->H#error#0')?.points[2].x ?? Infinity;
+        expect(laneX).toBeLessThanOrEqual(40 - width / 2 - 20 + 1e-6);
+    });
+});
+
+describe('anchorCatchLaneEnds', () => {
+    const layoutChain = () => {
+        const { nodes, edges } = parseAsl({ definition: buildSharedCatchChain({ length: 12 }) });
+        return new DagreLayout({ layout: 'TB' }).calculate(nodes, edges);
+    };
+
+    it('re-attaches a lane end to the shape an override draws', () => {
+        const result = layoutChain();
+        const failed = result.nodes.find((candidate) => candidate.id === 'Failed') as StateNode;
+        expect(failed.style?.shape ?? 'rect').toBe('rect');
+        const edge = result.edges.find((candidate) => candidate.catchLane && candidate.to === 'Failed');
+        const points = anchorCatchLaneEnds({
+            edge: edge as GraphEdge & { points: Array<{ x: number; y: number }> },
+            layout: 'TB',
+            nodeOverrides: { Failed: { shape: 'circle' } },
+            nodesById: new Map(result.nodes.map((candidate) => [candidate.id, candidate])),
+        });
+        const original = edge?.points ?? [];
+        const end = points[points.length - 1];
+        // renderCircle draws a circle of radius width / 2 about the node centre.
+        const radius = (failed.width ?? 0) / 2;
+        const offset = end.x - (failed.x ?? 0);
+        expect(end.y).toBeCloseTo((failed.y ?? 0) - Math.sqrt(radius * radius - offset * offset), 6);
+        expect(Math.abs(end.y - original[original.length - 1].y)).toBeGreaterThan(1);
+        expect(points[points.length - 2].x).toBeCloseTo(end.x, 6);
+        expect(points[0]).toEqual(original[0]);
+    });
+
+    it('is applied by the curved renderer', () => {
+        const pathEnd = (svg: string): number[] => {
+            const tag = svg.match(/<path[^>]*data-edge-id="Step0-(?:>|&gt;)Failed#error#0"[^>]*>/)?.[0] ?? '';
+            const numbers = (tag.match(/ d="([^"]*)"/)?.[1] ?? '').match(/-?\d+(\.\d+)?/g) ?? [];
+            return numbers.slice(-2).map(Number);
         };
-        expect(findLaneCollisions({ boxes: [box], routes: [route] })).toBe(false);
+        const aslDefinition = buildSharedCatchChain({ length: 12 });
+        const plain = pathEnd(generateSvg({ aslDefinition, edgeStyle: 'curved' }).svg);
+        const overridden = pathEnd(
+            generateSvg({ aslDefinition, edgeStyle: 'curved', nodeOverrides: { Failed: { shape: 'circle' } } }).svg,
+        );
+        expect(plain).toHaveLength(2);
+        expect(overridden).toHaveLength(2);
+        expect(Math.abs(overridden[1] - plain[1])).toBeGreaterThan(1);
     });
 });

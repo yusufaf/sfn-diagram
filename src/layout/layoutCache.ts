@@ -134,14 +134,19 @@ function layoutRelevantNode(node: StateNode): Record<string, unknown> {
 /**
  * Reduce one edge to the parts that can move the layout.
  *
- * Drops `labelPosition`, `loopIndex` and `points` for the same reason
+ * Drops `catchLane`, `labelPosition`, `loopIndex` and `points` for the same reason
  * {@link layoutRelevantNode} drops `x`/`y`: {@link LayoutResult} adds them to its edges, so an edge handed back in from
  * a previous layout would otherwise key differently from the identical edge before it.
  */
 function layoutRelevantEdge(edge: GraphEdge): Record<string, unknown> {
     const relevant: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(edge)) {
-        if (field === 'labelPosition' || field === 'loopIndex' || field === 'points') {
+        if (
+            field === 'catchLane' ||
+            field === 'labelPosition' ||
+            field === 'loopIndex' ||
+            field === 'points'
+        ) {
             continue;
         }
         relevant[field] = value;
