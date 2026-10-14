@@ -10,7 +10,7 @@ Generate diagrams from AWS Step Functions ASL (Amazon States Language) definitio
 
 **📖 [Documentation](https://sfn.yusufaf.dev)** · **▶ [Live playground](https://sfn.yusufaf.dev/playground/)** — paste any ASL definition and preview the diagram instantly, no install required.
 
-**Use it as:** [CLI & Node library](https://www.npmjs.com/package/sfn-diagram) · VS Code extension ([Marketplace](https://marketplace.visualstudio.com/items?itemName=yusufaf.vscode-sfn-diagram) · [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram)) · [GitHub Action](https://github.com/marketplace/actions/step-functions-diagram-preview) · [Playground](https://sfn.yusufaf.dev/playground/) · [React component](https://www.npmjs.com/package/sfn-diagram-react)
+**Use it as:** [CLI & Node library](https://www.npmjs.com/package/sfn-diagram) · VS Code extension ([Marketplace](https://marketplace.visualstudio.com/items?itemName=yusufaf.vscode-sfn-diagram) · [Open VSX](https://open-vsx.org/extension/yusufaf/vscode-sfn-diagram)) · [GitHub Action](https://github.com/marketplace/actions/step-functions-diagram-preview) · [React component](https://www.npmjs.com/package/sfn-diagram-react)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/parallel-dark.svg">
@@ -29,7 +29,7 @@ The core package pulls in **no browser engine or native rasterizer** — SVG and
 npm install sfn-diagram @resvg/resvg-js
 ```
 
-Not a Node project? The CLI also ships as standalone binaries for Linux, macOS, and Windows on every [core release](https://github.com/yusufaf/sfn-diagram/releases?q=sfn-diagram-v1+OR+sfn-diagram-v2&expanded=true), or via Homebrew (`brew install yusufaf/tap/sfn-diagram`), and as a [Docker image](https://sfn.yusufaf.dev/guides/cli/#docker). See [using sfn-diagram from other languages](https://sfn.yusufaf.dev/guides/other-languages/).
+Not a Node project? The CLI also ships as standalone binaries for Linux, macOS, and Windows, attached to every core release from v1.6.0 on ([download](https://sfn.yusufaf.dev/installation/#cli-without-node)), or via Homebrew (`brew install yusufaf/tap/sfn-diagram`), and as a [Docker image](https://sfn.yusufaf.dev/guides/cli/#docker). See [using sfn-diagram from other languages](https://sfn.yusufaf.dev/guides/other-languages/).
 
 ## Quick start
 
