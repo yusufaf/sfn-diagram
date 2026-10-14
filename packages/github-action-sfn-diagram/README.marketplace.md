@@ -65,9 +65,14 @@ Pin to the moving major tag `@v1` (recommended) or an exact release like `@v1.0.
 
 ### Overlay a real execution (optional)
 
-Set `execution-mode` and `state-machine-arn` to add the most recent (or most recent **failed**) execution as a Mermaid overlay beneath the diff. This calls AWS, so configure credentials first:
+Set `execution-mode` and `state-machine-arn` to add the most recent (or most recent **failed**) execution as a Mermaid overlay beneath the diff. This calls AWS, so configure credentials first. The full workflow:
 
 ```yaml
+# .github/workflows/sfn-preview.yml
+on:
+  pull_request:
+    paths: ['**/*.asl.json', '**/*.asl']
+
 permissions:
   contents: read
   pull-requests: write
