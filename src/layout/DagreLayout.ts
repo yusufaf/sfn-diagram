@@ -126,14 +126,26 @@ interface LayoutWithParams {
     rejectedLaneEdgeIds: Set<string>;
     /** How many earlier passes ended in a lane crossing a container */
     retries: number;
+    /**
+     * The catch edges chosen for lanes, before any were handed back. It does not depend on
+     * positions, so a retry reuses the first pass's choice; absent on the first pass.
+     */
+    selectedLaneEdgeIds?: Set<string>;
 }
 
 /**
- * Layout passes with catch lanes before lanes are given up for the whole layout. A pass
- * whose lanes cross a container hands just those edges back to dagre and runs again;
- * that moves nodes, so it can expose new collisions, and each pass is a full dagre run.
+ * Passes in which a lane crossing a container hands back only its own edge. Handing edges
+ * back moves nodes, which can expose a new collision, so after these passes a collision
+ * hands back every lane edge into the same handler instead, and handlers without one
+ * keep their lanes.
  */
-const MAX_CATCH_LANE_RETRIES = 3;
+const CATCH_LANE_EDGE_PASSES = 3;
+
+/**
+ * Layout passes with catch lanes before they are given up for the whole layout. Each
+ * pass is a full dagre run, though a fast one while most catch edges are on lanes.
+ */
+const MAX_CATCH_LANE_PASSES = 6;
 
 /** Parameters for {@link DagreLayout.selectLaneEdges}. */
 interface SelectLaneEdgesParams {
@@ -316,13 +328,14 @@ export class DagreLayout {
         // A catch handler that many states share would otherwise make dagre insert a
         // dummy node per rank for every long catch edge into it, which is quadratic.
         // The edges that can be left out are routed along a lane after layout instead.
-        const laneEdgeIds =
-            allowCatchLanes && rankSeparation >= CATCH_LANE_MIN_RANK_SEPARATION
-                ? this.selectLaneEdges({ containerIds, edges, layoutNodes, nodes, rankedEdges })
-                : new Set<string>();
-        for (const id of rejectedLaneEdgeIds) {
-            laneEdgeIds.delete(id);
-        }
+        const selectedLaneEdgeIds =
+            !allowCatchLanes || rankSeparation < CATCH_LANE_MIN_RANK_SEPARATION
+                ? new Set<string>()
+                : (params.selectedLaneEdgeIds ??
+                  this.selectLaneEdges({ containerIds, edges, layoutNodes, nodes, rankedEdges }));
+        const laneEdgeIds = new Set(
+            [...selectedLaneEdgeIds].filter((id) => !rejectedLaneEdgeIds.has(id)),
+        );
 
         for (const ranked of rankedEdges) {
             if (!laneEdgeIds.has(ranked.edge.id)) {
@@ -434,14 +447,26 @@ export class DagreLayout {
                     : new Set<string>();
             if (colliding.size > 0) {
                 // Containers are boxes dagre never saw, so a collision can only be found
-                // now. Hand just the colliding edges back to dagre and lay out again; if
-                // lanes still collide after a few rounds, drop them altogether.
+                // now. Hand the colliding edges back to dagre and lay out again: first one
+                // edge at a time, then whole handlers, and lanes are dropped altogether only
+                // if collisions outlast MAX_CATCH_LANE_PASSES.
+                const nextRetries = retries + 1;
+                const collidingHandlers = new Set(
+                    edges.filter((edge) => colliding.has(edge.id)).map((edge) => edge.to),
+                );
+                const handedBack =
+                    nextRetries < CATCH_LANE_EDGE_PASSES
+                        ? [...colliding]
+                        : edges
+                              .filter((edge) => laneEdgeIds.has(edge.id) && collidingHandlers.has(edge.to))
+                              .map((edge) => edge.id);
                 return this.layoutWith({
-                    allowCatchLanes: retries + 1 < MAX_CATCH_LANE_RETRIES,
+                    allowCatchLanes: nextRetries < MAX_CATCH_LANE_PASSES,
                     edges,
                     nodes,
-                    rejectedLaneEdgeIds: new Set([...rejectedLaneEdgeIds, ...colliding]),
-                    retries: retries + 1,
+                    rejectedLaneEdgeIds: new Set([...rejectedLaneEdgeIds, ...handedBack]),
+                    retries: nextRetries,
+                    selectedLaneEdgeIds,
                 });
             }
             routedEdges.forEach((edge, index) => {

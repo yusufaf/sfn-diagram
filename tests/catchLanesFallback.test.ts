@@ -2,19 +2,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseAsl } from '../src/AslParser';
 import { DagreLayout } from '../src/layout';
 import type { CatchLaneRoute } from '../src/layout/catchLanes';
-import { isLaneRoute, parallelInChain } from './helpers/catchLaneFixtures';
+import type { AslDefinition } from '../src/types';
+import { isLaneRoute, parallelInChain, roundRobinHandlers } from './helpers/catchLaneFixtures';
 
 const collisions = vi.hoisted(() => ({
     pick: (routes: Map<string, CatchLaneRoute>): Set<string> => new Set(routes.keys()),
+    selections: 0,
 }));
 
-vi.mock('../src/layout/catchLanes', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('../src/layout/catchLanes')>()),
-    findLaneCollisions: (params: { routes: Map<string, CatchLaneRoute> }) => collisions.pick(params.routes),
-}));
+vi.mock('../src/layout/catchLanes', async (importOriginal) => {
+    const original = await importOriginal<typeof import('../src/layout/catchLanes')>();
+    return {
+        ...original,
+        findLaneCollisions: (params: { routes: Map<string, CatchLaneRoute> }) => collisions.pick(params.routes),
+        selectLaneCatchEdges: (params: Parameters<typeof original.selectLaneCatchEdges>[0]) => {
+            collisions.selections += 1;
+            return original.selectLaneCatchEdges(params);
+        },
+    };
+});
 
-const layoutErrors = () => {
-    const { nodes, edges } = parseAsl({ definition: parallelInChain() });
+const layoutErrors = (definition: AslDefinition = parallelInChain()) => {
+    const { nodes, edges } = parseAsl({ definition });
     const result = new DagreLayout({ layout: 'TB' }).calculate(nodes, edges);
     const errors = result.edges.filter((edge) => edge.type === 'error');
     return {
@@ -23,9 +32,29 @@ const layoutErrors = () => {
     };
 };
 
+/**
+ * roundRobinHandlers with a Parallel after the chain, so the layout has a container and
+ * the collision check runs.
+ */
+const roundRobinWithParallel = (handlers: number): AslDefinition => {
+    const definition = roundRobinHandlers(8 * handlers, handlers);
+    definition.States[`Step${8 * handlers - 1}`].Next = 'Par';
+    definition.States.Par = {
+        Type: 'Parallel',
+        Branches: [{ StartAt: 'P1', States: { P1: { Type: 'Pass', End: true } } }],
+        Next: 'Done',
+    };
+    return definition;
+};
+
+/** Collide on the first route into any of `handlers`, every pass. */
+const collideFirstInto = (handlers: string[]) => (routes: Map<string, CatchLaneRoute>) =>
+    new Set([...routes.keys()].filter((id) => handlers.some((handler) => id.includes(`->${handler}#`))).slice(0, 1));
+
 describe('catch lane fallback', () => {
     beforeEach(() => {
         collisions.pick = (routes) => new Set(routes.keys());
+        collisions.selections = 0;
     });
 
     it('hands every colliding catch edge back to dagre', () => {
@@ -49,15 +78,38 @@ describe('catch lane fallback', () => {
         expect(lanes.map((edge) => edge.id)).not.toContain(rejected);
     });
 
-    it('drops lanes altogether when collisions keep coming', () => {
+    it('chooses lane edges once, however many passes run', () => {
+        collisions.pick = collideFirstInto(['Failed0']);
+        layoutErrors(roundRobinWithParallel(3));
+        expect(collisions.selections).toBe(1);
+    });
+
+    it('hands back the whole handler once single edges keep colliding, and keeps other handlers', () => {
         const seen: number[] = [];
+        const pick = collideFirstInto(['Failed0']);
         collisions.pick = (routes) => {
             seen.push(routes.size);
-            return new Set([...routes.keys()].slice(0, 1));
+            return pick(routes);
         };
-        const { lanes } = layoutErrors();
-        expect(seen).toHaveLength(3);
-        expect(seen[2]).toBeGreaterThan(0);
+        const { lanes } = layoutErrors(roundRobinWithParallel(3));
+        // Two passes hand back one Failed0 edge each, the third all of Failed0's, and the
+        // fourth finds no collision.
+        expect(seen).toHaveLength(4);
+        expect(lanes.some((edge) => edge.to === 'Failed0')).toBe(false);
+        expect(lanes.some((edge) => edge.to === 'Failed1')).toBe(true);
+        expect(lanes.some((edge) => edge.to === 'Failed2')).toBe(true);
+    });
+
+    it('drops lanes altogether when collisions outlast every pass', () => {
+        const seen: number[] = [];
+        const pick = collideFirstInto(['Failed0', 'Failed1', 'Failed2', 'Failed3', 'Failed4']);
+        collisions.pick = (routes) => {
+            seen.push(routes.size);
+            return pick(routes);
+        };
+        // Failed5 never collides, but the sixth pass still collides, so it loses its lane too.
+        const { lanes } = layoutErrors(roundRobinWithParallel(6));
+        expect(seen).toHaveLength(6);
         expect(lanes).toHaveLength(0);
     });
 });

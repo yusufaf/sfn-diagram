@@ -12,12 +12,14 @@ import { buildSharedCatchChain } from './performance/fixtures';
 import { CATCH_LANE_MIN_RANK_SEPARATION, findLaneCollisions } from '../src/layout/catchLanes';
 import {
     catchersInsideMap,
+    convergingFanOut,
     interleavedHandlers,
     isLaneRoute,
     loopBackIntoChain,
     parallelBesideChain,
     parallelInChain,
     pulledShape,
+    roundRobinHandlers,
     sameRowFanOut,
     wideFanOut,
 } from './helpers/catchLaneFixtures';
@@ -548,9 +550,9 @@ describe('Container edge direction', () => {
 });
 
 describe('Shared catch handlers', () => {
-    const layoutOf = (definition: AslDefinition, layout: LayoutDirection = 'TB') => {
+    const layoutOf = (definition: AslDefinition, layout: LayoutDirection = 'TB', rankSeparation = 50) => {
         const { nodes, edges } = parseAsl({ definition });
-        return new DagreLayout({ layout }).calculate(nodes, edges);
+        return new DagreLayout({ layout, rankSeparation }).calculate(nodes, edges);
     };
     const errorEdges = (result: ReturnType<typeof layoutOf>, target: string) =>
         result.edges.filter((edge) => edge.type === 'error' && edge.to === target);
@@ -650,20 +652,30 @@ describe('Shared catch handlers', () => {
             });
     };
 
+    // Fixtures where every lane label has a spot clear of every stub.
+    const cleanLabelFixtures = [
+        ['TB same-row fan-out', sameRowFanOut, 'TB', 50],
+        ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR', 50],
+        ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL', 50],
+        ['TB 8-way fan-out', () => wideFanOut(8), 'TB', 50],
+        ['LR 6-way fan-out', () => wideFanOut(6), 'LR', 50],
+        ['BT 8-way fan-out', () => wideFanOut(8), 'BT', 50],
+        ['TB interleaved handlers', interleavedHandlers, 'TB', 50],
+        ['LR interleaved handlers', interleavedHandlers, 'LR', 50],
+        ['TB loop back into the chain', loopBackIntoChain, 'TB', 50],
+        ['TB converging fan-out', convergingFanOut, 'TB', 50],
+        ['TB converging fan-out, rankSeparation 30', convergingFanOut, 'TB', 30],
+        ['TB converging fan-out, rankSeparation 16', convergingFanOut, 'TB', 16],
+        ['TB converging fan-out, rankSeparation 100', convergingFanOut, 'TB', 100],
+        ['TB round-robin handlers', () => roundRobinHandlers(20), 'TB', 50],
+    ] as const;
     const labelFixtures = [
-        ['TB same-row fan-out', sameRowFanOut, 'TB'],
-        ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR'],
-        ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL'],
-        ['TB 8-way fan-out', () => wideFanOut(8), 'TB'],
-        ['LR 6-way fan-out', () => wideFanOut(6), 'LR'],
-        ['BT 8-way fan-out', () => wideFanOut(8), 'BT'],
-        ['TB interleaved handlers', interleavedHandlers, 'TB'],
-        ['LR interleaved handlers', interleavedHandlers, 'LR'],
-        ['TB loop back into the chain', loopBackIntoChain, 'TB'],
+        ...cleanLabelFixtures,
+        ['LR round-robin handlers', () => roundRobinHandlers(20), 'LR', 50],
     ] as const;
 
-    it.each(labelFixtures)('gives lane labels non-overlapping positions (%s)', (_name, build, layout) => {
-        const boxes = labelBoxesOf(layoutOf(build(), layout), layout);
+    it.each(labelFixtures)('gives lane labels non-overlapping positions (%s)', (_name, build, layout, rankSeparation) => {
+        const boxes = labelBoxesOf(layoutOf(build(), layout, rankSeparation), layout);
         expect(boxes.length).toBeGreaterThanOrEqual(2);
         for (let first = 0; first < boxes.length; first += 1) {
             for (let second = first + 1; second < boxes.length; second += 1) {
@@ -679,11 +691,14 @@ describe('Shared catch handlers', () => {
 
     // The renderer draws a label at the point of its own path nearest labelPosition, so a
     // label off its trunk is drawn somewhere else - on a fan-out, all on one corner.
-    it.each(labelFixtures)('keeps each lane label on its own trunk stretch (%s)', (_name, build, layout) => {
+    it.each(labelFixtures)('keeps each lane label on its own trunk stretch (%s)', (_name, build, layout, rankSeparation) => {
         const vertical = layout === 'TB' || layout === 'BT';
         const flow = (point: { x: number; y: number }) => (vertical ? point.y : point.x);
         const cross = (point: { x: number; y: number }) => (vertical ? point.x : point.y);
-        for (const { bottom, centre, edge, left, right, top } of labelBoxesOf(layoutOf(build(), layout), layout)) {
+        // A curved edge only runs exactly along its trunk from a quarter of the rank
+        // separation past each corner.
+        const clearance = Math.max(4, rankSeparation / 4) - 1e-6;
+        for (const { bottom, centre, edge, left, right, top } of labelBoxesOf(layoutOf(build(), layout, rankSeparation), layout)) {
             const points = edge.points ?? [];
             const trunkStart = points[2];
             const trunkEnd = points[points.length - 3];
@@ -691,13 +706,19 @@ describe('Shared catch handlers', () => {
             const low = Math.min(flow(trunkStart), flow(trunkEnd));
             const high = Math.max(flow(trunkStart), flow(trunkEnd));
             const [labelLow, labelHigh] = vertical ? [top, bottom] : [left, right];
-            expect(labelLow, edge.id).toBeGreaterThan(low);
-            expect(labelHigh, edge.id).toBeLessThan(high);
+            if (high - low < labelHigh - labelLow + 2 * clearance) {
+                // Too short a stretch for the label: it is centred on it instead.
+                expect(flow(centre), edge.id).toBeCloseTo((low + high) / 2, 6);
+                continue;
+            }
+            expect(labelLow, edge.id).toBeGreaterThanOrEqual(low + clearance);
+            expect(labelHigh, edge.id).toBeLessThanOrEqual(high - clearance);
         }
     });
 
-    it.each(labelFixtures)('keeps lane labels off stubs that cross their lane (%s)', (_name, build, layout) => {
-        const result = layoutOf(build(), layout);
+    // Every stub that reaches a label's trunk, by joining it or passing through to a lane
+    // further out, as [stub edge id, label edge id] pairs whose row the label covers.
+    const stubsThroughLabels = (result: ReturnType<typeof layoutOf>, layout: LayoutDirection) => {
         const vertical = layout === 'TB' || layout === 'BT';
         const cross = (point: { x: number; y: number }) => (vertical ? point.x : point.y);
         const flow = (point: { x: number; y: number }) => (vertical ? point.y : point.x);
@@ -706,21 +727,39 @@ describe('Shared catch handlers', () => {
                 .filter(([start, end]) => Math.abs(flow(start) - flow(end)) < 1e-6)
                 .map(([start, end]) => ({ edge, end, start })),
         );
+        const hits: Array<[string, string]> = [];
         for (const box of labelBoxesOf(result, layout)) {
             const laneCross = cross(box.centre);
+            const [labelLow, labelHigh] = vertical ? [box.top, box.bottom] : [box.left, box.right];
             for (const stub of stubs) {
-                // A stub ending at this label's own trunk joins it; only one passing
-                // through to a lane further out crosses it.
                 const reach = [cross(stub.start), cross(stub.end)];
-                const passes = Math.min(...reach) < laneCross - 1e-6 && Math.max(...reach) > laneCross + 1e-6;
-                if (stub.edge.id === box.edge.id || !passes) {
-                    continue;
-                }
+                const touches = Math.min(...reach) <= laneCross + 1e-6 && Math.max(...reach) >= laneCross - 1e-6;
                 const row = flow(stub.start);
-                const [labelLow, labelHigh] = vertical ? [box.top, box.bottom] : [box.left, box.right];
-                expect(row <= labelLow || row >= labelHigh, `${stub.edge.id} crosses the label of ${box.edge.id}`).toBe(true);
+                if (stub.edge.id !== box.edge.id && touches && row > labelLow && row < labelHigh) {
+                    hits.push([stub.edge.id, box.edge.id]);
+                }
             }
         }
+        return hits;
+    };
+
+    it.each(cleanLabelFixtures)('keeps lane labels off every stub that reaches their trunk (%s)', (_name, build, layout, rankSeparation) => {
+        expect(stubsThroughLabels(layoutOf(build(), layout, rankSeparation), layout)).toEqual([]);
+    });
+
+    it('lets a label cover as few stubs as it can when none of its spots is clear', () => {
+        // In LR each three-error label is longer than one rank, so on the two inner lanes
+        // every spot is crossed by an outer lane's stub. One stub per label is the least.
+        const result = layoutOf(roundRobinHandlers(20), 'LR');
+        const hits = stubsThroughLabels(result, 'LR');
+        const perLabel = new Map<string, number>();
+        for (const [, label] of hits) {
+            perLabel.set(label, (perLabel.get(label) ?? 0) + 1);
+        }
+        expect(Math.max(0, ...perLabel.values())).toBeLessThanOrEqual(1);
+        // A new trunk cannot clear an outer lane's stub, so none is opened for it.
+        const trunks = new Set(laneEdges(result, 'LR').map((edge) => Math.round((edge.points ?? [])[2].y)));
+        expect(trunks.size).toBe(3);
     });
 
     it('stacks a crowded handler onto as few extra trunks as its labels need', () => {

@@ -221,6 +221,57 @@ export const parallelBesideChain = (length: number): AslDefinition => {
     return { StartAt: 'Route', States: states };
 };
 
+/**
+ * Choice fanning out to six branches of two Tasks each that converge on a `Join` Task
+ * and then `Last`; every Task catches into `Failed`. Join's stub joins the lane nearer
+ * the handler than every branch's, so packed branch labels must keep off its row.
+ */
+export const convergingFanOut = (): AslDefinition => {
+    const states: Record<string, AslState> = {
+        Route: {
+            Type: 'Choice',
+            Choices: Array.from({ length: 5 }, (_, index) => ({
+                Variable: '$.x',
+                NumericEquals: index,
+                Next: `B${index}_0`,
+            })),
+            Default: 'B5_0',
+        },
+        Join: task({ catchInto: 'Failed', next: 'Last' }),
+        Last: { Type: 'Succeed' },
+        Failed: { Type: 'Fail' },
+    };
+    for (let branch = 0; branch < 6; branch += 1) {
+        states[`B${branch}_0`] = task({ catchInto: 'Failed', next: `B${branch}_1` });
+        states[`B${branch}_1`] = task({ catchInto: 'Failed', next: 'Join' });
+    }
+    return { StartAt: 'Route', States: states };
+};
+
+/**
+ * A chain of `length` Tasks catching round-robin into `Failed0` .. `Failed{handlers - 1}`,
+ * each Catch naming three errors. In LR a label is longer than one rank, so with three
+ * handlers the inner lanes' labels cannot avoid every stub of the outer lanes.
+ */
+export const roundRobinHandlers = (length: number, handlers = 3): AslDefinition => {
+    const states: Record<string, AslState> = { Done: { Type: 'Succeed' } };
+    for (let handler = 0; handler < handlers; handler += 1) {
+        states[`Failed${handler}`] = { Type: 'Fail' };
+    }
+    for (let index = 0; index < length; index += 1) {
+        states[`Step${index}`] = {
+            ...task({ next: index === length - 1 ? 'Done' : `Step${index + 1}` }),
+            Catch: [
+                {
+                    ErrorEquals: ['States.TaskFailed', 'States.Timeout', 'States.Permissions'],
+                    Next: `Failed${index % handlers}`,
+                },
+            ],
+        };
+    }
+    return { StartAt: 'Step0', States: states };
+};
+
 interface IsLaneRouteParams {
     edge: LayoutResult['edges'][number];
     layout: LayoutDirection;

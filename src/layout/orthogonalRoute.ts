@@ -16,6 +16,26 @@ export interface Frame {
     vertical: boolean;
 }
 
+/** Parameters for {@link frameOf}. */
+export interface FrameOfParams {
+    layout: LayoutDirection;
+}
+
+/**
+ * The frame a layout direction flows in.
+ *
+ * @param params.layout - The layout direction
+ * @returns A vertical frame for TB/BT, a horizontal one for LR/RL
+ *
+ * @example
+ * ```typescript
+ * frameOf({ layout: 'LR' }); // { vertical: false }
+ * ```
+ */
+export function frameOf(params: FrameOfParams): Frame {
+    return { vertical: params.layout === 'TB' || params.layout === 'BT' };
+}
+
 /** Parameters for {@link flowOf} and {@link crossOf}. */
 export interface AxisParams {
     frame: Frame;
@@ -28,6 +48,11 @@ export interface AxisParams {
  * @param params.frame - Which axis edges flow along
  * @param params.point - The point to read
  * @returns `point.y` for a vertical frame, `point.x` otherwise
+ *
+ * @example
+ * ```typescript
+ * flowOf({ frame: { vertical: true }, point: { x: 10, y: 40 } }); // 40
+ * ```
  */
 export function flowOf(params: AxisParams): number {
     return params.frame.vertical ? params.point.y : params.point.x;
@@ -39,6 +64,11 @@ export function flowOf(params: AxisParams): number {
  * @param params.frame - Which axis edges flow along
  * @param params.point - The point to read
  * @returns `point.x` for a vertical frame, `point.y` otherwise
+ *
+ * @example
+ * ```typescript
+ * crossOf({ frame: { vertical: true }, point: { x: 10, y: 40 } }); // 10
+ * ```
  */
 export function crossOf(params: AxisParams): number {
     return params.frame.vertical ? params.point.x : params.point.y;
@@ -58,6 +88,11 @@ export interface ToPointParams {
  * @param params.flow - Coordinate along the flow axis
  * @param params.frame - Which axis edges flow along
  * @returns The matching x/y point
+ *
+ * @example
+ * ```typescript
+ * toPoint({ cross: 10, flow: 40, frame: { vertical: false } }); // { x: 40, y: 10 }
+ * ```
  */
 export function toPoint(params: ToPointParams): Point {
     const { cross, flow, frame } = params;
@@ -74,6 +109,11 @@ export interface CentreOfParams {
  *
  * @param params.node - The node to read
  * @returns The node's centre point
+ *
+ * @example
+ * ```typescript
+ * centreOf({ node: { id: 'A', label: 'A', type: 'Pass', x: 100 } }); // { x: 100, y: 0 }
+ * ```
  */
 export function centreOf(params: CentreOfParams): Point {
     return { x: params.node.x || 0, y: params.node.y || 0 };
@@ -91,6 +131,12 @@ export interface HalfExtentsParams {
  * @param params.frame - Which axis edges flow along
  * @param params.node - The node to measure
  * @returns `halfCross` and `halfFlow`, with a missing size read as 0
+ *
+ * @example
+ * ```typescript
+ * halfExtents({ frame: { vertical: true }, node: { height: 40, id: 'A', label: 'A', type: 'Pass', width: 100 } });
+ * // { halfCross: 50, halfFlow: 20 }
+ * ```
  */
 export function halfExtents(params: HalfExtentsParams): { halfCross: number; halfFlow: number } {
     const { frame, node } = params;
@@ -168,6 +214,13 @@ export interface AnchorOnNodeParams {
  * @param params.node - The node to attach to
  * @param params.nodeOverrides - Per-node overrides, whose `shape` wins over the node's own
  * @returns The anchor point on the node's outline
+ *
+ * @example
+ * ```typescript
+ * // A rect 100x40 at (0, 0), reached from below and to the right in TB:
+ * anchorOnNode({ adjacent: { x: 60, y: 80 }, frame: { vertical: true }, node });
+ * // { x: 25, y: 20 } - on the bottom side, kept inside its middle half
+ * ```
  */
 export function anchorOnNode(params: AnchorOnNodeParams): Point {
     const { adjacent, frame, node, nodeOverrides } = params;
@@ -316,7 +369,7 @@ export interface RouteOrthogonalEdgesParams {
  */
 export function routeOrthogonalEdges(params: RouteOrthogonalEdgesParams): LayoutResult['edges'] {
     const { edges, layout, nodeOverrides, nodes } = params;
-    const frame: Frame = { vertical: layout === 'TB' || layout === 'BT' };
+    const frame = frameOf({ layout });
     const exitDirection = layout === 'TB' || layout === 'LR' ? 1 : -1;
     const nodesById = new Map(nodes.map((node) => [node.id, node]));
 
