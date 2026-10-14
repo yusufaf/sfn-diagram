@@ -5,7 +5,9 @@ description: Use the sfn-diagram CLI to render diagrams, diffs, and execution ov
 
 import { PackageManagers } from 'starlight-package-managers'
 
-The package ships a CLI for use without writing any JavaScript:
+The package ships a CLI for use without writing any JavaScript.
+
+**Install:** nothing to install when you run it through `npx` as below, or `brew install yusufaf/tap/sfn-diagram` for a build that needs no Node.js but cannot use `--format png` or `--from-aws` (see [Standalone binary](#standalone-binary)). A [Docker image](#docker) is also available.
 
 <PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format svg -o diagram.svg" />
 <PackageManagers type="dlx" pkg="sfn-diagram" pkgManagers={['npm', 'pnpm', 'yarn', 'bun']} args="state.asl.json --format mermaid > diagram.mmd" />
@@ -777,8 +779,9 @@ the single-file path gives up.
 
 ## Standalone binary
 
-Each GitHub release also attaches single-file executables for Linux (x64, arm64),
-macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js.
+Each core release from v1.6.0 on attaches single-file executables for Linux (x64, arm64),
+macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js. See
+[CLI without Node](/installation/#cli-without-node) for where to download them.
 
 Two flags are unavailable there, both because a single-file executable has no
 `node_modules` to load an optional peer dependency from. Each exits 2 with a pointer
@@ -794,7 +797,7 @@ file, `--execution` against a saved history file, `--check`, templates and `--ou
 
 ```bash
 brew install yusufaf/tap/sfn-diagram
-# or download sfn-diagram-<os>-<arch> from the releases page and chmod +x it
+# or download sfn-diagram-<os>-<arch> from a core release and chmod +x it
 ```
 
 They support every format except `png`: the native rasterizer it needs cannot be

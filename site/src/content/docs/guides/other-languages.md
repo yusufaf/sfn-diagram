@@ -23,8 +23,8 @@ and SAM template input.
 
 ## No Node? Install a standalone binary
 
-Each release attaches self-contained executables for Linux (x64, arm64), macOS (Apple
-silicon, Intel), and Windows (x64), plus a `SHA256SUMS` file. They bundle the CLI and
+Each core release from v1.6.0 on attaches self-contained executables for Linux (x64, arm64),
+macOS (Apple silicon, Intel), and Windows (x64), plus a `SHA256SUMS` file. They bundle the CLI and
 its runtime in one file, so nothing else needs to be installed.
 
 **Homebrew** (macOS and Linux):
@@ -33,12 +33,12 @@ its runtime in one file, so nothing else needs to be installed.
 brew install yusufaf/tap/sfn-diagram
 ```
 
-**Direct download** (substitute your platform; see the
-[releases page](https://github.com/yusufaf/sfn-diagram/releases) for the full list):
+**Direct download** (substitute your platform; [CLI without Node](/installation/#cli-without-node)
+links the list of core releases):
 
 ```bash
 curl -fsSL -o sfn-diagram \
-  https://github.com/yusufaf/sfn-diagram/releases/latest/download/sfn-diagram-linux-x64
+  https://github.com/yusufaf/sfn-diagram/releases/download/sfn-diagram-v1.8.0/sfn-diagram-linux-x64  # x-release-please-version
 chmod +x sfn-diagram
 ./sfn-diagram --version
 ```

@@ -19,9 +19,23 @@
     "keywords": [
         "step-functions",
         "stepfunctions",
+        "aws-step-functions",
+        "aws",
+        "sfn",
         "asl",
+        "amazon-states-language",
         "diagram",
-        "state-machine"
+        "state-machine",
+        "statemachine",
+        "visualizer",
+        "visualization",
+        "preview",
+        "viewer",
+        "flowchart",
+        "mermaid",
+        "svg",
+        "execution-history",
+        "jsonata"
     ],
     "activationEvents": [
         "onLanguage:json",
