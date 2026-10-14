@@ -92,9 +92,9 @@ describe('catch lane fallback', () => {
             return pick(routes);
         };
         const { lanes } = layoutErrors(roundRobinWithParallel(3));
-        // Two passes hand back one Failed0 edge each, the third all of Failed0's, and the
-        // fourth finds no collision.
-        expect(seen).toHaveLength(4);
+        // The first pass hands back one Failed0 edge, the second all of Failed0's, and the
+        // third finds no collision.
+        expect(seen).toHaveLength(3);
         expect(lanes.some((edge) => edge.to === 'Failed0')).toBe(false);
         expect(lanes.some((edge) => edge.to === 'Failed1')).toBe(true);
         expect(lanes.some((edge) => edge.to === 'Failed2')).toBe(true);
@@ -102,14 +102,15 @@ describe('catch lane fallback', () => {
 
     it('drops lanes altogether when collisions outlast every pass', () => {
         const seen: number[] = [];
-        const pick = collideFirstInto(['Failed0', 'Failed1', 'Failed2', 'Failed3', 'Failed4']);
+        const pick = collideFirstInto(['Failed0', 'Failed1']);
         collisions.pick = (routes) => {
             seen.push(routes.size);
             return pick(routes);
         };
-        // Failed5 never collides, but the sixth pass still collides, so it loses its lane too.
-        const { lanes } = layoutErrors(roundRobinWithParallel(6));
-        expect(seen).toHaveLength(6);
+        // Failed2 never collides, but the third and last lane pass still collides (on
+        // Failed1), so Failed2 loses its lane too.
+        const { lanes } = layoutErrors(roundRobinWithParallel(3));
+        expect(seen).toHaveLength(3);
         expect(lanes).toHaveLength(0);
     });
 });

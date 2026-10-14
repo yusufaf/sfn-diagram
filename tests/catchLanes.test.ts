@@ -180,7 +180,43 @@ describe('findLaneCollisions', () => {
 });
 
 describe('routeCatchLanes', () => {
-    const node = (id: string, y: number): StateNode => ({ height: 40, id, label: id, type: 'Task', width: 100, x: 100, y });
+    const node = (id: string, y: number, x = 100): StateNode => ({ height: 40, id, label: id, type: 'Task', width: 100, x, y });
+
+    it('keeps routes finite when an endpoint is an open container', () => {
+        const container: StateNode = { ...node('Box', 300), height: 120, isContainer: true, width: 200 };
+        const routes = routeCatchLanes({
+            edges: ['A', 'B', 'C', 'D'].map((id) => catchEdge(id, 'Box')),
+            layout: 'TB',
+            nodes: [node('A', 0), node('B', 60), node('C', 120), node('D', 180), container],
+            obstacleEdges: [],
+            rankSeparation: 50,
+            themeFontSize: 14,
+        });
+        expect(routes.size).toBe(4);
+        for (const route of routes.values()) {
+            for (const point of route.points) {
+                expect(Number.isFinite(point.x) && Number.isFinite(point.y)).toBe(true);
+            }
+        }
+    });
+
+    it('opens no trunk for a label too long for its stretch on any trunk', () => {
+        // U and L share the row just above H; U's unlabelled stub joins the trunk first,
+        // and L's label cannot fit the one-gap stretch on this trunk or a fresh one.
+        const labelled = { ...catchEdge('L', 'H'), label: 'Error: States.TaskFailed' };
+        const routes = routeCatchLanes({
+            edges: [catchEdge('U', 'H'), labelled],
+            layout: 'TB',
+            nodes: [node('U', 100, 100), node('L', 100, 300), node('H', 190, 200)],
+            obstacleEdges: [],
+            rankSeparation: 50,
+            themeFontSize: 14,
+        });
+        const unlabelledLane = routes.get('U->H#error#0')?.points[2].x;
+        const labelledLane = routes.get('L->H#error#0')?.points[2].x;
+        expect(unlabelledLane).toBeDefined();
+        expect(labelledLane).toBe(unlabelledLane);
+    });
 
     it('keeps the lane clear of a label the renderer centres on its path', () => {
         const label = 'A fairly long label on a hand-routed edge';

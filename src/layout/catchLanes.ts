@@ -315,6 +315,31 @@ interface PlaceLabelParams {
     limit: number;
 }
 
+/** Parameters for {@link coveredRows}. */
+interface CoveredRowsParams {
+    /** Lists of rows, each sorted highest first */
+    blocked: number[][];
+    centre: number;
+    /** Half the label's length plus half the gap it keeps from a stub */
+    margin: number;
+}
+
+/**
+ * How many rows a label at `centre` covers. A row within ROW_EPSILON of either end counts
+ * as clear, so a label placed exactly against a row is not counted as covering it after
+ * `(row - margin) + margin` rounds above `row`.
+ */
+function coveredRows(params: CoveredRowsParams): number {
+    const { blocked, centre, margin } = params;
+    return blocked.reduce(
+        (count, rows) =>
+            count +
+            firstBelow({ rows, value: centre - margin + ROW_EPSILON }) -
+            firstBelow({ rows, value: centre + margin - ROW_EPSILON }),
+        0,
+    );
+}
+
 /**
  * The centre for a label on a trunk: as near `desired` as `limit` allows, then moved back
  * past every blocked row it would cover. Coordinates are scaled by the side's `toward`, so
@@ -324,18 +349,23 @@ function placeLabel(params: PlaceLabelParams): number {
     const { blocked, desired, extent, limit } = params;
     const margin = extent / 2 + LANE_LABEL_GAP / 2;
     let centre = Math.min(desired, limit - extent / 2);
-    let moved = true;
-    while (moved) {
-        moved = false;
+    for (;;) {
+        // The highest covered row across every list; the label moves to just below it.
+        let highest = -Infinity;
         for (const rows of blocked) {
-            const index = firstBelow({ rows, value: centre + margin });
-            if (index < rows.length && rows[index] > centre - margin) {
-                centre = rows[index] - margin;
-                moved = true;
+            const index = firstBelow({ rows, value: centre + margin - ROW_EPSILON });
+            if (index < rows.length && rows[index] > centre - margin + ROW_EPSILON) {
+                highest = Math.max(highest, rows[index]);
             }
         }
+        const next = highest - margin;
+        // Every move is strictly down, so this ends; the guard also stops a move that
+        // rounding would turn into no move at all.
+        if (highest === -Infinity || next >= centre) {
+            return centre;
+        }
+        centre = next;
     }
-    return centre;
 }
 
 /** Parameters for {@link leastBlockedCentre}. */
@@ -358,12 +388,7 @@ interface LeastBlockedCentreParams {
 function leastBlockedCentre(params: LeastBlockedCentreParams): number {
     const { blocked, desired, extent, high, low } = params;
     const margin = extent / 2 + LANE_LABEL_GAP / 2;
-    const covered = (centre: number): number =>
-        blocked.reduce(
-            (count, rows) =>
-                count + firstBelow({ rows, value: centre - margin + ROW_EPSILON }) - firstBelow({ rows, value: centre + margin }),
-            0,
-        );
+    const covered = (centre: number): number => coveredRows({ blocked, centre, margin });
     const candidates = [low, high, Math.min(Math.max(desired, low), high)];
     for (const rows of blocked) {
         for (let index = firstBelow({ rows, value: high + margin }); index < rows.length && rows[index] > low - margin; index += 1) {
@@ -434,7 +459,7 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
         let column = 0;
         // The current trunk's labels on this side in the order they were placed, and the
         // rows where its stubs join it, highest first since stubs arrive nearest first.
-        let columnLabels: Array<{ entry: PackedStub; extent: number }> = [];
+        let columnLabels: Array<{ entry: PackedStub; extent: number; floor: number }> = [];
         let columnRows: number[] = [];
         let limit = end - endClearance;
         let row = end;
@@ -454,35 +479,55 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
             const desired = (own + nextRow) / 2;
             const floor = own + endClearance + extent.flow / 2;
             let centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit });
+            // Before opening another trunk, slide this trunk's labels as far toward the
+            // handler as they go, each to a clean spot past its own stub. A label that had
+            // to cover a stub may find no such spot, and then the trunk cannot be squeezed.
+            let squeezed: number[] | undefined;
+            let squeezedLimit = limit;
             if (centre < floor && columnLabels.length > 0) {
-                // Before opening another trunk, slide this trunk's labels as far toward the
-                // handler as they go. Each only moves up, so each stays past its own stub.
                 let top = end - endClearance;
-                const squeezed = columnLabels.map((placed) => {
+                squeezed = [];
+                for (const placed of columnLabels) {
                     const placedCentre = placeLabel({ blocked: [laterRows, columnRows], desired: Infinity, extent: placed.extent, limit: top });
+                    if (placedCentre < placed.floor) {
+                        squeezed = undefined;
+                        break;
+                    }
+                    squeezed.push(placedCentre);
                     top = placedCentre - placed.extent / 2 - LANE_LABEL_GAP;
-                    return placedCentre;
-                });
-                const squeezedCentre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit: top });
-                if (squeezedCentre >= floor) {
-                    columnLabels.forEach((placed, index) => {
-                        placed.entry.labelFlow = squeezed[index] * side;
-                    });
-                    centre = squeezedCentre;
+                }
+                if (squeezed) {
+                    squeezedLimit = top;
+                    centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit: top });
                 }
             }
-            if (centre < floor && columnRows.length > 0) {
+            const applySqueeze = (): void => {
+                columnLabels.forEach((placed, index) => {
+                    placed.entry.labelFlow = (squeezed as number[])[index] * side;
+                });
+                limit = squeezedLimit;
+            };
+            if (centre >= floor && squeezed) {
+                applySqueeze();
+            } else if (centre < floor && columnRows.length > 0) {
                 // A fresh trunk has no stubs joining it nearer the handler than this one.
-                // Open one if that gives a clean spot, or if this trunk has no room left;
-                // when later lanes' stubs alone leave no clean spot, a new trunk would
+                // Open one if that gives a clean spot. Otherwise only if this trunk has no
+                // room left, even squeezed, and either the label fits a fresh trunk or this
+                // trunk's labels leave it nowhere to go: when later lanes' stubs alone, or
+                // a stretch shorter than the label, rule out a clean spot, a new trunk would
                 // only widen the lane.
-                const freshCentre = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: end - endClearance });
-                if (freshCentre >= floor || limit - extent.flow / 2 < floor) {
+                const freshLimit = end - endClearance;
+                const freshCentre = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: freshLimit });
+                const full = squeezedLimit - extent.flow / 2 < floor;
+                const fitsFresh = freshLimit - extent.flow / 2 >= floor;
+                if (freshCentre >= floor || (full && (fitsFresh || columnLabels.length > 0))) {
                     column += 1;
                     columnLabels = [];
                     columnRows = [];
-                    limit = end - endClearance;
+                    limit = freshLimit;
                     centre = freshCentre;
+                } else if (squeezed) {
+                    applySqueeze();
                 }
             }
             if (centre < floor) {
@@ -498,7 +543,7 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
             limit = centre - extent.flow / 2 - LANE_LABEL_GAP;
             halfCross[column] = Math.max(halfCross[column] ?? 0, extent.cross / 2);
             const entry: PackedStub = { column, labelFlow: centre * side, stub };
-            columnLabels.push({ entry, extent: extent.flow });
+            columnLabels.push({ entry, extent: extent.flow, floor });
             columnRows.push(own);
             packed.push(entry);
         }
@@ -640,8 +685,9 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
     const rowEnd = (params: RowEndParams): number => {
         const { node, sign } = params;
         const flow = flowOfNode(node);
-        // Lane edges only join plain states, and every plain state's row is in rowHalf.
-        return flow + sign * (rowHalf.get(flow) as number);
+        // DagreLayout only bundles edges between plain states, whose rows are all in
+        // rowHalf; the fallback keeps an open-container endpoint from another caller finite.
+        return flow + sign * (rowHalf.get(flow) ?? halfExtents({ frame, node }).halfFlow);
     };
 
     // The distance a stub can run past a row before it would enter an open container
@@ -735,9 +781,10 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
             const points = [p0, at({ cross: p0Cross, flow: srcGap }), at({ cross: laneCross, flow: srcGap }), at({ cross: laneCross, flow: dstGap }), at({ cross: p5Cross, flow: dstGap }), p5];
 
             // d3's curveBasis blends each point with its neighbours, so a long trunk with
-            // only two interior points bows well into the diagram near its ends. Four
-            // collinear points keep the curve exactly on the trunk beyond 2 * quarter of
-            // either end; orthogonal routing drops them again as collinear.
+            // only two interior points bows well into the diagram near its ends. With four
+            // more collinear points, every basis segment from one quarter past either corner
+            // has only trunk points as controls, so the curve runs exactly on the trunk
+            // there; orthogonal routing drops them again as collinear.
             const trunk = dstGap - srcGap;
             if (quarter > 0 && Math.abs(trunk) >= 4 * quarter) {
                 const step = Math.sign(trunk) * quarter;

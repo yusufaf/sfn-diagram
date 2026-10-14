@@ -272,6 +272,60 @@ export const roundRobinHandlers = (length: number, handlers = 3): AslDefinition 
     return { StartAt: 'Step0', States: states };
 };
 
+const RANDOM_ERROR_NAMES = [
+    'States.TaskFailed',
+    'States.Timeout',
+    'States.Permissions',
+    'Lambda.ServiceException',
+    'MyCustomError',
+    'X',
+    'States.ALL',
+];
+
+/** One machine from {@link randomCatchMachines}, with the layout options to try it with. */
+export interface RandomCatchMachine {
+    definition: AslDefinition;
+    layout: LayoutDirection;
+    rankSeparation: number;
+}
+
+/**
+ * `count` pseudo-random chains catching into one to three shared handlers, each with a
+ * random layout direction, rank separation and one to three error names per Catch.
+ * Deterministic for a given `seed`; seed 1's sixteenth machine (RL, rankSeparation 22)
+ * once hung the lane label packing.
+ */
+export const randomCatchMachines = (seed: number, count: number): RandomCatchMachine[] => {
+    let state = seed;
+    const random = (): number => {
+        state = (state * 1103515245 + 12345) % 2147483648;
+        return state / 2147483648;
+    };
+    const layouts = ['TB', 'LR', 'RL', 'BT'] as const;
+    return Array.from({ length: count }, () => {
+        const length = 6 + Math.floor(random() * 20);
+        const handlers = 1 + Math.floor(random() * 3);
+        const states: Record<string, AslState> = { Done: { Type: 'Succeed' } };
+        for (let handler = 0; handler < handlers; handler += 1) {
+            states[`Failed${handler}`] = { Type: 'Fail' };
+        }
+        for (let index = 0; index < length; index += 1) {
+            const errorCount = 1 + Math.floor(random() * 3);
+            const errors = Array.from(
+                { length: errorCount },
+                () => RANDOM_ERROR_NAMES[Math.floor(random() * RANDOM_ERROR_NAMES.length)],
+            );
+            states[`Step${index}`] = {
+                ...task({ next: index === length - 1 ? 'Done' : `Step${index + 1}` }),
+                Catch: [{ ErrorEquals: [...new Set(errors)], Next: `Failed${Math.floor(random() * handlers)}` }],
+            };
+        }
+        const layout = layouts[Math.floor(random() * 4)];
+        const rankSeparation = 16 + Math.floor(random() * 90);
+        return { definition: { StartAt: 'Step0', States: states }, layout, rankSeparation };
+    });
+};
+
 interface IsLaneRouteParams {
     edge: LayoutResult['edges'][number];
     layout: LayoutDirection;

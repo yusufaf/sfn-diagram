@@ -19,6 +19,7 @@ import {
     parallelBesideChain,
     parallelInChain,
     pulledShape,
+    randomCatchMachines,
     roundRobinHandlers,
     sameRowFanOut,
     wideFanOut,
@@ -674,9 +675,8 @@ describe('Shared catch handlers', () => {
         ['LR round-robin handlers', () => roundRobinHandlers(20), 'LR', 50],
     ] as const;
 
-    it.each(labelFixtures)('gives lane labels non-overlapping positions (%s)', (_name, build, layout, rankSeparation) => {
-        const boxes = labelBoxesOf(layoutOf(build(), layout, rankSeparation), layout);
-        expect(boxes.length).toBeGreaterThanOrEqual(2);
+    const expectNoLabelOverlap = (result: ReturnType<typeof layoutOf>, layout: LayoutDirection) => {
+        const boxes = labelBoxesOf(result, layout);
         for (let first = 0; first < boxes.length; first += 1) {
             for (let second = first + 1; second < boxes.length; second += 1) {
                 const apart =
@@ -687,18 +687,28 @@ describe('Shared catch handlers', () => {
                 expect(apart, `${boxes[first].edge.id} overlaps ${boxes[second].edge.id}`).toBe(true);
             }
         }
+    };
+
+    it.each(labelFixtures)('gives lane labels non-overlapping positions (%s)', (_name, build, layout, rankSeparation) => {
+        const result = layoutOf(build(), layout, rankSeparation);
+        expect(labelBoxesOf(result, layout).length).toBeGreaterThanOrEqual(2);
+        expectNoLabelOverlap(result, layout);
     });
 
     // The renderer draws a label at the point of its own path nearest labelPosition, so a
     // label off its trunk is drawn somewhere else - on a fan-out, all on one corner.
-    it.each(labelFixtures)('keeps each lane label on its own trunk stretch (%s)', (_name, build, layout, rankSeparation) => {
+    const expectLabelsOnOwnTrunks = (
+        result: ReturnType<typeof layoutOf>,
+        layout: LayoutDirection,
+        rankSeparation: number,
+    ) => {
         const vertical = layout === 'TB' || layout === 'BT';
         const flow = (point: { x: number; y: number }) => (vertical ? point.y : point.x);
         const cross = (point: { x: number; y: number }) => (vertical ? point.x : point.y);
         // A curved edge only runs exactly along its trunk from a quarter of the rank
         // separation past each corner.
         const clearance = Math.max(4, rankSeparation / 4) - 1e-6;
-        for (const { bottom, centre, edge, left, right, top } of labelBoxesOf(layoutOf(build(), layout, rankSeparation), layout)) {
+        for (const { bottom, centre, edge, left, right, top } of labelBoxesOf(result, layout)) {
             const points = edge.points ?? [];
             const trunkStart = points[2];
             const trunkEnd = points[points.length - 3];
@@ -713,6 +723,21 @@ describe('Shared catch handlers', () => {
             }
             expect(labelLow, edge.id).toBeGreaterThanOrEqual(low + clearance);
             expect(labelHigh, edge.id).toBeLessThanOrEqual(high - clearance);
+        }
+    };
+
+    it.each(labelFixtures)('keeps each lane label on its own trunk stretch (%s)', (_name, build, layout, rankSeparation) => {
+        expectLabelsOnOwnTrunks(layoutOf(build(), layout, rankSeparation), layout, rankSeparation);
+    });
+
+    it('lays out random shared-catch machines with every label on its trunk and none overlapping', () => {
+        // Seed 1's sixteenth machine once sent label packing into an endless loop, when
+        // rounding made a label placed just clear of a stub row look as if it covered it.
+        for (const [index, { definition, layout, rankSeparation }] of randomCatchMachines(1, 40).entries()) {
+            const result = layoutOf(definition, layout, rankSeparation);
+            expect(result.nodes.length, `machine ${index}`).toBeGreaterThan(0);
+            expectNoLabelOverlap(result, layout);
+            expectLabelsOnOwnTrunks(result, layout, rankSeparation);
         }
     });
 

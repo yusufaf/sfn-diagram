@@ -134,18 +134,18 @@ interface LayoutWithParams {
 }
 
 /**
- * Passes in which a lane crossing a container hands back only its own edge. Handing edges
- * back moves nodes, which can expose a new collision, so after these passes a collision
- * hands back every lane edge into the same handler instead, and handlers without one
- * keep their lanes.
+ * Lane passes whose collisions hand back only the colliding edges. Handing edges back
+ * moves nodes, which can expose a new collision, so a collision in any later pass hands
+ * back every lane edge into the same handler instead, and handlers without one keep
+ * their lanes.
  */
-const CATCH_LANE_EDGE_PASSES = 3;
+const CATCH_LANE_EDGE_PASSES = 1;
 
 /**
- * Layout passes with catch lanes before they are given up for the whole layout. Each
- * pass is a full dagre run, though a fast one while most catch edges are on lanes.
+ * Lane passes before lanes are given up for the whole layout. Each is a full dagre run,
+ * so with the plain fallback the worst case is MAX_CATCH_LANE_PASSES + 1 runs.
  */
-const MAX_CATCH_LANE_PASSES = 6;
+const MAX_CATCH_LANE_PASSES = 3;
 
 /** Parameters for {@link DagreLayout.selectLaneEdges}. */
 interface SelectLaneEdgesParams {
@@ -447,15 +447,16 @@ export class DagreLayout {
                     : new Set<string>();
             if (colliding.size > 0) {
                 // Containers are boxes dagre never saw, so a collision can only be found
-                // now. Hand the colliding edges back to dagre and lay out again: first one
-                // edge at a time, then whole handlers, and lanes are dropped altogether only
-                // if collisions outlast MAX_CATCH_LANE_PASSES.
+                // now. Hand the colliding edges back to dagre and lay out again: first just
+                // those edges, then whole handlers, and lanes are dropped altogether only if
+                // collisions outlast MAX_CATCH_LANE_PASSES. `nextRetries` is the number of
+                // the pass that just collided, counting from 1.
                 const nextRetries = retries + 1;
                 const collidingHandlers = new Set(
                     edges.filter((edge) => colliding.has(edge.id)).map((edge) => edge.to),
                 );
                 const handedBack =
-                    nextRetries < CATCH_LANE_EDGE_PASSES
+                    nextRetries <= CATCH_LANE_EDGE_PASSES
                         ? [...colliding]
                         : edges
                               .filter((edge) => laneEdgeIds.has(edge.id) && collidingHandlers.has(edge.to))
