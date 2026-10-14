@@ -4,7 +4,7 @@ description: What sfn-diagram does, why it exists, and what it can render.
 ---
 
 There's no shortage of ways to look at a state machine. sfn-diagram reads more inputs (ASL,
-CloudFormation/SAM/CDK templates, live AWS state machines), writes more outputs (SVG,
+CloudFormation/SAM/CDK templates, Terraform configs, live AWS state machines), writes more outputs (SVG,
 Mermaid, PNG, interactive HTML), and is the only one of the three that diffs a definition
 and posts it as a PR comment. See the [full comparison](/comparison/) against the AWS
 Console visualizer and the Mermaid Live Editor.

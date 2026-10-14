@@ -49,6 +49,8 @@ reachable from the core entry:
 
 `sfn-diagram/cfn` needs only `yaml`, and `sfn-diagram/aws` only its own
 `@aws-sdk/client-sfn` peer — neither touches the layout packages.
+`sfn-diagram/terraform` has no dependencies at all and no Node built-ins, so it runs
+in browsers and edge runtimes too.
 
 So a browser or edge consumer who only calls `generateSvg` still **installs**
 `yaml` and `minimatch` — about 1 MB in `node_modules` at the versions currently

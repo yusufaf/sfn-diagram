@@ -44,28 +44,45 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * growth eats the headroom, the right move is to re-measure and restate the budget in
  * the same commit — not to leave it at 2% and let an unrelated PR take the blame.
  *
- * `bin.js` was last restated at 674,000 / 197,500 after the CLI gained `--from-aws`,
- * `--execution <arn> --follow` and `--watch` (#192, #283, #190), which together took
- * it from 567,677 to 613,128 raw: +45,451 bytes, +8.0%, for three features. The AWS
- * SDK is not in that number — it stays an externalised optional peer.
+ * `bin.js` was last restated at 776,500 / 228,000 when the CLI gained Terraform input
+ * (#287), which took it from 668,986 to 705,838 raw and from 197,331 to 207,038 gzip:
+ * +36,852 bytes, +5.5%. Before that it was 674,000 / 197,500, set after the CLI gained
+ * `--from-aws`, `--execution <arn> --follow` and `--watch` (#192, #283, #190), which
+ * together took it from 567,677 to 613,128 raw. The AWS SDK is not in that number — it
+ * stays an externalised optional peer.
  *
- * Every entry was restated again, to about 5% above its measurement, when catch edges into
- * a shared handler gained their own lane router (#364): `src/layout/catchLanes.ts` is
- * bundled into every entry that lays out a diagram, which took index.js from 516,479 to
- * 538,656 raw (+4.3%). Most entries were already within 3% of their old budget.
+ * `terraform.js`/`terraform.cjs` were set at 39,600 / 11,200 when `sfn-diagram/terraform`
+ * arrived (#287), measuring 35,981 raw and 10,161 gzip for terraform.cjs. It is its own entry
+ * rather than part of `cfn` so that CloudFormation users do not ship an HCL lexer.
  *
- * `png.js`/`png.cjs` were last restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
+ * `png.js`/`png.cjs` were restated at 234,000 / 69,000 when `edgeStyle: 'orthogonal'`
  * gained real routing (#323), which took png.cjs from 201,658 to 212,407 raw and from
  * 59,348 to 62,343 gzip.
+ *
+ * `index`, `element`, `element-auto` and `png` were last restated, to about 5% above their
+ * measurement, when catch edges into a shared handler gained their own lane router (#364):
+ * `src/layout/catchLanes.ts` is bundled into every entry that lays out a diagram, which took
+ * index.js from 516,479 to 538,656 raw (+4.3%). Most of those entries were already within 3%
+ * of their old budget. `bin.js` and `ci` absorbed the same growth inside the budgets set by
+ * #287 and #375.
+ *
+ * `cfn.js`/`cfn.cjs` were last restated at 14,600 / 4,900 when `DefinitionSubstitutions` gained
+ * value resolution and a definition-wide pass (#377), which put cfn.cjs at 13,286 raw and
+ * 4,480 gzip against the previous 9,800 / 3,600 budget.
+ *
+ * `ci.js`/`ci.cjs` were last restated at 319,000 / 93,100 when the execution overlay gained
+ * redrive handling and a decoder for every failure event (#375), which took ci.cjs from
+ * 286,322 to 290,001 raw and from 83,469 to 84,611 gzip. The previous 287,000 / 83,500 left it
+ * at 0.0% gzip headroom before that change landed.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
-    'bin.js': { gzip: 213000, raw: 722000 },
-    'cfn.cjs': { gzip: 3600, raw: 9800 },
-    'cfn.js': { gzip: 3600, raw: 9800 },
-    'ci.cjs': { gzip: 93000, raw: 319000 },
-    'ci.js': { gzip: 92000, raw: 317000 },
+    'bin.js': { gzip: 228000, raw: 776500 },
+    'cfn.cjs': { gzip: 4900, raw: 14600 },
+    'cfn.js': { gzip: 4900, raw: 14600 },
+    'ci.cjs': { gzip: 93100, raw: 319000 },
+    'ci.js': { gzip: 93100, raw: 319000 },
     'element-auto.cjs': { gzip: 114500, raw: 398000 },
     'element-auto.js': { gzip: 114000, raw: 396000 },
     'element.cjs': { gzip: 114500, raw: 397000 },
@@ -74,6 +91,8 @@ export const BUNDLE_BUDGETS = {
     'index.js': { gzip: 166000, raw: 566000 },
     'png.cjs': { gzip: 73000, raw: 248000 },
     'png.js': { gzip: 72500, raw: 247000 },
+    'terraform.cjs': { gzip: 11200, raw: 39600 },
+    'terraform.js': { gzip: 11200, raw: 39600 },
 };
 
 /**

@@ -2,6 +2,7 @@ import {
     existsSync,
     mkdtempSync,
     readdirSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
@@ -223,6 +224,59 @@ function oversizedAsl(): string {
     return JSON.stringify({ StartAt: stateNames[0], States: states });
 }
 
+/** One Parallel `GroupA` holding two single-state branches, `BranchA` and `BranchB`. */
+const parallelAsl = JSON.stringify({
+    StartAt: 'GroupA',
+    States: {
+        GroupA: {
+            Branches: [
+                { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+                { StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } },
+            ],
+            End: true,
+            Type: 'Parallel',
+        },
+    },
+});
+
+/** Two Parallel containers in a row: `GroupA` (branch `BranchA`) then `GroupB` (branch `BranchB`). */
+const twoParallelAsl = JSON.stringify({
+    StartAt: 'GroupA',
+    States: {
+        GroupA: {
+            Branches: [
+                { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+            ],
+            Next: 'GroupB',
+            Type: 'Parallel',
+        },
+        GroupB: {
+            Branches: [
+                { StartAt: 'BranchB', States: { BranchB: { Type: 'Succeed' } } },
+            ],
+            End: true,
+            Type: 'Parallel',
+        },
+    },
+});
+
+/** The oversized Pass chain with a Parallel `GroupA` (branch `BranchA`) spliced in before its last state. */
+function oversizedAslWithParallel(): string {
+    const definition = JSON.parse(oversizedAsl()) as {
+        StartAt: string;
+        States: Record<string, Record<string, unknown>>;
+    };
+    definition.States.StateNumber78.Next = 'GroupA';
+    definition.States.GroupA = {
+        Branches: [
+            { StartAt: 'BranchA', States: { BranchA: { Type: 'Succeed' } } },
+        ],
+        Next: 'StateNumber79',
+        Type: 'Parallel',
+    };
+    return JSON.stringify(definition);
+}
+
 // Spawns a real git repo per test; see changedFiles.test.ts for the budget.
 describe('runGitlabComment (integration, real git repo)', { timeout: 30_000 }, () => {
     let repo: string;
@@ -376,6 +430,106 @@ describe('runGitlabComment (integration, real git repo)', { timeout: 30_000 }, (
         };
         expect(posted.body).toContain('classDef successState fill:#14532d');
         expect(posted.body).not.toContain('classDef successState fill:#e8f5e8');
+    });
+
+    /** Commits `files` on top of an empty base commit, runs the integration, and returns the posted note body. */
+    async function postedBodyFor(params: {
+        files: Record<string, string>;
+        overrides?: Partial<Parameters<typeof runGitlabComment>[0]>;
+    }): Promise<{
+        body: string;
+        logs: Awaited<ReturnType<typeof runGitlabComment>>['logs'];
+    }> {
+        git(repo, 'commit', '-q', '--allow-empty', '-m', 'base');
+        const baseSha = git(repo, 'rev-parse', 'HEAD').trim();
+        for (const [filename, content] of Object.entries(params.files)) {
+            writeFileSync(join(repo, filename), content);
+        }
+        git(repo, 'add', '.');
+        git(repo, 'commit', '-q', '-m', 'head');
+
+        const { calls, fetchImpl } = makeFetchStub([]);
+        const result = await runGitlabComment({
+            ...baseParams,
+            cwd: repo,
+            env: {
+                CI_API_V4_URL: 'https://gitlab.example.com/api/v4',
+                CI_MERGE_REQUEST_DIFF_BASE_SHA: baseSha,
+                CI_MERGE_REQUEST_IID: '7',
+                CI_MERGE_REQUEST_PROJECT_ID: '42',
+                GITLAB_TOKEN: 'tok',
+            },
+            fetchImpl,
+            outputDir,
+            ...params.overrides,
+        });
+        expect(result.exitCode).toBe(0);
+        const postCall = calls.find((call) => call.init?.method === 'POST');
+        expect(postCall).toBeDefined();
+        const posted = JSON.parse(postCall!.init!.body as string) as {
+            body: string;
+        };
+        return { body: posted.body, logs: result.logs };
+    }
+
+    it('passes layout through to the inline Mermaid of a plain section', async () => {
+        const { body } = await postedBodyFor({
+            files: { 'new.asl.json': simpleAsl('A') },
+            overrides: { layout: 'LR' },
+        });
+        expect(body).toContain('direction LR');
+    });
+
+    it('passes layout through to a diff section', async () => {
+        writeFileSync(join(repo, 'new.asl.json'), simpleAsl('A'));
+        git(repo, 'add', '.');
+        git(repo, 'commit', '-q', '-m', 'seed');
+
+        const { body } = await postedBodyFor({
+            files: { 'new.asl.json': simpleAsl('B') },
+            overrides: { layout: 'LR' },
+        });
+        expect(body).toContain('direction LR');
+    });
+
+    it('collapses every container in a plain section when collapse is true', async () => {
+        const { body } = await postedBodyFor({
+            files: { 'new.asl.json': parallelAsl },
+            overrides: { collapse: true },
+        });
+        expect(body).not.toContain('BranchA');
+        expect(body).not.toContain('BranchB');
+    });
+
+    it('collapses only the named containers', async () => {
+        const { body } = await postedBodyFor({
+            files: { 'new.asl.json': twoParallelAsl },
+            overrides: { collapse: ['GroupA'] },
+        });
+        expect(body).not.toContain('BranchA');
+        expect(body).toContain('BranchB');
+    });
+
+    it('applies layout and collapse to the SVG fallback artifacts', async () => {
+        const { logs } = await postedBodyFor({
+            files: { 'big.asl.json': oversizedAslWithParallel() },
+            overrides: { collapse: true, layout: 'LR' },
+        });
+        // Still over budget once collapsed, so the fallback path really ran.
+        expect(
+            logs.some((entry) =>
+                entry.message.includes(`exceeded GitLab's ~2000-character`),
+            ),
+        ).toBe(true);
+
+        const svg = readFileSync(join(outputDir, 'big.asl.json.svg'), 'utf-8');
+        expect(svg).not.toContain('BranchA');
+        // The viewBox origin is the layout's min bounds, which can be negative.
+        const viewBox = svg.match(
+            /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/,
+        );
+        expect(viewBox).not.toBeNull();
+        expect(Number(viewBox![1])).toBeGreaterThan(Number(viewBox![2]));
     });
 
     it('updates the existing note (found by marker) on a second run instead of creating a new one', async () => {

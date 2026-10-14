@@ -8,6 +8,9 @@ import {
 import { resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
+import { STATE_MACHINE_TYPES } from './cfn/extract';
+import { extractAslFromTerraform } from './terraform';
+import { TERRAFORM_EXTENSIONS, isTerraformConfig } from './terraform/extract';
 import type { SFNClient } from '@aws-sdk/client-sfn';
 import {
     CliAwsError,
@@ -233,8 +236,11 @@ Options:
   --follow-timeout <seconds>       Give up after this long and exit 1, so a CI job
                                    cannot wait forever on a run that never ends
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
-                                   (JSON templates are detected automatically)
-  --resource <logicalId>           State machine to extract when the template has several
+                                   (JSON templates are detected automatically; Terraform
+                                   .tf and .tf.json files are detected automatically too)
+  --resource <id>                  State machine to extract when a template or Terraform
+                                   config has several (CloudFormation logical id or
+                                   Terraform resource name)
   --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
                                    directory, so new files count), the config file and
@@ -314,6 +320,7 @@ Examples:
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+  sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
   sfn-diagram state.asl.json --watch -o diagram.svg
   sfn-diagram 'machines/**/*.asl.json' --watch --out-dir diagrams
@@ -335,20 +342,27 @@ merge request's base commit is reachable.
 
 GitLab renders Mermaid natively, but caps it at roughly 2000 characters shared
 across the whole page. Once the combined diagrams exceed that budget, this
-command drops the inline Mermaid and writes SVG files to --output-dir instead
+command drops the inline Mermaid and writes SVG files to --out-dir instead
 — expose them with "artifacts: expose_as" in the job so they show up on the
 merge request widget.
+
+Value flags also accept the --flag=value form.
 
 Options:
   --asl-glob <patterns>             Comma-separated globs matching ASL files
                                      (default: **/*.asl.json,**/*.asl)
   --comment-tag <tag>                Marker used to find/update this run's note
                                      on later pushes (default: sfn-diagram-preview)
-  --theme <light|dark>               Theme for the SVG fallback artifacts (default: light)
+  --theme <light|dark>               Theme for the diagrams (default: light)
+  --layout <TB|LR|RL|BT>             Layout direction, diff diagrams included (default: TB)
+  --collapse[=<names>]               Collapse Parallel/Map containers into one node: bare
+                                     collapses every container, --collapse=A,B only those
+                                     states (write a comma inside a name as \\,)
   --hide-catch                       Drop error-handler (Catch) branches from added/deleted
-                                     diagrams (a diff diagram is unaffected — see the docs)
-  --output-dir <path>                Where SVG fallback artifacts are written
-                                     (default: sfn-diagram-artifacts)
+                                     diagrams. --collapse and --hide-catch leave a diff
+                                     diagram unaffected — see the docs
+  --out-dir <path>                   Where SVG fallback artifacts are written
+                                     (default: sfn-diagram-artifacts; alias: --output-dir)
   --execution-mode <off|latest|latest-failed>
                                      Optionally overlay a real execution (default: off)
   --state-machine-arn <arn>          Required when --execution-mode is not off
@@ -594,6 +608,48 @@ function parseCollapseNames(value: string): string[] {
  * see the `collapse` mapping below). Not a character a real flag value would contain.
  */
 const BARE_COLLAPSE_SENTINEL = '\u0000';
+
+/** Parameters for {@link rewriteBareCollapse}. */
+interface RewriteBareCollapseParams {
+    /** The raw command-line tokens. */
+    argv: string[];
+}
+
+/**
+ * Rewrite a bare `--collapse` to `--collapse=<sentinel>`.
+ *
+ * A bare `--collapse` declared as a string option would otherwise swallow the next
+ * token — including the input path — as its value. An explicit sentinel inline value
+ * keeps it non-greedy without colliding with an explicit `--collapse=` (empty string)
+ * meaning something different.
+ *
+ * A `--collapse` after a literal `--` terminator is left alone: there it is a
+ * positional value (e.g. a file named `--collapse`), not a flag.
+ *
+ * @returns A copy of `argv` with the same length and token positions.
+ */
+function rewriteBareCollapse(params: RewriteBareCollapseParams): string[] {
+    const { argv } = params;
+    const terminatorIndex = argv.indexOf('--');
+    return argv.map((arg, index) =>
+        arg === '--collapse' &&
+        (terminatorIndex === -1 || index < terminatorIndex)
+            ? `--collapse=${BARE_COLLAPSE_SENTINEL}`
+            : arg,
+    );
+}
+
+/** Parameters for {@link parseCollapseValue}. */
+interface ParseCollapseValueParams {
+    /** The value `node:util.parseArgs` produced for `--collapse` (after {@link rewriteBareCollapse}). */
+    value: string;
+}
+
+/** Read a `--collapse` value: `true` for a bare flag, otherwise the named states. */
+function parseCollapseValue(params: ParseCollapseValueParams): string[] | true {
+    const { value } = params;
+    return value === BARE_COLLAPSE_SENTINEL ? true : parseCollapseNames(value);
+}
 /** How long `--follow` waits between polls when `--poll-interval` is absent. */
 const DEFAULT_POLL_INTERVAL_SECONDS = 2;
 
@@ -720,21 +776,7 @@ function readArnOrPath(params: ReadArnOrPathParams): string | null {
 }
 
 export function parseArgs(argv: string[]): CliArgs {
-    // A bare `--collapse` declared as a string option would otherwise swallow the
-    // next token — including the input path — as its value. Rewriting it to an
-    // explicit sentinel inline value keeps it non-greedy without colliding with an
-    // explicit `--collapse=` (empty string) meaning something different.
-    //
-    // Skip this rewrite for any `--collapse` occurring after a literal `--`
-    // terminator, where it's a positional value (e.g. a file named `--collapse`),
-    // not a flag.
-    const terminatorIndex = argv.indexOf('--');
-    const normalizedArgv = argv.map((arg, index) =>
-        arg === '--collapse' &&
-        (terminatorIndex === -1 || index < terminatorIndex)
-            ? `--collapse=${BARE_COLLAPSE_SENTINEL}`
-            : arg,
-    );
+    const normalizedArgv = rewriteBareCollapse({ argv });
 
     let values: Partial<
         Record<keyof typeof OPTION_SPEC, string | boolean | string[]>
@@ -815,9 +857,7 @@ export function parseArgs(argv: string[]): CliArgs {
         }
         if (sawNoCollapse) return false;
         if (collapseValue === undefined) return null;
-        return collapseValue === BARE_COLLAPSE_SENTINEL
-            ? true
-            : parseCollapseNames(collapseValue);
+        return parseCollapseValue({ value: collapseValue });
     };
 
     // `--theme` takes a built-in name or a path to a custom theme JSON file. The path is
@@ -1127,8 +1167,9 @@ function isCfnTemplate(source: string): boolean {
             !!resources &&
             Object.values(resources).some(
                 (resource) =>
-                    (resource as { Type?: string })?.Type ===
-                    'AWS::StepFunctions::StateMachine',
+                    STATE_MACHINE_TYPES.includes(
+                        (resource as { Type?: string })?.Type ?? '',
+                    ),
             )
         );
     } catch {
@@ -1193,20 +1234,62 @@ async function loadSource(source: CliInputSource): Promise<string> {
 }
 
 interface ResolveDefinitionSourceParams {
+    /** The input file's path, or null for stdin and live sources. */
+    path: string | null;
     resolveCfn: boolean;
     resource: string | null;
     source: string;
 }
 
+interface WriteExtractionWarningsParams {
+    warnings: string[];
+}
+
+/** Extraction warnings go to stderr so stdout stays a clean diagram stream. */
+function writeExtractionWarnings(params: WriteExtractionWarningsParams): void {
+    for (const warning of params.warnings) {
+        process.stderr.write(`warning: ${warning}\n`);
+    }
+}
+
+interface IsTerraformInputParams {
+    /** The input file's path, or null for stdin and live sources. */
+    path: string | null;
+    source: string;
+}
+
 /**
- * Turn a raw file body into something the generators accept: a CloudFormation/SAM/CDK
- * template is unwrapped to its ASL definition, anything else is passed through as-is.
- * Extraction warnings go to stderr so stdout stays a clean diagram stream.
+ * Whether the input is Terraform: a `.tf` or `.tf.json` file by extension, or any input whose
+ * contents declare an `aws_sfn_state_machine` (stdin and extensionless files).
+ */
+function isTerraformInput(params: IsTerraformInputParams): boolean {
+    const { path, source } = params;
+    const lowerPath = path?.toLowerCase();
+    return (
+        (lowerPath !== undefined &&
+            TERRAFORM_EXTENSIONS.some((extension) => lowerPath.endsWith(extension))) ||
+        isTerraformConfig({ source })
+    );
+}
+
+/**
+ * Turn a raw file body into something the generators accept: a Terraform configuration or a
+ * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
+ * through as-is. Terraform is checked first, so `--resolve-cfn` on a `.tf` file still reads it
+ * as Terraform. Extraction warnings go to stderr.
  */
 function resolveDefinitionSource(
     params: ResolveDefinitionSourceParams,
 ): AslDefinition | string {
-    const { resolveCfn, resource, source } = params;
+    const { path, resolveCfn, resource, source } = params;
+    if (isTerraformInput({ path, source })) {
+        const { aslDefinition, warnings } = extractAslFromTerraform({
+            config: source,
+            resourceId: resource ?? undefined,
+        });
+        writeExtractionWarnings({ warnings });
+        return aslDefinition;
+    }
     if (!resolveCfn && !isCfnTemplate(source)) {
         return source;
     }
@@ -1214,9 +1297,7 @@ function resolveDefinitionSource(
         resourceId: resource ?? undefined,
         template: source,
     });
-    for (const warning of warnings) {
-        process.stderr.write(`warning: ${warning}\n`);
-    }
+    writeExtractionWarnings({ warnings });
     return aslDefinition;
 }
 
@@ -1291,9 +1372,11 @@ function writeExecutionSummary(metadata: ExecutionSummary): void {
 export interface CommentGitlabArgs {
     aslGlob: string;
     awsRegion?: string;
+    collapse?: string[] | true;
     commentTag: string;
     executionMode: ExecutionMode;
     hideCatch: boolean;
+    layout?: LayoutDirection;
     outputDir: string;
     showHelp: boolean;
     stateMachineArn: string;
@@ -1302,82 +1385,129 @@ export interface CommentGitlabArgs {
 
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed'];
 
+/** Flags `comment gitlab` accepts, in the shape `node:util.parseArgs` takes. */
+const COMMENT_GITLAB_OPTION_SPEC = {
+    'asl-glob': { type: 'string' },
+    'aws-region': { type: 'string' },
+    collapse: { type: 'string' },
+    'comment-tag': { type: 'string' },
+    'execution-mode': { type: 'string' },
+    help: { short: 'h', type: 'boolean' },
+    'hide-catch': { type: 'boolean' },
+    layout: { type: 'string' },
+    'out-dir': { type: 'string' },
+    'output-dir': { type: 'string' },
+    'state-machine-arn': { type: 'string' },
+    theme: { type: 'string' },
+} as const;
+
+/**
+ * Parse the arguments after `sfn-diagram comment gitlab`.
+ *
+ * Built on the same `node:util.parseArgs` machinery as the main CLI parser, so it
+ * shares its `--flag=value` form, bare `--collapse`, and error wording.
+ *
+ * @param argv - The tokens after `comment gitlab`
+ *
+ * @returns The parsed flags, with defaults applied. `awsRegion`, `collapse` and
+ * `layout` are only present when given.
+ *
+ * @throws {CliError} With exit code 2 for an unknown flag, a missing or unexpected
+ * value, an invalid `--theme`/`--layout`/`--execution-mode`, a blank `--out-dir`,
+ * both `--out-dir` and `--output-dir`, or a stray positional argument.
+ *
+ * @example
+ * ```typescript
+ * parseCommentGitlabArgs(['--theme=dark', '--layout', 'LR', '--collapse']);
+ * // { theme: 'dark', layout: 'LR', collapse: true, ... }
+ * ```
+ */
 export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
-    const args: CommentGitlabArgs = {
-        aslGlob: '**/*.asl.json,**/*.asl',
-        commentTag: 'sfn-diagram-preview',
-        executionMode: 'off',
-        hideCatch: false,
-        outputDir: 'sfn-diagram-artifacts',
-        showHelp: false,
-        stateMachineArn: '',
-        theme: 'light',
-    };
+    let parsed: ReturnType<
+        typeof parseArgsFromNode<{
+            allowPositionals: true;
+            options: typeof COMMENT_GITLAB_OPTION_SPEC;
+            strict: true;
+            tokens: true;
+        }>
+    >;
+    try {
+        parsed = parseArgsFromNode({
+            allowPositionals: true,
+            args: rewriteBareCollapse({ argv }),
+            options: COMMENT_GITLAB_OPTION_SPEC,
+            strict: true,
+            tokens: true,
+        });
+    } catch (error) {
+        throw remapParseArgsError(error);
+    }
+    const { tokens, values } = parsed;
 
-    const expectValue = (flag: string, value: string | undefined): string => {
-        if (value === undefined) {
-            throw new CliError(`Flag ${flag} requires a value`, EXIT_USAGE);
-        }
-        return value;
-    };
-
-    for (let index = 0; index < argv.length; index++) {
-        const arg = argv[index];
-
-        if (arg === '-h' || arg === '--help') {
-            args.showHelp = true;
-            continue;
-        }
-        if (arg === '--asl-glob') {
-            args.aslGlob = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--comment-tag') {
-            args.commentTag = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--theme') {
-            const value = expectValue(arg, argv[++index]);
-            if (value !== 'light' && value !== 'dark') {
-                throw new CliError(
-                    `Invalid --theme: ${value} (expected light or dark)`,
-                    EXIT_USAGE,
-                );
-            }
-            args.theme = value;
-            continue;
-        }
-        if (arg === '--hide-catch') {
-            args.hideCatch = true;
-            continue;
-        }
-        if (arg === '--output-dir') {
-            args.outputDir = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--execution-mode') {
-            const value = expectValue(arg, argv[++index]);
-            if (!EXECUTION_MODES.includes(value as ExecutionMode)) {
-                throw new CliError(
-                    `Invalid --execution-mode: ${value} (expected ${EXECUTION_MODES.join(', ')})`,
-                    EXIT_USAGE,
-                );
-            }
-            args.executionMode = value as ExecutionMode;
-            continue;
-        }
-        if (arg === '--state-machine-arn') {
-            args.stateMachineArn = expectValue(arg, argv[++index]);
-            continue;
-        }
-        if (arg === '--aws-region') {
-            args.awsRegion = expectValue(arg, argv[++index]);
-            continue;
-        }
-
-        throw new CliError(`Unknown flag: ${arg}`, EXIT_USAGE);
+    // Positionals are allowed at the parser level and rejected here, because
+    // `remapParseArgsError` would let a parser-level rejection escape as exit 1.
+    const stray = tokens.find((token) => token.kind === 'positional');
+    if (stray?.kind === 'positional') {
+        const hint =
+            argv[stray.index - 1] === '--collapse'
+                ? ` (to collapse named states, use --collapse=${stray.value})`
+                : '';
+        throw new CliError(
+            `Unexpected argument: ${stray.value}${hint}`,
+            EXIT_USAGE,
+        );
     }
 
+    if (values['out-dir'] !== undefined && values['output-dir'] !== undefined) {
+        throw new CliError(
+            '--out-dir and --output-dir are the same flag; pick one',
+            EXIT_USAGE,
+        );
+    }
+    const outDirFlag =
+        values['output-dir'] !== undefined ? '--output-dir' : '--out-dir';
+    const outDirValue = values['out-dir'] ?? values['output-dir'];
+
+    const args: CommentGitlabArgs = {
+        aslGlob: values['asl-glob'] ?? '**/*.asl.json,**/*.asl',
+        commentTag: values['comment-tag'] ?? 'sfn-diagram-preview',
+        executionMode:
+            values['execution-mode'] === undefined
+                ? 'off'
+                : expectEnum({
+                      allowed: EXECUTION_MODES,
+                      flag: '--execution-mode',
+                      value: values['execution-mode'],
+                  }),
+        hideCatch: values['hide-catch'] === true,
+        outputDir:
+            outDirValue === undefined
+                ? 'sfn-diagram-artifacts'
+                : expectNonBlank({ flag: outDirFlag, value: outDirValue }),
+        showHelp: values.help === true,
+        stateMachineArn: values['state-machine-arn'] ?? '',
+        theme:
+            values.theme === undefined
+                ? 'light'
+                : expectEnum({
+                      allowed: BUILT_IN_THEMES,
+                      flag: '--theme',
+                      value: values.theme,
+                  }),
+    };
+    if (values['aws-region'] !== undefined) {
+        args.awsRegion = values['aws-region'];
+    }
+    if (values.collapse !== undefined) {
+        args.collapse = parseCollapseValue({ value: values.collapse });
+    }
+    if (values.layout !== undefined) {
+        args.layout = expectEnum({
+            allowed: VALID_LAYOUTS,
+            flag: '--layout',
+            value: values.layout,
+        });
+    }
     return args;
 }
 
@@ -1411,8 +1541,10 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
         aslGlob: args.aslGlob,
         awsRegion: args.awsRegion,
         catchHandling: args.hideCatch ? 'hide' : undefined,
+        collapse: args.collapse,
         commentTag: args.commentTag,
         executionMode: args.executionMode,
+        layout: args.layout,
         outputDir: args.outputDir,
         stateMachineArn: args.stateMachineArn,
         theme: args.theme,
@@ -1531,12 +1663,14 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     let baselineDefinition: AslDefinition | string | null = null;
     try {
         definitionSource = resolveDefinitionSource({
+            path: source.kind === 'file' ? source.path : null,
             resolveCfn: args.resolveCfn,
             resource: args.resource,
             source: aslSource,
         });
         if (baselineSource !== null) {
             baselineDefinition = resolveDefinitionSource({
+                path: baselineIsLive ? null : args.diff,
                 // A live baseline is already ASL; only the head can be a template.
                 resolveCfn: args.resolveCfn && !baselineIsLive,
                 resource: baselineIsLive ? null : args.resource,

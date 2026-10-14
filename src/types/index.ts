@@ -1191,11 +1191,27 @@ export interface ExtractAslFromTemplateParams {
     template: string | Record<string, unknown>;
 }
 
-/** Result of extracting an ASL definition from a CloudFormation/SAM template. */
+/** Parameters for `extractAslFromTerraform` (from the `sfn-diagram/terraform` subpath). */
+export interface ExtractAslFromTerraformParams {
+    /**
+     * Raw Terraform configuration: HCL (`.tf`) text, `.tf.json` text, or an already-parsed
+     * `.tf.json` object.
+     */
+    config: string | Record<string, unknown>;
+    /** Input format. 'auto' (default) treats text starting with `{` as `.tf.json` and anything else as HCL. */
+    format?: 'auto' | 'hcl' | 'json';
+    /**
+     * Name of the `aws_sfn_state_machine` resource to extract when the configuration has more
+     * than one: the bare name (`orders`) or the address (`aws_sfn_state_machine.orders`).
+     */
+    resourceId?: string;
+}
+
+/** Result of extracting an ASL definition from a CloudFormation/SAM template or Terraform configuration. */
 export interface ExtractAslResult {
     /** The recovered ASL definition, ready for generateSvg/generateMermaid/etc. */
     aslDefinition: AslDefinition;
-    /** Logical id of the state machine that was extracted. */
+    /** CloudFormation logical id, or Terraform resource name, of the state machine that was extracted. */
     resourceId: string;
     /** Non-fatal notes (e.g. unresolved intrinsics replaced with placeholders). */
     warnings: string[];
@@ -1330,7 +1346,7 @@ export type ExecutionStateStatus =
 
 /** Per-state result derived from an execution's event history. */
 export interface ExecutionStateResult {
-    /** Number of attempts (1 + retries); always ≥ 1 for states that were entered */
+    /** Number of attempts (1 + retries, and one more for each redrive that resumed the state); always ≥ 1 for states that were entered */
     attempts: number;
     /** Total time spent in the state in milliseconds (summed across re-entries) */
     durationMs?: number;
@@ -1384,7 +1400,7 @@ export interface TimelinePayload {
  * than being summed the way {@link ExecutionStateResult} sums them.
  */
 export interface TimelineEntry {
-    /** 1-based attempt number within this entry of the state; a `Retry` increments it. */
+    /** 1-based attempt number within this entry of the state; a `Retry` increments it, and so does a redrive that resumes the state. */
     attempt: number;
     /** Branches this Parallel started, from the history. Absent for any other state. */
     branchCount?: number;

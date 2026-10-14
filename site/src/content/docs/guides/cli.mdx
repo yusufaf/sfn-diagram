@@ -56,8 +56,8 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--background-color <color>` | PNG background (default: `transparent`) — see the [note below](#background-color-and-the-theme) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
-| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template |
-| `--resource <logicalId>` | State machine to extract when the template has several |
+| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
+| `--resource <id>` | State machine to extract when a template or Terraform config has several (CloudFormation logical id or Terraform resource name) |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
 
@@ -174,10 +174,10 @@ $ echo $?
 
 ### `comment gitlab` does not read it
 
-The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags. Its options are
-CI-shaped (`--asl-glob`, `--comment-tag`, `--output-dir`, `--execution-mode`) and mostly
-disjoint from the render options, and a file on disk quietly changing what a pipeline
-posts to a merge request is worse than restating a flag in the job.
+The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags: the CI-shaped ones
+(`--asl-glob`, `--comment-tag`, `--out-dir`, `--execution-mode`) plus the render flags it
+shares with the main CLI. A file on disk quietly changing what a pipeline posts to a
+merge request is worse than restating a flag in the job.
 
 ## Rendering several files
 
@@ -669,6 +669,26 @@ and [generateExecution](/reference/index/functions/generateexecution/) for the
 programmatic equivalents.
 
 CloudFormation/SAM/CDK templates work as input too — see [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/).
+
+### Terraform
+
+`.tf` and `.tf.json` files are read as Terraform and detected automatically, by extension
+or, for stdin and extensionless files, by an `aws_sfn_state_machine` resource in the
+contents. Pick one machine from a file that declares several with `--resource orders` (or
+`--resource aws_sfn_state_machine.orders`).
+
+```bash
+sfn-diagram main.tf --resource orders -o orders.svg
+```
+
+The `definition` can be a heredoc (`<<EOF`, `<<-EOF`), a quoted string of JSON, or
+`jsonencode({...})` of object, list, string, number, bool and null literals. Anything only
+Terraform can compute (`aws_lambda_function.charge.arn`, `var.wait`, `format(...)`) is kept
+as a `${...}` placeholder in the diagram; function calls and operators also print a
+`warning:` on stderr. These are not evaluated, and fail with a message saying what to do
+instead: `templatefile()`, `file()`, a bare reference such as `local.definition`, `%{ }`
+template directives, and state machines defined through a `module` block. For those, render the ASL
+file directly. See [Extracting ASL from Terraform](/reference/terraform/functions/extractaslfromterraform/).
 
 > **`--format png` needs the optional `@resvg/resvg-js` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …`; in a project, `npm install @resvg/resvg-js`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which ships it preinstalled.
 
