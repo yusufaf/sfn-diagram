@@ -1485,8 +1485,10 @@ export interface GenerateExecutionParams extends DiagramOptions {
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
      * re-running dagre. The overlay's colours are not part of the key, so re-rendering
-     * the same definition with new statuses hits as long as no annotation changed.
-     * Omitted, nothing is cached.
+     * the same definition with new statuses hits as long as no annotation changed. A
+     * state that completes or retries gains or changes its duration annotation, so a
+     * fast-moving execution mostly misses, and each miss stores another layout up to
+     * the cache's `maxEntries`. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
     /** Execution history (events array, GetExecutionHistory response, or JSON string) */

@@ -1949,9 +1949,10 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    // The same objection, by the third route. Nothing batch-wide is cached between
-    // passes - deliberately, so a config edit is always picked up - so a live
-    // baseline would mean a DescribeStateMachine per keystroke-save.
+    // The same objection, by the third route. No input is cached between passes -
+    // deliberately, so a config edit is always picked up - so a live baseline would
+    // mean a DescribeStateMachine per keystroke-save. (The layout cache does persist,
+    // but it is keyed on the graph and every layout option, so it cannot hide an edit.)
     if (args.watch && args.diff !== null && isStateMachineArn(args.diff)) {
         process.stderr.write(
             '--watch would re-fetch that --diff baseline from AWS on every file ' +
@@ -2066,8 +2067,10 @@ interface RunWatchParams {
  * *input* re-renders only that input, by passing it as `only` — a save in a batch of
  * forty should not redraw forty diagrams.
  *
- * The layout cache outlives each pass, so a config, theme or title-only change
- * re-renders without re-running dagre.
+ * The layout cache outlives each pass, so a re-render whose geometry cannot have
+ * moved - a theme colour, a title, a paint-only config edit - skips dagre. It holds
+ * the default 32 layouts, so a full pass over a larger batch evicts each one before
+ * it is reused and every render lays out again.
  *
  * Interrupting always exits 0. `--watch` is a development loop, not a gate: the file
  * you are editing is routinely invalid for a moment, and an exit code that depended on
@@ -2782,12 +2785,12 @@ async function renderResolvedBatch(
     if (args.follow && executionArn !== null) {
         return {
             code: await runFollow({
-            args,
-            arn: executionArn,
-            baselineIsLive,
-            baselineSource,
-            cache,
-            options,
+                args,
+                arn: executionArn,
+                baselineIsLive,
+                baselineSource,
+                cache,
+                options,
                 outputPath: work[0].outputPath,
                 source: work[0].source,
                 theme,
