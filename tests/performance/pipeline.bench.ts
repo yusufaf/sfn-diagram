@@ -1,9 +1,9 @@
 import { bench, describe } from 'vitest';
-import { generateMermaid, generateSvg } from '../../src';
+import { generateExecution, generateMermaid, generateSvg } from '../../src';
 import { parseAsl } from '../../src/AslParser';
 import { createLayoutCache, DagreLayout } from '../../src/layout';
 import { mergeOptions } from '../../src/config';
-import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
+import { buildLinearChain, buildLinearChainHistory, buildParallel, buildWideChoice } from './fixtures';
 
 /**
  * Micro-benchmarks for the diagram pipeline. Run with `npm run bench`.
@@ -65,6 +65,60 @@ describe('layout cache', () => {
 
     bench('cache key build only (500-state chain)', () => {
         keyProbe.keyFor({ edges: keyGraph.edges, nodes: keyGraph.nodes, options });
+    });
+});
+
+describe('follow re-render (500-state chain)', () => {
+    // What `--follow` does each poll: re-render one definition with a newer history.
+    // A completed state gains a duration annotation, which is part of the cache key,
+    // so a tick only hits when no state finished since the last one. The paced runs
+    // below model a fast run (a state finishes every tick) and a slower one (every
+    // third tick), each over 30 ticks with one cache for the whole run, as the CLI does.
+    const TICKS = 30;
+    const history = buildLinearChainHistory({ completed: 250 });
+    const warmCache = createLayoutCache();
+    generateExecution({ aslDefinition: linear500, cache: warmCache, history });
+
+    /** One history per tick, with a step completing every `pace` ticks. */
+    const pacedHistories = (pace: number) =>
+        Array.from({ length: TICKS }, (_, tick) =>
+            buildLinearChainHistory({ completed: 10 + Math.floor(tick / pace) }),
+        );
+    const everyTick = pacedHistories(1);
+    const everyThirdTick = pacedHistories(3);
+
+    bench('generateExecution, no cache', () => {
+        generateExecution({ aslDefinition: linear500, history });
+    });
+
+    bench('generateExecution, warm cache (unchanged history)', () => {
+        generateExecution({ aslDefinition: linear500, cache: warmCache, history });
+    });
+
+    bench('30 ticks advancing every tick, no cache', () => {
+        for (const tickHistory of everyTick) {
+            generateExecution({ aslDefinition: linear500, history: tickHistory });
+        }
+    });
+
+    bench('30 ticks advancing every tick, one cache', () => {
+        const cache = createLayoutCache();
+        for (const tickHistory of everyTick) {
+            generateExecution({ aslDefinition: linear500, cache, history: tickHistory });
+        }
+    });
+
+    bench('30 ticks advancing every 3rd tick, no cache', () => {
+        for (const tickHistory of everyThirdTick) {
+            generateExecution({ aslDefinition: linear500, history: tickHistory });
+        }
+    });
+
+    bench('30 ticks advancing every 3rd tick, one cache', () => {
+        const cache = createLayoutCache();
+        for (const tickHistory of everyThirdTick) {
+            generateExecution({ aslDefinition: linear500, cache, history: tickHistory });
+        }
     });
 });
 

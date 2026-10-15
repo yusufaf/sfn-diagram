@@ -1,3 +1,4 @@
+import type { HistoryEvent } from '@aws-sdk/client-sfn';
 import type { AslDefinition, AslState } from '../../src';
 
 /**
@@ -142,4 +143,35 @@ export function buildParallel(params: BuildParallelParams): AslDefinition {
             Done: { Type: 'Succeed' },
         },
     };
+}
+
+interface BuildLinearChainHistoryParams {
+    /** Number of `Step` states that have entered and exited; the next one is running */
+    completed: number;
+}
+
+/**
+ * Build the execution history of a run partway down {@link buildLinearChain}: the
+ * first `completed` steps entered and exited 50 ms apart, and the next one entered
+ * but still running. Each completed step carries a duration annotation, so two
+ * histories with different `completed` counts lay out under different cache keys.
+ */
+export function buildLinearChainHistory(params: BuildLinearChainHistoryParams): { events: HistoryEvent[] } {
+    const { completed } = params;
+    const start = Date.parse('2024-01-01T00:00:00.000Z');
+    const events: HistoryEvent[] = [];
+    const push = (event: Omit<HistoryEvent, 'id' | 'previousEventId' | 'timestamp'>): void => {
+        const id = events.length + 1;
+        events.push({ ...event, id, previousEventId: id - 1, timestamp: new Date(start + id * 50) });
+    };
+
+    push({ executionStartedEventDetails: { input: '{}' }, type: 'ExecutionStarted' });
+    for (let index = 0; index <= completed; index++) {
+        push({ stateEnteredEventDetails: { name: `Step${index}` }, type: 'TaskStateEntered' });
+        if (index < completed) {
+            push({ stateExitedEventDetails: { name: `Step${index}` }, type: 'TaskStateExited' });
+        }
+    }
+
+    return { events };
 }
