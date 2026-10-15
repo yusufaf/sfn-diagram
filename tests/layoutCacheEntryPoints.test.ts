@@ -3,8 +3,15 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { exportPng } from '../src/png';
 import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS } from '../src/layout';
-import { generateDiagram, generateFromAwsResponse, generateSvg, SfnDiagramGenerator } from '../src/index';
-import type { AslDefinition, DiagramOptions } from '../src/types';
+import {
+    generateDiagram,
+    generateDiff,
+    generateExecution,
+    generateFromAwsResponse,
+    generateSvg,
+    SfnDiagramGenerator,
+} from '../src/index';
+import type { AslDefinition, DiagramOptions, ExecutionHistoryInput } from '../src/types';
 
 const FIXTURE_DIR = join(__dirname, 'fixtures');
 const FIXTURES = readdirSync(FIXTURE_DIR)
@@ -178,5 +185,52 @@ describe('exportPng', () => {
 
         expect(cache.stats().hits).toBe(1);
         expect(Buffer.compare(warm.buffer, cold.buffer)).toBe(0);
+    });
+});
+
+describe('generateExecution', () => {
+    const aslDefinition = JSON.parse(readFileSync(join(FIXTURE_DIR, 'simple.asl.json'), 'utf-8')) as AslDefinition;
+    const history = JSON.parse(readFileSync(join(FIXTURE_DIR, 'execution-success.json'), 'utf-8')) as {
+        events: Array<{ id: number }>;
+    };
+
+    test('reuses the layout for an unchanged history and renders the same bytes', () => {
+        const cache = createLayoutCache();
+        const cold = generateExecution({ aslDefinition, history: history as ExecutionHistoryInput });
+
+        generateExecution({ aslDefinition, cache, history: history as ExecutionHistoryInput });
+        const warm = generateExecution({ aslDefinition, cache, history: history as ExecutionHistoryInput });
+
+        expect(cache.stats().hits).toBe(1);
+        expect(warm.svg).toBe(cold.svg);
+    });
+
+    test('misses when a state gains an annotation', () => {
+        const cache = createLayoutCache();
+        // Process has succeeded but not exited by event 7, so it has no duration yet.
+        const partial = { events: history.events.filter((event) => event.id <= 7) };
+
+        generateExecution({ aslDefinition, cache, history: partial as ExecutionHistoryInput });
+        generateExecution({ aslDefinition, cache, history: history as ExecutionHistoryInput });
+
+        expect(cache.stats()).toMatchObject({ hits: 0, misses: 2 });
+    });
+});
+
+describe('generateDiff', () => {
+    test('reuses the layout and renders the same bytes warm and cold', () => {
+        const cache = createLayoutCache();
+        const after: AslDefinition = {
+            ...DEFINITION,
+            States: { ...DEFINITION.States, Work: { Comment: 'changed', Next: 'Done', Type: 'Pass' } },
+        };
+        const cold = generateDiff({ after, before: DEFINITION });
+
+        generateDiff({ after, before: DEFINITION, cache });
+        const warm = generateDiff({ after, before: DEFINITION, cache });
+
+        expect(cache.stats().hits).toBe(1);
+        expect(warm.svg).toBe(cold.svg);
+        expect(warm.metadata.modified).toEqual(['Work']);
     });
 });

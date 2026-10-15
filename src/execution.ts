@@ -1132,39 +1132,6 @@ function computeExecutionWalk(
 }
 
 /**
- * Generate an SVG execution overlay: the ASL diagram with each state coloured by
- * its outcome, the taken path emphasized, untaken transitions dimmed, and per-state
- * duration / retry annotations.
- *
- * States not present in the execution history are rendered as "not reached" (greyed).
- *
- * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
- * @param params - Any additional {@link DiagramOptions}
- * @returns {@link ExecutionOutput} with SVG markup and a per-status summary
- *
- * @remarks
- * A caller-supplied `edgeOverrides` / `nodeAnnotations` / `nodeOverrides` entry wins
- * over the overlay's computed value for that same key; every key the caller does not
- * name keeps the overlay's styling. A legacy bare `${from}->${to}` edge key claims
- * every edge between that pair, suppressing the overlay's own styling for all of them.
- *
- * Execution history records transitions as `{ from, to }` only, so two Choice rules
- * sharing a `Next` are both highlighted when either fires. `Retry` self-loops are
- * never highlighted — retries emit no transition event.
- *
- * With `collapse`, each collapsed container's placeholder is coloured by the status
- * rolled up from the states it hides — any failure makes it `failed`, otherwise any
- * `running` makes it `running`, otherwise the container's own outcome — and
- * annotated with a `3/4 succeeded`-style summary beside its own duration.
- *
- * @example
- * ```typescript
- * import { generateExecution } from 'sfn-diagram';
- * const { svg } = generateExecution({ aslDefinition: asl, history: events });
- * ```
- */
-/**
  * Re-key an overlay's per-state results from ASL state names onto graph node ids.
  *
  * An execution history records only `stateEnteredEventDetails.name`, a bare state
@@ -1350,9 +1317,44 @@ export function computeExecutionStyling(params: ComputeExecutionStylingParams): 
     };
 }
 
+/**
+ * Generate an SVG execution overlay: the ASL diagram with each state coloured by
+ * its outcome, the taken path emphasized, untaken transitions dimmed, and per-state
+ * duration / retry annotations.
+ *
+ * States not present in the execution history are rendered as "not reached" (greyed).
+ *
+ * @param params.aslDefinition - ASL definition as an object or JSON string
+ * @param params.cache - Optional layout cache from `createLayoutCache`
+ * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
+ * @param params - Any additional {@link DiagramOptions}
+ * @returns {@link ExecutionOutput} with SVG markup and a per-status summary
+ *
+ * @remarks
+ * A caller-supplied `edgeOverrides` / `nodeAnnotations` / `nodeOverrides` entry wins
+ * over the overlay's computed value for that same key; every key the caller does not
+ * name keeps the overlay's styling. A legacy bare `${from}->${to}` edge key claims
+ * every edge between that pair, suppressing the overlay's own styling for all of them.
+ *
+ * Execution history records transitions as `{ from, to }` only, so two Choice rules
+ * sharing a `Next` are both highlighted when either fires. `Retry` self-loops are
+ * never highlighted — retries emit no transition event.
+ *
+ * With `collapse`, each collapsed container's placeholder is coloured by the status
+ * rolled up from the states it hides — any failure makes it `failed`, otherwise any
+ * `running` makes it `running`, otherwise the container's own outcome — and
+ * annotated with a `3/4 succeeded`-style summary beside its own duration.
+ *
+ * @example
+ * ```typescript
+ * import { generateExecution } from 'sfn-diagram';
+ * const { svg } = generateExecution({ aslDefinition: asl, history: events });
+ * ```
+ */
 export function generateExecution(params: GenerateExecutionParams): ExecutionOutput {
     const {
         aslDefinition,
+        cache,
         edgeOverrides: callerEdgeOverrides,
         history,
         nodeAnnotations: callerNodeAnnotations,
@@ -1395,6 +1397,7 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
           })
         : expanded;
     const svgOutput = renderSvgGraph({
+        cache,
         edges,
         nodes,
         options: {
