@@ -6,7 +6,7 @@ import { applySubstitutions, resolveIntrinsics } from '../../src/cfn/intrinsics'
 import { evaluateHclLiteral } from '../../src/terraform/hclExpression';
 import { tokenizeHcl } from '../../src/terraform/hclLexer';
 import type { AslDefinition, AslState } from '../../src';
-import { buildLinearChain, buildParallel, buildWideChoice } from './fixtures';
+import { buildLinearChain, buildParallel, buildSharedCatchChain, buildWideChoice } from './fixtures';
 
 /**
  * Performance guard tests.
@@ -120,6 +120,16 @@ describe('end-to-end scaling', () => {
         });
         expect(output).toContain('<svg');
         expect(elapsed).toBeLessThan(5000);
+    });
+
+    test('renders SVG for a 200-state chain sharing one Catch handler within budget', () => {
+        const asl = buildSharedCatchChain({ length: 200 });
+        let output = '';
+        const elapsed = timeMs(() => {
+            output = generateSvg({ aslDefinition: asl }).svg;
+        });
+        expect(output).toContain('<svg');
+        expect(elapsed).toBeLessThan(1500);
     });
 
     test('renders Mermaid for a wide Choice within budget', () => {

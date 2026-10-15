@@ -9,6 +9,8 @@ import {
 } from '../src/layout/orthogonalRoute';
 import type { LayoutResult } from '../src/layout/DagreLayout';
 import type { AslDefinition, StateNode } from '../src/types';
+import { buildSharedCatchChain } from './performance/fixtures';
+import { isLaneRoute } from './helpers/catchLaneFixtures';
 
 type RoutedEdge = LayoutResult['edges'][number];
 interface Point {
@@ -521,6 +523,26 @@ describe('routeOrthogonalEdges on fixtures', () => {
                     expect(overlap, `${name} ${layout} ${first.id} <> ${second.id}`).toBeLessThanOrEqual(1e-3);
                 }
             }
+        }
+    });
+});
+
+describe('catch lane routes', () => {
+    it.each(['TB', 'LR'] as const)("keeps a lane route's corners when orthogonalized (%s)", (layout) => {
+        const { nodes, edges } = parseAsl({ definition: buildSharedCatchChain({ length: 12 }) });
+        const positioned = new DagreLayout({ layout }).calculate(nodes, edges);
+        const routed = routeOrthogonalEdges({ edges: positioned.edges, layout, nodes: positioned.nodes });
+        const laneEdges = positioned.edges.filter((edge) => isLaneRoute({ edge, layout, nodes: positioned.nodes }));
+        expect(laneEdges.length).toBe(11);
+        for (const laneEdge of laneEdges) {
+            const original = laneEdge.points ?? [];
+            const expected = [0, 1, 2, 7, 8, 9].map((index) => original[index]);
+            const actual = routed.find((edge) => edge.id === laneEdge.id)?.points ?? [];
+            expect(actual).toHaveLength(6);
+            actual.forEach((point, index) => {
+                expect(point.x).toBeCloseTo(expected[index].x, 6);
+                expect(point.y).toBeCloseTo(expected[index].y, 6);
+            });
         }
     });
 });
