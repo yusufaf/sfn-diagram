@@ -929,8 +929,8 @@ export interface GenerateSvgParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
-     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     * re-running dagre - so a change to the theme's colours or the title on an unchanged
+     * definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
 }
@@ -1016,8 +1016,8 @@ export interface GenerateHtmlParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
-     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     * re-running dagre - so a change to the theme's colours or the title on an unchanged
+     * definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
     /**
@@ -1076,8 +1076,8 @@ export interface GenerateViewerUpdateParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
-     * unchanged definition skips the dominant cost. Omitted, nothing is cached.
+     * re-running dagre - so a change to the theme's colours or the title on an unchanged
+     * definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
     /**
