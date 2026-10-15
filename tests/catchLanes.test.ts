@@ -200,6 +200,45 @@ describe('routeCatchLanes', () => {
         }
     });
 
+    it('steps into an open container outside its box when a plain state shares its row', () => {
+        const container: StateNode = { ...node('Box', 300), height: 120, isContainer: true, width: 200 };
+        const routes = routeCatchLanes({
+            edges: ['A', 'B', 'C', 'D'].map((id) => catchEdge(id, 'Box')),
+            layout: 'TB',
+            nodes: [node('A', 0), node('B', 60), node('C', 120), node('D', 180), node('Side', 300, 400), container],
+            obstacleEdges: [],
+            rankSeparation: 50,
+            themeFontSize: 14,
+        });
+        const boxTop = 300 - 120 / 2;
+        for (const route of routes.values()) {
+            expect(route.points[route.points.length - 2].y).toBeLessThanOrEqual(boxTop);
+        }
+    });
+
+    it('moves a label too long for any stretch off a trunk that already has one', () => {
+        // A and B share the row just above H, so neither label fits its one-gap stretch
+        // on any trunk; each is centred on it, so B needs its own trunk to avoid A's.
+        const label = 'Error: States.TaskFailed';
+        const routes = routeCatchLanes({
+            edges: [
+                { ...catchEdge('A', 'H'), label },
+                { ...catchEdge('B', 'H'), label },
+            ],
+            layout: 'TB',
+            nodes: [node('A', 100, 100), node('B', 100, 300), node('H', 190, 200)],
+            obstacleEdges: [],
+            rankSeparation: 50,
+            themeFontSize: 14,
+        });
+        const first = routes.get('A->H#error#0');
+        const second = routes.get('B->H#error#0');
+        expect(first?.labelPosition).toBeDefined();
+        expect(second?.labelPosition).toBeDefined();
+        expect(first?.labelPosition).not.toEqual(second?.labelPosition);
+        expect(first?.points[2].x).not.toBe(second?.points[2].x);
+    });
+
     it('opens no trunk for a label too long for its stretch on any trunk', () => {
         // U and L share the row just above H; U's unlabelled stub joins the trunk first,
         // and L's label cannot fit the one-gap stretch on this trunk or a fresh one.

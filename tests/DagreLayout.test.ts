@@ -658,9 +658,9 @@ describe('Shared catch handlers', () => {
         ['TB same-row fan-out', sameRowFanOut, 'TB', 50],
         ['LR 12-chain', () => buildSharedCatchChain({ length: 12 }), 'LR', 50],
         ['RL 12-chain', () => buildSharedCatchChain({ length: 12 }), 'RL', 50],
-        ['TB 8-way fan-out', () => wideFanOut(8), 'TB', 50],
-        ['LR 6-way fan-out', () => wideFanOut(6), 'LR', 50],
-        ['BT 8-way fan-out', () => wideFanOut(8), 'BT', 50],
+        ['TB 8-way fan-out', () => wideFanOut({ count: 8 }), 'TB', 50],
+        ['LR 6-way fan-out', () => wideFanOut({ count: 6 }), 'LR', 50],
+        ['BT 8-way fan-out', () => wideFanOut({ count: 8 }), 'BT', 50],
         ['TB interleaved handlers', interleavedHandlers, 'TB', 50],
         ['LR interleaved handlers', interleavedHandlers, 'LR', 50],
         ['TB loop back into the chain', loopBackIntoChain, 'TB', 50],
@@ -668,11 +668,11 @@ describe('Shared catch handlers', () => {
         ['TB converging fan-out, rankSeparation 30', convergingFanOut, 'TB', 30],
         ['TB converging fan-out, rankSeparation 16', convergingFanOut, 'TB', 16],
         ['TB converging fan-out, rankSeparation 100', convergingFanOut, 'TB', 100],
-        ['TB round-robin handlers', () => roundRobinHandlers(20), 'TB', 50],
+        ['TB round-robin handlers', () => roundRobinHandlers({ length: 20 }), 'TB', 50],
     ] as const;
     const labelFixtures = [
         ...cleanLabelFixtures,
-        ['LR round-robin handlers', () => roundRobinHandlers(20), 'LR', 50],
+        ['LR round-robin handlers', () => roundRobinHandlers({ length: 20 }), 'LR', 50],
     ] as const;
 
     const expectNoLabelOverlap = (result: ReturnType<typeof layoutOf>, layout: LayoutDirection) => {
@@ -731,14 +731,30 @@ describe('Shared catch handlers', () => {
     });
 
     it('lays out random shared-catch machines with every label on its trunk and none overlapping', () => {
-        // Seed 1's sixteenth machine once sent label packing into an endless loop, when
-        // rounding made a label placed just clear of a stub row look as if it covered it.
-        for (const [index, { definition, layout, rankSeparation }] of randomCatchMachines(1, 40).entries()) {
+        let containerLanes = 0;
+        for (const [index, { definition, layout, rankSeparation }] of randomCatchMachines({ count: 60, seed: 1 }).entries()) {
             const result = layoutOf(definition, layout, rankSeparation);
             expect(result.nodes.length, `machine ${index}`).toBeGreaterThan(0);
             expectNoLabelOverlap(result, layout);
             expectLabelsOnOwnTrunks(result, layout, rankSeparation);
+            const containers = result.nodes.filter((node) => node.isContainer && !node.collapsed);
+            const lanes = result.edges.filter((edge) => edge.catchLane);
+            if (containers.length > 0) {
+                containerLanes += lanes.length;
+            }
+            const routes = new Map(lanes.map((edge) => [edge.id, { points: edge.points ?? [] }]));
+            expect([...findLaneCollisions({ boxes: containers, routes })], `machine ${index}`).toEqual([]);
         }
+        expect(containerLanes).toBeGreaterThan(0);
+    });
+
+    it('lays out the machine whose label packing once never finished', () => {
+        // Rounding made a label placed just clear of a stub row look as if it still
+        // covered it, so placeLabel moved it to the same spot forever.
+        const result = layoutOf(loadFixture('lane-label-rounding'), 'RL', 22);
+        expect(result.edges.some((edge) => edge.catchLane)).toBe(true);
+        expectNoLabelOverlap(result, 'RL');
+        expectLabelsOnOwnTrunks(result, 'RL', 22);
     });
 
     // Every stub that reaches a label's trunk, by joining it or passing through to a lane
@@ -775,7 +791,7 @@ describe('Shared catch handlers', () => {
     it('lets a label cover as few stubs as it can when none of its spots is clear', () => {
         // In LR each three-error label is longer than one rank, so on the two inner lanes
         // every spot is crossed by an outer lane's stub. One stub per label is the least.
-        const result = layoutOf(roundRobinHandlers(20), 'LR');
+        const result = layoutOf(roundRobinHandlers({ length: 20 }), 'LR');
         const hits = stubsThroughLabels(result, 'LR');
         const perLabel = new Map<string, number>();
         for (const [, label] of hits) {
@@ -788,7 +804,7 @@ describe('Shared catch handlers', () => {
     });
 
     it('stacks a crowded handler onto as few extra trunks as its labels need', () => {
-        const result = layoutOf(wideFanOut(8));
+        const result = layoutOf(wideFanOut({ count: 8 }));
         const lanes = laneEdges(result, 'TB');
         expect(lanes).toHaveLength(8);
         const trunks = new Set(lanes.map((edge) => Math.round((edge.points ?? [])[2].x)));
@@ -815,7 +831,7 @@ describe('Shared catch handlers', () => {
     });
 
     it('hands only the colliding catch edges back to dagre when a container sits on the lane side', () => {
-        const result = layoutOf(parallelBesideChain(30));
+        const result = layoutOf(parallelBesideChain({ length: 30 }));
         const parallel = result.nodes.find((node) => node.id === 'Par');
         const lanes = laneEdges(result, 'TB');
         expect(lanes.length).toBeGreaterThan(20);

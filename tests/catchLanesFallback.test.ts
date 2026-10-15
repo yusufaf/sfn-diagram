@@ -37,7 +37,7 @@ const layoutErrors = (definition: AslDefinition = parallelInChain()) => {
  * the collision check runs.
  */
 const roundRobinWithParallel = (handlers: number): AslDefinition => {
-    const definition = roundRobinHandlers(8 * handlers, handlers);
+    const definition = roundRobinHandlers({ handlers, length: 8 * handlers });
     definition.States[`Step${8 * handlers - 1}`].Next = 'Par';
     definition.States.Par = {
         Type: 'Parallel',
@@ -92,9 +92,9 @@ describe('catch lane fallback', () => {
             return pick(routes);
         };
         const { lanes } = layoutErrors(roundRobinWithParallel(3));
-        // The first pass hands back one Failed0 edge, the second all of Failed0's, and the
-        // third finds no collision.
-        expect(seen).toHaveLength(3);
+        // The first two passes hand back one Failed0 edge each, the third all of Failed0's,
+        // and the fourth finds no collision.
+        expect(seen).toHaveLength(4);
         expect(lanes.some((edge) => edge.to === 'Failed0')).toBe(false);
         expect(lanes.some((edge) => edge.to === 'Failed1')).toBe(true);
         expect(lanes.some((edge) => edge.to === 'Failed2')).toBe(true);
@@ -107,10 +107,10 @@ describe('catch lane fallback', () => {
             seen.push(routes.size);
             return pick(routes);
         };
-        // Failed2 never collides, but the third and last lane pass still collides (on
+        // Failed2 never collides, but the fourth and last lane pass still collides (on
         // Failed1), so Failed2 loses its lane too.
         const { lanes } = layoutErrors(roundRobinWithParallel(3));
-        expect(seen).toHaveLength(3);
+        expect(seen).toHaveLength(4);
         expect(lanes).toHaveLength(0);
     });
 });

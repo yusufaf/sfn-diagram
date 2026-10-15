@@ -139,13 +139,15 @@ interface LayoutWithParams {
  * back every lane edge into the same handler instead, and handlers without one keep
  * their lanes.
  */
-const CATCH_LANE_EDGE_PASSES = 1;
+const CATCH_LANE_EDGE_PASSES = 2;
 
 /**
  * Lane passes before lanes are given up for the whole layout. Each is a full dagre run,
- * so with the plain fallback the worst case is MAX_CATCH_LANE_PASSES + 1 runs.
+ * so with the plain fallback the worst case is MAX_CATCH_LANE_PASSES + 1 runs. Lane
+ * passes are fast while most catch edges stay out of dagre; the plain run they can end
+ * in is the expensive one, so one more lane pass is cheap next to losing lanes early.
  */
-const MAX_CATCH_LANE_PASSES = 3;
+const MAX_CATCH_LANE_PASSES = 4;
 
 /** Parameters for {@link DagreLayout.selectLaneEdges}. */
 interface SelectLaneEdgesParams {

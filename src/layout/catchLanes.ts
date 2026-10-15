@@ -349,7 +349,11 @@ function placeLabel(params: PlaceLabelParams): number {
     const { blocked, desired, extent, limit } = params;
     const margin = extent / 2 + LANE_LABEL_GAP / 2;
     let centre = Math.min(desired, limit - extent / 2);
-    for (;;) {
+    // Each move takes the label below one more row, so it can make at most one move per
+    // row. The cap turns any rounding case that slips past the guards below into a label
+    // left over a row rather than a layout that never finishes.
+    const maxMoves = blocked.reduce((count, rows) => count + rows.length, 0);
+    for (let moves = 0; moves < maxMoves; moves += 1) {
         // The highest covered row across every list; the label moves to just below it.
         let highest = -Infinity;
         for (const rows of blocked) {
@@ -359,13 +363,15 @@ function placeLabel(params: PlaceLabelParams): number {
             }
         }
         const next = highest - margin;
-        // Every move is strictly down, so this ends; the guard also stops a move that
-        // rounding would turn into no move at all.
+        // Rows within ROW_EPSILON of an end count as clear, so a label just moved below a
+        // row does not find it again; the second test stops a move that rounding would
+        // turn into no move at all.
         if (highest === -Infinity || next >= centre) {
-            return centre;
+            break;
         }
         centre = next;
     }
+    return centre;
 }
 
 /** Parameters for {@link leastBlockedCentre}. */
@@ -501,15 +507,9 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                     centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit: top });
                 }
             }
-            const applySqueeze = (): void => {
-                columnLabels.forEach((placed, index) => {
-                    placed.entry.labelFlow = (squeezed as number[])[index] * side;
-                });
-                limit = squeezedLimit;
-            };
-            if (centre >= floor && squeezed) {
-                applySqueeze();
-            } else if (centre < floor && columnRows.length > 0) {
+            let openTrunk = false;
+            let freshCentre = centre;
+            if (centre < floor && columnRows.length > 0) {
                 // A fresh trunk has no stubs joining it nearer the handler than this one.
                 // Open one if that gives a clean spot. Otherwise only if this trunk has no
                 // room left, even squeezed, and either the label fits a fresh trunk or this
@@ -517,18 +517,24 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                 // a stretch shorter than the label, rule out a clean spot, a new trunk would
                 // only widen the lane.
                 const freshLimit = end - endClearance;
-                const freshCentre = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: freshLimit });
+                freshCentre = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: freshLimit });
                 const full = squeezedLimit - extent.flow / 2 < floor;
                 const fitsFresh = freshLimit - extent.flow / 2 >= floor;
-                if (freshCentre >= floor || (full && (fitsFresh || columnLabels.length > 0))) {
-                    column += 1;
-                    columnLabels = [];
-                    columnRows = [];
-                    limit = freshLimit;
-                    centre = freshCentre;
-                } else if (squeezed) {
-                    applySqueeze();
+                openTrunk = freshCentre >= floor || (full && (fitsFresh || columnLabels.length > 0));
+            }
+            if (openTrunk) {
+                column += 1;
+                columnLabels = [];
+                columnRows = [];
+                limit = end - endClearance;
+                centre = freshCentre;
+            } else if (squeezed) {
+                // Kept whether or not the label now has a clean spot: squeezed, the trunk
+                // leaves the fallback below the most room.
+                for (const [index, placed] of columnLabels.entries()) {
+                    placed.entry.labelFlow = squeezed[index] * side;
                 }
+                limit = squeezedLimit;
             }
             if (centre < floor) {
                 // Still no clean spot: the stretch is shorter than the label, or the stubs
@@ -686,8 +692,12 @@ export function routeCatchLanes(params: RouteCatchLanesParams): Map<string, Catc
         const { node, sign } = params;
         const flow = flowOfNode(node);
         // DagreLayout only bundles edges between plain states, whose rows are all in
-        // rowHalf; the fallback keeps an open-container endpoint from another caller finite.
-        return flow + sign * (rowHalf.get(flow) ?? halfExtents({ frame, node }).halfFlow);
+        // rowHalf. rowHalf leaves open containers out, so one from another caller uses
+        // its own size, even when a plain state shares its centre.
+        const half = isOpenContainer(node)
+            ? halfExtents({ frame, node }).halfFlow
+            : (rowHalf.get(flow) ?? halfExtents({ frame, node }).halfFlow);
+        return flow + sign * half;
     };
 
     // The distance a stub can run past a row before it would enter an open container

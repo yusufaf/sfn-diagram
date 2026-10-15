@@ -127,13 +127,20 @@ export const sameRowFanOut = (): AslDefinition => {
     return { StartAt: 'Route', States: states };
 };
 
+/** Parameters for {@link wideFanOut}. */
+interface WideFanOutParams {
+    /** Number of branches */
+    count: number;
+}
+
 /**
  * Choice fanning out to `count` branches of two Tasks each, every Task catching
  * `States.TaskFailed` and `States.Timeout` into `Failed`, the branches rejoining at
  * `Join`. Every first Task shares one row, so all of their long labels want the same
  * short trunk stretch.
  */
-export const wideFanOut = (count: number): AslDefinition => {
+export const wideFanOut = (params: WideFanOutParams): AslDefinition => {
+    const { count } = params;
     const states: Record<string, AslState> = {
         Route: {
             Type: 'Choice',
@@ -187,12 +194,19 @@ export const interleavedHandlers = (): AslDefinition => {
     return { StartAt: 'Step0', States: states };
 };
 
+/** Parameters for {@link parallelBesideChain}. */
+interface ParallelBesideChainParams {
+    /** Number of chained Tasks */
+    length: number;
+}
+
 /**
  * Choice -> C0 -> ... -> C(length - 1), every C catching into `Failed`, with a Parallel
  * as the Choice's default branch. dagre puts the Parallel on the lane side, beside the
  * top of the chain, so the stubs leaving the rows it spans would run through it.
  */
-export const parallelBesideChain = (length: number): AslDefinition => {
+export const parallelBesideChain = (params: ParallelBesideChainParams): AslDefinition => {
+    const { length } = params;
     const states: Record<string, AslState> = {
         Route: {
             Type: 'Choice',
@@ -248,12 +262,21 @@ export const convergingFanOut = (): AslDefinition => {
     return { StartAt: 'Route', States: states };
 };
 
+/** Parameters for {@link roundRobinHandlers}. */
+interface RoundRobinHandlersParams {
+    /** Number of shared handlers; defaults to 3 */
+    handlers?: number;
+    /** Number of chained Tasks */
+    length: number;
+}
+
 /**
  * A chain of `length` Tasks catching round-robin into `Failed0` .. `Failed{handlers - 1}`,
  * each Catch naming three errors. In LR a label is longer than one rank, so with three
  * handlers the inner lanes' labels cannot avoid every stub of the outer lanes.
  */
-export const roundRobinHandlers = (length: number, handlers = 3): AslDefinition => {
+export const roundRobinHandlers = (params: RoundRobinHandlersParams): AslDefinition => {
+    const { handlers = 3, length } = params;
     const states: Record<string, AslState> = { Done: { Type: 'Succeed' } };
     for (let handler = 0; handler < handlers; handler += 1) {
         states[`Failed${handler}`] = { Type: 'Fail' };
@@ -289,40 +312,82 @@ export interface RandomCatchMachine {
     rankSeparation: number;
 }
 
+/** Parameters for {@link randomCatchMachines}. */
+interface RandomCatchMachinesParams {
+    /** Number of machines */
+    count: number;
+    /** Park-Miller seed, from 1 to 2^31 - 2 */
+    seed: number;
+}
+
+/** A small Parallel whose one to three branches each hold one or two Pass states. */
+const randomParallel = (random: () => number, next: string): AslState => ({
+    Type: 'Parallel',
+    Branches: Array.from({ length: 1 + Math.floor(random() * 3) }, (_, branch) => {
+        const depth = 1 + Math.floor(random() * 2);
+        const states: Record<string, AslState> = {};
+        for (let step = 0; step < depth; step += 1) {
+            states[`P${branch}_${step}`] =
+                step === depth - 1 ? { Type: 'Pass', End: true } : { Type: 'Pass', Next: `P${branch}_${step + 1}` };
+        }
+        return { StartAt: `P${branch}_0`, States: states };
+    }),
+    Next: next,
+});
+
 /**
  * `count` pseudo-random chains catching into one to three shared handlers, each with a
- * random layout direction, rank separation and one to three error names per Catch.
- * Deterministic for a given `seed`; seed 1's sixteenth machine (RL, rankSeparation 22)
- * once hung the lane label packing.
+ * random layout direction, rank separation and one to three error names per Catch. A
+ * third of them put a Parallel inside the chain and a third put one beside it, as a
+ * Choice's other branch, where lane stubs can run into it and the layout has to retry.
+ *
+ * Uses the Park-Miller generator, whose products stay exact in a double, so a seed always
+ * gives the same machines.
  */
-export const randomCatchMachines = (seed: number, count: number): RandomCatchMachine[] => {
-    let state = seed;
+export const randomCatchMachines = (params: RandomCatchMachinesParams): RandomCatchMachine[] => {
+    let state = params.seed;
     const random = (): number => {
-        state = (state * 1103515245 + 12345) % 2147483648;
-        return state / 2147483648;
+        state = (state * 48271) % 2147483647;
+        return (state - 1) / 2147483646;
     };
     const layouts = ['TB', 'LR', 'RL', 'BT'] as const;
-    return Array.from({ length: count }, () => {
+    return Array.from({ length: params.count }, () => {
         const length = 6 + Math.floor(random() * 20);
         const handlers = 1 + Math.floor(random() * 3);
+        const container = Math.floor(random() * 3);
         const states: Record<string, AslState> = { Done: { Type: 'Succeed' } };
         for (let handler = 0; handler < handlers; handler += 1) {
             states[`Failed${handler}`] = { Type: 'Fail' };
         }
+        const parallelAfter = container === 1 ? Math.floor(random() * length) : -1;
         for (let index = 0; index < length; index += 1) {
             const errorCount = 1 + Math.floor(random() * 3);
             const errors = Array.from(
                 { length: errorCount },
                 () => RANDOM_ERROR_NAMES[Math.floor(random() * RANDOM_ERROR_NAMES.length)],
             );
+            const following = index === length - 1 ? 'Done' : `Step${index + 1}`;
             states[`Step${index}`] = {
-                ...task({ next: index === length - 1 ? 'Done' : `Step${index + 1}` }),
+                ...task({ next: index === parallelAfter ? 'Inside' : following }),
                 Catch: [{ ErrorEquals: [...new Set(errors)], Next: `Failed${Math.floor(random() * handlers)}` }],
             };
+            if (index === parallelAfter) {
+                states.Inside = randomParallel(random, following);
+            }
+        }
+        let startAt = 'Step0';
+        if (container === 2) {
+            states.Route = {
+                Type: 'Choice',
+                Choices: [{ Variable: '$.x', BooleanEquals: true, Next: 'Step0' }],
+                Default: 'Beside',
+            };
+            states.Beside = randomParallel(random, 'Done');
+            startAt = 'Route';
         }
         const layout = layouts[Math.floor(random() * 4)];
         const rankSeparation = 16 + Math.floor(random() * 90);
-        return { definition: { StartAt: 'Step0', States: states }, layout, rankSeparation };
+        return { definition: { StartAt: startAt, States: states }, layout, rankSeparation };
     });
 };
 

@@ -1,0 +1,165 @@
+{
+  "StartAt": "Step0",
+  "States": {
+    "Done": {
+      "Type": "Succeed"
+    },
+    "Failed0": {
+      "Type": "Fail"
+    },
+    "Step0": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step1",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "States.ALL"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step1": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step2",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed",
+            "X"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step2": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step3",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "MyCustomError",
+            "States.TaskFailed"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step3": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step4",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "X",
+            "States.Permissions",
+            "States.ALL"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step4": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step5",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "MyCustomError",
+            "States.Permissions"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step5": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step6",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "MyCustomError",
+            "Lambda.ServiceException"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step6": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step7",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Permissions"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step7": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step8",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "MyCustomError",
+            "Lambda.ServiceException"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step8": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step9",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "MyCustomError",
+            "States.Permissions",
+            "States.TaskFailed"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step9": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Step10",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    },
+    "Step10": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Worker",
+      "Next": "Done",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Permissions",
+            "MyCustomError"
+          ],
+          "Next": "Failed0"
+        }
+      ]
+    }
+  }
+}
