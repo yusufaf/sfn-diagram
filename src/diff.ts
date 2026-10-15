@@ -435,6 +435,7 @@ export function summarizeDiff(diff: StateDiff): DiffStateSummary {
  *
  * @param params.before - The original (base) ASL definition
  * @param params.after  - The new (head) ASL definition
+ * @param params.cache  - Optional layout cache from `createLayoutCache`
  * @param params        - Any additional {@link DiagramOptions} passed through to generateSvg
  *
  * @remarks
@@ -450,6 +451,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     const {
         after: afterArg,
         before: beforeArg,
+        cache,
         nodeAnnotations: callerAnnotations,
         nodeOverrides: callerOverrides,
         ...options
@@ -483,6 +485,7 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
     const mergedNodeOverrides = mergeRecordOptions(nodeOverrides, callerOverrides);
 
     const svgOutput = renderSvgGraph({
+        cache,
         edges,
         nodes,
         options: { ...mergedOptions, nodeAnnotations, nodeOverrides: mergedNodeOverrides },

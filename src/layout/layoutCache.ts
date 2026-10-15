@@ -158,9 +158,9 @@ function layoutRelevantEdge(edge: GraphEdge): Record<string, unknown> {
  * Create an opt-in layout cache.
  *
  * Pass the result to a render function to memoise dagre layout across calls that do
- * not change geometry — a theme change, an icon toggle, or an execution overlay being
- * painted onto an unchanged definition. On a large definition the layout dominates
- * render cost, so a hit turns a re-render into little more than SVG serialisation.
+ * not change geometry, such as switching between themes that share a font size. On a
+ * large definition the layout dominates render cost, so a hit turns a re-render into
+ * little more than SVG serialisation.
  *
  * The cache is caller-owned and bounded. Nothing is cached unless a cache is passed,
  * which keeps the core stateless by default: no global state to make tests

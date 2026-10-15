@@ -32,6 +32,7 @@ import {
     reportUnexpectedError,
     run,
 } from '../src/cli';
+import { DagreLayout } from '../src/layout';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
@@ -4055,6 +4056,36 @@ describe('--execution <arn> and --follow', () => {
         expect(errors.join('')).toMatch(/succeeded/);
     });
 
+    it('lays the definition out once while the history leaves the geometry alone', async () => {
+        // runningEvents() drops only the terminal event, so every tick carries the same
+        // per-state annotations and nothing about the layout can differ between them.
+        const calculate = vi.spyOn(DagreLayout.prototype, 'calculate');
+        sfnSendMock
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: events() });
+        const target = join(tempDir, 'run.svg');
+        try {
+            expect(
+                await run([
+                    simpleFixture,
+                    '--execution',
+                    executionArn,
+                    '--follow',
+                    '--poll-interval',
+                    '1',
+                    '-o',
+                    target,
+                ]),
+            ).toBe(0);
+            expect(sfnSendMock).toHaveBeenCalledTimes(3);
+            expect(calculate).toHaveBeenCalledTimes(1);
+            expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+        } finally {
+            calculate.mockRestore();
+        }
+    }, 20_000);
+
     it('stops at once on an execution that has already finished', async () => {
         sfnSendMock.mockResolvedValue({ events: events() });
         expect(
@@ -4548,6 +4579,38 @@ describe('--watch', () => {
         process.emit('SIGINT');
         expect(await watching).toBe(0);
         expect(errors.join('')).toContain('watching');
+    }, 20_000);
+
+    it('reuses the layout across passes when an edit cannot move it', async () => {
+        // A top-level Comment only feeds the diagram title, which the layout cache
+        // does not key on, so the second pass must not run dagre again.
+        const input = join(tempDir, 'titled.asl.json');
+        const output = join(tempDir, 'titled.svg');
+        const definition = (comment: string) =>
+            JSON.stringify({
+                Comment: comment,
+                StartAt: 'First',
+                States: { First: { End: true, Type: 'Pass' } },
+            });
+        writeFileSync(input, definition('Revision one'), 'utf-8');
+        const calculate = vi.spyOn(DagreLayout.prototype, 'calculate');
+        try {
+            const watching = run([input, '--watch', '-o', output]);
+            await waitFor(
+                () => existsSync(output) && readFileSync(output, 'utf-8').includes('Revision one'),
+            );
+            const callsAfterFirst = calculate.mock.calls.length;
+            expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
+
+            writeFileSync(input, definition('Revision two'), 'utf-8');
+            await waitFor(() => readFileSync(output, 'utf-8').includes('Revision two'));
+            expect(calculate).toHaveBeenCalledTimes(callsAfterFirst);
+
+            process.emit('SIGINT');
+            expect(await watching).toBe(0);
+        } finally {
+            calculate.mockRestore();
+        }
     }, 20_000);
 
     it('renders a file created under a glob after startup', async () => {

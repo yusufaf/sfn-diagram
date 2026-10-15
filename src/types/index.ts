@@ -929,7 +929,7 @@ export interface GenerateSvgParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * re-running dagre - so switching to a theme with the same font size on an
      * unchanged definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
@@ -1016,7 +1016,7 @@ export interface GenerateHtmlParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * re-running dagre - so switching to a theme with the same font size on an
      * unchanged definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
@@ -1076,7 +1076,7 @@ export interface GenerateViewerUpdateParams extends DiagramOptions {
     /**
      * Optional layout cache from `createLayoutCache`. When passed, a definition already
      * laid out under the same layout-affecting options reuses that layout instead of
-     * re-running dagre - so a theme change, an icon toggle or an execution overlay on an
+     * re-running dagre - so switching to a theme with the same font size on an
      * unchanged definition skips the dominant cost. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
@@ -1283,6 +1283,14 @@ export interface GenerateDiffParams extends DiagramOptions {
 
     /** The old (base) ASL definition */
     before: AslDefinition | string;
+
+    /**
+     * Optional layout cache from `createLayoutCache`. When passed, a definition already
+     * laid out under the same layout-affecting options reuses that layout instead of
+     * re-running dagre. The diff's colours are not part of the key, so a re-render of
+     * the same pair hits. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
 }
 
 /** Mermaid diff output with added/modified/removed states highlighted */
@@ -1473,6 +1481,17 @@ export type ExecutionHistoryInput =
 export interface GenerateExecutionParams extends DiagramOptions {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
+    /**
+     * Optional layout cache from `createLayoutCache`. When passed, a definition already
+     * laid out under the same layout-affecting options reuses that layout instead of
+     * re-running dagre. The overlay's colours are not part of the key, so re-rendering
+     * the same definition with new statuses hits as long as no annotation changed.
+     * Annotations are keyed by their text, so a state completing or retrying, or a
+     * collapsed container's `3/4 succeeded` summary moving on, misses even though the
+     * geometry is the same; each miss stores another layout up to the cache's
+     * `maxEntries`. Omitted, nothing is cached.
+     */
+    cache?: LayoutCache;
     /** Execution history (events array, GetExecutionHistory response, or JSON string) */
     history: ExecutionHistoryInput;
 }

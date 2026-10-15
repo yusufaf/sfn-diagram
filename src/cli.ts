@@ -47,6 +47,8 @@ import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
 import { renameSync, rmSync } from 'node:fs';
 import { generateHtmlAsync, generateMermaid, generateSvg } from './index';
+import { createLayoutCache } from './layout';
+import type { LayoutCache } from './layout';
 import { lintAsl } from './lint';
 import { exportPng } from './png';
 import type {
@@ -1585,6 +1587,11 @@ interface RenderOneInputParams {
     baselineIsLive: boolean;
     /** Contents of `--diff`'s baseline, already read, or `null`. */
     baselineSource: string | null;
+    /**
+     * The process's layout cache. It must be the one shared by every render: a fresh
+     * cache per call would never hit. Mermaid paths ignore it.
+     */
+    cache: LayoutCache;
     /** Contents of `--execution`'s history, already read, or `null`. */
     historySource: string | null;
     /**
@@ -1627,6 +1634,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         args,
         baselineIsLive,
         baselineSource,
+        cache,
         definitionText,
         historySource,
         labelInput,
@@ -1714,6 +1722,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     };
     const svgOptions = {
         ...sharedOptions,
+        cache,
         layout: options.layout,
         theme,
         ...(options.backgroundColor !== null
@@ -1940,9 +1949,9 @@ export async function run(argv: string[]): Promise<number> {
         );
         return EXIT_USAGE;
     }
-    // The same objection, by the third route. Nothing batch-wide is cached between
-    // passes - deliberately, so a config edit is always picked up - so a live
-    // baseline would mean a DescribeStateMachine per keystroke-save.
+    // The same objection, by the third route. No input is cached between passes -
+    // deliberately, so a config edit is always picked up - so a live baseline would
+    // mean a DescribeStateMachine per keystroke-save.
     if (args.watch && args.diff !== null && isStateMachineArn(args.diff)) {
         process.stderr.write(
             '--watch would re-fetch that --diff baseline from AWS on every file ' +
@@ -2035,7 +2044,8 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     if (args.watch) return runWatch({ args });
-    return (await renderResolvedBatch({ args, only: null })).code;
+    const cache = createLayoutCache();
+    return (await renderResolvedBatch({ args, cache, only: null })).code;
 }
 
 /** How long a burst of filesystem events is allowed to settle before re-rendering. */
@@ -2055,6 +2065,10 @@ interface RunWatchParams {
  * at startup, and nothing short of re-resolving would notice an edit. A change to an
  * *input* re-renders only that input, by passing it as `only` — a save in a batch of
  * forty should not redraw forty diagrams.
+ *
+ * The layout cache outlives each pass, so a re-render whose layout cache key is
+ * unchanged skips dagre. It holds the default 32 layouts, so a full pass that stores
+ * more than that evicts each one before the next full pass can reuse it.
  *
  * Interrupting always exits 0. `--watch` is a development loop, not a gate: the file
  * you are editing is routinely invalid for a moment, and an exit code that depended on
@@ -2100,7 +2114,8 @@ async function runWatch(params: RunWatchParams): Promise<number> {
             .map((pattern) => ({ kind: 'file' as const, path: pattern })),
     });
 
-    const first = await renderResolvedBatch({ args, only: null });
+    const cache = createLayoutCache();
+    const first = await renderResolvedBatch({ args, cache, only: null });
     // A usage error is about the command line, which watching cannot change. Every
     // other failure is a file problem, and watching is how you fix those - so only
     // this one aborts.
@@ -2146,7 +2161,7 @@ async function runWatch(params: RunWatchParams): Promise<number> {
                 for (const path of paths) {
                     process.stderr.write(`  ${path} changed\n`);
                 }
-                await renderResolvedBatch({ args, only });
+                await renderResolvedBatch({ args, cache, only });
             },
             onWatchError: ({ target }) => {
                 process.stderr.write(`  cannot watch ${target}; skipping it\n`);
@@ -2321,6 +2336,11 @@ interface RenderResolvedBatchParams {
     /** The parsed command line. */
     args: CliArgs;
     /**
+     * The layout cache for this process. Passed in rather than created here because
+     * `--watch` calls this once per pass, and a cache per pass would never hit.
+     */
+    cache: LayoutCache;
+    /**
      * Render only these inputs, or `null` for all of them.
      *
      * `--watch` passes the one path that changed, so a save in a batch of forty
@@ -2364,7 +2384,7 @@ interface RenderResolvedBatchResult {
 async function renderResolvedBatch(
     params: RenderResolvedBatchParams,
 ): Promise<RenderResolvedBatchResult> {
-    const { args, only } = params;
+    const { args, cache, only } = params;
     /** Returned alongside every early exit so a failed pass still says what to watch. */
     const watchTargets: string[] = [];
 
@@ -2763,11 +2783,12 @@ async function renderResolvedBatch(
     if (args.follow && executionArn !== null) {
         return {
             code: await runFollow({
-            args,
-            arn: executionArn,
-            baselineIsLive,
-            baselineSource,
-            options,
+                args,
+                arn: executionArn,
+                baselineIsLive,
+                baselineSource,
+                cache,
+                options,
                 outputPath: work[0].outputPath,
                 source: work[0].source,
                 theme,
@@ -2785,6 +2806,7 @@ async function renderResolvedBatch(
             args,
             baselineIsLive,
             baselineSource,
+            cache,
             definitionText: null,
             historySource,
             labelInput,
@@ -2809,6 +2831,11 @@ interface RunFollowParams {
     baselineIsLive: boolean;
     /** Contents of `--diff`'s baseline, already read, or `null`. */
     baselineSource: string | null;
+    /**
+     * Shared by every tick: the definition never changes during a follow, so only a
+     * tick that changed an annotation re-runs the layout.
+     */
+    cache: LayoutCache;
     /** The effective diagram options for this run. */
     options: ResolvedCliOptions;
     /** The single file every tick rewrites. */
@@ -2840,6 +2867,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
         arn,
         baselineIsLive,
         baselineSource,
+        cache,
         options,
         outputPath,
         source,
@@ -2890,6 +2918,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     args,
                     baselineIsLive,
                     baselineSource,
+                    cache,
                     definitionText,
                     historySource: JSON.stringify({ events }),
                     // One source, and the reader chose the ARN, so there is nothing
