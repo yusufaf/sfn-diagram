@@ -1588,9 +1588,7 @@ interface RenderOneInputParams {
     /** Contents of `--diff`'s baseline, already read, or `null`. */
     baselineSource: string | null;
     /**
-     * The process's layout cache, shared by every render so a re-render that leaves
-     * the graph, `LAYOUT_CACHE_OPTION_KEYS` and the theme's font size alone skips
-     * dagre. Mermaid paths ignore it.
+     * The process's layout cache, shared by every render. Mermaid paths ignore it.
      */
     cache: LayoutCache;
     /** Contents of `--execution`'s history, already read, or `null`. */
@@ -1952,9 +1950,7 @@ export async function run(argv: string[]): Promise<number> {
     }
     // The same objection, by the third route. No input is cached between passes -
     // deliberately, so a config edit is always picked up - so a live baseline would
-    // mean a DescribeStateMachine per keystroke-save. (The layout cache does persist,
-    // but it is keyed on the graph, `LAYOUT_CACHE_OPTION_KEYS` and the theme's font
-    // size, so an edit to any of them misses rather than reusing a stale layout.)
+    // mean a DescribeStateMachine per keystroke-save.
     if (args.watch && args.diff !== null && isStateMachineArn(args.diff)) {
         process.stderr.write(
             '--watch would re-fetch that --diff baseline from AWS on every file ' +
@@ -2069,12 +2065,9 @@ interface RunWatchParams {
  * *input* re-renders only that input, by passing it as `only` — a save in a batch of
  * forty should not redraw forty diagrams.
  *
- * The layout cache outlives each pass, so a re-render that changes nothing in its
- * key - the graph, `LAYOUT_CACHE_OPTION_KEYS` and the theme's font size - skips
- * dagre: a theme colour or a title edit hits, a `showIcons` or layout edit misses.
- * It holds the default 32 layouts, and an HTML render that also draws a collapsed
- * view stores two, so a full pass storing more than 32 evicts each layout before
- * the next full pass can reuse it.
+ * The layout cache outlives each pass, so a re-render whose layout cache key is
+ * unchanged skips dagre. It holds the default 32 layouts, so a full pass that stores
+ * more than that evicts each one before the next full pass can reuse it.
  *
  * Interrupting always exits 0. `--watch` is a development loop, not a gate: the file
  * you are editing is routinely invalid for a moment, and an exit code that depended on
