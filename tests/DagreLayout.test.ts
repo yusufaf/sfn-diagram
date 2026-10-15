@@ -737,8 +737,25 @@ describe('Shared catch handlers', () => {
             expect(result.nodes.length, `machine ${index}`).toBeGreaterThan(0);
             expectNoLabelOverlap(result, layout);
             expectLabelsOnOwnTrunks(result, layout, rankSeparation);
-            if (result.nodes.some((node) => node.isContainer && !node.collapsed)) {
-                containerLanes += result.edges.filter((edge) => edge.catchLane).length;
+            const containers = result.nodes.filter((node) => node.isContainer && !node.collapsed);
+            const lanes = result.edges.filter((edge) => edge.catchLane);
+            if (containers.length > 0) {
+                containerLanes += lanes.length;
+            }
+            // Checked here from the final geometry, not with the layout's own collision test.
+            for (const edge of lanes) {
+                for (const [start, end] of segmentsOf(edge.points ?? [])) {
+                    for (const box of containers) {
+                        const halfWidth = (box.width || 0) / 2 - 0.5;
+                        const halfHeight = (box.height || 0) / 2 - 0.5;
+                        const enters =
+                            Math.max(start.x, end.x) > (box.x || 0) - halfWidth &&
+                            Math.min(start.x, end.x) < (box.x || 0) + halfWidth &&
+                            Math.max(start.y, end.y) > (box.y || 0) - halfHeight &&
+                            Math.min(start.y, end.y) < (box.y || 0) + halfHeight;
+                        expect(enters, `machine ${index}: ${edge.id} enters ${box.id}`).toBe(false);
+                    }
+                }
             }
         }
         // Machines with a Parallel still get lanes, so their layouts run the container

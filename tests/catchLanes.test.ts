@@ -7,6 +7,7 @@ import {
     buildAcyclicPredecessors,
     CATCH_LANE_MIN_SOURCES,
     findLaneCollisions,
+    placeLabel,
     routeCatchLanes,
     selectLaneCatchEdges,
 } from '../src/layout/catchLanes';
@@ -323,5 +324,24 @@ describe('anchorCatchLaneEnds', () => {
         expect(plain).toHaveLength(2);
         expect(overridden).toHaveLength(2);
         expect(Math.abs(overridden[1] - plain[1])).toBeGreaterThan(1);
+    });
+});
+
+describe('placeLabel', () => {
+    it('stops against a row that only touches its far end after rounding', () => {
+        // Rows exactly one label-plus-gap apart: moved below the first, the label's low end
+        // lands on the second, where `(A - margin) - margin` rounds just below it.
+        const extent = 42.66;
+        const margin = extent / 2 + 2;
+        const first = 597.34;
+        const second = first - 2 * margin;
+        const centre = placeLabel({ blocked: [[first, second]], desired: first, extent, limit: Infinity });
+        expect(centre).toBeCloseTo(first - margin, 6);
+    });
+
+    it('moves below every row it covers, across lists', () => {
+        const centre = placeLabel({ blocked: [[100], [90, 60]], desired: 100, extent: 20, limit: Infinity });
+        // Margin 12: below 100 is 88, which covers 90; below 90 is 78, clear of 60.
+        expect(centre).toBeCloseTo(78, 6);
     });
 });

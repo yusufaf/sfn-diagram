@@ -305,7 +305,7 @@ function firstBelow(params: FirstBelowParams): number {
 }
 
 /** Parameters for {@link placeLabel}. */
-interface PlaceLabelParams {
+export interface PlaceLabelParams {
     /** Lists of rows the label has to keep off, scaled by `toward`, each sorted highest first */
     blocked: number[][];
     desired: number;
@@ -313,6 +313,24 @@ interface PlaceLabelParams {
     extent: number;
     /** The furthest the label's far end may reach */
     limit: number;
+}
+
+/** Parameters for {@link coverage}. */
+interface CoverageParams {
+    centre: number;
+    /** Half the label's length plus half the gap it keeps from a stub */
+    margin: number;
+}
+
+/**
+ * The rows a label at `centre` covers: those with `low <= row < high`. A row within
+ * ROW_EPSILON of either end counts as clear, so a label placed exactly against a row is
+ * not counted as covering it when `(row - margin) +/- margin` rounds past it. The one
+ * definition {@link placeLabel} and {@link coveredRows} both use.
+ */
+function coverage(params: CoverageParams): { high: number; low: number } {
+    const { centre, margin } = params;
+    return { high: centre + margin - ROW_EPSILON, low: centre - margin + ROW_EPSILON };
 }
 
 /** Parameters for {@link coveredRows}. */
@@ -324,51 +342,49 @@ interface CoveredRowsParams {
     margin: number;
 }
 
-/**
- * How many rows a label at `centre` covers. A row within ROW_EPSILON of either end counts
- * as clear, so a label placed exactly against a row is not counted as covering it after
- * `(row - margin) + margin` rounds above `row`.
- */
+/** How many rows a label at `centre` covers, by {@link coverage}. */
 function coveredRows(params: CoveredRowsParams): number {
     const { blocked, centre, margin } = params;
+    const { high, low } = coverage({ centre, margin });
     return blocked.reduce(
-        (count, rows) =>
-            count +
-            firstBelow({ rows, value: centre - margin + ROW_EPSILON }) -
-            firstBelow({ rows, value: centre + margin - ROW_EPSILON }),
+        (count, rows) => count + firstBelow({ rows, value: low }) - firstBelow({ rows, value: high }),
         0,
     );
 }
 
 /**
  * The centre for a label on a trunk: as near `desired` as `limit` allows, then moved back
- * past every blocked row it would cover. Coordinates are scaled by the side's `toward`, so
- * the handler is always the high end and moving back is moving lower.
+ * past every blocked row it would cover, by {@link coverage}. Coordinates are scaled by the
+ * side's `toward`, so the handler is always the high end and moving back is moving lower.
  *
  * The label only ever moves down, so each list is walked with a cursor that only moves
  * forward: rows above the label are skipped once, and a row the label has been moved
  * below is stepped past outright, however `(row - margin) + margin` rounds. Every pass
  * moves a cursor, so the walk ends after at most one pass per row.
+ *
+ * Exported for tests only.
  */
-function placeLabel(params: PlaceLabelParams): number {
+export function placeLabel(params: PlaceLabelParams): number {
     const { blocked, desired, extent, limit } = params;
     const margin = extent / 2 + LANE_LABEL_GAP / 2;
     let centre = Math.min(desired, limit - extent / 2);
-    const cursors = blocked.map((rows) => firstBelow({ rows, value: centre + margin }));
+    const cursors = blocked.map((rows) => firstBelow({ rows, value: coverage({ centre, margin }).high }));
     for (;;) {
         // The highest row the label covers, across every list.
+        const { high, low } = coverage({ centre, margin });
         let hitList = -1;
         let hitRow = -Infinity;
-        blocked.forEach((rows, list) => {
-            while (cursors[list] < rows.length && rows[cursors[list]] >= centre + margin) {
+        for (let list = 0; list < blocked.length; list += 1) {
+            const rows = blocked[list];
+            while (cursors[list] < rows.length && rows[cursors[list]] >= high) {
                 cursors[list] += 1;
             }
             const row = rows[cursors[list]];
-            if (cursors[list] < rows.length && row > centre - margin && row > hitRow) {
+            if (cursors[list] < rows.length && row >= low && row > hitRow) {
                 hitList = list;
                 hitRow = row;
             }
-        });
+        }
         if (hitList === -1) {
             return centre;
         }
@@ -448,8 +464,9 @@ interface PackLaneLabelsResult {
  * Each side of the handler is packed separately, nearest stub first. A label wants the
  * middle of the stretch between its row and the next row toward the handler, and keeps off
  * the rows where other stubs join its trunk or cross it. A label longer than one rank
- * cannot clear the next stub joining its own trunk; rather than give each such label a
- * trunk of its own, it covers as few stubs as it can. When the trunk has no room left,
+ * cannot clear the next stub joining its own trunk; while its trunk still has room, it
+ * covers as few stubs as it can there rather than opening a trunk of its own, so a chain
+ * of long labels does not get one trunk per label. When the trunk has no room left,
  * that edge and every edge further from the handler move to a new trunk one step further
  * out. Outer trunks therefore only take stubs from rows further from the handler, so no
  * stub crosses an inner trunk where its labels are.
@@ -489,7 +506,6 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                 continue;
             }
             const extent = labelExtent(stub.edge.label);
-
             const desired = (own + nextRow) / 2;
             const floor = own + endClearance + extent.flow / 2;
             let centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit });
