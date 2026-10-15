@@ -1588,7 +1588,8 @@ interface RenderOneInputParams {
     /** Contents of `--diff`'s baseline, already read, or `null`. */
     baselineSource: string | null;
     /**
-     * The process's layout cache, shared by every render. Mermaid paths ignore it.
+     * The process's layout cache. It must be the one shared by every render: a fresh
+     * cache per call would never hit. Mermaid paths ignore it.
      */
     cache: LayoutCache;
     /** Contents of `--execution`'s history, already read, or `null`. */

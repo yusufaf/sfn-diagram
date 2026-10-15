@@ -41,8 +41,8 @@ describe('layout', () => {
 });
 
 describe('layout cache', () => {
-    // The case the cache exists for: a re-render that cannot change geometry - a theme
-    // change, an icon toggle, an execution overlay painted on an unchanged definition.
+    // The case the cache exists for: a re-render that cannot change geometry, such as a
+    // theme switch on an unchanged definition.
     // The cold bench below pays full layout every iteration; the warm one pays the key
     // build and a Map lookup instead, so the gap is what a cache hit actually buys.
     const warmCache = createLayoutCache();
