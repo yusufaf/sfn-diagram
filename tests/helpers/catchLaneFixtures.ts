@@ -320,20 +320,30 @@ interface RandomCatchMachinesParams {
     seed: number;
 }
 
+/** Parameters for {@link randomParallel}. */
+interface RandomParallelParams {
+    /** The state the Parallel continues to */
+    next: string;
+    random: () => number;
+}
+
 /** A small Parallel whose one to three branches each hold one or two Pass states. */
-const randomParallel = (random: () => number, next: string): AslState => ({
-    Type: 'Parallel',
-    Branches: Array.from({ length: 1 + Math.floor(random() * 3) }, (_, branch) => {
-        const depth = 1 + Math.floor(random() * 2);
-        const states: Record<string, AslState> = {};
-        for (let step = 0; step < depth; step += 1) {
-            states[`P${branch}_${step}`] =
-                step === depth - 1 ? { Type: 'Pass', End: true } : { Type: 'Pass', Next: `P${branch}_${step + 1}` };
-        }
-        return { StartAt: `P${branch}_0`, States: states };
-    }),
-    Next: next,
-});
+const randomParallel = (params: RandomParallelParams): AslState => {
+    const { next, random } = params;
+    return {
+        Type: 'Parallel',
+        Branches: Array.from({ length: 1 + Math.floor(random() * 3) }, (_, branch) => {
+            const depth = 1 + Math.floor(random() * 2);
+            const states: Record<string, AslState> = {};
+            for (let step = 0; step < depth; step += 1) {
+                states[`P${branch}_${step}`] =
+                    step === depth - 1 ? { Type: 'Pass', End: true } : { Type: 'Pass', Next: `P${branch}_${step + 1}` };
+            }
+            return { StartAt: `P${branch}_0`, States: states };
+        }),
+        Next: next,
+    };
+};
 
 /**
  * `count` pseudo-random chains catching into one to three shared handlers, each with a
@@ -372,7 +382,7 @@ export const randomCatchMachines = (params: RandomCatchMachinesParams): RandomCa
                 Catch: [{ ErrorEquals: [...new Set(errors)], Next: `Failed${Math.floor(random() * handlers)}` }],
             };
             if (index === parallelAfter) {
-                states.Inside = randomParallel(random, following);
+                states.Inside = randomParallel({ next: following, random });
             }
         }
         let startAt = 'Step0';
@@ -382,7 +392,7 @@ export const randomCatchMachines = (params: RandomCatchMachinesParams): RandomCa
                 Choices: [{ Variable: '$.x', BooleanEquals: true, Next: 'Step0' }],
                 Default: 'Beside',
             };
-            states.Beside = randomParallel(random, 'Done');
+            states.Beside = randomParallel({ next: 'Done', random });
             startAt = 'Route';
         }
         const layout = layouts[Math.floor(random() * 4)];

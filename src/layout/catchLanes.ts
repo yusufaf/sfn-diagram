@@ -344,34 +344,37 @@ function coveredRows(params: CoveredRowsParams): number {
  * The centre for a label on a trunk: as near `desired` as `limit` allows, then moved back
  * past every blocked row it would cover. Coordinates are scaled by the side's `toward`, so
  * the handler is always the high end and moving back is moving lower.
+ *
+ * The label only ever moves down, so each list is walked with a cursor that only moves
+ * forward: rows above the label are skipped once, and a row the label has been moved
+ * below is stepped past outright, however `(row - margin) + margin` rounds. Every pass
+ * moves a cursor, so the walk ends after at most one pass per row.
  */
 function placeLabel(params: PlaceLabelParams): number {
     const { blocked, desired, extent, limit } = params;
     const margin = extent / 2 + LANE_LABEL_GAP / 2;
     let centre = Math.min(desired, limit - extent / 2);
-    // Each move takes the label below one more row, so it can make at most one move per
-    // row. The cap turns any rounding case that slips past the guards below into a label
-    // left over a row rather than a layout that never finishes.
-    const maxMoves = blocked.reduce((count, rows) => count + rows.length, 0);
-    for (let moves = 0; moves < maxMoves; moves += 1) {
-        // The highest covered row across every list; the label moves to just below it.
-        let highest = -Infinity;
-        for (const rows of blocked) {
-            const index = firstBelow({ rows, value: centre + margin - ROW_EPSILON });
-            if (index < rows.length && rows[index] > centre - margin + ROW_EPSILON) {
-                highest = Math.max(highest, rows[index]);
+    const cursors = blocked.map((rows) => firstBelow({ rows, value: centre + margin }));
+    for (;;) {
+        // The highest row the label covers, across every list.
+        let hitList = -1;
+        let hitRow = -Infinity;
+        blocked.forEach((rows, list) => {
+            while (cursors[list] < rows.length && rows[cursors[list]] >= centre + margin) {
+                cursors[list] += 1;
             }
+            const row = rows[cursors[list]];
+            if (cursors[list] < rows.length && row > centre - margin && row > hitRow) {
+                hitList = list;
+                hitRow = row;
+            }
+        });
+        if (hitList === -1) {
+            return centre;
         }
-        const next = highest - margin;
-        // Rows within ROW_EPSILON of an end count as clear, so a label just moved below a
-        // row does not find it again; the second test stops a move that rounding would
-        // turn into no move at all.
-        if (highest === -Infinity || next >= centre) {
-            break;
-        }
-        centre = next;
+        centre = Math.min(centre, hitRow - margin);
+        cursors[hitList] += 1;
     }
-    return centre;
 }
 
 /** Parameters for {@link leastBlockedCentre}. */
@@ -444,7 +447,9 @@ interface PackLaneLabelsResult {
  * label has to sit on its own trunk stretch: past its own stub and short of the handler's.
  * Each side of the handler is packed separately, nearest stub first. A label wants the
  * middle of the stretch between its row and the next row toward the handler, and keeps off
- * the rows where other stubs join its trunk or cross it. When the trunk has no room left,
+ * the rows where other stubs join its trunk or cross it. A label longer than one rank
+ * cannot clear the next stub joining its own trunk; rather than give each such label a
+ * trunk of its own, it covers as few stubs as it can. When the trunk has no room left,
  * that edge and every edge further from the handler move to a new trunk one step further
  * out. Outer trunks therefore only take stubs from rows further from the handler, so no
  * stub crosses an inner trunk where its labels are.
@@ -461,13 +466,15 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
             continue;
         }
         const end = sideStubs[0].dstGap * side;
+        // The furthest a label's far end may reach on a trunk with no labels on it yet.
+        const trunkLimit = end - endClearance;
         const laterRows = side === 1 ? [...blocked].reverse() : blocked.map((row) => -row);
         let column = 0;
         // The current trunk's labels on this side in the order they were placed, and the
         // rows where its stubs join it, highest first since stubs arrive nearest first.
         let columnLabels: Array<{ entry: PackedStub; extent: number; floor: number }> = [];
         let columnRows: number[] = [];
-        let limit = end - endClearance;
+        let limit = trunkLimit;
         let row = end;
         let nextRow = end;
         for (const stub of sideStubs) {
@@ -482,6 +489,7 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                 continue;
             }
             const extent = labelExtent(stub.edge.label);
+
             const desired = (own + nextRow) / 2;
             const floor = own + endClearance + extent.flow / 2;
             let centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit });
@@ -491,7 +499,7 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
             let squeezed: number[] | undefined;
             let squeezedLimit = limit;
             if (centre < floor && columnLabels.length > 0) {
-                let top = end - endClearance;
+                let top = trunkLimit;
                 squeezed = [];
                 for (const placed of columnLabels) {
                     const placedCentre = placeLabel({ blocked: [laterRows, columnRows], desired: Infinity, extent: placed.extent, limit: top });
@@ -507,8 +515,7 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                     centre = placeLabel({ blocked: [laterRows, columnRows], desired, extent: extent.flow, limit: top });
                 }
             }
-            let openTrunk = false;
-            let freshCentre = centre;
+            let freshCentre: number | undefined;
             if (centre < floor && columnRows.length > 0) {
                 // A fresh trunk has no stubs joining it nearer the handler than this one.
                 // Open one if that gives a clean spot. Otherwise only if this trunk has no
@@ -516,17 +523,18 @@ function packLaneLabels(params: PackLaneLabelsParams): PackLaneLabelsResult {
                 // trunk's labels leave it nowhere to go: when later lanes' stubs alone, or
                 // a stretch shorter than the label, rule out a clean spot, a new trunk would
                 // only widen the lane.
-                const freshLimit = end - endClearance;
-                freshCentre = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: freshLimit });
+                const candidate = placeLabel({ blocked: [laterRows], desired, extent: extent.flow, limit: trunkLimit });
                 const full = squeezedLimit - extent.flow / 2 < floor;
-                const fitsFresh = freshLimit - extent.flow / 2 >= floor;
-                openTrunk = freshCentre >= floor || (full && (fitsFresh || columnLabels.length > 0));
+                const fitsFresh = trunkLimit - extent.flow / 2 >= floor;
+                if (candidate >= floor || (full && (fitsFresh || columnLabels.length > 0))) {
+                    freshCentre = candidate;
+                }
             }
-            if (openTrunk) {
+            if (freshCentre !== undefined) {
                 column += 1;
                 columnLabels = [];
                 columnRows = [];
-                limit = end - endClearance;
+                limit = trunkLimit;
                 centre = freshCentre;
             } else if (squeezed) {
                 // Kept whether or not the label now has a clean spot: squeezed, the trunk

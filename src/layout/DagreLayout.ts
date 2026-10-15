@@ -143,9 +143,10 @@ const CATCH_LANE_EDGE_PASSES = 2;
 
 /**
  * Lane passes before lanes are given up for the whole layout. Each is a full dagre run,
- * so with the plain fallback the worst case is MAX_CATCH_LANE_PASSES + 1 runs. Lane
- * passes are fast while most catch edges stay out of dagre; the plain run they can end
- * in is the expensive one, so one more lane pass is cheap next to losing lanes early.
+ * so with the plain fallback the worst case is MAX_CATCH_LANE_PASSES + 1 runs. Passes
+ * that hand back single edges stay fast; one that hands back a whole handler puts its
+ * long catch edges back into dagre and costs about what the plain run would for that
+ * handler, so the budget trades a few extra runs for keeping other handlers' lanes.
  */
 const MAX_CATCH_LANE_PASSES = 4;
 
@@ -449,10 +450,11 @@ export class DagreLayout {
                     : new Set<string>();
             if (colliding.size > 0) {
                 // Containers are boxes dagre never saw, so a collision can only be found
-                // now. Hand the colliding edges back to dagre and lay out again: first just
-                // those edges, then whole handlers, and lanes are dropped altogether only if
-                // collisions outlast MAX_CATCH_LANE_PASSES. `nextRetries` is the number of
-                // the pass that just collided, counting from 1.
+                // now. Hand the colliding edges back to dagre and lay out again: for the
+                // first CATCH_LANE_EDGE_PASSES passes just those edges, after that whole
+                // handlers, and lanes are dropped altogether only if collisions outlast
+                // MAX_CATCH_LANE_PASSES. `nextRetries` is the number of the pass that just
+                // collided, counting from 1.
                 const nextRetries = retries + 1;
                 const collidingHandlers = new Set(
                     edges.filter((edge) => colliding.has(edge.id)).map((edge) => edge.to),
