@@ -102,7 +102,7 @@ from a bad definition. See
 - **Modern ASL**: Variables (`Assign`) shown per state, and Distributed Map rendered distinctly from an inline Map — including its `MaxConcurrency`, `ItemReader` source, and `ResultWriter` sink
 - **Visual Diffing**: Compare two definitions and highlight added / modified / removed states — drives the PR-preview GitHub Action
 - **Linting**: `lintAsl()` returns every structural and semantic finding at once (unreachable states, dangling transitions, `End` with `Next`, JSONPath/JSONata field mixing, …); `sfn-diagram --check` fails CI on errors
-- **Execution Overlays**: Paint a real execution's history onto the diagram — succeeded/failed/caught/not-reached states, the taken path, and per-state duration & retry counts. From a saved history file or live from an execution ARN, and `--follow` keeps re-rendering until the run finishes
+- **Execution Overlays**: Paint a real execution's history onto the diagram — succeeded/failed/caught/not-reached states, the taken path, and per-state duration & retry counts. From a saved history file or live from an execution ARN, and `--follow` keeps re-rendering until the run finishes; with `--format html` it can be painted onto a `--diff` in the same viewer
 - **Customizable Themes**: AWS light/dark themes plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions

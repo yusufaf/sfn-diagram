@@ -254,9 +254,10 @@ Options:
   -v, --version                    Show version and exit
 
 Notes:
-  --diff and --execution are mutually exclusive, and both support
-  --format svg, mermaid and html (not png). Their change/status summary is written to
-  stderr, so the diagram itself still pipes cleanly on stdout.
+  --diff and --execution support --format svg, mermaid and html (not png), and can
+  be combined only with --format html, where the viewer paints the run onto the diff.
+  Their change/status summaries are written to stderr, so the diagram itself still
+  pipes cleanly on stdout.
 
   --format html produces a self-contained interactive viewer: drag to pan, wheel to
   zoom, "/" to search states, and click a state to inspect its raw ASL. AWS service
@@ -318,6 +319,7 @@ Examples:
   sfn-diagram state.asl.json --show-icons --icon-position top -o diagram.svg
   sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
   sfn-diagram state.asl.json --execution history.json -o run.svg
+  sfn-diagram head.asl.json --diff base.asl.json --execution history.json --format html -o run.html
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 -o run.svg
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth > template.json && sfn-diagram template.json --format mermaid
@@ -1309,6 +1311,23 @@ function resolveDefinitionSource(
  */
 const OVERLAY_FORMATS: DiagramFormat[] = ['html', 'mermaid', 'svg'];
 
+/** Parameters for {@link combinedOverlayRefusal}. */
+interface CombinedOverlayRefusalParams {
+    /** The format the run would render. */
+    format: DiagramFormat;
+}
+
+/**
+ * The usage error for `--diff` with `--execution` in a format that cannot draw both.
+ * Only the HTML viewer composes the two overlays on one document.
+ */
+function combinedOverlayRefusal(params: CombinedOverlayRefusalParams): string {
+    return (
+        `--diff and --execution can only be combined with --format html, not ` +
+        `${params.format}: only the viewer draws both overlays at once\n`
+    );
+}
+
 /** Statuses printed in the `--execution` summary, worst outcome first. */
 const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
     'failed',
@@ -1763,6 +1782,24 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     };
 
     try {
+        if (options.format === 'html') {
+            // The viewer applies either overlay, or both at once, itself; icons are
+            // inlined so the document stays offline.
+            const result = await generateHtmlAsync({
+                aslDefinition: definitionSource,
+                ...(baselineDefinition !== null
+                    ? { diff: { before: baselineDefinition } }
+                    : {}),
+                ...(historySource !== null ? { history: historySource } : {}),
+                ...svgOptions,
+            });
+            if (result.metadata.diff) writeDiffSummary(result.metadata.diff);
+            if (result.metadata.execution)
+                writeExecutionSummary(result.metadata.execution);
+            emit(result.html);
+            return 0;
+        }
+
         if (baselineDefinition !== null) {
             if (options.format === 'mermaid') {
                 const result = generateMermaidDiff({
@@ -1773,20 +1810,6 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 });
                 writeDiffSummary(result.metadata);
                 emit(result.code);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                // The viewer applies the diff itself; icons are inlined so the document
-                // stays offline, matching the plain `--format html` path.
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    diff: { before: baselineDefinition },
-                    ...svgOptions,
-                });
-                if (result.metadata.diff)
-                    writeDiffSummary(result.metadata.diff);
-                emit(result.html);
                 return 0;
             }
 
@@ -1810,18 +1833,6 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 });
                 writeExecutionSummary(result.metadata);
                 emit(result.code);
-                return 0;
-            }
-
-            if (options.format === 'html') {
-                const result = await generateHtmlAsync({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    ...svgOptions,
-                });
-                if (result.metadata.execution)
-                    writeExecutionSummary(result.metadata.execution);
-                emit(result.html);
                 return 0;
             }
 
@@ -1852,15 +1863,6 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ...svgOptions,
             });
             emit(result.svg);
-            return 0;
-        }
-
-        if (options.format === 'html') {
-            const result = await generateHtmlAsync({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            emit(result.html);
             return 0;
         }
 
@@ -1911,11 +1913,15 @@ export async function run(argv: string[]): Promise<number> {
     // These two read only the command line, so they belong above the config load: a
     // contradictory invocation is a usage error whether or not a config file nearby
     // happens to be broken, and reporting the file first would call an argv mistake a
-    // runtime failure.
-    if (args.diff !== null && args.execution !== null) {
-        process.stderr.write(
-            '--diff and --execution cannot be combined; pick one overlay per run\n',
-        );
+    // runtime failure. A format that comes from the config or the default is not known
+    // yet, so renderResolvedBatch checks --diff with --execution again once it is.
+    if (
+        args.diff !== null &&
+        args.execution !== null &&
+        args.format !== null &&
+        args.format !== 'html'
+    ) {
+        process.stderr.write(combinedOverlayRefusal({ format: args.format }));
         return EXIT_USAGE;
     }
     // Both own the process until interrupted, and each wants to be the thing that
@@ -2412,6 +2418,14 @@ async function renderResolvedBatch(
     // on one output path - `args` no longer carries a usable default to fall back to.
     const options = resolveCliOptions({ args, config: configFile });
 
+    if (
+        args.diff !== null &&
+        args.execution !== null &&
+        options.format !== 'html'
+    ) {
+        process.stderr.write(combinedOverlayRefusal({ format: options.format }));
+        return { code: EXIT_USAGE, configPath, watchTargets };
+    }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
             `--diff supports --format svg, mermaid or html, not ${options.format}\n`,

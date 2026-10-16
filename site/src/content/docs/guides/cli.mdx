@@ -651,11 +651,17 @@ npx sfn-diagram head.asl.json --diff base.asl.json --format mermaid > diff.mmd
 # Colour a diagram by what actually happened in a run
 aws stepfunctions get-execution-history --execution-arn "$ARN" > history.json
 npx sfn-diagram state.asl.json --execution history.json -o run.svg
+
+# Both at once: a run painted onto what changed (HTML only)
+npx sfn-diagram head.asl.json --diff base.asl.json --execution history.json --format html -o run.html
 ```
 
-Both flags support `--format svg`, `--format mermaid`, and `--format html` only, and
-cannot be combined with each other. The change/status summary is written to **stderr**,
-so the diagram on stdout still pipes cleanly:
+Both flags support `--format svg`, `--format mermaid`, and `--format html` only. Together
+they need `--format html`: the viewer paints the run onto the diff. A state that ran takes
+its execution colour, and a changed one carries its diff status in its label; a changed
+state the run never reached keeps its diff colour, so a removed state stays visible. Any
+other format exits `2`. The change/status summaries are written to **stderr**, so the
+diagram on stdout still pipes cleanly:
 
 ```
 Diff summary:
