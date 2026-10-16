@@ -1,7 +1,7 @@
 {
     "repo_notes": [
         {
-            "content": "sfn-diagram is a TypeScript library and CLI that renders AWS Step Functions state machines as SVG, Mermaid, HTML or PNG diagrams.\n\nAGENTS.md is the authoritative summary of the public API: the entry points (sfn-diagram, /png, /aws, /cfn, /terraform, /ci, /element, /element/auto), which runtimes each supports, the single-object-parameter calling convention and common mistakes. Follow it over guesses from file names.\n\nThe repo is a monorepo. The root package (src/) is the library and CLI. packages/sfn-diagram-react is a React wrapper, packages/vscode-sfn-diagram the VS Code extension, packages/github-action-sfn-diagram the GitHub Action, and site/ the Astro Starlight docs site with a browser playground (sfn.yusufaf.dev).\n\nThe rendering pipeline is: parse ASL into a graph (src/AslParser.ts, src/graph/), lay it out with dagre plus catch lanes and orthogonal routing (src/layout/), then render (src/renderers/). The SVG renderer builds strings without a DOM, so the core runs in Node, browsers and edge runtimes.\n\nIgnore generated and build output: src/renderers/viewer/*.generated.ts, custom-elements.json, packages/*/dist, tests/__snapshots__ and CHANGELOG.md files.\n\nReleases are automated with release-please, one component per package. Nobody bumps versions or publishes by hand."
+            "content": "sfn-diagram is a TypeScript library and CLI that renders AWS Step Functions state machines as SVG, Mermaid, HTML or PNG diagrams.\n\nAGENTS.md is the authoritative summary of the public API: the entry points (sfn-diagram, /png, /aws, /cfn, /terraform, /ci, /element, /element/auto), which runtimes each supports, the single-object-parameter calling convention and common mistakes. Prefer it and the source over CLAUDE.md, which holds contributor notes and is partly out of date (the repo uses pnpm, the SVG renderer is not D3-based, and exportPng lives in sfn-diagram/png, not the root).\n\nThe repo is a monorepo. The root package (src/) is the library and CLI. packages/sfn-diagram-react is a React wrapper, packages/vscode-sfn-diagram the VS Code extension, packages/github-action-sfn-diagram the GitHub Action, and site/ the Astro Starlight docs site with a browser playground (sfn.yusufaf.dev).\n\nThe rendering pipeline is: parse ASL into a graph (src/AslParser.ts, src/graph/), lay it out with dagre and catch lanes (src/layout/), then render (src/renderers/). Orthogonal edge routing is opt-in (edgeStyle: 'orthogonal') and runs at render time. The SVG renderer builds strings without a DOM, so the core runs in Node, browsers and edge runtimes.\n\nIgnore generated and build output: src/renderers/viewer/*.generated.ts, custom-elements.json, packages/*/dist, packages/*/out, tests/__snapshots__ and CHANGELOG.md files. Version strings in package.json, jsr.json and the docs are rewritten by release-please.\n\nReleases are automated with release-please, one component per package. Nobody bumps versions or publishes by hand."
         }
     ],
     "pages": [
@@ -17,7 +17,7 @@
         },
         {
             "title": "Public API and Entry Points",
-            "purpose": "Each import path, what it exports, its runtime support and the object-parameter calling convention, following AGENTS.md.",
+            "purpose": "Each import path, what it exports and its runtime support, following AGENTS.md: the function API (generateSvg, generateMermaid, generateHtml, generateDiagram), the class-based SfnDiagramGenerator with its layout cache, and the single-object-parameter calling convention.",
             "parent": null
         },
         {
@@ -27,17 +27,22 @@
         },
         {
             "title": "Infrastructure Inputs",
-            "purpose": "Extracting ASL from CloudFormation, SAM and CDK templates (sfn-diagram/cfn), Terraform configs (sfn-diagram/terraform) and live AWS state machines (generateFromAwsResponse, sfn-diagram/aws).",
+            "purpose": "Extracting ASL from CloudFormation, SAM and CDK templates (extractAslFromTemplate in sfn-diagram/cfn) and Terraform configs (extractAslFromTerraform in sfn-diagram/terraform), and reshaping a DescribeStateMachine response with generateFromAwsResponse from the root entry. Fetching a live definition is a CLI feature (src/cliAws.ts).",
             "parent": "Public API and Entry Points"
         },
         {
             "title": "PNG Export",
-            "purpose": "exportPng in sfn-diagram/png, its native resvg rasterizer and why it is Node-only.",
+            "purpose": "exportPng in sfn-diagram/png: the default resvg engine, the opt-in node-html-to-image engine, both loaded as optional peer dependencies, and why PNG export is Node-only.",
             "parent": "Public API and Entry Points"
         },
         {
             "title": "Web Component",
             "purpose": "The <sfn-diagram> custom element in sfn-diagram/element and sfn-diagram/element/auto.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Linting",
+            "purpose": "lintAsl, a public root export: the rules it checks and the LintDiagnostic it returns.",
             "parent": "Public API and Entry Points"
         },
         {
@@ -52,7 +57,7 @@
         },
         {
             "title": "Layout",
-            "purpose": "DagreLayout, catch lanes, orthogonal edge routing, edge labels and the layout cache.",
+            "purpose": "DagreLayout, catch lanes, edge labels and the layout cache, plus the opt-in orthogonal edge routing that the SVG renderer applies.",
             "parent": "Architecture"
         },
         {
@@ -62,12 +67,7 @@
         },
         {
             "title": "Diff and Execution Overlays",
-            "purpose": "Comparing two definitions (src/diff.ts) and overlaying an execution history (src/execution.ts).",
-            "parent": "Architecture"
-        },
-        {
-            "title": "Linting",
-            "purpose": "lintAsl and the diagnostics it reports.",
+            "purpose": "Comparing two definitions (src/diff.ts) and overlaying an execution (src/execution.ts), with execution history from fetchExecutionHistory in sfn-diagram/aws, fetchExecutionForOverlay in sfn-diagram/ci, or an execution ARN passed to the CLI.",
             "parent": "Architecture"
         },
         {
@@ -76,8 +76,12 @@
             "parent": null
         },
         {
+            "title": "Redaction",
+            "purpose": "The redact option (src/redact.ts): hiding state ASL and execution payloads from generated HTML documents, and what it deliberately leaves visible."
+        },
+        {
             "title": "CI and Pull Request Comments",
-            "purpose": "The sfn-diagram/ci building blocks, the GitHub Action and GitLab merge-request comments.",
+            "purpose": "The sfn-diagram/ci building blocks (changed-file detection, comment assembly, execution lookup) and GitLab merge-request comments. The GitHub Action has its own page under Integrations.",
             "parent": null
         },
         {
@@ -107,7 +111,7 @@
         },
         {
             "title": "Testing and Releases",
-            "purpose": "Test layout (unit, snapshot, integration and performance tests) and the release-please flow for each package.",
+            "purpose": "pnpm test: the generated-file checks it runs first (test:viewer-script, test:manifest), then the unit, element and perf vitest projects, with snapshot tests; and the release-please flow for each package.",
             "parent": null
         }
     ]
