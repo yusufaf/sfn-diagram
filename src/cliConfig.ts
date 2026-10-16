@@ -174,11 +174,15 @@ export interface CliConfig {
     iconSize?: number;
     includeComments?: boolean;
     layout?: LayoutDirection;
+    /** PNG only: also parse every installed font. Other formats ignore it. */
+    loadSystemFonts?: boolean;
     nodeHeight?: number;
     nodeSeparation?: number;
     nodeWidth?: number;
     padding?: number;
     rankSeparation?: number;
+    /** PNG only: resolution multiplier, at most {@link MAX_PNG_SCALE}. Other formats ignore it. */
+    scale?: number;
     showIcons?: boolean;
     showStateTypes?: boolean;
     showVariables?: boolean;
@@ -215,6 +219,7 @@ const STRING_FIELDS = [
 /** Boolean config fields. */
 const BOOLEAN_FIELDS = [
     'includeComments',
+    'loadSystemFonts',
     'showIcons',
     'showStateTypes',
     'showVariables',
@@ -234,6 +239,38 @@ const PIXEL_FIELDS = {
     padding: { allowZero: true },
     rankSeparation: { allowZero: true },
 } as const satisfies Record<string, { allowZero: boolean }>;
+
+/**
+ * The largest PNG `scale` the CLI accepts, from the flag or the config file.
+ *
+ * resvg aborts the whole process, with no catchable error, when it cannot allocate the
+ * target pixmap: `scale: 1000` on a three-state diagram asks for 200 GB. The cap catches
+ * the likeliest way to get there, a DPI value typed as a scale (`--scale 300`), while 10x
+ * still covers retina (2-3x) and 300 dpi print (about 3.1x).
+ */
+export const MAX_PNG_SCALE = 10;
+
+/**
+ * Whether a value is a PNG scale the CLI accepts: a finite number above 0 and at most
+ * {@link MAX_PNG_SCALE}. Shared by `--scale` and the config file so the bound cannot drift.
+ *
+ * @param value - The parsed flag or config value
+ *
+ * @returns `true` when the value can be passed to `exportPng` as `scale`.
+ *
+ * @example
+ * isValidPngScale(2); // true
+ * isValidPngScale(300); // false: above the cap
+ * isValidPngScale(Number.NaN); // false
+ */
+export function isValidPngScale(value: unknown): value is number {
+    return (
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value > 0 &&
+        value <= MAX_PNG_SCALE
+    );
+}
 
 /**
  * The fields a {@link CustomTheme} accepts.
@@ -325,6 +362,13 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
             );
         }
         config[field] = value;
+    }
+
+    if (raw.scale !== undefined) {
+        if (!isValidPngScale(raw.scale)) {
+            reject('scale', `a number greater than 0 and at most ${MAX_PNG_SCALE}`);
+        }
+        config.scale = raw.scale;
     }
 
     if (raw.collapse !== undefined) {

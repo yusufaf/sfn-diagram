@@ -33,11 +33,13 @@ export interface CliOptionSource {
     iconSize: number | null;
     includeComments: boolean | null;
     layout: LayoutDirection | null;
+    loadSystemFonts: boolean | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
     padding: number | null;
     rankSeparation: number | null;
+    scale: number | null;
     showIcons: boolean | null;
     showStateTypes: boolean | null;
     showVariables: boolean | null;
@@ -65,11 +67,13 @@ export interface ResolvedCliOptions {
     iconSize: number | null;
     includeComments: boolean | null;
     layout: LayoutDirection;
+    loadSystemFonts: boolean | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
     padding: number | null;
     rankSeparation: number | null;
+    scale: number | null;
     showIcons: boolean | null;
     showStateTypes: boolean | null;
     showVariables: boolean | null;
@@ -163,6 +167,10 @@ export function resolveCliOptions(
             settings.includeComments,
         ),
         layout: pick(args.layout, settings.layout, 'TB'),
+        loadSystemFonts: pickOptional(
+            args.loadSystemFonts,
+            settings.loadSystemFonts,
+        ),
         nodeHeight: pickOptional(args.nodeHeight, settings.nodeHeight),
         nodeSeparation: pickOptional(
             args.nodeSeparation,
@@ -174,6 +182,7 @@ export function resolveCliOptions(
             args.rankSeparation,
             settings.rankSeparation,
         ),
+        scale: pickOptional(args.scale, settings.scale),
         showIcons: pickOptional(args.showIcons, settings.showIcons),
         showStateTypes: pickOptional(
             args.showStateTypes,

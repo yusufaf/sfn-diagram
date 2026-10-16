@@ -89,6 +89,14 @@ drift), `--execution` and `--check`. It needs the optional peer above, so it is
 unavailable in the [standalone binary](https://sfn.yusufaf.dev/guides/cli/#standalone-binary).
 See [Rendering a live state machine](https://sfn.yusufaf.dev/guides/cli/#rendering-a-live-state-machine).
 
+`--scale` raises PNG resolution without changing the layout; see
+[PNG resolution and fonts](https://sfn.yusufaf.dev/guides/cli/#png-resolution-and-fonts)
+for the font options.
+
+```bash
+sfn-diagram my-workflow.asl.json --format png --scale 2 -o diagram@2x.png
+```
+
 The CLI exits `0` on success, `1` when something goes wrong while running — including a failed
 AWS call — and `2` when the invocation itself was wrong, so a CI job can tell a bad flag
 from a bad definition. See

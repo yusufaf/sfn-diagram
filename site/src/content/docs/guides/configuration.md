@@ -628,7 +628,9 @@ To ask for it directly:
 await exportPng({ aslDefinition: asl, loadSystemFonts: true });
 ```
 
-or, for the CLI and the Docker image, `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true`. It accepts
-`1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
+or, from the CLI, `--load-system-fonts` (or `loadSystemFonts: true` in its
+[config file](/guides/cli/#configuration-file)). For a caller that can pass neither, set
+`SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true`; an explicit option or flag wins over it. The variable
+accepts `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
 ignored. Turning it off with no font file or directory to load from is refused — it would render
 every label blank with nothing to explain why.
