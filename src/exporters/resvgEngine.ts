@@ -96,6 +96,12 @@ export async function renderResvgPng(
     if (!Number.isFinite(scale) || scale <= 0) {
         throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
+    const targetWidth = Math.round(width * scale);
+    if (targetWidth < 1) {
+        throw new Error(
+            `PNG export 'scale' ${scale} is too small: a ${width}px-wide diagram would render 0 pixels wide.`
+        );
+    }
     const { renderAsync } = await loadResvg();
 
     const font = resolvePngFontOptions({
@@ -111,7 +117,7 @@ export async function renderResvgPng(
 
     const rendered = await renderAsync(svg, {
         ...(background === undefined ? {} : { background }),
-        fitTo: { mode: 'width', value: Math.round(width * scale) },
+        fitTo: { mode: 'width', value: targetWidth },
         font,
     });
 

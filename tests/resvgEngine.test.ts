@@ -93,4 +93,12 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             /scale.*positive/i
         );
     });
+
+    it('names the scale when it is too small to leave a single pixel', async () => {
+        // resvg's own error for a zero target width talks about width/height/zoom
+        // options a caller of exportPng never set.
+        await expect(
+            renderResvgPng({ svg: textSvg(true), width: 200, scale: 0.001 })
+        ).rejects.toThrow(/'scale' 0\.001 is too small/);
+    });
 });
