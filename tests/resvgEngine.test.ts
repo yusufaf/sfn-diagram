@@ -102,10 +102,25 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         ).rejects.toThrow(/'scale' 0\.001 is too small/);
     });
 
+    // resvg derives the height from the rounded target width and rounds it again, so
+    // these use SVGs whose own size has the problem shape rather than predicting it.
+    const sizedSvg = (width: number, height: number): string =>
+        `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" fill="#000"/></svg>`;
+
     it('names the scale when a wide, short diagram would round to 0 pixels tall', async () => {
-        // 4000 x 0.005 = 20px wide is fine, but 60 x 0.005 = 0.3px rounds to 0.
+        // 4000 x 0.005 = 20px wide, so 60px tall becomes 60 * 20 / 4000 = 0.3, which rounds to 0.
         await expect(
-            renderResvgPng({ svg: textSvg(true), width: 4000, height: 60, scale: 0.005 })
+            renderResvgPng({ svg: sizedSvg(4000, 60), width: 4000, scale: 0.005 })
         ).rejects.toThrow(/'scale' 0\.005 is too small/);
+    });
+
+    it('renders a scale that rounds up to a one-pixel image', async () => {
+        // 100 x 0.005 = 0.5 rounds up to a 1px target width, and 60 * 1 / 100 rounds to 1.
+        const { height, width } = await renderResvgPng({
+            svg: sizedSvg(100, 60),
+            width: 100,
+            scale: 0.005,
+        });
+        expect({ height, width }).toEqual({ height: 1, width: 1 });
     });
 });
