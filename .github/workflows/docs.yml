@@ -10,11 +10,6 @@ permissions:
   pages: write
   id-token: write
 
-env:
-  # Public by design: the same value is served at /<key>.txt (site/public/) to
-  # prove the site owns it.
-  INDEXNOW_KEY: 1d3fbd14846b976360d8b4c42fbc99ec
-
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -54,8 +49,9 @@ jobs:
 
       # Hashes each page into dist/indexnow-pages.json and lists the ones that
       # differ from the live site; the indexnow job submits them once deployed.
+      # The key is site/public/<key>.txt. Never fails the build.
       - name: Plan IndexNow submission
-        run: node scripts/indexnow.mjs dist https://sfn.yusufaf.dev/ "$INDEXNOW_KEY"
+        run: node scripts/indexnow.mjs dist
         working-directory: site
 
       - name: Upload Pages artifact
@@ -81,10 +77,14 @@ jobs:
         id: deployment
         uses: actions/deploy-pages@v5
 
+  # If this fails, re-run it: the request artifact outlives the run, and the
+  # next deploy won't resubmit these pages because their hashes are now live.
   indexnow:
     name: IndexNow
     needs: deploy
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     steps:
       - name: Download IndexNow request
         uses: actions/download-artifact@v8
@@ -97,6 +97,6 @@ jobs:
             echo "No pages changed"
             exit 0
           fi
-          curl -fsS -X POST https://api.indexnow.org/indexnow \
+          curl -fsS --retry 3 --retry-all-errors -X POST https://api.indexnow.org/indexnow \
             -H 'Content-Type: application/json; charset=utf-8' \
             --data @indexnow-request.json -w 'IndexNow: HTTP %{http_code}\n'
