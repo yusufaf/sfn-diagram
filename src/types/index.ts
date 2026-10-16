@@ -894,7 +894,8 @@ export interface PngExportOptions {
     loadSystemFonts?: boolean;
 
     /**
-     * Multiplier applied to the diagram's rendered size. `resvg` only.
+     * Multiplier applied to the diagram's rendered size. `resvg` only. Must be a
+     * positive finite number; anything else throws.
      * @default 1
      */
     scale?: number;

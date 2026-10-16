@@ -91,8 +91,10 @@ export async function renderResvgPng(
         svg,
         width,
     } = params;
-    if (scale <= 0) {
-        throw new Error(`PNG export 'scale' must be a positive number, got ${scale}.`);
+    // NaN and Infinity pass a plain `<= 0` check and resvg then ignores the target
+    // width, silently rendering at 1x.
+    if (!Number.isFinite(scale) || scale <= 0) {
+        throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
     const { renderAsync } = await loadResvg();
 

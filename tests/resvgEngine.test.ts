@@ -88,7 +88,7 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         expect(white.buffer.equals(transparent.buffer)).toBe(false);
     });
 
-    it.each([0, -1])('rejects a non-positive scale (%s)', async (scale) => {
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('rejects a non-positive or non-finite scale (%s)', async (scale) => {
         await expect(renderResvgPng({ svg: textSvg(true), width: 200, scale })).rejects.toThrow(
             /scale.*positive/i
         );
