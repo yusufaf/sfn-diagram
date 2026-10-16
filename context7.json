@@ -1,0 +1,31 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "sfn-diagram",
+  "description": "TypeScript library and CLI that renders AWS Step Functions state machines (ASL definitions, CloudFormation/SAM/CDK templates, Terraform configs or live AWS state machines) as SVG, Mermaid, HTML or PNG diagrams, with diff and execution overlays.",
+  "folders": [
+    "site/src/content/docs",
+    "packages/sfn-diagram-react",
+    "packages/vscode-sfn-diagram",
+    "packages/github-action-sfn-diagram"
+  ],
+  "excludeFolders": [
+    "packages/*/src",
+    "packages/*/dist",
+    "packages/*/media"
+  ],
+  "excludeFiles": [
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CLAUDE.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "LICENSE.md",
+    "README.marketplace.md",
+    "SECURITY.md"
+  ],
+  "rules": [
+    "Every public function takes a single object parameter, for example generateSvg({ aslDefinition, theme: 'dark', layout: 'LR' }).",
+    "The core 'sfn-diagram' entry (generateSvg, generateMermaid, generateDiagram, SfnDiagramGenerator) runs in Node, browsers and edge runtimes. PNG export (exportPng from 'sfn-diagram/png', async) and the CLI are Node-only.",
+    "To diagram infrastructure code, extract the ASL first: extractAslFromTemplate from 'sfn-diagram/cfn' for CloudFormation, SAM and CDK templates, extractAslFromTerraform from 'sfn-diagram/terraform' for Terraform."
+  ]
+}
