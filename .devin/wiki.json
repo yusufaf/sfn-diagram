@@ -1,0 +1,114 @@
+{
+    "repo_notes": [
+        {
+            "content": "sfn-diagram is a TypeScript library and CLI that renders AWS Step Functions state machines as SVG, Mermaid, HTML or PNG diagrams.\n\nAGENTS.md is the authoritative summary of the public API: the entry points (sfn-diagram, /png, /aws, /cfn, /terraform, /ci, /element, /element/auto), which runtimes each supports, the single-object-parameter calling convention and common mistakes. Follow it over guesses from file names.\n\nThe repo is a monorepo. The root package (src/) is the library and CLI. packages/sfn-diagram-react is a React wrapper, packages/vscode-sfn-diagram the VS Code extension, packages/github-action-sfn-diagram the GitHub Action, and site/ the Astro Starlight docs site with a browser playground (sfn.yusufaf.dev).\n\nThe rendering pipeline is: parse ASL into a graph (src/AslParser.ts, src/graph/), lay it out with dagre plus catch lanes and orthogonal routing (src/layout/), then render (src/renderers/). The SVG renderer builds strings without a DOM, so the core runs in Node, browsers and edge runtimes.\n\nIgnore generated and build output: src/renderers/viewer/*.generated.ts, custom-elements.json, packages/*/dist, tests/__snapshots__ and CHANGELOG.md files.\n\nReleases are automated with release-please, one component per package. Nobody bumps versions or publishes by hand."
+        }
+    ],
+    "pages": [
+        {
+            "title": "Overview",
+            "purpose": "What sfn-diagram does, its outputs, the packages in this monorepo and how they fit together.",
+            "parent": null
+        },
+        {
+            "title": "Getting Started",
+            "purpose": "Install from npm or JSR, the quick-start example, and rendering a first diagram from the CLI.",
+            "parent": "Overview"
+        },
+        {
+            "title": "Public API and Entry Points",
+            "purpose": "Each import path, what it exports, its runtime support and the object-parameter calling convention, following AGENTS.md.",
+            "parent": null
+        },
+        {
+            "title": "Diagram Options and Themes",
+            "purpose": "DiagramOptions: layout direction, edge style, light/dark/custom themes, collapsing containers and per-node or per-edge overrides.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Infrastructure Inputs",
+            "purpose": "Extracting ASL from CloudFormation, SAM and CDK templates (sfn-diagram/cfn), Terraform configs (sfn-diagram/terraform) and live AWS state machines (generateFromAwsResponse, sfn-diagram/aws).",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "PNG Export",
+            "purpose": "exportPng in sfn-diagram/png, its native resvg rasterizer and why it is Node-only.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Web Component",
+            "purpose": "The <sfn-diagram> custom element in sfn-diagram/element and sfn-diagram/element/auto.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Architecture",
+            "purpose": "The pipeline from ASL definition to rendered diagram, and where each stage lives.",
+            "parent": null
+        },
+        {
+            "title": "ASL Parsing and Graph Model",
+            "purpose": "AslParser, the node and edge graph, containers (Parallel and Map), catch handling and collapsing.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Layout",
+            "purpose": "DagreLayout, catch lanes, orthogonal edge routing, edge labels and the layout cache.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Renderers",
+            "purpose": "The DOM-free SVG builder, the Mermaid renderer and the interactive HTML viewer.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Diff and Execution Overlays",
+            "purpose": "Comparing two definitions (src/diff.ts) and overlaying an execution history (src/execution.ts).",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Linting",
+            "purpose": "lintAsl and the diagnostics it reports.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Command-Line Interface",
+            "purpose": "CLI commands and flags, the sfn-diagram.config file, watch and follow modes, and AWS input.",
+            "parent": null
+        },
+        {
+            "title": "CI and Pull Request Comments",
+            "purpose": "The sfn-diagram/ci building blocks, the GitHub Action and GitLab merge-request comments.",
+            "parent": null
+        },
+        {
+            "title": "Integrations",
+            "purpose": "Overview of the React wrapper, VS Code extension, GitHub Action and docs-site playground.",
+            "parent": null
+        },
+        {
+            "title": "React Wrapper",
+            "purpose": "packages/sfn-diagram-react: the SfnDiagram component and the useSfnDiagram hook.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "VS Code Extension",
+            "purpose": "packages/vscode-sfn-diagram: the live preview panel and how it uses the library.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "GitHub Action",
+            "purpose": "packages/github-action-sfn-diagram: diagrams of changed state machines posted as pull request comments, and its Marketplace mirror.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "Docs Site and Playground",
+            "purpose": "The Starlight site in site/, its generated API reference and the browser playground.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "Testing and Releases",
+            "purpose": "Test layout (unit, snapshot, integration and performance tests) and the release-please flow for each package.",
+            "parent": null
+        }
+    ]
+}
