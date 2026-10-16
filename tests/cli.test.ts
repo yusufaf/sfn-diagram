@@ -51,6 +51,19 @@ async function waitFor(ready: () => boolean, timeoutMs = 10_000): Promise<void> 
     throw new Error('waitFor timed out');
 }
 
+/**
+ * The markup of one state's `<g>` in the expanded view, up to its closing tag.
+ * Overlay colours are checked here rather than against the whole document, whose
+ * viewer stylesheet carries every overlay colour whether or not one was applied.
+ */
+function nodeMarkup(html: string, stateId: string): string {
+    const match = html.match(
+        new RegExp(`<g[^>]*data-state-id="${stateId}"[^>]*>[\\s\\S]*?</g>`),
+    );
+    expect(match, `node ${stateId}`).not.toBeNull();
+    return match![0];
+}
+
 
 // Two tests in this file run a real resvg PNG export rather than rejecting before
 // the render, and they are the only ones here that need more than vitest's 5s
@@ -970,7 +983,7 @@ describe('diff, execution and icon flags', () => {
         expect(stderrData).toContain('Failed to read --execution history');
     });
 
-    it('rejects --diff combined with --execution', async () => {
+    it('rejects --diff with --execution under the default svg format', async () => {
         const code = await run([
             simpleFixture,
             '--diff',
@@ -980,8 +993,61 @@ describe('diff, execution and icon flags', () => {
         ]);
         expect(code).toBe(2);
         expect(stderrData).toContain(
-            '--diff and --execution cannot be combined',
+            '--diff and --execution can only be combined with --format html, not svg',
         );
+    });
+
+    it.each(['svg', 'mermaid', 'png'])(
+        'rejects --diff with --execution for --format %s',
+        async (format) => {
+            const out = join(tempDir, `out.${format}`);
+            const code = await run([
+                write('head.json', headAsl),
+                '--diff',
+                write('base.json', baseAsl),
+                '--execution',
+                executionFixture,
+                '--format',
+                format,
+                '-o',
+                out,
+            ]);
+            expect(code).toBe(2);
+            expect(stderrData).toContain(
+                `can only be combined with --format html, not ${format}`,
+            );
+            expect(existsSync(out)).toBe(false);
+        },
+    );
+
+    it('renders --diff and --execution together with --format html', async () => {
+        const simple = JSON.parse(readFileSync(simpleFixture, 'utf-8'));
+        const base = write(
+            'base.json',
+            JSON.stringify({
+                ...simple,
+                States: {
+                    ...simple.States,
+                    Legacy: { Type: 'Pass', End: true },
+                },
+            }),
+        );
+        const code = await run([
+            simpleFixture,
+            '--diff',
+            base,
+            '--execution',
+            executionFixture,
+            '--format',
+            'html',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Diff summary:');
+        expect(stderrData).toContain('Execution summary');
+        // Legacy was removed and never ran, so it keeps its diff colour; Process ran,
+        // so the execution colour wins.
+        expect(nodeMarkup(stdoutData, 'Legacy')).toContain('#ffcdd2');
+        expect(nodeMarkup(stdoutData, 'Process')).toContain('#c8e6c9');
     });
 
     it('rejects --diff with a format that has no diff renderer', async () => {
@@ -2812,6 +2878,38 @@ describe('run: config file', () => {
         );
     });
 
+    it('lets a config format: html carry --diff and --execution', async () => {
+        const config = write('c.json', JSON.stringify({ format: 'html' }));
+        const code = await run([
+            simpleFixture,
+            '--diff',
+            write('base.json', simpleAsl),
+            '--execution',
+            join(__dirname, 'fixtures', 'execution-success.json'),
+            '--config',
+            config,
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('<!DOCTYPE html>');
+    });
+
+    it('refuses --diff with --execution when the config format is mermaid', async () => {
+        const config = write('c.json', JSON.stringify({ format: 'mermaid' }));
+        const code = await run([
+            simpleFixture,
+            '--diff',
+            write('base.json', simpleAsl),
+            '--execution',
+            join(__dirname, 'fixtures', 'execution-success.json'),
+            '--config',
+            config,
+        ]);
+        expect(code).toBe(2);
+        expect(stderrData).toContain(
+            'can only be combined with --format html, not mermaid',
+        );
+    });
+
     it('lets a config format reach the png --output usage check', async () => {
         const input = write('m.asl.json', simpleAsl);
         const config = write('c.json', JSON.stringify({ format: 'png' }));
@@ -2938,11 +3036,19 @@ describe('run: config load ordering and --no-collapse', () => {
         write('sfn-diagram.config.json', '{ broken');
         process.chdir(tempDir);
 
-        expect(await run([input, '--diff', input, '--execution', input])).toBe(
-            2,
-        );
+        expect(
+            await run([
+                input,
+                '--diff',
+                input,
+                '--execution',
+                input,
+                '--format',
+                'svg',
+            ]),
+        ).toBe(2);
         expect(stderrData).toContain(
-            '--diff and --execution cannot be combined',
+            '--diff and --execution can only be combined with --format html, not svg',
         );
         expect(stderrData).not.toContain('config file');
     });
@@ -4100,6 +4206,40 @@ describe('--execution <arn> and --follow', () => {
         ).toBe(0);
         // No second poll: --follow on a finished run degrades to a snapshot.
         expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('follows an execution onto a diff with --format html', async () => {
+        const simple = JSON.parse(readFileSync(simpleFixture, 'utf-8'));
+        const base = join(tempDir, 'base.json');
+        writeFileSync(
+            base,
+            JSON.stringify({
+                ...simple,
+                States: {
+                    ...simple.States,
+                    Legacy: { Type: 'Pass', End: true },
+                },
+            }),
+        );
+        const target = join(tempDir, 'run.html');
+        sfnSendMock.mockResolvedValue({ events: events() });
+        expect(
+            await run([
+                simpleFixture,
+                '--diff',
+                base,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--format',
+                'html',
+                '-o',
+                target,
+            ]),
+        ).toBe(0);
+        const html = readFileSync(target, 'utf-8');
+        expect(nodeMarkup(html, 'Legacy')).toContain('#ffcdd2');
+        expect(nodeMarkup(html, 'Process')).toContain('#c8e6c9');
     });
 
     it('exits 1 when --follow-timeout elapses on a run that never ends', async () => {
