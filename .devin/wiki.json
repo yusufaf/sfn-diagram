@@ -1,0 +1,118 @@
+{
+    "repo_notes": [
+        {
+            "content": "sfn-diagram is a TypeScript library and CLI that renders AWS Step Functions state machines as SVG, Mermaid, HTML or PNG diagrams.\n\nAGENTS.md is the authoritative summary of the public API: the entry points (sfn-diagram, /png, /aws, /cfn, /terraform, /ci, /element, /element/auto), which runtimes each supports, the single-object-parameter calling convention and common mistakes. Prefer it and the source over CLAUDE.md, which holds contributor notes and is partly out of date (the repo uses pnpm, the SVG renderer is not D3-based, and exportPng lives in sfn-diagram/png, not the root).\n\nThe repo is a monorepo. The root package (src/) is the library and CLI. packages/sfn-diagram-react is a React wrapper, packages/vscode-sfn-diagram the VS Code extension, packages/github-action-sfn-diagram the GitHub Action, and site/ the Astro Starlight docs site with a browser playground (sfn.yusufaf.dev).\n\nThe rendering pipeline is: parse ASL into a graph (src/AslParser.ts, src/graph/), lay it out with dagre and catch lanes (src/layout/), then render (src/renderers/). Orthogonal edge routing is opt-in (edgeStyle: 'orthogonal') and runs at render time. The SVG renderer builds strings without a DOM, so the core runs in Node, browsers and edge runtimes.\n\nIgnore generated and build output: src/renderers/viewer/*.generated.ts, custom-elements.json, packages/*/dist, packages/*/out, tests/__snapshots__ and CHANGELOG.md files. Version strings in package.json, jsr.json and the docs are rewritten by release-please.\n\nReleases are automated with release-please, one component per package. Nobody bumps versions or publishes by hand."
+        }
+    ],
+    "pages": [
+        {
+            "title": "Overview",
+            "purpose": "What sfn-diagram does, its outputs, the packages in this monorepo and how they fit together.",
+            "parent": null
+        },
+        {
+            "title": "Getting Started",
+            "purpose": "Install from npm or JSR, the quick-start example, and rendering a first diagram from the CLI.",
+            "parent": "Overview"
+        },
+        {
+            "title": "Public API and Entry Points",
+            "purpose": "Each import path, what it exports and its runtime support, following AGENTS.md: the function API (generateSvg, generateMermaid, generateHtml, generateDiagram), the class-based SfnDiagramGenerator with its layout cache, and the single-object-parameter calling convention.",
+            "parent": null
+        },
+        {
+            "title": "Diagram Options and Themes",
+            "purpose": "DiagramOptions: layout direction, edge style, light/dark/custom themes, collapsing containers and per-node or per-edge overrides.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Infrastructure Inputs",
+            "purpose": "Extracting ASL from CloudFormation, SAM and CDK templates (extractAslFromTemplate in sfn-diagram/cfn) and Terraform configs (extractAslFromTerraform in sfn-diagram/terraform), and reshaping a DescribeStateMachine response with generateFromAwsResponse from the root entry. Fetching a live definition is a CLI feature (src/cliAws.ts).",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "PNG Export",
+            "purpose": "exportPng in sfn-diagram/png: the default resvg engine, the opt-in node-html-to-image engine, both loaded as optional peer dependencies, and why PNG export is Node-only.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Web Component",
+            "purpose": "The <sfn-diagram> custom element in sfn-diagram/element and sfn-diagram/element/auto.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Linting",
+            "purpose": "lintAsl, a public root export: the rules it checks and the LintDiagnostic it returns.",
+            "parent": "Public API and Entry Points"
+        },
+        {
+            "title": "Architecture",
+            "purpose": "The pipeline from ASL definition to rendered diagram, and where each stage lives.",
+            "parent": null
+        },
+        {
+            "title": "ASL Parsing and Graph Model",
+            "purpose": "AslParser, the node and edge graph, containers (Parallel and Map), catch handling and collapsing.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Layout",
+            "purpose": "DagreLayout, catch lanes, edge labels and the layout cache, plus the opt-in orthogonal edge routing that the SVG renderer applies.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Renderers",
+            "purpose": "The DOM-free SVG builder, the Mermaid renderer and the interactive HTML viewer.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Diff and Execution Overlays",
+            "purpose": "Comparing two definitions (src/diff.ts) and overlaying an execution (src/execution.ts), with execution history from fetchExecutionHistory in sfn-diagram/aws, fetchExecutionForOverlay in sfn-diagram/ci, or an execution ARN passed to the CLI.",
+            "parent": "Architecture"
+        },
+        {
+            "title": "Command-Line Interface",
+            "purpose": "CLI commands and flags, the sfn-diagram.config file, watch and follow modes, and AWS input.",
+            "parent": null
+        },
+        {
+            "title": "Redaction",
+            "purpose": "The redact option (src/redact.ts): hiding state ASL and execution payloads from generated HTML documents, and what it deliberately leaves visible."
+        },
+        {
+            "title": "CI and Pull Request Comments",
+            "purpose": "The sfn-diagram/ci building blocks (changed-file detection, comment assembly, execution lookup) and GitLab merge-request comments. The GitHub Action has its own page under Integrations.",
+            "parent": null
+        },
+        {
+            "title": "Integrations",
+            "purpose": "Overview of the React wrapper, VS Code extension, GitHub Action and docs-site playground.",
+            "parent": null
+        },
+        {
+            "title": "React Wrapper",
+            "purpose": "packages/sfn-diagram-react: the SfnDiagram component and the useSfnDiagram hook.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "VS Code Extension",
+            "purpose": "packages/vscode-sfn-diagram: the live preview panel and how it uses the library.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "GitHub Action",
+            "purpose": "packages/github-action-sfn-diagram: diagrams of changed state machines posted as pull request comments, and its Marketplace mirror.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "Docs Site and Playground",
+            "purpose": "The Starlight site in site/, its generated API reference and the browser playground.",
+            "parent": "Integrations"
+        },
+        {
+            "title": "Testing and Releases",
+            "purpose": "pnpm test: the generated-file checks it runs first (test:viewer-script, test:manifest), then the unit, element and perf vitest projects, with snapshot tests; and the release-please flow for each package.",
+            "parent": null
+        }
+    ]
+}
