@@ -75,6 +75,7 @@ export class PngExporter {
                       fontDirs,
                       fontFamily,
                       fontFiles,
+                      height,
                       loadSystemFonts,
                       preferredFamily,
                       scale,

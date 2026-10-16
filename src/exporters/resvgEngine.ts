@@ -47,6 +47,12 @@ export interface RenderResvgPngParams {
     /** Explicit font files to load. */
     fontFiles?: string[];
 
+    /**
+     * Intrinsic height of the SVG in pixels. resvg derives the output height itself; this
+     * is only used to reject a scale that would round it to 0.
+     */
+    height?: number;
+
     /** Whether resvg should also parse every installed system font. */
     loadSystemFonts?: boolean;
 
@@ -85,6 +91,7 @@ export async function renderResvgPng(
         fontDirs,
         fontFamily,
         fontFiles,
+        height,
         loadSystemFonts,
         preferredFamily,
         scale = 1,
@@ -97,9 +104,9 @@ export async function renderResvgPng(
         throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
     const targetWidth = Math.round(width * scale);
-    if (targetWidth < 1) {
+    if (targetWidth < 1 || (height !== undefined && Math.round(height * scale) < 1)) {
         throw new Error(
-            `PNG export 'scale' ${scale} is too small: a ${width}px-wide diagram would render 0 pixels wide.`
+            `PNG export 'scale' ${scale} is too small: the diagram would round to 0 pixels wide or tall.`
         );
     }
     const { renderAsync } = await loadResvg();

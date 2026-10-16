@@ -586,8 +586,8 @@ message, when it cannot allocate the image, and a DPI value typed as a scale
 (`--scale 300`) would ask for hundreds of gigabytes. `10` already covers retina (2-3x)
 and 300 dpi print (about 3.1x). The cap only catches that typo: memory use grows with the
 diagram's area times the square of the scale, so a very large diagram can still run out
-at a scale well under `10`. A scale so small that the image would be under one pixel wide
-is an error (exit `1`) naming the scale.
+at a scale well under `10`. A scale so small that the image would round to 0 pixels wide
+or tall is an error (exit `1`) naming the scale.
 
 ```bash
 sfn-diagram state.asl.json --format png --scale 2 -o diagram@2x.png

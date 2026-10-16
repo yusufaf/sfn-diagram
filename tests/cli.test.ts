@@ -3122,9 +3122,16 @@ describe('run: --scale and --load-system-fonts refusals', () => {
         'does not refuse them under --check, which renders nothing (%j)',
         async (formatArgs) => {
             expect(
-                await run([simpleFixture, '--check', '--scale', '2', ...formatArgs]),
+                await run([
+                    simpleFixture,
+                    '--check',
+                    '--scale',
+                    '2',
+                    '--no-load-system-fonts',
+                    ...formatArgs,
+                ]),
             ).toBe(0);
-            expect(stderrData).not.toContain('only applies to --format png');
+            expect(stderrData).not.toContain('--format png');
         },
     );
 

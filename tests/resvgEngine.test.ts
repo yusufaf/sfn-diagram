@@ -101,4 +101,11 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             renderResvgPng({ svg: textSvg(true), width: 200, scale: 0.001 })
         ).rejects.toThrow(/'scale' 0\.001 is too small/);
     });
+
+    it('names the scale when a wide, short diagram would round to 0 pixels tall', async () => {
+        // 4000 x 0.005 = 20px wide is fine, but 60 x 0.005 = 0.3px rounds to 0.
+        await expect(
+            renderResvgPng({ svg: textSvg(true), width: 4000, height: 60, scale: 0.005 })
+        ).rejects.toThrow(/'scale' 0\.005 is too small/);
+    });
 });
