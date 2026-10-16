@@ -2880,10 +2880,21 @@ describe('run: config file', () => {
 
     it('lets a config format: html carry --diff and --execution', async () => {
         const config = write('c.json', JSON.stringify({ format: 'html' }));
+        const simple = JSON.parse(readFileSync(simpleFixture, 'utf-8'));
+        const base = write(
+            'base.json',
+            JSON.stringify({
+                ...simple,
+                States: {
+                    ...simple.States,
+                    Legacy: { Type: 'Pass', End: true },
+                },
+            }),
+        );
         const code = await run([
             simpleFixture,
             '--diff',
-            write('base.json', simpleAsl),
+            base,
             '--execution',
             join(__dirname, 'fixtures', 'execution-success.json'),
             '--config',
@@ -2891,6 +2902,8 @@ describe('run: config file', () => {
         ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('<!DOCTYPE html>');
+        expect(nodeMarkup(stdoutData, 'Legacy')).toContain('#ffcdd2');
+        expect(nodeMarkup(stdoutData, 'Process')).toContain('#c8e6c9');
     });
 
     it('refuses --diff with --execution when the config format is mermaid', async () => {
