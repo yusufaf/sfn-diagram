@@ -20,6 +20,7 @@
     "Functions take a single flat object parameter: options sit beside aslDefinition, e.g. generateSvg({ aslDefinition, layout: 'LR', theme: 'dark' }), never under an options key.",
     "Runtimes: 'sfn-diagram', 'sfn-diagram/cfn' and 'sfn-diagram/terraform' run in Node, browsers and edge. 'sfn-diagram/png' (exportPng), 'sfn-diagram/aws', 'sfn-diagram/ci' and the CLI are Node-only. 'sfn-diagram/element' is browser-only.",
     "generateFromAwsResponse is exported from the root 'sfn-diagram' entry, not from 'sfn-diagram/aws'.",
-    "The extractors return an object: const { aslDefinition } = extractAslFromTemplate({ template, resourceId }) from 'sfn-diagram/cfn', or extractAslFromTerraform({ config, resourceId }) from 'sfn-diagram/terraform'. Pass resourceId when the template defines more than one state machine."
+    "The extractors return an object: const { aslDefinition } = extractAslFromTemplate({ template, resourceId }) from 'sfn-diagram/cfn', or extractAslFromTerraform({ config, resourceId }) from 'sfn-diagram/terraform'.",
+    "Pass resourceId to the extractors when the template or Terraform config defines more than one state machine."
   ]
 }
