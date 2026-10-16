@@ -19,7 +19,6 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
 
 export const MANIFEST = 'indexnow-pages.json';
 const REQUEST = 'indexnow-request.json';
@@ -61,19 +60,30 @@ export function pageFile({ distDir, url }) {
 }
 
 /**
- * Returns the part of a page worth hashing: its `<main>` element. The sidebar,
- * head and asset fingerprints are on every page, so hashing them would mark the
- * whole site changed on any edit.
+ * Returns the part of a page worth hashing: what a search engine shows for it
+ * (title, description, robots and canonical tags, and its `<main>` content),
+ * minus build fingerprints (`/_astro/` asset names, `astro-xxxx` classes). The
+ * sidebar is on every page and fingerprints change on any Astro upgrade, so
+ * hashing either would mark the whole site changed.
  *
  * @param {string} html - A built page.
- * @returns {string} The `<main>` element, or the whole page if it has none.
+ * @returns {string} Those head tags and the `<main>` element (or the whole page if it has none).
  */
 export function pageContent(html) {
-    return html.match(/<main[\s>][\s\S]*<\/main>/)?.[0] ?? html;
+    const head =
+        html.match(
+            /<title>[\s\S]*?<\/title>|<meta name="(description|robots)"[^>]*>|<link rel="canonical"[^>]*>/g,
+        ) ?? [];
+    const main = html.match(/<main[\s>][\s\S]*<\/main>/)?.[0] ?? html;
+    return [...head, main]
+        .join('\n')
+        .replace(/\/_astro\/[^"'\s)]+/g, '')
+        .replace(/\bastro-[a-z0-9]{8}\b/g, '');
 }
 
 /**
  * Lists the URLs IndexNow should hear about: changed, new and removed pages.
+ * Removed URLs on another host are dropped, since a request may only name its own host.
  *
  * @param {{ current: Record<string, string>, previous: Record<string, string> }} params -
  *   Page hashes keyed by URL, for this build and for the live site.
@@ -84,7 +94,12 @@ export function changedUrls({ current, previous }) {
     const changed = Object.keys(current).filter(
         (url) => current[url] !== previous[url],
     );
-    const removed = Object.keys(previous).filter((url) => !(url in current));
+    // A request may only name URLs on its own host, so drop any left over from
+    // a different domain.
+    const host = new URL(Object.keys(current)[0] ?? 'http://invalid').host;
+    const removed = Object.keys(previous).filter(
+        (url) => !(url in current) && new URL(url).host === host,
+    );
     return [...changed, ...removed];
 }
 
@@ -162,12 +177,9 @@ async function plan(distDir) {
 }
 
 // A crawl hint must never block a docs deploy: on any failure, warn and
-// submit nothing. The next deploy compares against the older live manifest,
-// so these pages are picked up then.
-if (
-    process.argv[1] &&
-    path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+// submit nothing. This deploy then ships no manifest, so the next one submits
+// every page.
+if (import.meta.main) {
     const [distDir] = process.argv.slice(2);
     try {
         if (!distDir)
