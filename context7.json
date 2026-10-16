@@ -8,24 +8,18 @@
     "packages/vscode-sfn-diagram",
     "packages/github-action-sfn-diagram"
   ],
-  "excludeFolders": [
-    "packages/*/src",
-    "packages/*/dist",
-    "packages/*/media"
-  ],
   "excludeFiles": [
-    "AGENTS.md",
     "CHANGELOG.md",
     "CLAUDE.md",
-    "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
-    "LICENSE.md",
     "README.marketplace.md",
     "SECURITY.md"
   ],
   "rules": [
-    "Every public function takes a single object parameter, for example generateSvg({ aslDefinition, theme: 'dark', layout: 'LR' }).",
-    "The core 'sfn-diagram' entry (generateSvg, generateMermaid, generateDiagram, SfnDiagramGenerator) runs in Node, browsers and edge runtimes. PNG export (exportPng from 'sfn-diagram/png', async) and the CLI are Node-only.",
-    "To diagram infrastructure code, extract the ASL first: extractAslFromTemplate from 'sfn-diagram/cfn' for CloudFormation, SAM and CDK templates, extractAslFromTerraform from 'sfn-diagram/terraform' for Terraform."
+    "AGENTS.md lists every entry point, its runtime and the common mistakes; check it before importing from a subpath.",
+    "Functions take a single flat object parameter: options sit beside aslDefinition, e.g. generateSvg({ aslDefinition, layout: 'LR', theme: 'dark' }), never under an options key.",
+    "Runtimes: 'sfn-diagram', 'sfn-diagram/cfn' and 'sfn-diagram/terraform' run in Node, browsers and edge. 'sfn-diagram/png' (exportPng), 'sfn-diagram/aws', 'sfn-diagram/ci' and the CLI are Node-only. 'sfn-diagram/element' is browser-only.",
+    "generateFromAwsResponse is exported from the root 'sfn-diagram' entry, not from 'sfn-diagram/aws'.",
+    "The extractors return an object: const { aslDefinition } = extractAslFromTemplate({ template, resourceId }) from 'sfn-diagram/cfn' (or extractAslFromTerraform from 'sfn-diagram/terraform'). Pass resourceId when the template defines more than one state machine."
   ]
 }
