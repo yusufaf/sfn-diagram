@@ -47,10 +47,23 @@ jobs:
         run: pnpm run build
         working-directory: site
 
+      # Hashes each page into dist/indexnow-pages.json and lists the ones that
+      # differ from the live site; the indexnow job submits them once deployed.
+      # The key is site/public/<key>.txt. Never fails the build.
+      - name: Plan IndexNow submission
+        run: node scripts/indexnow.mjs dist
+        working-directory: site
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist
+
+      - name: Upload IndexNow request
+        uses: actions/upload-artifact@v7
+        with:
+          name: indexnow-request
+          path: site/indexnow-request.json
 
   deploy:
     name: Deploy
@@ -63,3 +76,27 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  # If this fails, re-run it: the request artifact outlives the run, and the
+  # next deploy won't resubmit these pages because their hashes are now live.
+  indexnow:
+    name: IndexNow
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Download IndexNow request
+        uses: actions/download-artifact@v8
+        with:
+          name: indexnow-request
+
+      - name: Submit changed pages
+        run: |
+          if [ "$(jq '.urlList | length' indexnow-request.json)" -eq 0 ]; then
+            echo "No pages changed"
+            exit 0
+          fi
+          curl -fsS --retry 3 -X POST https://api.indexnow.org/indexnow \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            --data @indexnow-request.json -w 'IndexNow: HTTP %{http_code}\n'

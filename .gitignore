@@ -34,3 +34,6 @@ docs/superpowers/
 
 # Standalone CLI binaries (pnpm run build:binary) - release assets, never committed
 binaries/
+
+# Written by site/scripts/indexnow.mjs after a docs build
+site/indexnow-request.json
