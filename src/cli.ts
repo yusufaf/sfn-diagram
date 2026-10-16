@@ -327,8 +327,8 @@ Notes:
   re-parses the merged definition without them. --theme and --layout do apply.
 
   --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
-  given with another format they exit 2. Set in the config file, they apply to PNG
-  runs and are ignored otherwise.
+  given with another format they exit 2 (--check ignores them). Set in the config
+  file, they apply to PNG runs and are ignored otherwise.
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
@@ -1403,13 +1403,15 @@ function combinedOverlayRefusal(params: CombinedOverlayRefusalParams): string {
  *
  * Reads `args`, never the resolved options: a config file's `scale` or
  * `loadSystemFonts` is a project default that other formats ignore, while a flag typed
- * next to `--format svg` is a contradiction worth an exit 2.
+ * next to `--format svg` is a contradiction worth an exit 2. `--check` renders nothing
+ * and ignores the format, so there is no contradiction to report under it.
  *
  * @param args - The parsed command line
  *
- * @returns The flags to name in a refusal, empty when none was given.
+ * @returns The flags to name in a refusal, empty when none was given or under `--check`.
  */
 function pngOnlyFlagsGiven(args: CliArgs): string[] {
+    if (args.check) return [];
     const flags: string[] = [];
     if (args.scale !== null) flags.push('--scale');
     if (args.loadSystemFonts === true) flags.push('--load-system-fonts');

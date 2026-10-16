@@ -584,7 +584,10 @@ sfn-diagram state.asl.json --format png --theme ./transparent.theme.json \
 halves it). It is capped at `10`: the rasterizer aborts the whole process, with no error
 message, when it cannot allocate the image, and a DPI value typed as a scale
 (`--scale 300`) would ask for hundreds of gigabytes. `10` already covers retina (2-3x)
-and 300 dpi print (about 3.1x).
+and 300 dpi print (about 3.1x). The cap only catches that typo: memory use grows with the
+diagram's area times the square of the scale, so a very large diagram can still run out
+at a scale well under `10`. A scale so small that the image would be under one pixel wide
+is an error (exit `1`) naming the scale.
 
 ```bash
 sfn-diagram state.asl.json --format png --scale 2 -o diagram@2x.png
@@ -602,7 +605,8 @@ that is set wins:
 3. the `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` environment variable
 4. the automatic choice above
 
-All three flags need `--format png`; given with another format they exit `2`. Set in the
+All three flags need `--format png`; given with another format they exit `2`, except under
+[`--check`](#linting), which renders nothing and ignores them. Set in the
 config file, `scale` and `loadSystemFonts` apply to PNG runs and are ignored for the
 others, so one project file can serve every format.
 

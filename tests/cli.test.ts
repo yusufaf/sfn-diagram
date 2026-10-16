@@ -3118,6 +3118,16 @@ describe('run: --scale and --load-system-fonts refusals', () => {
         );
     });
 
+    it.each([[[]], [['--format', 'svg']], [['--format', 'png']]])(
+        'does not refuse them under --check, which renders nothing (%j)',
+        async (formatArgs) => {
+            expect(
+                await run([simpleFixture, '--check', '--scale', '2', ...formatArgs]),
+            ).toBe(0);
+            expect(stderrData).not.toContain('only applies to --format png');
+        },
+    );
+
     it('ignores the PNG options when they come from the config', async () => {
         const config = write(
             'c.json',
