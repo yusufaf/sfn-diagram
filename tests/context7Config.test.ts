@@ -4,7 +4,9 @@ import { join } from 'node:path';
 
 // Context7 silently skips any field over its limit
 // (https://context7.com/schema/context7.json), so a long rule would just vanish.
-const config = JSON.parse(readFileSync(join(__dirname, '..', 'context7.json'), 'utf8')) as {
+const config = JSON.parse(
+    readFileSync(join(__dirname, '..', 'context7.json'), 'utf8'),
+) as {
     description: string;
     projectTitle: string;
     rules: string[];
