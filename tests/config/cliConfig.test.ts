@@ -7,6 +7,7 @@ import {
     CliConfigError,
     discoverConfigPath,
     loadCliConfig,
+    loadCommentGitlabConfig,
 } from '../../src/cliConfig';
 
 describe('discoverConfigPath', () => {
@@ -502,5 +503,124 @@ describe('loadCliConfig', () => {
         expect(() =>
             loadCliConfig({ explicitPath: null, startDir: root }),
         ).toThrowError(/theme/);
+    });
+});
+
+describe('loadCommentGitlabConfig', () => {
+    let root: string;
+
+    beforeEach(() => {
+        root = mkdtempSync(join(tmpdir(), 'sfn-config-gitlab-'));
+        writeFileSync(join(root, '.git'), '');
+    });
+
+    afterEach(() => {
+        rmSync(root, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(root, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    const load = (explicitPath: string | null = null) =>
+        loadCommentGitlabConfig({ explicitPath, startDir: root });
+
+    it('returns null when there is no config to load', () => {
+        expect(load()).toBeNull();
+    });
+
+    it('returns null for a discovered file with no commentGitlab block', () => {
+        // Top-level fields belong to the main command and are never inherited.
+        write('sfn-diagram.config.json', JSON.stringify({ theme: 'dark' }));
+        expect(load()).toBeNull();
+    });
+
+    it('reads every supported field from a YAML block', () => {
+        const path = write(
+            'sfn-diagram.config.yaml',
+            [
+                'theme: light',
+                'commentGitlab:',
+                '  theme: dark',
+                '  layout: LR',
+                '  catchHandling: hide',
+                '  collapse: [A]',
+                '',
+            ].join('\n'),
+        );
+        expect(load()).toEqual({
+            config: {
+                catchHandling: 'hide',
+                collapse: ['A'],
+                layout: 'LR',
+                theme: 'dark',
+            },
+            path,
+        });
+    });
+
+    it('accepts a custom theme object', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({
+                commentGitlab: { theme: { base: 'dark', fontSize: 16 } },
+            }),
+        );
+        expect(load()?.config).toEqual({
+            theme: { base: 'dark', fontSize: 16 },
+        });
+    });
+
+    it('treats a null block as an empty one', () => {
+        const path = write('sfn-diagram.config.yaml', 'commentGitlab:\n');
+        expect(load()).toEqual({ config: {}, path });
+    });
+
+    it('rejects a block that is not an object', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ commentGitlab: ['theme'] }),
+        );
+        expect(() => load()).toThrow(CliConfigError);
+        expect(() => load()).toThrow(
+            /Invalid commentGitlab in .*: expected an object/,
+        );
+    });
+
+    it('rejects every unsupported key in one message naming the file', () => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ commentGitlab: { padding: 4, aslGlob: '*.json' } }),
+        );
+        expect(() => load()).toThrow(
+            `Unsupported commentGitlab.aslGlob, commentGitlab.padding in ${path}: comment gitlab reads only catchHandling, collapse, layout, theme`,
+        );
+    });
+
+    it('prefixes field errors with the block name', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ commentGitlab: { layout: 'sideways' } }),
+        );
+        expect(() => load()).toThrow(/^Invalid commentGitlab\.layout in /);
+    });
+
+    it('errors when an explicit path has no commentGitlab block', () => {
+        const path = write('ci.json', JSON.stringify({ theme: 'dark' }));
+        expect(() => load(path)).toThrow(
+            `${path} has no commentGitlab block; comment gitlab reads only that block`,
+        );
+    });
+
+    it('leaves the main command unaffected by the block, even an invalid one', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ commentGitlab: { padding: 'wide' } }),
+        );
+        expect(
+            loadCliConfig({ explicitPath: null, startDir: root })?.config,
+        ).toEqual({});
     });
 });
