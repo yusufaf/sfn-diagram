@@ -1,5 +1,13 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+    basename,
+    dirname,
+    isAbsolute,
+    join,
+    relative,
+    resolve,
+    sep,
+} from 'node:path';
 import { minimatch } from 'minimatch';
 import type { DiagramFormat } from './types';
 
@@ -252,6 +260,93 @@ const INPUT_SUFFIXES: readonly string[] = [
     '.yaml',
     '.yml',
 ];
+
+/** Parameters for {@link isWithin}. */
+interface IsWithinParams {
+    /** Absolute directory that may contain `path`. */
+    directory: string;
+    /** Absolute path to test. */
+    path: string;
+}
+
+/**
+ * Whether `path` is `directory` itself or somewhere below it.
+ *
+ * Checks for a `..` segment rather than a `..` prefix, so a child directory literally
+ * named `..ab` still counts as inside. A cross-drive `relative` comes back absolute
+ * rather than starting with `..`, so that case is tested separately.
+ */
+function isWithin(params: IsWithinParams): boolean {
+    const rel = relative(params.directory, params.path);
+    return (
+        rel === '' ||
+        (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+    );
+}
+
+/** Parameters for {@link commonInputRoot}. */
+export interface CommonInputRootParams {
+    /** Directory relative positionals are resolved against. */
+    cwd: string;
+    /** The positionals as given, before glob expansion. */
+    patterns: string[];
+}
+
+/**
+ * The directory `--preserve-tree` mirrors outputs relative to: the deepest directory
+ * every positional's base sits in.
+ *
+ * A glob contributes its non-glob prefix ({@link patternRoot}) and a literal path its
+ * directory — never the files a glob happened to match. Rooting at the matches would
+ * make every output move as soon as a new match appeared higher up the tree, which is
+ * the reason a mirrored layout is opt-in at all (#328). Rooted at the command line,
+ * outputs move only when the command line changes, and `--watch` keeps the same root on
+ * every re-run.
+ *
+ * Pure: nothing is read from the filesystem.
+ *
+ * @param params - Root parameters
+ * @param params.cwd - Directory relative positionals are resolved against
+ * @param params.patterns - The positionals as given, before glob expansion
+ *
+ * @returns An absolute directory; `cwd` itself when there are no patterns.
+ *
+ * @throws {CliInputError} When two positionals share no directory at all — different
+ *   Windows drives, or a network share and a drive.
+ *
+ * @example
+ * ```typescript
+ * commonInputRoot({
+ *     cwd: '/repo',
+ *     patterns: ['machines/a/order.asl.json', 'machines/b/' + '*.asl.json'],
+ * });
+ * // '/repo/machines'
+ * ```
+ */
+export function commonInputRoot(params: CommonInputRootParams): string {
+    const { cwd, patterns } = params;
+    const bases = patterns.map((pattern) => {
+        const base = hasGlobMagic(pattern)
+            ? patternRoot(toPosix(pattern).replace(/^\.\//, '')) || '.'
+            : dirname(pattern);
+        return resolve(cwd, base);
+    });
+    if (bases.length === 0) return resolve(cwd);
+
+    let root = bases[0];
+    for (const base of bases.slice(1)) {
+        while (!isWithin({ directory: root, path: base })) {
+            const parent = dirname(root);
+            if (parent === root) {
+                throw new CliInputError(
+                    `--preserve-tree needs inputs that share a directory; ${bases[0]} and ${base} are on different drives or network shares`,
+                );
+            }
+            root = parent;
+        }
+    }
+    return root;
+}
 
 /** Parameters for {@link deriveOutputName}. */
 export interface DeriveOutputNameParams {

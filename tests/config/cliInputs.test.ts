@@ -8,9 +8,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 import {
     CliInputError,
+    commonInputRoot,
     deriveOutputName,
     expandInputs,
     hasGlobMagic,
@@ -440,8 +441,7 @@ describe('planOutputPaths', () => {
     it('derives an ARN output name from the state machine name, not the ARN', () => {
         // An ARN has no basename and its colons are illegal in a Windows filename,
         // so the name it is written under has to come from somewhere else.
-        const arn =
-            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+        const arn = 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
         expect(
             planOutputPaths({
                 format: 'svg',
@@ -473,4 +473,90 @@ describe('planOutputPaths', () => {
         expect(message).toContain(second);
         expect(message).toContain(join('out', 'Orders.svg'));
     });
+});
+
+describe('commonInputRoot', () => {
+    const cwd = resolve('/repo');
+
+    it("uses a glob's non-glob prefix, not its matches", () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['machines/**/*.asl.json'] }),
+        ).toBe(resolve(cwd, 'machines'));
+    });
+
+    it("uses a literal path's directory", () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['machines/a/order.asl.json'] }),
+        ).toBe(resolve(cwd, 'machines/a'));
+    });
+
+    it('finds the deepest directory several positionals share', () => {
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: [
+                    'machines/a/order.asl.json',
+                    'machines/b/*.asl.json',
+                ],
+            }),
+        ).toBe(resolve(cwd, 'machines'));
+    });
+
+    it('does not mistake a sibling sharing a name prefix for an ancestor', () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['app/x.json', 'apple/y.json'] }),
+        ).toBe(cwd);
+    });
+
+    it('climbs above the working directory for a ../ input', () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['../other/x.json', 'y.json'] }),
+        ).toBe(dirname(cwd));
+    });
+
+    it('treats a glob with no plain prefix, or a ./ prefix, as the working directory', () => {
+        expect(commonInputRoot({ cwd, patterns: ['*.asl.json'] })).toBe(cwd);
+        expect(commonInputRoot({ cwd, patterns: ['./machines/*.json'] })).toBe(
+            resolve(cwd, 'machines'),
+        );
+    });
+
+    it('falls back to the filesystem root for unrelated absolute paths', () => {
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: [resolve('/srv/a/x.json'), resolve('/home/b/y.json')],
+            }),
+        ).toBe(parse(resolve('/')).root);
+    });
+
+    it.runIf(process.platform === 'win32')(
+        'refuses inputs on different drives',
+        () => {
+            expect(() =>
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'D:/b/y.json'],
+                }),
+            ).toThrowError(CliInputError);
+            expect(() =>
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'D:/b/y.json'],
+                }),
+            ).toThrowError(/different drives/);
+        },
+    );
+
+    it.runIf(process.platform === 'win32')(
+        'compares drive letters case-insensitively',
+        () => {
+            expect(
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'c:/a/b/y.json'],
+                }).toLowerCase(),
+            ).toBe('c:\\a');
+        },
+    );
 });
