@@ -369,7 +369,7 @@ Examples:
   sfn-diagram head.asl.json --diff base.asl.json --execution history.json --format html -o run.html
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 -o run.svg
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
-  cdk synth > template.json && sfn-diagram template.json --format mermaid
+  cdk synth --quiet && sfn-diagram cdk.out/MyStack.template.json --format mermaid
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
   sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
