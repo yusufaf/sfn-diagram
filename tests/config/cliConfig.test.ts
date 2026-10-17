@@ -352,6 +352,38 @@ describe('loadCliConfig', () => {
         ).toThrowError(/Invalid scale/);
     });
 
+    it('accepts the redaction options', () => {
+        const config = { includeRawState: false, redactFields: ['Parameters'] };
+        const path = write('sfn-diagram.config.json', JSON.stringify(config));
+        expect(loadCliConfig({ explicitPath: null, startDir: root })).toEqual({
+            config,
+            path,
+        });
+    });
+
+    it('trims redactFields names, as the flag does', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ redactFields: [' Parameters '] }),
+        );
+        expect(
+            loadCliConfig({ explicitPath: null, startDir: root })?.config,
+        ).toEqual({ redactFields: ['Parameters'] });
+    });
+
+    it.each([
+        ['redactFields', '"Parameters"'],
+        ['redactFields', '[""]'],
+        ['redactFields', '["  "]'],
+        ['redactFields', '[1]'],
+        ['includeRawState', '"no"'],
+    ])('rejects %s: %s', (field, jsonValue) => {
+        write('sfn-diagram.config.json', `{ "${field}": ${jsonValue} }`);
+        expect(() =>
+            loadCliConfig({ explicitPath: null, startDir: root }),
+        ).toThrowError(new RegExp(`Invalid ${field}`));
+    });
+
     it('rejects a non-boolean loadSystemFonts', () => {
         write(
             'sfn-diagram.config.json',

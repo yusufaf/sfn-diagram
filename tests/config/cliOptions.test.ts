@@ -15,6 +15,7 @@ const noFlags: CliOptionSource = {
     iconPosition: null,
     iconSize: null,
     includeComments: null,
+    includeRawState: null,
     layout: null,
     loadSystemFonts: null,
     nodeHeight: null,
@@ -22,6 +23,7 @@ const noFlags: CliOptionSource = {
     nodeWidth: null,
     padding: null,
     rankSeparation: null,
+    redactFields: null,
     scale: null,
     showIcons: null,
     showStateTypes: null,
@@ -31,6 +33,39 @@ const noFlags: CliOptionSource = {
 };
 
 describe('resolveCliOptions', () => {
+    it('redacts nothing with no flag and no config', () => {
+        const resolved = resolveCliOptions({ args: noFlags, config: null });
+        expect(resolved.includeRawState).toBe(true);
+        expect(resolved.redactFields).toEqual([]);
+    });
+
+    it('unions config and flag field names, config first, without repeats', () => {
+        const resolved = resolveCliOptions({
+            args: { ...noFlags, redactFields: ['Arguments', 'Parameters'] },
+            config: { redactFields: ['Parameters', 'Credentials'] },
+        });
+        expect(resolved.redactFields).toEqual([
+            'Parameters',
+            'Credentials',
+            'Arguments',
+        ]);
+    });
+
+    it('drops raw state when either the config or the flag says so', () => {
+        expect(
+            resolveCliOptions({
+                args: noFlags,
+                config: { includeRawState: false },
+            }).includeRawState,
+        ).toBe(false);
+        expect(
+            resolveCliOptions({
+                args: { ...noFlags, includeRawState: false },
+                config: { includeRawState: true },
+            }).includeRawState,
+        ).toBe(false);
+    });
+
     it('leaves the PNG options unset with no flag and no config', () => {
         const resolved = resolveCliOptions({ args: noFlags, config: null });
         expect(resolved.loadSystemFonts).toBeNull();
@@ -206,6 +241,7 @@ describe('resolveCliOptions', () => {
                 iconPosition: 'top',
                 iconSize: 32,
                 includeComments: false,
+                includeRawState: false,
                 layout: 'RL',
                 loadSystemFonts: false,
                 nodeHeight: 90,
@@ -213,6 +249,7 @@ describe('resolveCliOptions', () => {
                 nodeWidth: 200,
                 padding: 64,
                 rankSeparation: 140,
+                redactFields: ['Parameters'],
                 scale: 2,
                 showIcons: true,
                 showStateTypes: true,
@@ -233,6 +270,7 @@ describe('resolveCliOptions', () => {
             iconPosition: 'top',
             iconSize: 32,
             includeComments: false,
+            includeRawState: false,
             layout: 'RL',
             loadSystemFonts: false,
             nodeHeight: 90,
@@ -240,6 +278,7 @@ describe('resolveCliOptions', () => {
             nodeWidth: 200,
             padding: 64,
             rankSeparation: 140,
+            redactFields: ['Parameters'],
             scale: 2,
             showIcons: true,
             showStateTypes: true,

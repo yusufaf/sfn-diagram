@@ -60,6 +60,8 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--scale <n>` | PNG resolution multiplier (default `1`, at most `10`) — see [PNG resolution and fonts](#png-resolution-and-fonts) |
 | `--load-system-fonts` | PNG: also parse every installed font — see [PNG resolution and fonts](#png-resolution-and-fonts) |
 | `--no-load-system-fonts` | PNG: load only the one resolved font file — see [PNG resolution and fonts](#png-resolution-and-fonts) |
+| `--redact-fields <names>` | HTML: inline `[redacted]` for these ASL fields wherever they appear (comma-separated, repeatable) — see [Redacting the HTML document](#redacting-the-html-document) |
+| `--no-raw-state` | HTML: inline no state's raw ASL — see [Redacting the HTML document](#redacting-the-html-document) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
@@ -131,10 +133,12 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `iconPosition` | `"left"` \| `"top"` \| `"right"` |
 | `iconSize` | number |
 | `includeComments` | boolean |
+| `includeRawState` | boolean (HTML only; `false` redacts every state's ASL) |
 | `layout` | `"TB"` \| `"LR"` \| `"RL"` \| `"BT"` |
 | `loadSystemFonts` | boolean (PNG only) |
 | `nodeHeight`, `nodeWidth` | number |
 | `nodeSeparation`, `rankSeparation`, `padding` | number |
+| `redactFields` | array of ASL field names (HTML only) |
 | `scale` | number above `0`, at most `10` (PNG only) |
 | `showIcons`, `showStateTypes`, `showVariables` | boolean |
 | `stylePreset` | `"aws-standard"` \| `"enhanced"` |
@@ -144,7 +148,9 @@ Keys it doesn't recognise are ignored, so a `$schema` key for editor completion 
 harmless and a field added by a later release won't break an older CLI reading the same
 file. Options that need a function — `iconResolver`, `redact`, `customColors` and the
 per-node and per-edge override maps — have no textual form and stay
-[API-only](/guides/configuration/).
+[API-only](/guides/configuration/); `redactFields` and `includeRawState` cover the
+common cases of `redact` (see [Redacting the HTML document](#redacting-the-html-document)).
+Both need sfn-diagram 1.9.0 or later; an older CLI ignores them like any unknown key.
 
 JavaScript and TypeScript config files are deliberately not supported: executing one
 would run arbitrary code, and it could not work in the
@@ -168,6 +174,11 @@ config file:
 
 Passing both halves of a pair is a usage error (exit `2`) rather than last-one-wins,
 which would be easy to miss in a long CI command.
+
+`redactFields` and `includeRawState` have no "turn off" flag, and are the one exception
+to "the flag wins": redaction only adds up. `--redact-fields` adds names to the file's
+list, and `--no-raw-state` applies when either side asks for it, so nothing typed on a
+command line can re-expose what the project's config withholds.
 
 ### Errors
 
@@ -765,6 +776,79 @@ template directives, and state machines defined through a `module` block. For th
 file directly. See [Extracting ASL from Terraform](/reference/terraform/functions/extractaslfromterraform/).
 
 > **`--format png` needs the optional `@resvg/resvg-js` peer.** It is not installed by default. With `npx`, run `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …`; in a project, `npm install @resvg/resvg-js`. Without it the CLI exits with an actionable error. Or skip the install entirely with the [Docker image](#docker), which ships it preinstalled.
+
+## Redacting the HTML document
+
+A `--format html` document inlines the raw ASL of every state, so the detail panel can
+print it when a state is clicked. That ASL can carry things you don't want to share:
+`Parameters` holding an account id, `Arguments` naming a secret, `Credentials`. Two flags
+keep it out, both reading the same [redaction hook](/guides/configuration/) the library
+offers as `redact`:
+
+```bash
+# Inline "[redacted]" in place of these fields, wherever they appear
+npx sfn-diagram state.asl.json --format html --redact-fields Parameters,Arguments,Credentials -o share.html
+
+# Inline no state's ASL at all; the panel shows "[redacted]" for every state
+npx sfn-diagram state.asl.json --format html --no-raw-state -o share.html
+```
+
+How `--redact-fields` matches:
+
+- A name matches a key exactly and case-sensitively: `parameters` does not match
+  `Parameters`. A name that matches nothing is not an error, so check the spelling.
+- It matches at any depth, so `Token` also reaches `Parameters.Token`, and a nested
+  state's copy inside its Parallel or Map container is caught as well as its own entry.
+- `Payload` also matches `Payload.$`, the same field with a dynamic value.
+- A dotted name names a nested key: `Parameters.Token` redacts only that key and keeps
+  the rest of `Parameters`. Array items are named by index, so `Catch.Next` does not
+  reach into `Catch`'s list: `Catch[0].Next` names the first catcher's target only, and
+  there is no wildcard. To reach every item, use the bare name (`Next`), which also
+  matches every other `Next`.
+- A state's own entry is never matched by its name, so a state called `Parameters`
+  keeps its entry. Inside its Parallel or Map container's copy, though, a nested
+  state's name is a key like any other: `--redact-fields Parameters` redacts the whole
+  copy of a nested state named `Parameters`, and `--redact-fields Catch.Next` the `Next`
+  of one named `Catch`.
+- Matching runs on the joined path, so a key that itself contains a `.` or `[` can be
+  matched too (`"a.Next"` by `Next`). That only ever redacts more, never less.
+- It is repeatable, and a comma inside a name is written `\,`.
+
+The two flags combine, and the config file can set them too (`redactFields`,
+`includeRawState`); the file and the flags add up rather than one overriding the other.
+Both apply to `--format html` only: given with another format they exit `2` (`--check`
+ignores them), and set in the config file they are ignored for other formats. Other
+formats never inline raw ASL.
+
+What they do **not** cover: they redact the detail panel's copy of the ASL, nothing
+else. Anything the diagram derives from the ASL is not redacted, and it travels in the
+document even where it is not drawn: in the drawn SVG, the embedded Mermaid source, the
+collapse model, and the edge data the edge panel prints. Treat every field that shapes a
+node, edge or container label as shipped as-is. Field values the diagram draws are
+generally strings, paths and expressions, and for an object such as JSONata `Arguments`,
+`Output` or a Map's `ItemSelector`, its key names; a string, array or other non-object
+value is drawn as itself, shortened with `…` when it is long. A label cut short on
+screen usually still ships in full, in the node's or edge's `<title>`, the Mermaid
+source or the edge data. Examples:
+
+- state names, and the machine-level and per-state `Comment` (a state's `Comment` is its
+  node label unless `--hide-comments`; `--redact-fields Comment` blanks the panel copy,
+  not the label)
+- a Fail state's `Error`, `Cause` and their `*Path` forms, Choice conditions, Retry and
+  Catch `ErrorEquals`, Retry `MaxAttempts`
+- Wait `Seconds`/`Timestamp`, literal or expression, and their `*Path` forms, and Task
+  `TimeoutSeconds`/`HeartbeatSeconds` and their `*Path` forms
+- Map `ItemsPath`, `Label`, `ItemSelector`, `MaxConcurrency`, `ToleratedFailure*` and
+  `ItemBatcher` limits
+- Task `Resource`, and a Distributed Map's `ItemReader`/`ResultWriter` `Resource`
+- `Assign` variable names, and JSONata `Arguments` and `Output`
+  (`--redact-fields Arguments` blanks the panel copy, not the `args …` label)
+
+Not drawn does not mean not shipped, so checking a rendered SVG is not enough: a value
+can sit in the Mermaid source or the edge data without being drawn. Keep anything that
+must not be shared out of those fields. An execution overlay's error names are not
+touched either; the CLI inlines no other execution payload. For anything beyond field
+names, use the library's `redact` hook directly.
 
 ## Linting
 

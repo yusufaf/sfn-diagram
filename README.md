@@ -97,6 +97,15 @@ for the font options.
 sfn-diagram my-workflow.asl.json --format png --scale 2 -o diagram@2x.png
 ```
 
+An HTML document inlines every state's raw ASL for its detail panel. `--redact-fields`
+replaces the named fields with `[redacted]`, and `--no-raw-state` replaces every state's;
+see [Redacting the HTML document](https://sfn.yusufaf.dev/guides/cli/#redacting-the-html-document)
+for what they don't cover.
+
+```bash
+sfn-diagram my-workflow.asl.json --format html --redact-fields Parameters,Arguments -o share.html
+```
+
 The CLI exits `0` on success, `1` when something goes wrong while running — including a failed
 AWS call — and `2` when the invocation itself was wrong, so a CI job can tell a bad flag
 from a bad definition. See
