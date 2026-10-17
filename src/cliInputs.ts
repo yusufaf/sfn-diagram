@@ -335,11 +335,18 @@ export interface CommonInputRootParams {
  */
 export function commonInputRoot(params: CommonInputRootParams): string {
     const { cwd, patterns } = params;
-    const bases = patterns.map((pattern) => {
-        const base = hasGlobMagic(pattern)
-            ? patternRoot(normalizePattern(pattern)) || '.'
-            : dirname(pattern);
-        return resolve(cwd, base);
+    const bases = patterns.flatMap((pattern) => {
+        // The pattern's own resolved directory as well as its prefix: a glob that
+        // matches nothing is kept as a literal path, and a `..` after its magic
+        // segment resolves above the prefix. Without a `..` it lies below the
+        // prefix and changes nothing.
+        const literalBase = dirname(resolve(cwd, pattern));
+        return hasGlobMagic(pattern)
+            ? [
+                  resolve(cwd, patternRoot(normalizePattern(pattern)) || '.'),
+                  literalBase,
+              ]
+            : [literalBase];
     });
     if (bases.length === 0) return resolve(cwd);
 
@@ -512,19 +519,17 @@ export function planOutputPaths(
             .join('\n');
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
-        const treeWouldHelp = (): boolean =>
-            collisions.every(
-                ([, group]) =>
-                    new Set(
-                        group.map((source) =>
-                            dirname(resolve(source.nameSource)),
-                        ),
-                    ).size === group.length,
-            );
         const hint =
             treeRoot !== undefined
                 ? 'Rename one, or render them in separate runs.'
-                : treeWouldHelp()
+                : collisions.every(
+                        ([, group]) =>
+                            new Set(
+                                group.map((source) =>
+                                    dirname(resolve(source.nameSource)),
+                                ),
+                            ).size === group.length,
+                    )
                   ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
                   : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(

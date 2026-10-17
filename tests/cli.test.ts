@@ -3767,9 +3767,9 @@ describe('run: multiple inputs', () => {
         );
     });
 
-    it('refuses an input that resolves outside the --preserve-tree root', async () => {
+    it('roots the tree above a fallback literal whose ../ climbs past the glob prefix', async () => {
         // The glob matches nothing, so it is kept as a literal path; its `..` segments
-        // climb above the `machines` prefix the root was taken from.
+        // resolve above `machines`. This used to crash on the outside-root guard.
         touch('order.asl.json');
         mkdirSync(join(tempDir, 'machines', 'a'), { recursive: true });
         process.chdir(tempDir);
@@ -3780,9 +3780,8 @@ describe('run: multiple inputs', () => {
                 'out',
                 '--preserve-tree',
             ]),
-        ).toBe(2);
-        expect(stderrData).toContain('--preserve-tree cannot place');
-        expect(existsSync(join(tempDir, 'out'))).toBe(false);
+        ).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
     });
 
     it('exits 1 when a glob matches nothing', async () => {

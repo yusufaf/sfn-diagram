@@ -547,6 +547,19 @@ describe('planOutputPaths', () => {
                     treeRoot: root,
                 }),
             ).toThrowError(CliInputError);
+            expect(() =>
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: [
+                        {
+                            label: 'x.json',
+                            nameSource: resolve('/elsewhere/x.json'),
+                        },
+                    ],
+                    treeRoot: root,
+                }),
+            ).toThrowError(/cannot place/);
         });
     });
 
@@ -632,6 +645,19 @@ describe('commonInputRoot', () => {
         expect(commonInputRoot({ cwd, patterns: ['./machines/*.json'] })).toBe(
             resolve(cwd, 'machines'),
         );
+    });
+
+    it('includes where a glob resolves when a .. follows its magic segment', () => {
+        // Such a glob matches nothing and is kept as a literal path.
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: ['machines/*/../../order.asl.json'],
+            }),
+        ).toBe(cwd);
+        expect(
+            commonInputRoot({ cwd, patterns: ['[ab]/../../x.json'] }),
+        ).toBe(dirname(cwd));
     });
 
     it('falls back to the filesystem root for unrelated absolute paths', () => {

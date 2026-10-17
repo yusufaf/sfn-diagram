@@ -5,7 +5,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import { STATE_MACHINE_TYPES } from './cfn/extract';
@@ -2803,18 +2803,11 @@ async function renderResolvedBatch(
         // leaves no directory behind. Under --preserve-tree that includes each output's
         // own subdirectory, which neither output writer creates.
         const outDirPath = resolve(args.outDir);
-        // Resolved path -> the spelling to report it under if it cannot be made.
-        const directories = new Map<string, string>([
-            [outDirPath, args.outDir],
-            ...planned.map(
-                (entry) =>
-                    [dirname(resolve(entry.output)), dirname(entry.output)] as [
-                        string,
-                        string,
-                    ],
-            ),
+        const directories = new Set([
+            outDirPath,
+            ...planned.map((entry) => dirname(resolve(entry.output))),
         ]);
-        for (const [directory, shown] of directories) {
+        for (const directory of directories) {
             try {
                 mkdirSync(directory, { recursive: true });
             } catch (error) {
@@ -2826,7 +2819,7 @@ async function renderResolvedBatch(
                 process.stderr.write(
                     directory === outDirPath
                         ? `Cannot create --out-dir ${args.outDir}: ${reason}\n`
-                        : `Cannot create ${shown} inside --out-dir ${args.outDir}: ${reason}\n`,
+                        : `Cannot create ${join(args.outDir, relative(outDirPath, directory))} inside --out-dir ${args.outDir}: ${reason}\n`,
                 );
                 return { code: EXIT_USAGE, configPath, watchTargets };
             }
