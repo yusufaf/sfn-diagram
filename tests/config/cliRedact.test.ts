@@ -223,6 +223,55 @@ describe('buildCliRedact', () => {
         });
     });
 
+    it('reaches an indexed name inside a container copy too', () => {
+        const asl = {
+            StartAt: 'Fan',
+            States: {
+                Fan: {
+                    Branches: [
+                        {
+                            StartAt: 'Try',
+                            States: {
+                                Try: {
+                                    Catch: [
+                                        {
+                                            ErrorEquals: ['States.ALL'],
+                                            Next: 'Done',
+                                        },
+                                    ],
+                                    Next: 'Done',
+                                    Type: 'Pass',
+                                },
+                                Done: { End: true, Type: 'Succeed' },
+                            },
+                        },
+                    ],
+                    End: true,
+                    Type: 'Parallel',
+                },
+            },
+        } as unknown as AslDefinition;
+        const data = redactWith({
+            asl,
+            redact: buildCliRedact({
+                fields: ['Catch[0].Next'],
+                includeRawState: true,
+            }),
+        });
+        const branches = data.Fan.Branches as Array<{
+            States: Record<string, Record<string, unknown>>;
+        }>;
+        const copy = branches[0].States.Try;
+        expect((copy.Catch as Array<Record<string, unknown>>)[0].Next).toBe(
+            REDACTED,
+        );
+        expect(copy.Next).toBe('Done');
+        const own = data[idOf(data, 'Try')];
+        expect((own.Catch as Array<Record<string, unknown>>)[0].Next).toBe(
+            REDACTED,
+        );
+    });
+
     it('names an array item by index, not by a dotted key', () => {
         const asl = {
             StartAt: 'Try',

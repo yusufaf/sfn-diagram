@@ -802,11 +802,16 @@ How `--redact-fields` matches:
 - `Payload` also matches `Payload.$`, the same field with a dynamic value.
 - A dotted name names a nested key: `Parameters.Token` redacts only that key and keeps
   the rest of `Parameters`. Array items are named by index, so `Catch.Next` does not
-  reach into `Catch`'s list; write `Catch[0].Next` for the first catcher's target.
+  reach into `Catch`'s list: `Catch[0].Next` names the first catcher's target only, and
+  there is no wildcard. To reach every item, use the bare name (`Next`), which also
+  matches every other `Next`.
 - A state's own entry is never matched by its name, so a state called `Parameters`
   keeps its entry. Inside its Parallel or Map container's copy, though, a nested
-  state's name is a key like any other: a state named after a field (`Parameters`, or
-  `Catch` for `Catch.Next`) is matched there, and that copy is redacted.
+  state's name is a key like any other: `--redact-fields Parameters` redacts the whole
+  copy of a nested state named `Parameters`, and `--redact-fields Catch.Next` the `Next`
+  of one named `Catch`.
+- Matching runs on the joined path, so a key that itself contains a `.` or `[` can be
+  matched too (`"a.Next"` by `Next`). That only ever redacts more, never less.
 - It is repeatable, and a comma inside a name is written `\,`.
 
 The two flags combine, and the config file can set them too (`redactFields`,
@@ -818,29 +823,27 @@ formats never inline raw ASL.
 What they do **not** cover: they redact the detail panel's copy of the ASL, nothing
 else. Anything the diagram derives from the ASL is not redacted, and it travels in the
 document even where it is not drawn: in the drawn SVG, the embedded Mermaid source, the
-collapse model, and the edge data the edge panel prints. That includes, among others:
+collapse model, and the edge data the edge panel prints. Treat every field that shapes a
+node, edge or container label as shipped as-is. Field values the diagram draws are
+generally strings, paths and expressions, and for an object such as JSONata `Arguments`,
+`Output` or a Map's `ItemSelector`, its key names; a string, array or other non-object
+value is drawn whole. Examples:
 
 - state names, and the machine-level and per-state `Comment` (a state's `Comment` is its
   node label unless `--hide-comments`; `--redact-fields Comment` blanks the panel copy,
   not the label)
-- a Fail state's `Error` and `Cause`
-- Choice conditions
-- Retry and Catch `ErrorEquals` names
-- `TimeoutSeconds`/`HeartbeatSeconds` paths, Wait `SecondsPath`/`TimestampPath`
-- Map `ItemsPath`, `Label`, `ItemSelector` key names, and `MaxConcurrency` and
-  `ToleratedFailure` expressions
-- `Assign` variable names
-- JSONata `Arguments` and `Output`: an object's key names, or the value itself when it
-  is a string, an array or any other non-object (`--redact-fields Arguments` blanks the
-  panel copy, not the `args …` label)
+- a Fail state's `Error` and `Cause`, Choice conditions, Retry and Catch `ErrorEquals`
+- Wait `Seconds`/`Timestamp` expressions and their `*Path` forms, and Task
+  `TimeoutSeconds`/`HeartbeatSeconds` and their `*Path` forms
+- Map `ItemsPath`, `Label`, `ItemSelector`, `MaxConcurrency`, `ToleratedFailure*` and
+  `ItemBatcher` limits
+- `Assign` variable names, JSONata `Arguments` and `Output`
 
-A field whose value is drawn on the diagram is not safe to share however it is
-redacted here; keep the value out of the definition, or use `--format svg` and check
-what it draws.
-
-Not drawn does not mean not shipped. An execution overlay's error names are not touched
-either; the CLI inlines no other execution payload. For anything beyond field names, use
-the library's `redact` hook directly.
+Not drawn does not mean not shipped, so checking a rendered SVG is not enough: a value
+can sit in the Mermaid source or the edge data without being drawn. Keep anything that
+must not be shared out of those fields. An execution overlay's error names are not
+touched either; the CLI inlines no other execution payload. For anything beyond field
+names, use the library's `redact` hook directly.
 
 ## Linting
 
