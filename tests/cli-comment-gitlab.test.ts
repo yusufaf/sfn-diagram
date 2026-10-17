@@ -411,8 +411,10 @@ describe('run(["comment", "gitlab", ...])', { timeout: 30_000 }, () => {
         expect(bodies[0]).toContain('direction LR');
         expect(bodies[0]).toContain('fill:#14532d');
         expect(bodies[0]).not.toContain('BranchA');
+        // From cwd rather than `repo`: macOS's tmpdir is a symlink (/var -> /private/var),
+        // and discovery walks the resolved working directory.
         expect(stdoutData).toContain(
-            `Read commentGitlab settings from ${join(repo, 'sfn-diagram.config.json')}`,
+            `Read commentGitlab settings from ${join(process.cwd(), 'sfn-diagram.config.json')}`,
         );
     });
 
