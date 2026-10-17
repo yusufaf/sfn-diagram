@@ -307,13 +307,16 @@ export interface CommonInputRootParams {
  * every positional's base sits in.
  *
  * A glob contributes its non-glob prefix ({@link patternRoot}) and a literal path its
- * directory — never the files a glob happened to match. A glob also contributes its own
- * resolved directory, which only matters when a `..` follows its magic segment: such a
- * glob matches nothing, is kept as a literal path, and lies above its prefix. Rooting at the matches would
+ * directory — never the files a glob happened to match. Rooting at the matches would
  * make every output move as soon as a new match appeared higher up the tree, which is
  * the reason a mirrored layout is opt-in at all (#328). Rooted at the command line,
  * outputs move only when the command line changes, and `--watch` keeps the same root on
  * every re-run.
+ *
+ * A glob also contributes its own lexically resolved directory. That only matters when
+ * a `..` after its magic segment climbs above its prefix: the walk finds nothing up
+ * there, so {@link expandInputs} keeps the pattern as a literal path, which lies above
+ * the prefix.
  *
  * Pure: nothing is read from the filesystem.
  *
@@ -338,10 +341,7 @@ export interface CommonInputRootParams {
 export function commonInputRoot(params: CommonInputRootParams): string {
     const { cwd, patterns } = params;
     const bases = patterns.flatMap((pattern) => {
-        // The pattern's own resolved directory as well as its prefix: a glob that
-        // matches nothing is kept as a literal path, and a `..` after its magic
-        // segment resolves above the prefix. Without a `..` it lies below the
-        // prefix and changes nothing.
+        // See the JSDoc for why a glob contributes this as well as its prefix.
         const literalBase = dirname(resolve(cwd, pattern));
         return hasGlobMagic(pattern)
             ? [
@@ -488,9 +488,11 @@ export function planOutputPaths(
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
-            // Defense in depth: commonInputRoot contains every input it is given, so
-            // no command line is known to reach this. Refusing here still guarantees
-            // nothing is written outside --out-dir if the two ever drift apart.
+            // Defense in depth: given the same patterns and cwd, commonInputRoot
+            // contains every path expandInputs returns, and the CLI resolves both
+            // against process.cwd(), so no command line is known to reach this.
+            // Refusing here still guarantees nothing is written outside --out-dir if
+            // the two ever drift apart.
             throw new CliInputError(
                 `--preserve-tree cannot place ${source.label}: it resolves outside the inputs' common root ${treeRoot}`,
             );
