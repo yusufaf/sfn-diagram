@@ -601,18 +601,43 @@ describe('loadCommentGitlabConfig', () => {
         );
     });
 
-    it.each(['commentGitLab', 'comment_gitlab', 'comment-gitlab'])(
-        'rejects the near-miss block name %s rather than ignoring it',
-        (key) => {
-            const path = write(
-                'sfn-diagram.config.json',
-                JSON.stringify({ [key]: { theme: 'dark' } }),
-            );
-            expect(() => load()).toThrow(
-                `Unknown key ${key} in ${path}: did you mean commentGitlab?`,
-            );
-        },
-    );
+    it.each([
+        'commentGitLab',
+        'comment_gitlab',
+        'comment-gitlab',
+        'comment gitlab',
+        'commentGitlab ',
+    ])('rejects the near-miss block name %j rather than ignoring it', (key) => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ [key]: { theme: 'dark' } }),
+        );
+        expect(() => load()).toThrow(
+            `Unknown key ${JSON.stringify(key)} in ${path}: did you mean commentGitlab?`,
+        );
+    });
+
+    it('names every near miss at once, even beside a correct block', () => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({
+                comment_gitlab: {},
+                commentGitLab: {},
+                commentGitlab: { theme: 'dark' },
+            }),
+        );
+        expect(() => load(path)).toThrow(
+            `Unknown key "commentGitLab", "comment_gitlab" in ${path}: did you mean commentGitlab?`,
+        );
+    });
+
+    it('leaves unrelated top-level keys alone', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ $schema: 'x', comment: {}, gitlab: {} }),
+        );
+        expect(load()).toBeNull();
+    });
 
     it('prefixes field errors with the block name', () => {
         write(

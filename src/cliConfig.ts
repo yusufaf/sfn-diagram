@@ -580,16 +580,20 @@ export function loadCommentGitlabConfig(
     if (file === null) return null;
     const { path, raw } = file;
 
-    // The main CLI drops unknown top-level keys, so a near miss such as `commentGitLab`
-    // or `comment_gitlab` would otherwise leave the block silently unread.
-    const nearMiss = Object.keys(raw).find(
-        (key) =>
-            key !== 'commentGitlab' &&
-            key.toLowerCase().replace(/[-_]/g, '') === 'commentgitlab',
-    );
-    if (nearMiss !== undefined) {
+    // The main CLI drops unknown top-level keys, so a near miss such as `commentGitLab`,
+    // `comment_gitlab` or `comment gitlab` would otherwise leave the block silently
+    // unread. Quoted, since a stray space is one way to miss.
+    const nearMisses = Object.keys(raw)
+        .filter(
+            (key) =>
+                key !== 'commentGitlab' &&
+                key.toLowerCase().replace(/[^a-z0-9]/g, '') === 'commentgitlab',
+        )
+        .sort();
+    if (nearMisses.length > 0) {
+        const named = nearMisses.map((key) => JSON.stringify(key)).join(', ');
         throw new CliConfigError(
-            `Unknown key ${nearMiss} in ${path}: did you mean commentGitlab?`,
+            `Unknown key ${named} in ${path}: did you mean commentGitlab?`,
         );
     }
 
