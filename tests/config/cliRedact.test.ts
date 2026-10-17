@@ -272,6 +272,27 @@ describe('buildCliRedact', () => {
         );
     });
 
+    it('also matches a literal key that contains a dot', () => {
+        const asl = {
+            StartAt: 'Shape',
+            States: {
+                Shape: {
+                    End: true,
+                    Parameters: { 'a.Next': SECRET, Kept: 'kept' },
+                    Type: 'Pass',
+                },
+            },
+        } as unknown as AslDefinition;
+        const data = redactWith({
+            asl,
+            redact: buildCliRedact({ fields: ['Next'], includeRawState: true }),
+        });
+        expect(data.Shape.Parameters).toEqual({
+            'a.Next': REDACTED,
+            Kept: 'kept',
+        });
+    });
+
     it('names an array item by index, not by a dotted key', () => {
         const asl = {
             StartAt: 'Try',
