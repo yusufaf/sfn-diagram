@@ -192,12 +192,32 @@ $ echo $?
 1
 ```
 
-### `comment gitlab` does not read it
+### `comment gitlab` reads its own block
 
-The [`comment gitlab`](#comment-gitlab) subcommand keeps its own flags: the CI-shaped ones
-(`--asl-glob`, `--comment-tag`, `--out-dir`, `--execution-mode`) plus the render flags it
-shares with the main CLI. A file on disk quietly changing what a pipeline posts to a
-merge request is worse than restating a flag in the job.
+The [`comment gitlab`](#comment-gitlab) subcommand reads only a `commentGitlab` block in the
+same file, never the top-level fields. A config written for local renders therefore cannot
+change what a pipeline posts to a merge request; the block is an explicit opt-in.
+
+```yaml
+# sfn-diagram.config.yaml
+layout: LR            # main command only
+commentGitlab:        # comment gitlab only
+  theme: dark
+  catchHandling: hide
+```
+
+The block takes the four render settings the subcommand forwards: `theme` (`light`,
+`dark`, or a custom theme object), `layout`, `catchHandling` and `collapse`, with the same
+values as the top-level fields. Any other key in it is an error (exit `1`), rather than
+silently ignored. The CI-shaped options (`--asl-glob`, `--comment-tag`, `--out-dir`,
+`--execution-mode`) stay flags in the job.
+
+Precedence is flag, then block, then the default. `--show-catch` and `--no-collapse` undo a
+`catchHandling: hide` or a `collapse` from the block. `comment gitlab --config <path>` reads
+that file instead of searching, and it is an error if the file has no `commentGitlab` block.
+When a block is read, the job log says so: `Read commentGitlab settings from <path>`.
+
+Needs sfn-diagram 1.9.0 or later; an older CLI ignores the block.
 
 ## Rendering several files
 
