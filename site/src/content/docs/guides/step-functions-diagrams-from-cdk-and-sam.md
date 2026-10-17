@@ -25,13 +25,16 @@ This guide shows how to use the CLI with each tool. The full flag list is in
 npx cdk synth --quiet
 ```
 
-`cdk synth` writes one CloudFormation template per stack to `cdk.out/`, named
-`<StackName>.template.json`. `--quiet` stops it from also printing the template.
+`cdk synth` writes one CloudFormation template per stack to `cdk.out/`. The file is named
+after the stack's construct ID, the second argument to `new Stack(app, 'OrdersStack')`,
+so `cdk.out/OrdersStack.template.json`. A `stackName` you set in the stack's props doesn't
+change the file name. `--quiet` stops synth from also printing the template.
 
 The printed copy is YAML, so `cdk synth > template.json` gives you YAML in a file
 named `.json`, and that file won't be recognized as a template. Read the file in `cdk.out/`
-instead. If you use CDK Stages, the template is one level down, in
-`cdk.out/assembly-<StageName>/`.
+instead. If you use CDK Stages, the template goes in a subfolder,
+`cdk.out/assembly-<StageName>/`. Its file name starts with the stage name and ends in a hash,
+for example `ProdOrdersStack2EDBF9CE.template.json`.
 
 ### 2. Render
 
@@ -126,15 +129,18 @@ Resources:
             Type: Task
             Resource: arn:aws:states:::lambda:invoke
             Parameters:
-              FunctionName: !GetAtt ChargeFunction.Arn
+              FunctionName: ${ChargeFunctionArn}
               Payload.$: $
-            Next: Wait for settlement
-          Wait for settlement:
-            Type: Wait
-            Seconds: ${SettleSeconds}
+            Next: Notify customer
+          Notify customer:
+            Type: Task
+            Resource: arn:aws:states:::sns:publish
+            Parameters:
+              TopicArn: !Ref OrderTopic
+              Message.$: $
             End: true
       DefinitionSubstitutions:
-        SettleSeconds: 30
+        ChargeFunctionArn: !GetAtt ChargeFunction.Arn
 ```
 
 ```bash
@@ -143,9 +149,9 @@ npx sfn-diagram template.yaml --resolve-cfn --resource OrderStateMachine -o orde
 
 Unlike JSON, a YAML template isn't detected automatically, so `--resolve-cfn` is
 required. Without it the CLI tries to read the YAML as ASL and fails with
-`ASL definition is not valid JSON`. Short-form tags such as `!GetAtt` and `!Sub` are
-understood. `DefinitionSubstitutions` are filled in, so the Wait state above reads
-`30`.
+`ASL definition is not valid JSON`. Short-form tags such as `!Ref`, `!GetAtt` and `!Sub`
+are understood, and `DefinitionSubstitutions` are filled in. In the example above,
+`FunctionName` becomes `<ChargeFunction.Arn>` and `TopicArn` becomes `<Ref:OrderTopic>`.
 
 You write SAM logical IDs yourself, so `--resource` takes the name you gave the resource.
 You can leave it out if the template has only one state machine.
@@ -195,8 +201,10 @@ Synthesize before and after a change, then diff the two templates. Both sides go
 the same extraction, so `--resource` picks the machine in each:
 
 ```bash
-cp -r cdk.out base.out          # before the change
-# ...edit the stack...
+# Before the change: synthesize and keep a copy as the baseline
+npx cdk synth --quiet
+rm -rf base.out && cp -r cdk.out base.out
+# ...edit the stack, then synthesize again...
 npx cdk synth --quiet
 npx sfn-diagram cdk.out/OrdersStack.template.json --diff base.out/OrdersStack.template.json \
   --resource OrderWorkflow0015CDD9 --format mermaid -o orders-diff.mmd
@@ -222,14 +230,17 @@ projects that use `DefinitionUri`.
 
 ## Lint before you deploy
 
-`--check` runs the same template extraction and then lints the definition. It catches
-things like a Choice with no `Default` or a state nothing can reach:
+`--check` runs the same template extraction and then lints the definition:
 
 ```bash
 npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow0015CDD9 --check
 ```
 
-It exits 1 when it finds an error, so it can fail a CI job. See [Linting](/guides/cli/#linting).
+Findings come in two severities. Errors are mistakes Step Functions would reject, such as a
+Wait state with no duration, a Choice with no rules, or a state with both `End` and `Next`.
+Any error makes `--check` exit 1, so it fails a CI job. Warnings point at likely bugs, such
+as a Choice with no `Default` or a state nothing can reach. They're printed, but on their
+own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule list.
 
 ## Troubleshooting
 
