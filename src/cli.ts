@@ -424,7 +424,7 @@ Options:
                                      commentGitlab.catchHandling)
   --config <path>                    Read the commentGitlab block from this file instead
                                      of searching; the file must have one
-  --out-dir <path>                 Where SVG fallback artifacts are written
+  --out-dir <path>                   Where SVG fallback artifacts are written
                                      (default: sfn-diagram-artifacts; alias: --output-dir)
   --execution-mode <off|latest|latest-failed>
                                      Optionally overlay a real execution (default: off)

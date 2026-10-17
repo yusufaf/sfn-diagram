@@ -561,9 +561,10 @@ export type LoadCommentGitlabConfigParams = LoadCliConfigParams;
  *   found or a discovered file has no `commentGitlab` key. A `commentGitlab: null`
  *   block gives an empty config.
  *
- * @throws {CliConfigError} When the file cannot be read or parsed, `explicitPath` names
- *   a file with no `commentGitlab` block, the block is not an object, it has an
- *   unsupported key, or a field is invalid.
+ * @throws {CliConfigError} When the file cannot be read or parsed, it has a misspelled
+ *   block name such as `commentGitLab`, `explicitPath` names a file with no
+ *   `commentGitlab` block, the block is not an object, it has an unsupported key, or a
+ *   field is invalid.
  *
  * @example
  * ```typescript
@@ -578,6 +579,19 @@ export function loadCommentGitlabConfig(
     const file = readConfigFile(params);
     if (file === null) return null;
     const { path, raw } = file;
+
+    // The main CLI drops unknown top-level keys, so a near miss such as `commentGitLab`
+    // or `comment_gitlab` would otherwise leave the block silently unread.
+    const nearMiss = Object.keys(raw).find(
+        (key) =>
+            key !== 'commentGitlab' &&
+            key.toLowerCase().replace(/[-_]/g, '') === 'commentgitlab',
+    );
+    if (nearMiss !== undefined) {
+        throw new CliConfigError(
+            `Unknown key ${nearMiss} in ${path}: did you mean commentGitlab?`,
+        );
+    }
 
     if (!('commentGitlab' in raw)) {
         // An explicit path is a statement of intent; a no-op there would hide a typo.

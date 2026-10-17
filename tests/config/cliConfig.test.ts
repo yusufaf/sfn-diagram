@@ -601,6 +601,19 @@ describe('loadCommentGitlabConfig', () => {
         );
     });
 
+    it.each(['commentGitLab', 'comment_gitlab', 'comment-gitlab'])(
+        'rejects the near-miss block name %s rather than ignoring it',
+        (key) => {
+            const path = write(
+                'sfn-diagram.config.json',
+                JSON.stringify({ [key]: { theme: 'dark' } }),
+            );
+            expect(() => load()).toThrow(
+                `Unknown key ${key} in ${path}: did you mean commentGitlab?`,
+            );
+        },
+    );
+
     it('prefixes field errors with the block name', () => {
         write(
             'sfn-diagram.config.json',
