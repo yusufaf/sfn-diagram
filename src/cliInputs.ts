@@ -359,9 +359,10 @@ export interface DeriveOutputNameParams {
 /**
  * The output filename for one input, with no directory part.
  *
- * The input's directory is deliberately discarded — output is flat, because that is what
- * a caller globs over afterwards. Two inputs that would produce the same name are caught
- * by {@link planOutputPaths} rather than silently overwriting each other.
+ * The input's directory is deliberately discarded — output is flat by default, because
+ * that is what a caller globs over afterwards; `--preserve-tree` puts the directory back
+ * in {@link planOutputPaths}. Two inputs that would produce the same name are caught
+ * there rather than silently overwriting each other.
  *
  * @param params - Derivation parameters
  * @param params.format - The output format, which decides the extension
@@ -412,6 +413,11 @@ export interface PlanOutputPathsParams {
     outDir: string;
     /** The sources, in the order they will be rendered. */
     sources: OutputNamingSource[];
+    /**
+     * Absolute directory each output keeps its input's directory relative to, from
+     * `--preserve-tree`; omitted for flat output.
+     */
+    treeRoot?: string;
 }
 
 /**
@@ -420,16 +426,21 @@ export interface PlanOutputPathsParams {
  * Collisions are found before anything is written, so a rejected batch leaves no
  * half-populated output directory behind. Every colliding group is reported, not just
  * the first, because a caller fixing one would otherwise have to run again to find the
- * next.
+ * next. With a `treeRoot` collisions are still checked: `order.asl.json` and
+ * `order.json` in one directory derive the same name whatever the layout.
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
  * @param params.outDir - Directory every output is written into
  * @param params.sources - The sources, in the order they will be rendered
+ * @param params.treeRoot - Absolute directory each output keeps its input's directory
+ *   relative to (`--preserve-tree`); omitted for flat output
  *
  * @returns One entry per source, in the order given.
  *
- * @throws {CliInputError} When two or more sources derive the same output name.
+ * @throws {CliInputError} When two or more sources derive the same output path.
+ * @throws {Error} When a source lies outside `treeRoot` — a caller bug, refused so
+ *   nothing is written outside `outDir`.
  *
  * @example
  * ```typescript
@@ -439,45 +450,73 @@ export interface PlanOutputPathsParams {
  *     sources: [{ label: 'a/order.asl.json', nameSource: 'a/order.asl.json' }],
  * });
  * // [{ label: 'a/order.asl.json', output: 'out/order.svg' }]
+ *
+ * planOutputPaths({
+ *     format: 'svg',
+ *     outDir: 'out',
+ *     sources: [{ label: 'a/order.asl.json', nameSource: '/repo/a/order.asl.json' }],
+ *     treeRoot: '/repo',
+ * });
+ * // [{ label: 'a/order.asl.json', output: 'out/a/order.svg' }]
  * ```
  */
 export function planOutputPaths(
     params: PlanOutputPathsParams,
 ): PlannedOutput[] {
-    const { format, outDir, sources } = params;
-    const byName = new Map<string, string[]>();
-
-    for (const source of sources) {
+    const { format, outDir, sources, treeRoot } = params;
+    const keys = sources.map((source) => {
         const name = deriveOutputName({ format, input: source.nameSource });
-        const existing = byName.get(name);
-        if (existing === undefined) {
-            byName.set(name, [source.label]);
-        } else {
-            existing.push(source.label);
+        if (treeRoot === undefined) return name;
+        const inputDir = dirname(resolve(source.nameSource));
+        if (!isWithin({ directory: treeRoot, path: inputDir })) {
+            // A caller bug, not a user error: commonInputRoot always contains every
+            // input. Refusing here guarantees nothing is ever written outside --out-dir.
+            throw new Error(`${source.label} is outside ${treeRoot}`);
         }
-    }
+        return join(relative(treeRoot, inputDir), name);
+    });
 
-    const collisions = [...byName.entries()].filter(
-        ([, labels]) => labels.length > 1,
+    const byKey = new Map<string, OutputNamingSource[]>();
+    sources.forEach((source, index) => {
+        const existing = byKey.get(keys[index]);
+        if (existing === undefined) {
+            byKey.set(keys[index], [source]);
+        } else {
+            existing.push(source);
+        }
+    });
+
+    const collisions = [...byKey.entries()].filter(
+        ([, group]) => group.length > 1,
     );
     if (collisions.length > 0) {
         const detail = collisions
             .map(
-                ([name, labels]) =>
-                    `  ${join(outDir, name)} <- ${labels.join(', ')}`,
+                ([key, group]) =>
+                    `  ${join(outDir, key)} <- ${group.map((source) => source.label).join(', ')}`,
             )
             .join('\n');
+        // Only point at --preserve-tree when it would separate every clash: suggesting
+        // it for a same-directory pair sends the caller into a second refusal.
+        const treeWouldHelp = collisions.every(
+            ([, group]) =>
+                new Set(
+                    group.map((source) => dirname(resolve(source.nameSource))),
+                ).size === group.length,
+        );
+        const hint =
+            treeRoot !== undefined
+                ? 'Rename one, or render them in separate runs.'
+                : treeWouldHelp
+                  ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
+                  : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(
-            `Two or more inputs would be written to the same file:\n${detail}\n` +
-                'Rename one, give them distinct basenames, or render them in separate runs.',
+            `Two or more inputs would be written to the same file:\n${detail}\n${hint}`,
         );
     }
 
-    return sources.map((source) => ({
-        label: source.label,
-        output: join(
-            outDir,
-            deriveOutputName({ format, input: source.nameSource }),
-        ),
+    return keys.map((key, index) => ({
+        label: sources[index].label,
+        output: join(outDir, key),
     }));
 }

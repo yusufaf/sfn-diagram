@@ -421,21 +421,133 @@ describe('planOutputPaths', () => {
         ]);
     });
 
-    it('does not suggest a flag that does not exist', () => {
-        // The chosen design has no --preserve-tree; an error pointing at one would send
-        // the reader looking for something they cannot use.
-        let message = '';
+    /** The collision message for a batch that must be refused. */
+    const collisionMessage = (
+        params: Parameters<typeof planOutputPaths>[0],
+    ) => {
         try {
-            planOutputPaths({
+            planOutputPaths(params);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliInputError);
+            return (error as Error).message;
+        }
+        return expect.unreachable('the batch should collide');
+    };
+
+    it('suggests --preserve-tree when the colliding inputs sit in different directories', () => {
+        expect(
+            collisionMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: fileSources('a/order.asl.json', 'b/order.asl.json'),
+            }),
+        ).toContain('--preserve-tree');
+    });
+
+    it('does not suggest --preserve-tree when it would not help', () => {
+        // Same directory: mirroring the tree changes nothing.
+        expect(
+            collisionMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: fileSources('order.asl.json', 'order.asl'),
+            }),
+        ).not.toContain('--preserve-tree');
+        // ARNs have no directory, and the flag is refused with --from-aws anyway.
+        expect(
+            collisionMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: [
+                    { label: 'arn:one', nameSource: 'Orders' },
+                    { label: 'arn:two', nameSource: 'Orders' },
+                ],
+            }),
+        ).not.toContain('--preserve-tree');
+        // The two a/ inputs would still collide under the flag.
+        expect(
+            collisionMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: fileSources(
+                    'a/order.asl.json',
+                    'a/order.json',
+                    'b/order.asl.json',
+                ),
+            }),
+        ).not.toContain('--preserve-tree');
+    });
+
+    describe('with a treeRoot', () => {
+        const root = resolve('/repo');
+        const treeSources = (...paths: string[]) =>
+            paths.map((path) => ({
+                label: path,
+                nameSource: join(root, path),
+            }));
+
+        it("mirrors each input's directory under treeRoot", () => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: treeSources(
+                        'a/order.asl.json',
+                        'b/order.asl.json',
+                    ),
+                    treeRoot: root,
+                }),
+            ).toEqual([
+                {
+                    label: 'a/order.asl.json',
+                    output: join('out', 'a', 'order.svg'),
+                },
+                {
+                    label: 'b/order.asl.json',
+                    output: join('out', 'b', 'order.svg'),
+                },
+            ]);
+        });
+
+        it('writes an input that sits at treeRoot directly into out-dir', () => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: treeSources('order.asl.json'),
+                    treeRoot: root,
+                }),
+            ).toEqual([
+                { label: 'order.asl.json', output: join('out', 'order.svg') },
+            ]);
+        });
+
+        it('still refuses two inputs in one directory that derive the same name', () => {
+            const message = collisionMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: treeSources('a/order.asl.json', 'a/order.asl'),
+                treeRoot: root,
             });
-            expect.unreachable('two inputs map to the same output');
-        } catch (error) {
-            message = (error as Error).message;
-        }
-        expect(message).not.toContain('--preserve-tree');
+            expect(message).toContain(join('out', 'a', 'order.svg'));
+            expect(message).not.toContain('--preserve-tree');
+        });
+
+        it('refuses an input outside treeRoot rather than writing outside out-dir', () => {
+            expect(() =>
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: [
+                        {
+                            label: 'x.json',
+                            nameSource: resolve('/elsewhere/x.json'),
+                        },
+                    ],
+                    treeRoot: root,
+                }),
+            ).toThrowError(/outside/);
+        });
     });
 
     it('derives an ARN output name from the state machine name, not the ARN', () => {
