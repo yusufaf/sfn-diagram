@@ -42,10 +42,7 @@ const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
  * Polling rather than a fixed sleep: the event latency differs per platform and a
  * sleep long enough for the slowest would make the suite slow for everyone.
  */
-async function waitFor(
-    ready: () => boolean,
-    timeoutMs = 10_000,
-): Promise<void> {
+async function waitFor(ready: () => boolean, timeoutMs = 10_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         if (ready()) return;
@@ -66,6 +63,7 @@ function nodeMarkup(html: string, stateId: string): string {
     expect(match, `node ${stateId}`).not.toBeNull();
     return match![0];
 }
+
 
 // Two tests in this file run a real resvg PNG export rather than rejecting before
 // the render, and they are the only ones here that need more than vitest's 5s
@@ -1352,11 +1350,7 @@ describe('Terraform input', () => {
     });
 
     it('renders a .tf heredoc definition', async () => {
-        const code = await run([
-            terraformFixture('heredoc.tf'),
-            '--format',
-            'mermaid',
-        ]);
+        const code = await run([terraformFixture('heredoc.tf'), '--format', 'mermaid']);
         expect(code).toBe(0);
         expect(stdoutData).toContain('Charge');
         expect(stdoutData).toContain('Pause');
@@ -1364,11 +1358,7 @@ describe('Terraform input', () => {
     });
 
     it('renders a .tf.json definition', async () => {
-        const code = await run([
-            terraformFixture('jsonencode.tf.json'),
-            '--format',
-            'mermaid',
-        ]);
+        const code = await run([terraformFixture('jsonencode.tf.json'), '--format', 'mermaid']);
         expect(code).toBe(0);
         expect(stdoutData).toContain('A');
     });
@@ -1390,21 +1380,13 @@ describe('Terraform input', () => {
     });
 
     it('lists the machines when several exist and --resource is missing', async () => {
-        const code = await run([
-            terraformFixture('multi.tf'),
-            '--format',
-            'mermaid',
-        ]);
+        const code = await run([terraformFixture('multi.tf'), '--format', 'mermaid']);
         expect(code).toBe(1);
         expect(stderrData).toContain('orders, refunds');
     });
 
     it('names aws_sfn_state_machine when a .tf file declares none', async () => {
-        const code = await run([
-            terraformFixture('module-only.tf'),
-            '--format',
-            'mermaid',
-        ]);
+        const code = await run([terraformFixture('module-only.tf'), '--format', 'mermaid']);
         expect(code).toBe(1);
         expect(stderrData).toContain('aws_sfn_state_machine');
     });
@@ -1422,21 +1404,14 @@ describe('Terraform input', () => {
 
     it('detects Terraform by content when the file has no .tf extension', async () => {
         const inputPath = join(tempDir, 'main');
-        writeFileSync(
-            inputPath,
-            readFileSync(terraformFixture('heredoc.tf'), 'utf-8'),
-        );
+        writeFileSync(inputPath, readFileSync(terraformFixture('heredoc.tf'), 'utf-8'));
         const code = await run([inputPath, '--format', 'mermaid']);
         expect(code).toBe(0);
         expect(stdoutData).toContain('Charge');
     });
 
     it('prints extraction warnings to stderr', async () => {
-        const code = await run([
-            terraformFixture('jsonencode.tf'),
-            '--format',
-            'mermaid',
-        ]);
+        const code = await run([terraformFixture('jsonencode.tf'), '--format', 'mermaid']);
         expect(code).toBe(0);
         expect(stderrData).toContain('warning: Expression format(');
     });
@@ -3166,7 +3141,13 @@ describe('run: --scale and --load-system-fonts refusals', () => {
             JSON.stringify({ loadSystemFonts: true, scale: 3 }),
         );
         expect(
-            await run([simpleFixture, '--format', 'svg', '--config', config]),
+            await run([
+                simpleFixture,
+                '--format',
+                'svg',
+                '--config',
+                config,
+            ]),
         ).toBe(0);
         expect(stdoutData).toContain('<svg');
     });
@@ -3780,7 +3761,28 @@ describe('run: multiple inputs', () => {
                 '--preserve-tree',
             ]),
         ).toBe(2);
-        expect(stderrData).toContain('Cannot create --out-dir');
+        // Names the subdirectory that is blocked, not the out-dir, which is fine.
+        expect(stderrData).toContain(
+            `Cannot create ${join('out', 'a')} inside --out-dir out`,
+        );
+    });
+
+    it('refuses an input that resolves outside the --preserve-tree root', async () => {
+        // The glob matches nothing, so it is kept as a literal path; its `..` segments
+        // climb above the `machines` prefix the root was taken from.
+        touch('order.asl.json');
+        mkdirSync(join(tempDir, 'machines', 'a'), { recursive: true });
+        process.chdir(tempDir);
+        expect(
+            await run([
+                'machines/*/../../order.asl.json',
+                '--out-dir',
+                'out',
+                '--preserve-tree',
+            ]),
+        ).toBe(2);
+        expect(stderrData).toContain('--preserve-tree cannot place');
+        expect(existsSync(join(tempDir, 'out'))).toBe(false);
     });
 
     it('exits 1 when a glob matches nothing', async () => {
@@ -4198,12 +4200,7 @@ describe('run --from-aws', () => {
         // applies to the head only: a live definition is already ASL, and feeding it
         // to extractAslFromTemplate failed with a message about templates that named
         // nothing the caller typed.
-        const template = join(
-            __dirname,
-            'fixtures',
-            'cfn',
-            'cfn-template.yaml',
-        );
+        const template = join(__dirname, 'fixtures', 'cfn', 'cfn-template.yaml');
         expect(
             await run([
                 template,
@@ -4299,10 +4296,7 @@ describe('--execution <arn> and --follow', () => {
                 '--follow-timeout',
                 '600',
             ]);
-            expect(args).toMatchObject({
-                followTimeout: 600,
-                pollInterval: 10,
-            });
+            expect(args).toMatchObject({ followTimeout: 600, pollInterval: 10 });
         });
 
         it('rejects a sub-second poll interval', () => {
@@ -4387,13 +4381,7 @@ describe('--execution <arn> and --follow', () => {
         sfnSendMock.mockResolvedValue({ events: events() });
         const target = join(tempDir, 'run.svg');
         expect(
-            await run([
-                simpleFixture,
-                '--execution',
-                executionArn,
-                '-o',
-                target,
-            ]),
+            await run([simpleFixture, '--execution', executionArn, '-o', target]),
         ).toBe(0);
         // Succeeded states are green; the overlay applied.
         expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
@@ -4900,7 +4888,11 @@ describe('--watch', () => {
         it('watches an --execution history file', () => {
             expect(
                 collectWatchTargets({
-                    args: parseArgs(['a.asl.json', '--execution', 'run.json']),
+                    args: parseArgs([
+                        'a.asl.json',
+                        '--execution',
+                        'run.json',
+                    ]),
                     configPath: null,
                     sources: [{ kind: 'file', path: 'a.asl.json' }],
                 }),
@@ -4969,7 +4961,9 @@ describe('--watch', () => {
             '{ this is not json',
             'utf-8',
         );
-        const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+        const cwdSpy = vi
+            .spyOn(process, 'cwd')
+            .mockReturnValue(tempDir);
 
         const watching = run([
             input,
@@ -5063,17 +5057,13 @@ describe('--watch', () => {
         try {
             const watching = run([input, '--watch', '-o', output]);
             await waitFor(
-                () =>
-                    existsSync(output) &&
-                    readFileSync(output, 'utf-8').includes('Revision one'),
+                () => existsSync(output) && readFileSync(output, 'utf-8').includes('Revision one'),
             );
             const callsAfterFirst = calculate.mock.calls.length;
             expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
 
             writeFileSync(input, definition('Revision two'), 'utf-8');
-            await waitFor(() =>
-                readFileSync(output, 'utf-8').includes('Revision two'),
-            );
+            await waitFor(() => readFileSync(output, 'utf-8').includes('Revision two'));
             expect(calculate).toHaveBeenCalledTimes(callsAfterFirst);
 
             process.emit('SIGINT');

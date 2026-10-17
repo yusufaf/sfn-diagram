@@ -1253,10 +1253,11 @@ function isCfnTemplate(source: string): boolean {
         const resources = parsed?.Resources;
         return (
             !!resources &&
-            Object.values(resources).some((resource) =>
-                STATE_MACHINE_TYPES.includes(
-                    (resource as { Type?: string })?.Type ?? '',
-                ),
+            Object.values(resources).some(
+                (resource) =>
+                    STATE_MACHINE_TYPES.includes(
+                        (resource as { Type?: string })?.Type ?? '',
+                    ),
             )
         );
     } catch {
@@ -1354,9 +1355,7 @@ function isTerraformInput(params: IsTerraformInputParams): boolean {
     const lowerPath = path?.toLowerCase();
     return (
         (lowerPath !== undefined &&
-            TERRAFORM_EXTENSIONS.some((extension) =>
-                lowerPath.endsWith(extension),
-            )) ||
+            TERRAFORM_EXTENSIONS.some((extension) => lowerPath.endsWith(extension))) ||
         isTerraformConfig({ source })
     );
 }
@@ -2138,11 +2137,7 @@ export async function run(argv: string[]): Promise<number> {
     }
     // A file on disk does not progress on its own, so there is nothing for a poll
     // loop to observe: a saved history is already whatever the run ended as.
-    if (
-        args.follow &&
-        args.execution !== null &&
-        !isStateMachineArn(args.execution)
-    ) {
+    if (args.follow && args.execution !== null && !isStateMachineArn(args.execution)) {
         process.stderr.write(
             '--follow needs an execution ARN; a history file does not progress. ' +
                 'Use --watch to re-render when a file changes\n',
@@ -2151,10 +2146,7 @@ export async function run(argv: string[]): Promise<number> {
     }
     // Both only pace or bound the loop, so without it they do nothing at all, and a
     // flag that silently does nothing is worse than one that is refused.
-    if (
-        !args.follow &&
-        (args.pollInterval !== null || args.followTimeout !== null)
-    ) {
+    if (!args.follow && (args.pollInterval !== null || args.followTimeout !== null)) {
         process.stderr.write(
             '--poll-interval and --follow-timeout only apply with --follow\n',
         );
@@ -2276,7 +2268,9 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     // loaded and the files a glob matched, which the argv-only pass above cannot.
     const targets = [...new Set([...plannedTargets, ...first.watchTargets])];
     if (targets.length === 0) {
-        process.stderr.write('Nothing to watch: no input file was named\n');
+        process.stderr.write(
+            'Nothing to watch: no input file was named\n',
+        );
         return EXIT_FAILURE;
     }
 
@@ -2284,9 +2278,7 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     const onInterrupt = (): void => controller.abort();
     process.on('SIGINT', onInterrupt);
 
-    process.stderr.write(
-        `watching ${targets.length} path(s); Ctrl-C to stop\n`,
-    );
+    process.stderr.write(`watching ${targets.length} path(s); Ctrl-C to stop\n`);
 
     try {
         await watchPaths({
@@ -2568,9 +2560,7 @@ async function renderResolvedBatch(
         args.execution !== null &&
         options.format !== 'html'
     ) {
-        process.stderr.write(
-            combinedOverlayRefusal({ format: options.format }),
-        );
+        process.stderr.write(combinedOverlayRefusal({ format: options.format }));
         return { code: EXIT_USAGE, configPath, watchTargets };
     }
     if (args.diff !== null && !OVERLAY_FORMATS.includes(options.format)) {
@@ -2812,24 +2802,34 @@ async function renderResolvedBatch(
         // Created only once the batch is known to be renderable, so a rejected batch
         // leaves no directory behind. Under --preserve-tree that includes each output's
         // own subdirectory, which neither output writer creates.
-        try {
-            const directories = new Set([
-                resolve(args.outDir),
-                ...planned.map((entry) => dirname(resolve(entry.output))),
-            ]);
-            for (const directory of directories) {
+        const outDirPath = resolve(args.outDir);
+        // Resolved path -> the spelling to report it under if it cannot be made.
+        const directories = new Map<string, string>([
+            [outDirPath, args.outDir],
+            ...planned.map(
+                (entry) =>
+                    [dirname(resolve(entry.output)), dirname(entry.output)] as [
+                        string,
+                        string,
+                    ],
+            ),
+        ]);
+        for (const [directory, shown] of directories) {
+            try {
                 mkdirSync(directory, { recursive: true });
+            } catch (error) {
+                // A path blocked by a file part-way along (`a.json/nested/out`) used to
+                // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
+                // clean exit 2 an out-dir that *is* a file already gets.
+                const reason =
+                    error instanceof Error ? error.message : String(error);
+                process.stderr.write(
+                    directory === outDirPath
+                        ? `Cannot create --out-dir ${args.outDir}: ${reason}\n`
+                        : `Cannot create ${shown} inside --out-dir ${args.outDir}: ${reason}\n`,
+                );
+                return { code: EXIT_USAGE, configPath, watchTargets };
             }
-        } catch (error) {
-            // A path blocked by a file part-way along (`a.json/nested/out`) used to
-            // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
-            // clean exit 2 an out-dir that *is* a file already gets.
-            const reason =
-                error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Cannot create --out-dir ${args.outDir}: ${reason}\n`,
-            );
-            return { code: EXIT_USAGE, configPath, watchTargets };
         }
     }
 
@@ -3108,11 +3108,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
     try {
         const result = await followExecution({
             fetchHistory: () =>
-                fetchExecutionHistoryForArn({
-                    arn,
-                    client,
-                    flag: '--execution',
-                }),
+                fetchExecutionHistoryForArn({ arn, client, flag: '--execution' }),
             intervalMs: intervalSeconds * 1000,
             render: async ({ events }) => {
                 ticks += 1;

@@ -546,14 +546,15 @@ describe('planOutputPaths', () => {
                     ],
                     treeRoot: root,
                 }),
-            ).toThrowError(/outside/);
+            ).toThrowError(CliInputError);
         });
     });
 
     it('derives an ARN output name from the state machine name, not the ARN', () => {
         // An ARN has no basename and its colons are illegal in a Windows filename,
         // so the name it is written under has to come from somewhere else.
-        const arn = 'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
+        const arn =
+            'arn:aws:states:us-east-1:123456789012:stateMachine:Orders';
         expect(
             planOutputPaths({
                 format: 'svg',

@@ -50,6 +50,19 @@ export function toPosix(pathOrPattern: string): string {
 }
 
 /**
+ * A glob pattern with forward slashes and no leading `./`.
+ *
+ * A leading `./` never appears on the candidates, which come from `relative()`, so
+ * leaving it on the pattern would match nothing. Shell completion and copied
+ * documentation both produce it constantly. Shared by {@link expandInputs} and
+ * {@link commonInputRoot} so the directory walked and the `--preserve-tree` root
+ * cannot drift apart.
+ */
+function normalizePattern(pattern: string): string {
+    return toPosix(pattern).replace(/^\.\//, '');
+}
+
+/**
  * The leading directory segments of a pattern before its first metacharacter.
  *
  * Walking from here rather than from the working directory keeps a scoped pattern
@@ -184,10 +197,7 @@ export function expandInputs(params: ExpandInputsParams): string[] {
             collected.push(pattern);
             continue;
         }
-        // A leading `./` never appears on the candidates, which come from
-        // `relative()`, so leaving it on the pattern would match nothing. Shell
-        // completion and copied documentation both produce it constantly.
-        const normalized = toPosix(pattern).replace(/^\.\//, '');
+        const normalized = normalizePattern(pattern);
         const absolute =
             isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized);
         const root = patternRoot(normalized);
@@ -327,7 +337,7 @@ export function commonInputRoot(params: CommonInputRootParams): string {
     const { cwd, patterns } = params;
     const bases = patterns.map((pattern) => {
         const base = hasGlobMagic(pattern)
-            ? patternRoot(toPosix(pattern).replace(/^\.\//, '')) || '.'
+            ? patternRoot(normalizePattern(pattern)) || '.'
             : dirname(pattern);
         return resolve(cwd, base);
     });
@@ -438,9 +448,9 @@ export interface PlanOutputPathsParams {
  *
  * @returns One entry per source, in the order given.
  *
- * @throws {CliInputError} When two or more sources derive the same output path.
- * @throws {Error} When a source lies outside `treeRoot` — a caller bug, refused so
- *   nothing is written outside `outDir`.
+ * @throws {CliInputError} When two or more sources derive the same output path, or
+ *   when a source lies outside `treeRoot` — refused so nothing is written outside
+ *   `outDir`.
  *
  * @example
  * ```typescript
@@ -469,9 +479,13 @@ export function planOutputPaths(
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
-            // A caller bug, not a user error: commonInputRoot always contains every
-            // input. Refusing here guarantees nothing is ever written outside --out-dir.
-            throw new Error(`${source.label} is outside ${treeRoot}`);
+            // Reachable from the command line: a glob that matched nothing is kept as
+            // a literal path, and a `..` after its magic segment can resolve above the
+            // glob's prefix. Refusing here guarantees nothing is written outside
+            // --out-dir.
+            throw new CliInputError(
+                `--preserve-tree cannot place ${source.label}: it resolves outside the inputs' common root ${treeRoot}`,
+            );
         }
         return join(relative(treeRoot, inputDir), name);
     });
@@ -498,16 +512,19 @@ export function planOutputPaths(
             .join('\n');
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
-        const treeWouldHelp = collisions.every(
-            ([, group]) =>
-                new Set(
-                    group.map((source) => dirname(resolve(source.nameSource))),
-                ).size === group.length,
-        );
+        const treeWouldHelp = (): boolean =>
+            collisions.every(
+                ([, group]) =>
+                    new Set(
+                        group.map((source) =>
+                            dirname(resolve(source.nameSource)),
+                        ),
+                    ).size === group.length,
+            );
         const hint =
             treeRoot !== undefined
                 ? 'Rename one, or render them in separate runs.'
-                : treeWouldHelp
+                : treeWouldHelp()
                   ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
                   : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(
