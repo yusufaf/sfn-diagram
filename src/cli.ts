@@ -260,7 +260,7 @@ Options:
                                    Parameters,Arguments,Credentials
   --no-raw-state                   HTML: inline no state's raw ASL; the state detail
                                    panel shows '[redacted]'
-  --diff <baseline>               Compare the input (head) against a baseline definition;
+  --diff <baseline>                Compare the input (head) against a baseline definition;
                                    added/modified/removed states are highlighted
   --execution <history.json|arn>   Overlay a run on the diagram: a saved
                                    GetExecutionHistory result, or an execution ARN
@@ -710,7 +710,7 @@ function expectNameList(params: ExpectNameListParams): string[] {
         const names = parseNameList(value);
         if (names.length === 0) {
             throw new CliError(
-                `Invalid ${flag}: expected at least one field name`,
+                `Invalid ${flag}: expected at least one name`,
                 EXIT_USAGE,
             );
         }

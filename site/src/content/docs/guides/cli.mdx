@@ -801,7 +801,11 @@ How `--redact-fields` matches:
   state's copy inside its Parallel or Map container is caught as well as its own entry.
 - `Payload` also matches `Payload.$`, the same field with a dynamic value.
 - A dotted name names a nested key: `Parameters.Token` redacts only that key and keeps
-  the rest of `Parameters`.
+  the rest of `Parameters`. It does not reach through an array: `Catch.Next` matches
+  nothing, because `Catch` holds a list; name the inner key alone (`Next`) instead.
+- Matching never runs on a state's own name, so a state called `Parameters` keeps its
+  own entry. Inside its Parallel or Map container's copy, though, its name is a key
+  under `States`, and `--redact-fields Parameters` redacts that copy of it whole.
 - It is repeatable, and a comma inside a name is written `\,`.
 
 The two flags combine, and the config file can set them too (`redactFields`,
@@ -824,6 +828,9 @@ collapse model, and the edge data the edge panel prints. That includes:
 - `TimeoutSeconds`/`HeartbeatSeconds` paths, Wait `SecondsPath`/`TimestampPath`
 - Map `ItemsPath` and `Label`
 - `Assign` variable names
+- JSONata `Arguments` and `Output` key names, or the whole expression when the field is
+  a single `{% %}` string (`--redact-fields Arguments` blanks the values in the panel,
+  not the `args …` label)
 
 Not drawn does not mean not shipped. An execution overlay's error names are not touched
 either; the CLI inlines no other execution payload. For anything beyond field names, use

@@ -30,9 +30,11 @@ export interface BuildCliRedactParams {
  * A name matches a key exactly and case-sensitively, at any depth, so a nested
  * state's copy inside its Parallel or Map container is caught too. `Foo` also matches
  * `Foo.$`, the same field with a dynamic value, and a dotted name such as
- * `Parameters.Token` names a nested key. Matching runs on the path inside a state,
- * never on the state id, so a state named `Parameters` keeps its entry. A name that
- * matches nothing is not an error. Execution payloads pass through untouched.
+ * `Parameters.Token` names a nested key; it does not cross an array, whose items
+ * are `[0]`, not `.0`. Matching runs on the path inside a state, never on the state
+ * id, so a state named `Parameters` keeps its own entry - though inside its
+ * container's copy, where its name is a key under `States`, it is redacted whole.
+ * A name that matches nothing is not an error. Execution payloads pass through.
  */
 export function buildCliRedact(
     params: BuildCliRedactParams,

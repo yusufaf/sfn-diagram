@@ -46,10 +46,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  *
  * `bin.js` was last restated at 855,000 / 251,000 when the CLI gained `--redact-fields`
  * and `--no-raw-state` (#317), measuring 777,334 raw and 227,975 gzip. That change added
- * 4,966 bytes to a build already at 772,368 / 226,627, within 0.6% of the previous
- * budget, 776,500 / 228,000, set when the CLI gained
- * Terraform input (#287), which took it from 668,986 to 705,838 raw and from 197,331 to
- * 207,038 gzip: +36,852 bytes, +5.5%. Before that it was 674,000 / 197,500, set after the CLI gained
+ * only 4,966 bytes, but the build was already at 772,368 / 226,627, within 0.6% of the
+ * previous budget.
+ *
+ * That previous budget, 776,500 / 228,000, was set when the CLI gained Terraform input
+ * (#287), which took it from 668,986 to 705,838 raw and from 197,331 to 207,038 gzip:
+ * +36,852 bytes, +5.5%. Before that it was 674,000 / 197,500, set after the CLI gained
  * `--from-aws`, `--execution <arn> --follow` and `--watch` (#192, #283, #190), which
  * together took it from 567,677 to 613,128 raw. The AWS SDK is not in that number — it
  * stays an externalised optional peer.
