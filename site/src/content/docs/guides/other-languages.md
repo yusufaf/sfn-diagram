@@ -15,11 +15,13 @@ and every one of those bindings requires Node.js at synth time. So in a CDK proj
 of any language, this already works:
 
 ```bash
-npx sfn-diagram cdk.out/MyStack.template.json --resource MyStateMachine -o diagram.svg
+npx sfn-diagram cdk.out/MyStack.template.json --resource MyStateMachine1A2B3C4D -o diagram.svg
 ```
 
-See [the CLI guide](/guides/cli/) for the full option list, including CloudFormation
-and SAM template input.
+`--resource` takes the logical ID from the synthesized template, which carries a hash
+suffix CDK adds to the construct ID; leave it out when the stack has one state machine.
+See [Generate diagrams from CDK and SAM templates](/guides/step-functions-diagrams-from-cdk-and-sam/)
+for the whole workflow, and [the CLI guide](/guides/cli/) for the full option list.
 
 ## No Node? Install a standalone binary
 
