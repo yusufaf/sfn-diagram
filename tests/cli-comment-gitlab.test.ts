@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -411,10 +411,10 @@ describe('run(["comment", "gitlab", ...])', { timeout: 30_000 }, () => {
         expect(bodies[0]).toContain('direction LR');
         expect(bodies[0]).toContain('fill:#14532d');
         expect(bodies[0]).not.toContain('BranchA');
-        // From cwd rather than `repo`: macOS's tmpdir is a symlink (/var -> /private/var),
-        // and discovery walks the resolved working directory.
+        // Resolved: macOS's tmpdir is a symlink (/var -> /private/var), and after
+        // process.chdir the command's process.cwd() reports the real path.
         expect(stdoutData).toContain(
-            `Read commentGitlab settings from ${join(process.cwd(), 'sfn-diagram.config.json')}`,
+            `Read commentGitlab settings from ${join(realpathSync(repo), 'sfn-diagram.config.json')}`,
         );
     });
 
