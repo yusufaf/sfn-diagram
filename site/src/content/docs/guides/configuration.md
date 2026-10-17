@@ -321,7 +321,10 @@ Big, branchy state machines are hard to read as a static image. A few options he
   It governs the inlined data only. State names, choice conditions and variable
   annotations are drawn into the SVG as text, so they are not offered to the hook —
   redacting those would change the diagram rather than the data travelling beside it.
-  Being a function, it also has no CLI equivalent; the CLI inlines the ASL as before.
+  The CLI cannot take a function, so it offers the common cases as data instead:
+  `--redact-fields` and `--no-raw-state` (see
+  [Redacting the HTML document](/guides/cli/#redacting-the-html-document)). Any other
+  hook stays API-only.
 
   `--diff` and `--execution` also accept `--format html`, which is where the viewer
   earns its keep: a large diff or execution overlay is far easier to read when you
