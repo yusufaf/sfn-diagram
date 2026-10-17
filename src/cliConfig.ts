@@ -602,7 +602,9 @@ export function loadCommentGitlabConfig(
         .filter((key) => !supported.includes(key))
         .sort();
     if (unsupported.length > 0) {
-        const named = unsupported.map((key) => `commentGitlab.${key}`).join(', ');
+        const named = unsupported
+            .map((key) => `commentGitlab.${key}`)
+            .join(', ');
         throw new CliConfigError(
             `Unsupported ${named} in ${path}: comment gitlab reads only ${supported.join(', ')}`,
         );

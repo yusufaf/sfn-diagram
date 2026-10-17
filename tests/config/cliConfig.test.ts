@@ -592,7 +592,9 @@ describe('loadCommentGitlabConfig', () => {
     it('rejects every unsupported key in one message naming the file', () => {
         const path = write(
             'sfn-diagram.config.json',
-            JSON.stringify({ commentGitlab: { padding: 4, aslGlob: '*.json' } }),
+            JSON.stringify({
+                commentGitlab: { padding: 4, aslGlob: '*.json' },
+            }),
         );
         expect(() => load()).toThrow(
             `Unsupported commentGitlab.aslGlob, commentGitlab.padding in ${path}: comment gitlab reads only catchHandling, collapse, layout, theme`,
