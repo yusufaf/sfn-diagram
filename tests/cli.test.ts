@@ -3325,6 +3325,17 @@ describe('parseArgs: multiple inputs and --out-dir', () => {
         expect(parseArgs(['a.asl.json']).outDir).toBeNull();
     });
 
+    it('parses --preserve-tree', () => {
+        expect(
+            parseArgs(['a.asl.json', '--out-dir', 'out', '--preserve-tree'])
+                .preserveTree,
+        ).toBe(true);
+    });
+
+    it('defaults --preserve-tree off', () => {
+        expect(parseArgs(['a.asl.json']).preserveTree).toBe(false);
+    });
+
     it('rejects a blank --out-dir', () => {
         expect(() => parseArgs(['a.asl.json', '--out-dir='])).toThrowError(
             'Invalid --out-dir: expected a non-empty value',
@@ -3675,6 +3686,104 @@ describe('run: multiple inputs', () => {
         expect(stderrData).toContain('blocker/nested/out');
     });
 
+    it('mirrors the input layout with --preserve-tree', async () => {
+        touch('machines/a/order.asl.json');
+        touch('machines/b/order.asl.json');
+        process.chdir(tempDir);
+        expect(
+            await run([
+                'machines/**/*.asl.json',
+                '--out-dir',
+                'out',
+                '--preserve-tree',
+            ]),
+        ).toBe(0);
+        for (const directory of ['a', 'b']) {
+            expect(
+                readFileSync(
+                    join(tempDir, 'out', directory, 'order.svg'),
+                    'utf-8',
+                ),
+            ).toContain('<svg');
+        }
+    });
+
+    it('keeps every output where it was when a new match appears higher up', async () => {
+        // The reason the tree is rooted at the command line, not the matches (#328):
+        // rooted at the matches, top.asl.json would move a/order.svg to
+        // machines/a/order.svg on the second run.
+        const argv = [
+            'machines/**/*.asl.json',
+            '--out-dir',
+            'out',
+            '--preserve-tree',
+        ];
+        touch('machines/a/order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(argv)).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'a', 'order.svg'))).toBe(true);
+
+        touch('machines/top.asl.json');
+        expect(await run(argv)).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'a', 'order.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'out', 'top.svg'))).toBe(true);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(false);
+    });
+
+    it('without --preserve-tree, the same layout collides and the error suggests the flag', async () => {
+        touch('machines/a/order.asl.json');
+        touch('machines/b/order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['machines/**/*.asl.json', '--out-dir', 'out'])).toBe(
+            2,
+        );
+        expect(stderrData).toContain('--preserve-tree');
+        expect(existsSync(join(tempDir, 'out'))).toBe(false);
+    });
+
+    it('rejects --preserve-tree without --out-dir', async () => {
+        touch('order.asl.json');
+        process.chdir(tempDir);
+        expect(await run(['order.asl.json', '--preserve-tree'])).toBe(2);
+        expect(stderrData).toContain('--preserve-tree needs --out-dir');
+    });
+
+    it('reports a nested output directory blocked by a file as a usage error', async () => {
+        touch('machines/a/order.asl.json');
+        mkdirSync(join(tempDir, 'out'));
+        writeFileSync(join(tempDir, 'out', 'a'), '');
+        process.chdir(tempDir);
+        expect(
+            await run([
+                'machines/**/*.asl.json',
+                '--out-dir',
+                'out',
+                '--preserve-tree',
+            ]),
+        ).toBe(2);
+        // Names the subdirectory that is blocked, not the out-dir, which is fine.
+        expect(stderrData).toContain(
+            `Cannot create ${join('out', 'a')} inside --out-dir out`,
+        );
+    });
+
+    it('roots the tree above a fallback literal whose ../ climbs past the glob prefix', async () => {
+        // The glob matches nothing, so it is kept as a literal path; its `..` segments
+        // resolve above `machines`. This used to crash on the outside-root guard.
+        touch('order.asl.json');
+        mkdirSync(join(tempDir, 'machines', 'a'), { recursive: true });
+        process.chdir(tempDir);
+        expect(
+            await run([
+                'machines/*/../../order.asl.json',
+                '--out-dir',
+                'out',
+                '--preserve-tree',
+            ]),
+        ).toBe(0);
+        expect(existsSync(join(tempDir, 'out', 'order.svg'))).toBe(true);
+    });
+
     it('exits 1 when a glob matches nothing', async () => {
         touch('order.asl.json');
         process.chdir(tempDir);
@@ -3792,6 +3901,13 @@ describe('run --from-aws refusals', () => {
         expect(await run(argv)).toBe(2);
         expect(errors.join('')).toContain(fragment);
     };
+
+    it('refuses --preserve-tree with --from-aws', async () => {
+        await expectRefusal(
+            ['--from-aws', arn, '--out-dir', 'out', '--preserve-tree'],
+            '--from-aws inputs have none',
+        );
+    });
 
     it('refuses --from-aws together with a file input', async () => {
         await expectRefusal(

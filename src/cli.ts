@@ -5,7 +5,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
 import { extractAslFromTemplate } from './cfn';
 import { STATE_MACHINE_TYPES } from './cfn/extract';
@@ -35,6 +35,7 @@ import {
 import type { PlannedOutput } from './cliInputs';
 import {
     CliInputError,
+    commonInputRoot,
     expandInputs,
     hasGlobMagic,
     patternRoot,
@@ -134,6 +135,11 @@ export interface CliArgs {
     padding: number | null;
     /** `--poll-interval` in seconds, or `null` to use the default. */
     pollInterval: number | null;
+    /**
+     * `--preserve-tree`: under `--out-dir`, mirror each input's directory relative to
+     * the positionals' common root instead of writing flat.
+     */
+    preserveTree: boolean;
     rankSeparation: number | null;
     resolveCfn: boolean;
     resource: string | null;
@@ -190,6 +196,9 @@ Options:
   -o, --output <path>              Output file path (required for png; stdout otherwise)
   --out-dir <dir>                  Write one output file per input into this directory,
                                    named after each input (required for several inputs)
+  --preserve-tree                  With --out-dir, mirror each input's directory
+                                   (relative to the inputs' common root) instead
+                                   of writing every output side by side
   --from-aws <arn>                 Fetch the definition live from AWS instead of
                                    reading a file: pass a state machine ARN.
                                    Repeatable, with --out-dir, for several machines.
@@ -310,7 +319,10 @@ Notes:
   Several inputs can be given as separate arguments or as a quoted glob
   ("machines/**/*.asl.json"), which is expanded even where the shell does not.
   Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
-  the same filename are refused before anything is written. --diff and --execution
+  the same filename are refused before anything is written. With --preserve-tree
+  they are <out-dir>/<directory relative to the inputs' common root>/<basename>.<ext>;
+  a glob contributes its non-glob prefix, not its matches, so adding a file never
+  moves the others. Inputs on different drives are refused. --diff and --execution
   take a single input. A failing input does not stop the batch; the run exits 1 if
   any failed.
 
@@ -467,6 +479,7 @@ const OPTION_SPEC = {
     output: { short: 'o', type: 'string' },
     padding: { type: 'string' },
     'poll-interval': { type: 'string' },
+    'preserve-tree': { type: 'boolean' },
     'rank-separation': { type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
@@ -1077,6 +1090,7 @@ export function parseArgs(argv: string[]): CliArgs {
                       minimum: 1,
                       value: values['poll-interval'] as string,
                   }),
+        preserveTree: values['preserve-tree'] === true,
         rankSeparation: readPixels('rank-separation', true),
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
@@ -2655,6 +2669,20 @@ async function renderResolvedBatch(
         return { code: EXIT_USAGE, configPath, watchTargets };
     }
 
+    if (args.preserveTree && args.outDir === null) {
+        process.stderr.write(
+            '--preserve-tree needs --out-dir: it mirrors the input directories inside it\n',
+        );
+        return { code: EXIT_USAGE, configPath, watchTargets };
+    }
+
+    if (args.preserveTree && args.fromAws.length > 0) {
+        process.stderr.write(
+            '--preserve-tree mirrors input directories; --from-aws inputs have none\n',
+        );
+        return { code: EXIT_USAGE, configPath, watchTargets };
+    }
+
     // Globs are expanded before the count-dependent checks below, so a pattern matching
     // two files is treated the same as two positionals.
     let sources: CliInputSource[];
@@ -2755,27 +2783,46 @@ async function renderResolvedBatch(
                             ? source.arn.outputName
                             : describeSource(source),
                 })),
+                // Rooted at the command line, not the matches, so `--watch` re-runs
+                // and a newly matched file never move the other outputs.
+                treeRoot: args.preserveTree
+                    ? commonInputRoot({
+                          cwd: process.cwd(),
+                          patterns: args.inputs,
+                      })
+                    : undefined,
             });
         } catch (error) {
             if (!(error instanceof CliInputError)) throw error;
-            // A collision is a property of the invocation, not of any file's contents.
+            // A collision, or inputs with no shared root, is a property of the
+            // invocation, not of any file's contents.
             process.stderr.write(`Error: ${error.message}\n`);
             return { code: EXIT_USAGE, configPath, watchTargets };
         }
         // Created only once the batch is known to be renderable, so a rejected batch
-        // leaves no directory behind.
-        try {
-            mkdirSync(resolve(args.outDir), { recursive: true });
-        } catch (error) {
-            // A path blocked by a file part-way along (`a.json/nested/out`) used to
-            // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
-            // clean exit 2 an out-dir that *is* a file already gets.
-            const reason =
-                error instanceof Error ? error.message : String(error);
-            process.stderr.write(
-                `Cannot create --out-dir ${args.outDir}: ${reason}\n`,
-            );
-            return { code: EXIT_USAGE, configPath, watchTargets };
+        // leaves no directory behind. Under --preserve-tree that includes each output's
+        // own subdirectory, which neither output writer creates.
+        const outDirPath = resolve(args.outDir);
+        const directories = new Set([
+            outDirPath,
+            ...planned.map((entry) => dirname(resolve(entry.output))),
+        ]);
+        for (const directory of directories) {
+            try {
+                mkdirSync(directory, { recursive: true });
+            } catch (error) {
+                // A path blocked by a file part-way along (`a.json/nested/out`) used to
+                // escape to bin.ts as a raw ENOTDIR with exit 1, which contradicts the
+                // clean exit 2 an out-dir that *is* a file already gets.
+                const reason =
+                    error instanceof Error ? error.message : String(error);
+                process.stderr.write(
+                    directory === outDirPath
+                        ? `Cannot create --out-dir ${args.outDir}: ${reason}\n`
+                        : `Cannot create ${join(args.outDir, relative(outDirPath, directory))} inside --out-dir ${args.outDir}: ${reason}\n`,
+                );
+                return { code: EXIT_USAGE, configPath, watchTargets };
+            }
         }
     }
 

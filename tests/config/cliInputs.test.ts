@@ -8,9 +8,10 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, parse, resolve, sep } from 'node:path';
 import {
     CliInputError,
+    commonInputRoot,
     deriveOutputName,
     expandInputs,
     hasGlobMagic,
@@ -420,21 +421,133 @@ describe('planOutputPaths', () => {
         ]);
     });
 
-    it('does not suggest a flag that does not exist', () => {
-        // The chosen design has no --preserve-tree; an error pointing at one would send
-        // the reader looking for something they cannot use.
-        let message = '';
+    /** The CliInputError message for a batch that must be refused. */
+    const refusalMessage = (
+        params: Parameters<typeof planOutputPaths>[0],
+    ) => {
         try {
-            planOutputPaths({
+            planOutputPaths(params);
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliInputError);
+            return (error as Error).message;
+        }
+        return expect.unreachable('the batch should be refused');
+    };
+
+    it('suggests --preserve-tree when the colliding inputs sit in different directories', () => {
+        expect(
+            refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: fileSources('a/order.asl.json', 'b/order.asl.json'),
+            }),
+        ).toContain('--preserve-tree');
+    });
+
+    it('does not suggest --preserve-tree when it would not help', () => {
+        // Same directory: mirroring the tree changes nothing.
+        expect(
+            refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: fileSources('order.asl.json', 'order.asl'),
+            }),
+        ).not.toContain('--preserve-tree');
+        // ARNs have no directory, and the flag is refused with --from-aws anyway.
+        expect(
+            refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: [
+                    { label: 'arn:one', nameSource: 'Orders' },
+                    { label: 'arn:two', nameSource: 'Orders' },
+                ],
+            }),
+        ).not.toContain('--preserve-tree');
+        // The two a/ inputs would still collide under the flag.
+        expect(
+            refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: fileSources(
+                    'a/order.asl.json',
+                    'a/order.json',
+                    'b/order.asl.json',
+                ),
+            }),
+        ).not.toContain('--preserve-tree');
+    });
+
+    describe('with a treeRoot', () => {
+        const root = resolve('/repo');
+        const treeSources = (...paths: string[]) =>
+            paths.map((path) => ({
+                label: path,
+                nameSource: join(root, path),
+            }));
+
+        it("mirrors each input's directory under treeRoot", () => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: treeSources(
+                        'a/order.asl.json',
+                        'b/order.asl.json',
+                    ),
+                    treeRoot: root,
+                }),
+            ).toEqual([
+                {
+                    label: 'a/order.asl.json',
+                    output: join('out', 'a', 'order.svg'),
+                },
+                {
+                    label: 'b/order.asl.json',
+                    output: join('out', 'b', 'order.svg'),
+                },
+            ]);
+        });
+
+        it('writes an input that sits at treeRoot directly into out-dir', () => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: treeSources('order.asl.json'),
+                    treeRoot: root,
+                }),
+            ).toEqual([
+                { label: 'order.asl.json', output: join('out', 'order.svg') },
+            ]);
+        });
+
+        it('still refuses two inputs in one directory that derive the same name', () => {
+            const message = refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: treeSources('a/order.asl.json', 'a/order.asl'),
+                treeRoot: root,
             });
-            expect.unreachable('two inputs map to the same output');
-        } catch (error) {
-            message = (error as Error).message;
-        }
-        expect(message).not.toContain('--preserve-tree');
+            expect(message).toContain(join('out', 'a', 'order.svg'));
+            expect(message).not.toContain('--preserve-tree');
+        });
+
+        it('refuses an input outside treeRoot rather than writing outside out-dir', () => {
+            expect(
+                refusalMessage({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: [
+                        {
+                            label: 'x.json',
+                            nameSource: resolve('/elsewhere/x.json'),
+                        },
+                    ],
+                    treeRoot: root,
+                }),
+            ).toContain('cannot place');
+        });
     });
 
     it('derives an ARN output name from the state machine name, not the ARN', () => {
@@ -473,4 +586,103 @@ describe('planOutputPaths', () => {
         expect(message).toContain(second);
         expect(message).toContain(join('out', 'Orders.svg'));
     });
+});
+
+describe('commonInputRoot', () => {
+    const cwd = resolve('/repo');
+
+    it("uses a glob's non-glob prefix, not its matches", () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['machines/**/*.asl.json'] }),
+        ).toBe(resolve(cwd, 'machines'));
+    });
+
+    it("uses a literal path's directory", () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['machines/a/order.asl.json'] }),
+        ).toBe(resolve(cwd, 'machines/a'));
+    });
+
+    it('finds the deepest directory several positionals share', () => {
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: [
+                    'machines/a/order.asl.json',
+                    'machines/b/*.asl.json',
+                ],
+            }),
+        ).toBe(resolve(cwd, 'machines'));
+    });
+
+    it('does not mistake a sibling sharing a name prefix for an ancestor', () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['app/x.json', 'apple/y.json'] }),
+        ).toBe(cwd);
+    });
+
+    it('climbs above the working directory for a ../ input', () => {
+        expect(
+            commonInputRoot({ cwd, patterns: ['../other/x.json', 'y.json'] }),
+        ).toBe(dirname(cwd));
+    });
+
+    it('treats a glob with no plain prefix, or a ./ prefix, as the working directory', () => {
+        expect(commonInputRoot({ cwd, patterns: ['*.asl.json'] })).toBe(cwd);
+        expect(commonInputRoot({ cwd, patterns: ['./machines/*.json'] })).toBe(
+            resolve(cwd, 'machines'),
+        );
+    });
+
+    it('includes where a glob resolves when a .. follows its magic segment', () => {
+        // Such a glob matches nothing and is kept as a literal path.
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: ['machines/*/../../order.asl.json'],
+            }),
+        ).toBe(cwd);
+        expect(
+            commonInputRoot({ cwd, patterns: ['[ab]/../../x.json'] }),
+        ).toBe(dirname(cwd));
+    });
+
+    it('falls back to the filesystem root for unrelated absolute paths', () => {
+        expect(
+            commonInputRoot({
+                cwd,
+                patterns: [resolve('/srv/a/x.json'), resolve('/home/b/y.json')],
+            }),
+        ).toBe(parse(resolve('/')).root);
+    });
+
+    it.runIf(process.platform === 'win32')(
+        'refuses inputs on different drives',
+        () => {
+            expect(() =>
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'D:/b/y.json'],
+                }),
+            ).toThrowError(CliInputError);
+            expect(() =>
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'D:/b/y.json'],
+                }),
+            ).toThrowError(/different drives/);
+        },
+    );
+
+    it.runIf(process.platform === 'win32')(
+        'compares drive letters case-insensitively',
+        () => {
+            expect(
+                commonInputRoot({
+                    cwd,
+                    patterns: ['C:/a/x.json', 'c:/a/b/y.json'],
+                }).toLowerCase(),
+            ).toBe('c:\\a');
+        },
+    );
 });

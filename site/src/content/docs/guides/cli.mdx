@@ -23,6 +23,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--format <svg\|mermaid\|png\|html>` | Output format (default: `svg`) |
 | `-o`, `--output <path>` | Output file (required for `png`; stdout otherwise) |
 | `--out-dir <dir>` | Write one output file per input into this directory — see [Rendering several files](#rendering-several-files) |
+| `--preserve-tree` | With `--out-dir`, mirror each input's directory instead of writing flat — see [Mirroring the input layout](#mirroring-the-input-layout) |
 | `--from-aws <arn>` | Fetch the definition live from AWS instead of reading a file — see [Rendering a live state machine](#rendering-a-live-state-machine) |
 | `--watch` | Re-render whenever a watched file changes — see [Watching files](#watching-files) |
 | `--follow` | With `--execution <arn>`, keep polling and re-rendering until the run finishes — see [Following a running execution](#following-a-running-execution) |
@@ -202,9 +203,11 @@ including Windows `cmd` and PowerShell.
 
 ### Output filenames
 
-Output is flat: `<out-dir>/<input basename with its suffix stripped>.<ext>`, so
-`machines/order.asl.json` becomes `diagrams/order.svg`. The extension follows `--format`
-(`.svg`, `.mmd`, `.png`, `.html`). The directory is created if it does not exist.
+By default output is flat: `<out-dir>/<input basename with its suffix stripped>.<ext>`, so
+`machines/order.asl.json` becomes `diagrams/order.svg` (see
+[Mirroring the input layout](#mirroring-the-input-layout) for `--preserve-tree`). The
+extension follows `--format` (`.svg`, `.mmd`, `.png`, `.html`). The directory is created
+if it does not exist.
 
 Two inputs that would produce the same filename are **refused before anything is
 written**, so a rejected batch never leaves a half-populated directory:
@@ -213,10 +216,34 @@ written**, so a rejected batch never leaves a half-populated directory:
 $ sfn-diagram a/order.asl.json b/order.asl.json --out-dir out
 Error: Two or more inputs would be written to the same file:
   out/order.svg <- a/order.asl.json, b/order.asl.json
-Rename one, give them distinct basenames, or render them in separate runs.
+Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.
 $ echo $?
 2
 ```
+
+### Mirroring the input layout
+
+`--preserve-tree` keeps each input's directory under `--out-dir`, so inputs that share a
+basename in different directories no longer collide:
+
+```bash
+sfn-diagram 'machines/**/*.asl.json' --out-dir diagrams --preserve-tree
+# machines/a/order.asl.json -> diagrams/a/order.svg
+# machines/b/order.asl.json -> diagrams/b/order.svg
+```
+
+The directory kept is relative to a root taken from the command line, not from the files
+that matched: a glob contributes its non-glob prefix (`machines` above), a plain path its
+own directory, and the root is the deepest directory all of them share. Adding a file
+therefore never moves the other outputs; they move only when the command line changes.
+`'**/*.asl.json'` has no plain prefix, so it mirrors from the working directory.
+
+- Two inputs in one directory that derive the same name (`order.asl.json` and
+  `order.json`) are still refused.
+- Inputs that share no directory at all — on different drives, or a network share and a
+  drive — are a usage error (exit `2`).
+- It needs `--out-dir`, and cannot be combined with `--from-aws`: an ARN has no directory
+  to mirror.
 
 ### What the walk covers
 
