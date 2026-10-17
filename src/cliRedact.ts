@@ -34,8 +34,9 @@ export interface BuildCliRedactParams {
  * `Catch[0].Next`. Matching runs on the path inside a state, never on the state id,
  * so a state named `Parameters` keeps its own entry - but inside its container's
  * copy a nested state's name is a key like any other, and one named after a field
- * is redacted there. A name that matches nothing is not an error. Execution
- * payloads pass through.
+ * is redacted there. The match is a suffix test on the joined path, so a literal
+ * key containing a dot (`"a.Next"`) also matches `Next`; that only over-redacts. A
+ * name that matches nothing is not an error. Execution payloads pass through.
  */
 export function buildCliRedact(
     params: BuildCliRedactParams,

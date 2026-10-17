@@ -827,8 +827,9 @@ collapse model, and the edge data the edge panel prints. Treat every field that 
 node, edge or container label as shipped as-is. Field values the diagram draws are
 generally strings, paths and expressions, and for an object such as JSONata `Arguments`,
 `Output` or a Map's `ItemSelector`, its key names; a string, array or other non-object
-value is drawn as itself, shortened with `…` when it is long. A shortened label is still
-a leak: its first characters ship. Examples:
+value is drawn as itself, shortened with `…` when it is long. A label cut short on
+screen usually still ships in full, in the node's or edge's `<title>`, the Mermaid
+source or the edge data. Examples:
 
 - state names, and the machine-level and per-state `Comment` (a state's `Comment` is its
   node label unless `--hide-comments`; `--redact-fields Comment` blanks the panel copy,
@@ -839,8 +840,9 @@ a leak: its first characters ship. Examples:
   `TimeoutSeconds`/`HeartbeatSeconds` and their `*Path` forms
 - Map `ItemsPath`, `Label`, `ItemSelector`, `MaxConcurrency`, `ToleratedFailure*` and
   `ItemBatcher` limits
-- `Assign` variable names, and JSONata `Arguments` and `Output` (`--redact-fields
-  Arguments` blanks the panel copy, not the `args …` label)
+- Task `Resource`, and a Distributed Map's `ItemReader`/`ResultWriter` `Resource`
+- `Assign` variable names, and JSONata `Arguments` and `Output`
+  (`--redact-fields Arguments` blanks the panel copy, not the `args …` label)
 
 Not drawn does not mean not shipped, so checking a rendered SVG is not enough: a value
 can sit in the Mermaid source or the edge data without being drawn. Keep anything that
