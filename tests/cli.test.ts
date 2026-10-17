@@ -2527,6 +2527,17 @@ describe('exit code convention', () => {
             expect(stderrData).toContain('Failed to read input');
         });
 
+        it('comment gitlab: an invalid commentGitlab block', async () => {
+            const config = write(
+                'bad.json',
+                JSON.stringify({ commentGitlab: { layout: 'sideways' } }),
+            );
+            expect(
+                await run(['comment', 'gitlab', '--config', config]),
+            ).toBe(1);
+            expect(stderrData).toContain('Invalid commentGitlab.layout');
+        });
+
         it('an input file that is not JSON', async () => {
             expect(await run([write('bad.asl.json', 'not json at all')])).toBe(
                 1,
