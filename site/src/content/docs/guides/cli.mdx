@@ -56,6 +56,9 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--diagram-title <text>` | Accessible name, rendered as the SVG's `<title>` and `aria-label` |
 | `--diagram-description <text>` | Accessible description, rendered as the SVG's `<desc>` |
 | `--background-color <color>` | PNG background (default: `transparent`) — see the [note below](#background-color-and-the-theme) |
+| `--scale <n>` | PNG resolution multiplier (default `1`, at most `10`) — see [PNG resolution and fonts](#png-resolution-and-fonts) |
+| `--load-system-fonts` | PNG: also parse every installed font — see [PNG resolution and fonts](#png-resolution-and-fonts) |
+| `--no-load-system-fonts` | PNG: load only the one resolved font file — see [PNG resolution and fonts](#png-resolution-and-fonts) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
@@ -128,8 +131,10 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `iconSize` | number |
 | `includeComments` | boolean |
 | `layout` | `"TB"` \| `"LR"` \| `"RL"` \| `"BT"` |
+| `loadSystemFonts` | boolean (PNG only) |
 | `nodeHeight`, `nodeWidth` | number |
 | `nodeSeparation`, `rankSeparation`, `padding` | number |
+| `scale` | number above `0`, at most `10` (PNG only) |
 | `showIcons`, `showStateTypes`, `showVariables` | boolean |
 | `stylePreset` | `"aws-standard"` \| `"enhanced"` |
 | `theme` | `"light"` \| `"dark"`, or a [custom theme object](#custom-theme-files) |
@@ -158,6 +163,7 @@ config file:
 | `showIcons` | `--show-icons` | `--hide-icons` |
 | `showStateTypes` | `--show-state-types` | `--hide-state-types` |
 | `collapse` | `--collapse[=names]` | `--no-collapse` |
+| `loadSystemFonts` | `--load-system-fonts` | `--no-load-system-fonts` |
 
 Passing both halves of a pair is a usage error (exit `2`) rather than last-one-wins,
 which would be easy to miss in a long CI command.
@@ -571,6 +577,39 @@ sfn-diagram state.asl.json --format png --theme ./transparent.theme.json \
 { "base": "light", "background": "transparent" }
 ```
 
+## PNG resolution and fonts
+
+`--scale` multiplies the PNG's pixel width and height without changing the layout, so
+`--scale 2` gives a retina-sharp copy of the same diagram. Fractions work too (`0.5`
+halves it). It is capped at `10`: the rasterizer aborts the whole process, with no error
+message, when it cannot allocate the image, and a DPI value typed as a scale
+(`--scale 300`) would ask for hundreds of gigabytes. `10` already covers retina (2-3x)
+and 300 dpi print (about 3.1x). The cap only catches that typo: memory use grows with the
+diagram's area times the square of the scale, so a very large diagram can still run out
+at a scale well under `10`. A scale so small that the image would round to 0 pixels wide
+or tall is an error (exit `1`) naming the scale.
+
+```bash
+sfn-diagram state.asl.json --format png --scale 2 -o diagram@2x.png
+```
+
+By default the renderer loads the one font file it resolved and parses every installed
+font only when the text needs glyphs that file is unlikely to have (see
+[Docker](#docker) for the details). `--load-system-fonts` always parses them, around
+250ms per export; `--no-load-system-fonts` never does. Turning it off with no font file
+to load from is an error (exit `1`) rather than a PNG of blank text. The first of these
+that is set wins:
+
+1. `--load-system-fonts` or `--no-load-system-fonts`
+2. `loadSystemFonts` in the [config file](#configuration-file)
+3. the `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` environment variable
+4. the automatic choice above
+
+All three flags need `--format png`; given with another format they exit `2`, except under
+[`--check`](#linting), which renders nothing and ignores them. Set in the
+config file, `scale` and `loadSystemFonts` apply to PNG runs and are ignored for the
+others, so one project file can serve every format.
+
 ## Exit codes
 
 Every invocation exits with one of three codes, so a script can tell a mistake in the
@@ -778,7 +817,8 @@ on, because a directory that exists may hold no font the renderer can parse.
 
 Text that needs glyphs the one resolved font is unlikely to have — CJK, emoji, or the `↻` in a
 retry-count label — turns the scan back on by itself, so those render rather than coming out as
-tofu. Set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true` to force it on regardless. Accepted values are
+tofu. Pass `--load-system-fonts` (or set `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=true`) to force it on
+regardless; the flag wins when both are set. Accepted values for the variable are
 `1`/`true`/`yes`/`on` and `0`/`false`/`no`/`off`; anything else is an error rather than being
 ignored. See [PNG fonts](/guides/configuration/#png-fonts) for the full resolution order and what
 the single-file path gives up.

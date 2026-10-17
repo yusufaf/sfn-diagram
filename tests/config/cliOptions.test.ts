@@ -16,11 +16,13 @@ const noFlags: CliOptionSource = {
     iconSize: null,
     includeComments: null,
     layout: null,
+    loadSystemFonts: null,
     nodeHeight: null,
     nodeSeparation: null,
     nodeWidth: null,
     padding: null,
     rankSeparation: null,
+    scale: null,
     showIcons: null,
     showStateTypes: null,
     showVariables: null,
@@ -29,6 +31,30 @@ const noFlags: CliOptionSource = {
 };
 
 describe('resolveCliOptions', () => {
+    it('leaves the PNG options unset with no flag and no config', () => {
+        const resolved = resolveCliOptions({ args: noFlags, config: null });
+        expect(resolved.loadSystemFonts).toBeNull();
+        expect(resolved.scale).toBeNull();
+    });
+
+    it('takes the PNG options from the config when no flag is given', () => {
+        const resolved = resolveCliOptions({
+            args: noFlags,
+            config: { loadSystemFonts: true, scale: 3 },
+        });
+        expect(resolved.loadSystemFonts).toBe(true);
+        expect(resolved.scale).toBe(3);
+    });
+
+    it('lets a PNG flag beat the config, even a false or a 1', () => {
+        const resolved = resolveCliOptions({
+            args: { ...noFlags, loadSystemFonts: false, scale: 1 },
+            config: { loadSystemFonts: true, scale: 3 },
+        });
+        expect(resolved.loadSystemFonts).toBe(false);
+        expect(resolved.scale).toBe(1);
+    });
+
     it('falls back to the built-in defaults with no flags and no config', () => {
         const resolved = resolveCliOptions({ args: noFlags, config: null });
         expect(resolved).toMatchObject({
@@ -181,11 +207,13 @@ describe('resolveCliOptions', () => {
                 iconSize: 32,
                 includeComments: false,
                 layout: 'RL',
+                loadSystemFonts: false,
                 nodeHeight: 90,
                 nodeSeparation: 120,
                 nodeWidth: 200,
                 padding: 64,
                 rankSeparation: 140,
+                scale: 2,
                 showIcons: true,
                 showStateTypes: true,
                 showVariables: false,
@@ -206,11 +234,13 @@ describe('resolveCliOptions', () => {
             iconSize: 32,
             includeComments: false,
             layout: 'RL',
+            loadSystemFonts: false,
             nodeHeight: 90,
             nodeSeparation: 120,
             nodeWidth: 200,
             padding: 64,
             rankSeparation: 140,
+            scale: 2,
             showIcons: true,
             showStateTypes: true,
             showVariables: false,

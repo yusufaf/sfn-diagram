@@ -91,8 +91,10 @@ export async function renderResvgPng(
         svg,
         width,
     } = params;
-    if (scale <= 0) {
-        throw new Error(`PNG export 'scale' must be a positive number, got ${scale}.`);
+    // NaN and Infinity pass a plain `<= 0` check and resvg then ignores the target
+    // width, silently rendering at 1x.
+    if (!Number.isFinite(scale) || scale <= 0) {
+        throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
     const { renderAsync } = await loadResvg();
 
@@ -107,11 +109,25 @@ export async function renderResvgPng(
     const background =
         backgroundColor && backgroundColor !== 'transparent' ? backgroundColor : undefined;
 
-    const rendered = await renderAsync(svg, {
-        ...(background === undefined ? {} : { background }),
-        fitTo: { mode: 'width', value: Math.round(width * scale) },
-        font,
-    });
+    let rendered: Awaited<ReturnType<typeof renderAsync>>;
+    try {
+        rendered = await renderAsync(svg, {
+            ...(background === undefined ? {} : { background }),
+            fitTo: { mode: 'width', value: Math.round(width * scale) },
+            font,
+        });
+    } catch (error) {
+        // resvg rounds the width, derives the height from it and rounds again, and its
+        // error for a 0 result names width/height/zoom options exportPng never exposes.
+        // Renaming its error, rather than predicting its rounding, stays exact.
+        if (error instanceof Error && error.message.includes('Target size is zero')) {
+            throw new Error(
+                `PNG export 'scale' ${scale} is too small: the diagram would round to 0 pixels wide or tall.`,
+                { cause: error }
+            );
+        }
+        throw error;
+    }
 
     return {
         buffer: rendered.asPng(),

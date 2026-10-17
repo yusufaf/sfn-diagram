@@ -28,7 +28,9 @@ import type { CliConfig } from './cliConfig';
 import {
     CliConfigError,
     discoverConfigPath,
+    isValidPngScale,
     loadCliConfig,
+    MAX_PNG_SCALE,
 } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
 import {
@@ -117,6 +119,12 @@ export interface CliArgs {
     inputs: string[];
     /** `null` when `--layout` was absent; the default is applied by `resolveCliOptions`. */
     layout: LayoutDirection | null;
+    /**
+     * `true` from `--load-system-fonts`, `false` from `--no-load-system-fonts`, `null` if
+     * neither, so the config, then `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS`, then the library
+     * default decide.
+     */
+    loadSystemFonts: boolean | null;
     nodeHeight: number | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
@@ -129,6 +137,8 @@ export interface CliArgs {
     rankSeparation: number | null;
     resolveCfn: boolean;
     resource: string | null;
+    /** PNG resolution multiplier from `--scale`, or `null`. */
+    scale: number | null;
     showHelp: boolean;
     /** `true` from `--show-icons`, `false` from `--hide-icons`, `null` if neither. */
     showIcons: boolean | null;
@@ -226,6 +236,11 @@ Options:
   --background-color <color>       PNG background (default: transparent). Only shows
                                    through when the theme's own background is
                                    transparent; light and dark paint over it.
+  --scale <n>                      PNG resolution multiplier (default: 1, at most 10):
+                                   2 doubles the pixel width and height
+  --load-system-fonts              PNG: also parse every installed font (~250ms per
+                                   export). Overrides SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS
+  --no-load-system-fonts           PNG: load only the one resolved font file
   --diff <baseline>                Compare the input (head) against a baseline definition;
                                    added/modified/removed states are highlighted
   --execution <history.json|arn>   Overlay a run on the diagram: a saved
@@ -310,6 +325,10 @@ Notes:
 
   --diff --format mermaid also ignores --hide-comments and --catch-label-style: it
   re-parses the merged definition without them. --theme and --layout do apply.
+
+  --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
+  given with another format they exit 2 (--check ignores them). Set in the config
+  file, they apply to PNG runs and are ignored otherwise.
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
@@ -438,9 +457,11 @@ const OPTION_SPEC = {
     'icon-position': { type: 'string' },
     'icon-size': { type: 'string' },
     layout: { type: 'string' },
+    'load-system-fonts': { type: 'boolean' },
     'node-height': { type: 'string' },
     'node-separation': { type: 'string' },
     'no-collapse': { type: 'boolean' },
+    'no-load-system-fonts': { type: 'boolean' },
     'node-width': { type: 'string' },
     'out-dir': { type: 'string' },
     output: { short: 'o', type: 'string' },
@@ -449,6 +470,7 @@ const OPTION_SPEC = {
     'rank-separation': { type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
+    scale: { type: 'string' },
     'show-catch': { type: 'boolean' },
     'show-comments': { type: 'boolean' },
     'show-icons': { type: 'boolean' },
@@ -548,6 +570,41 @@ function expectPixels(params: ExpectPixelsParams): number {
     if (!Number.isFinite(parsed) || parsed < 0 || (!allowZero && parsed <= 0)) {
         throw new CliError(
             `Invalid ${flag}: ${value}. Expected a ${allowZero ? 'non-negative' : 'positive'} number of pixels`,
+            EXIT_USAGE,
+        );
+    }
+    return parsed;
+}
+
+interface ExpectScaleParams {
+    flag: string;
+    value: string;
+}
+
+/**
+ * Validate a flag's value as a PNG scale, or throw a `CliError`.
+ *
+ * @param params - Validation parameters
+ * @param params.flag - Flag name, used in the error message (e.g. `--scale`)
+ * @param params.value - Raw flag value as it arrived on the command line
+ *
+ * @returns The value as a number.
+ *
+ * @throws {CliError} With exit code 2 if the value is blank, not a finite number, not
+ *   above 0, or above {@link MAX_PNG_SCALE}.
+ *
+ * @example
+ * ```typescript
+ * expectScale({ flag: '--scale', value: '2' }); // 2
+ * expectScale({ flag: '--scale', value: '300' }); // throws: above the cap
+ * ```
+ */
+function expectScale(params: ExpectScaleParams): number {
+    const { flag, value } = params;
+    const parsed = value.trim() === '' ? Number.NaN : Number(value);
+    if (!isValidPngScale(parsed)) {
+        throw new CliError(
+            `Invalid ${flag}: ${value}. Expected a number greater than 0 and at most ${MAX_PNG_SCALE}`,
             EXIT_USAGE,
         );
     }
@@ -994,6 +1051,12 @@ export function parseArgs(argv: string[]): CliArgs {
                       flag: '--layout',
                       value: values.layout as string,
                   }),
+        loadSystemFonts: readToggle({
+            onFalse: 'no-load-system-fonts',
+            onTrue: 'load-system-fonts',
+            whenFalse: false,
+            whenTrue: true,
+        }),
         nodeHeight: readPixels('node-height', false),
         nodeSeparation: readPixels('node-separation', true),
         nodeWidth: readPixels('node-width', false),
@@ -1017,6 +1080,13 @@ export function parseArgs(argv: string[]): CliArgs {
         rankSeparation: readPixels('rank-separation', true),
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
+        scale:
+            values.scale === undefined
+                ? null
+                : expectScale({
+                      flag: '--scale',
+                      value: values.scale as string,
+                  }),
         showHelp: values.help === true,
         showIcons: readToggle({
             onFalse: 'hide-icons',
@@ -1326,6 +1396,41 @@ function combinedOverlayRefusal(params: CombinedOverlayRefusalParams): string {
         `--diff and --execution can only be combined with --format html, not ` +
         `${params.format}: only the viewer draws both overlays at once\n`
     );
+}
+
+/**
+ * The PNG-only flags given on the command line, spelled as given.
+ *
+ * Reads `args`, never the resolved options: a config file's `scale` or
+ * `loadSystemFonts` is a project default that other formats ignore, while a flag typed
+ * next to `--format svg` is a contradiction worth an exit 2. `--check` renders nothing
+ * and ignores the format, so there is no contradiction to report under it.
+ *
+ * @param args - The parsed command line
+ *
+ * @returns The flags to name in a refusal, empty when none was given or under `--check`.
+ */
+function pngOnlyFlagsGiven(args: CliArgs): string[] {
+    if (args.check) return [];
+    const flags: string[] = [];
+    if (args.scale !== null) flags.push('--scale');
+    if (args.loadSystemFonts === true) flags.push('--load-system-fonts');
+    if (args.loadSystemFonts === false) flags.push('--no-load-system-fonts');
+    return flags;
+}
+
+/** Parameters for {@link pngOnlyRefusal}. */
+interface PngOnlyRefusalParams {
+    /** The PNG-only flags given, from {@link pngOnlyFlagsGiven}. */
+    flags: string[];
+    /** The format the run would render. */
+    format: DiagramFormat;
+}
+
+/** The usage error for a PNG-only flag given with another format. */
+function pngOnlyRefusal(params: PngOnlyRefusalParams): string {
+    const { flags, format } = params;
+    return `${flags.join(' and ')} only appl${flags.length === 1 ? 'ies' : 'y'} to --format png, not ${format}\n`;
 }
 
 /** Statuses printed in the `--execution` summary, worst outcome first. */
@@ -1866,9 +1971,15 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
             return 0;
         }
 
+        // Left out rather than passed as undefined when unset: the library falls back to
+        // SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS only when loadSystemFonts is absent.
         const result = await exportPng({
             aslDefinition: definitionSource,
             ...svgOptions,
+            ...(options.loadSystemFonts !== null
+                ? { loadSystemFonts: options.loadSystemFonts }
+                : {}),
+            ...(options.scale !== null ? { scale: options.scale } : {}),
         });
         writeFileSync(resolve(outputPath as string), result.buffer);
         return 0;
@@ -1910,11 +2021,12 @@ export async function run(argv: string[]): Promise<number> {
     // itself cannot work, and no change to the input would help. They all exit
     // EXIT_USAGE so a caller can tell "you used it wrong" from "it broke while
     // running" without parsing stderr. See the Exit codes note in HELP_TEXT.
-    // These two read only the command line, so they belong above the config load: a
+    // These read only the command line, so they belong above the config load: a
     // contradictory invocation is a usage error whether or not a config file nearby
     // happens to be broken, and reporting the file first would call an argv mistake a
     // runtime failure. A format that comes from the config or the default is not known
-    // yet, so renderResolvedBatch checks --diff with --execution again once it is.
+    // yet, so renderResolvedBatch checks --diff with --execution, and the PNG-only
+    // flags, again once it is.
     if (
         args.diff !== null &&
         args.execution !== null &&
@@ -1922,6 +2034,17 @@ export async function run(argv: string[]): Promise<number> {
         args.format !== 'html'
     ) {
         process.stderr.write(combinedOverlayRefusal({ format: args.format }));
+        return EXIT_USAGE;
+    }
+    const pngOnlyFlags = pngOnlyFlagsGiven(args);
+    if (
+        pngOnlyFlags.length > 0 &&
+        args.format !== null &&
+        args.format !== 'png'
+    ) {
+        process.stderr.write(
+            pngOnlyRefusal({ flags: pngOnlyFlags, format: args.format }),
+        );
         return EXIT_USAGE;
     }
     // Both own the process until interrupted, and each wants to be the thing that
@@ -2435,6 +2558,13 @@ async function renderResolvedBatch(
     if (args.execution !== null && !OVERLAY_FORMATS.includes(options.format)) {
         process.stderr.write(
             `--execution supports --format svg, mermaid or html, not ${options.format}\n`,
+        );
+        return { code: EXIT_USAGE, configPath, watchTargets };
+    }
+    const pngOnlyFlags = pngOnlyFlagsGiven(args);
+    if (pngOnlyFlags.length > 0 && options.format !== 'png') {
+        process.stderr.write(
+            pngOnlyRefusal({ flags: pngOnlyFlags, format: options.format }),
         );
         return { code: EXIT_USAGE, configPath, watchTargets };
     }

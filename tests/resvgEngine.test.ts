@@ -88,9 +88,39 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         expect(white.buffer.equals(transparent.buffer)).toBe(false);
     });
 
-    it.each([0, -1])('rejects a non-positive scale (%s)', async (scale) => {
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])('rejects a non-positive or non-finite scale (%s)', async (scale) => {
         await expect(renderResvgPng({ svg: textSvg(true), width: 200, scale })).rejects.toThrow(
             /scale.*positive/i
         );
+    });
+
+    it('names the scale when it is too small to leave a single pixel', async () => {
+        // resvg's own error for a zero target width talks about width/height/zoom
+        // options a caller of exportPng never set.
+        await expect(
+            renderResvgPng({ svg: textSvg(true), width: 200, scale: 0.001 })
+        ).rejects.toThrow(/'scale' 0\.001 is too small/);
+    });
+
+    // resvg derives the height from the rounded target width and rounds it again, so
+    // these use SVGs whose own size has the problem shape rather than predicting it.
+    const sizedSvg = (width: number, height: number): string =>
+        `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" fill="#000"/></svg>`;
+
+    it('names the scale when a wide, short diagram would round to 0 pixels tall', async () => {
+        // 4000 x 0.005 = 20px wide, so 60px tall becomes 60 * 20 / 4000 = 0.3, which rounds to 0.
+        await expect(
+            renderResvgPng({ svg: sizedSvg(4000, 60), width: 4000, scale: 0.005 })
+        ).rejects.toThrow(/'scale' 0\.005 is too small/);
+    });
+
+    it('renders a scale that rounds up to a one-pixel image', async () => {
+        // 100 x 0.005 = 0.5 rounds up to a 1px target width, and 60 * 1 / 100 rounds to 1.
+        const { height, width } = await renderResvgPng({
+            svg: sizedSvg(100, 60),
+            width: 100,
+            scale: 0.005,
+        });
+        expect({ height, width }).toEqual({ height: 1, width: 1 });
     });
 });

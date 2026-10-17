@@ -888,13 +888,15 @@ export interface PngExportOptions {
      * synthesized, which no SVG this package generates asks for but a
      * hand-rolled one might. The
      * `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` env var sets it for callers that
-     * cannot pass options, such as the CLI. Setting it to `false` with no font
+     * cannot pass options; an explicit value here, or the CLI's
+     * `--load-system-fonts` / `--no-load-system-fonts`, wins over it. Setting it to `false` with no font
      * file or directory to load from throws rather than rendering blank text.
      */
     loadSystemFonts?: boolean;
 
     /**
-     * Multiplier applied to the diagram's rendered size. `resvg` only.
+     * Multiplier applied to the diagram's rendered size. `resvg` only. Must be a
+     * positive finite number; anything else throws.
      * @default 1
      */
     scale?: number;

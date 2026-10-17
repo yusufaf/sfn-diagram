@@ -1608,15 +1608,62 @@ describe('parseArgs: DiagramOptions flags', () => {
             diagramTitle: null,
             edgeStyle: null,
             includeComments: null,
+            loadSystemFonts: null,
             nodeHeight: null,
             nodeSeparation: null,
             nodeWidth: null,
             padding: null,
             rankSeparation: null,
+            scale: null,
             showStateTypes: null,
             stylePreset: null,
             themeFile: null,
         });
+    });
+
+    it('parses --scale as a number, fractions included', () => {
+        expect(parseArgs(['in.json', '--scale', '2']).scale).toBe(2);
+        expect(parseArgs(['in.json', '--scale', '0.5']).scale).toBe(0.5);
+    });
+
+    // The `=` form, like the pixel tests: Node's strict parseArgs rejects a separate
+    // `-1` token as ambiguous before the value ever reaches the validator.
+    it.each(['0', '-1', 'abc', '', 'Infinity', '11'])(
+        'rejects --scale=%s with exit code 2',
+        (value) => {
+            try {
+                parseArgs(['in.json', `--scale=${value}`]);
+                expect.unreachable(`--scale=${value} should not parse`);
+            } catch (error) {
+                expect(error).toBeInstanceOf(CliError);
+                expect((error as CliError).exitCode).toBe(2);
+                expect((error as CliError).message).toMatch(/Invalid --scale/);
+            }
+        },
+    );
+
+    it('parses --load-system-fonts and --no-load-system-fonts', () => {
+        expect(
+            parseArgs(['in.json', '--load-system-fonts']).loadSystemFonts,
+        ).toBe(true);
+        expect(
+            parseArgs(['in.json', '--no-load-system-fonts']).loadSystemFonts,
+        ).toBe(false);
+    });
+
+    it('rejects --load-system-fonts with --no-load-system-fonts', () => {
+        try {
+            parseArgs([
+                'in.json',
+                '--load-system-fonts',
+                '--no-load-system-fonts',
+            ]);
+            expect.unreachable('both halves of the toggle should not parse');
+        } catch (error) {
+            expect(error).toBeInstanceOf(CliError);
+            expect((error as CliError).exitCode).toBe(2);
+            expect((error as CliError).message).toContain('cannot be combined');
+        }
     });
 
     it('parses the enum flags', () => {
@@ -2982,6 +3029,149 @@ describe('run: config file', () => {
         expect(await run([input])).toBe(0);
         expect(stdoutData).toContain('<svg');
     });
+});
+
+describe('run: --scale and --load-system-fonts refusals', () => {
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-png-only-'));
+        writeFileSync(join(tempDir, '.git'), '');
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    it('refuses --scale under the default svg format', async () => {
+        expect(await run([simpleFixture, '--scale', '2'])).toBe(2);
+        expect(stderrData).toContain(
+            '--scale only applies to --format png, not svg',
+        );
+    });
+
+    it('names every PNG-only flag given, in the spelling given', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'mermaid',
+                '--no-load-system-fonts',
+                '--scale',
+                '2',
+            ]),
+        ).toBe(2);
+        expect(stderrData).toContain(
+            '--scale and --no-load-system-fonts only apply to --format png, not mermaid',
+        );
+    });
+
+    it('refuses an explicit non-png --format before reading a broken config', async () => {
+        const config = write('c.json', '{ broken');
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'svg',
+                '--scale',
+                '2',
+                '--config',
+                config,
+            ]),
+        ).toBe(2);
+        expect(stderrData).not.toContain('config file');
+    });
+
+    it('refuses --scale when the config sets a non-png format', async () => {
+        const config = write('c.json', JSON.stringify({ format: 'svg' }));
+        expect(
+            await run([simpleFixture, '--scale', '2', '--config', config]),
+        ).toBe(2);
+        expect(stderrData).toContain(
+            '--scale only applies to --format png, not svg',
+        );
+    });
+
+    it.each([[[]], [['--format', 'svg']], [['--format', 'png']]])(
+        'does not refuse them under --check, which renders nothing (%j)',
+        async (formatArgs) => {
+            expect(
+                await run([
+                    simpleFixture,
+                    '--check',
+                    '--scale',
+                    '2',
+                    '--no-load-system-fonts',
+                    ...formatArgs,
+                ]),
+            ).toBe(0);
+            expect(stderrData).not.toContain('--format png');
+        },
+    );
+
+    it('ignores the PNG options when they come from the config', async () => {
+        const config = write(
+            'c.json',
+            JSON.stringify({ loadSystemFonts: true, scale: 3 }),
+        );
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'svg',
+                '--config',
+                config,
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('<svg');
+    });
+
+    it(
+        'lets --scale through when the config sets format: png',
+        async () => {
+            const config = write('c.json', JSON.stringify({ format: 'png' }));
+            const out = join(tempDir, 'out.png');
+            expect(
+                await run([
+                    simpleFixture,
+                    '--scale',
+                    '2',
+                    '-o',
+                    out,
+                    '--config',
+                    config,
+                ]),
+            ).toBe(0);
+            expect(existsSync(out)).toBe(true);
+        },
+        REAL_PNG_EXPORT_TIMEOUT_MS,
+    );
 });
 
 describe('run: config load ordering and --no-collapse', () => {

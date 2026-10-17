@@ -323,6 +323,45 @@ describe('loadCliConfig', () => {
         });
     });
 
+    it.each([
+        [{ scale: 2 }],
+        [{ scale: 0.5 }],
+        [{ scale: 10 }],
+        [{ loadSystemFonts: false }],
+        [{ loadSystemFonts: true }],
+    ])('accepts the PNG options %j', (config) => {
+        const path = write('sfn-diagram.config.json', JSON.stringify(config));
+        expect(loadCliConfig({ explicitPath: null, startDir: root })).toEqual({
+            config,
+            path,
+        });
+    });
+
+    it.each([
+        ['sfn-diagram.config.json', '{ "scale": 0 }'],
+        ['sfn-diagram.config.json', '{ "scale": -1 }'],
+        ['sfn-diagram.config.json', '{ "scale": 11 }'],
+        ['sfn-diagram.config.json', '{ "scale": "2" }'],
+        // Both parse to Infinity: JSON files are read through yaml.parse too.
+        ['sfn-diagram.config.json', '{ "scale": 1e999 }'],
+        ['sfn-diagram.config.yaml', 'scale: .inf\n'],
+    ])('rejects an out-of-range scale in %s: %s', (name, contents) => {
+        write(name, contents);
+        expect(() =>
+            loadCliConfig({ explicitPath: null, startDir: root }),
+        ).toThrowError(/Invalid scale/);
+    });
+
+    it('rejects a non-boolean loadSystemFonts', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ loadSystemFonts: 'yes' }),
+        );
+        expect(() =>
+            loadCliConfig({ explicitPath: null, startDir: root }),
+        ).toThrowError(/Invalid loadSystemFonts/);
+    });
+
     it('rejects a blank string field, as the flags do', () => {
         write(
             'sfn-diagram.config.json',
