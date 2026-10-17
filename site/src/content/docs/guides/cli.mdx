@@ -209,8 +209,8 @@ commentGitlab:        # comment gitlab only
 The block takes the four render settings the subcommand forwards: `theme` (`light`,
 `dark`, or a custom theme object), `layout`, `catchHandling` and `collapse`, with the same
 values as the top-level fields. Any other key in it is an error (exit `1`), rather than
-silently ignored, and so is a misspelled block name such as `commentGitLab` or
-`comment_gitlab`. The CI-shaped options (`--asl-glob`, `--comment-tag`, `--out-dir`,
+silently ignored, and so is a block name that differs only in case or punctuation, such
+as `commentGitLab` or `comment_gitlab`. The CI-shaped options (`--asl-glob`, `--comment-tag`, `--out-dir`,
 `--execution-mode`) stay flags in the job.
 
 Precedence is flag, then block, then the default. `--show-catch` and `--no-collapse` undo a

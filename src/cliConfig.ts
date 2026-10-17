@@ -561,10 +561,11 @@ export type LoadCommentGitlabConfigParams = LoadCliConfigParams;
  *   found or a discovered file has no `commentGitlab` key. A `commentGitlab: null`
  *   block gives an empty config.
  *
- * @throws {CliConfigError} When the file cannot be read or parsed, it has a misspelled
- *   block name such as `commentGitLab`, `explicitPath` names a file with no
- *   `commentGitlab` block, the block is not an object, it has an unsupported key, or a
- *   field is invalid.
+ * @throws {CliConfigError} When the file cannot be read or parsed; it has a top-level
+ *   key that differs from `commentGitlab` only in case or punctuation (such as
+ *   `commentGitLab` or `comment_gitlab`), even beside a correct block; `explicitPath`
+ *   names a file with no `commentGitlab` block; the block is not an object; it has an
+ *   unsupported key; or a field is invalid.
  *
  * @example
  * ```typescript
@@ -593,7 +594,7 @@ export function loadCommentGitlabConfig(
     if (nearMisses.length > 0) {
         const named = nearMisses.map((key) => JSON.stringify(key)).join(', ');
         throw new CliConfigError(
-            `Unknown key ${named} in ${path}: did you mean commentGitlab?`,
+            `Unknown ${nearMisses.length === 1 ? 'key' : 'keys'} ${named} in ${path}: did you mean commentGitlab?`,
         );
     }
 

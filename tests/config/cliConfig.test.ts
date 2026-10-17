@@ -627,14 +627,20 @@ describe('loadCommentGitlabConfig', () => {
             }),
         );
         expect(() => load(path)).toThrow(
-            `Unknown key "commentGitLab", "comment_gitlab" in ${path}: did you mean commentGitlab?`,
+            `Unknown keys "commentGitLab", "comment_gitlab" in ${path}: did you mean commentGitlab?`,
         );
     });
 
     it('leaves unrelated top-level keys alone', () => {
         write(
             'sfn-diagram.config.json',
-            JSON.stringify({ $schema: 'x', comment: {}, gitlab: {} }),
+            JSON.stringify({
+                $schema: 'x',
+                comment: {},
+                commentGitlabLegacy: {},
+                gitlab: {},
+                'x-commentGitlab': {},
+            }),
         );
         expect(load()).toBeNull();
     });
