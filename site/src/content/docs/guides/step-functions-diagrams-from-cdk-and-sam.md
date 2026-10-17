@@ -32,9 +32,9 @@ change the file name. `--quiet` stops synth from also printing the template.
 
 The printed copy is YAML, so `cdk synth > template.json` gives you YAML in a file
 named `.json`, and that file won't be recognized as a template. Read the file in `cdk.out/`
-instead. If you use CDK Stages, the template goes in a subfolder,
-`cdk.out/assembly-<StageName>/`. Its file name starts with the stage name and ends in a hash,
-for example `ProdOrdersStack2EDBF9CE.template.json`.
+instead. If you use CDK Stages, each stage gets an `assembly-*` subfolder named after it,
+such as `cdk.out/assembly-Prod/`. The template's file name inside starts with the stage name
+and ends in a hash, for example `ProdOrdersStack2EDBF9CE.template.json`.
 
 ### 2. Render
 
@@ -53,8 +53,8 @@ With two or more state machines, the CLI stops and lists their logical IDs:
 Error: Template has multiple state machines (OrderWorkflow0015CDD9, RefundWorkflow9F22E5E9). Pass resourceId (or --resource) to choose one.
 ```
 
-CDK appends a hash to every logical ID, so the construct ID you wrote (`OrderWorkflow`)
-isn't the ID in the template. `--resource` needs the exact ID, so copy it from the error:
+For a `StateMachine` construct, CDK appends a hash to the logical ID, so the construct ID you
+wrote (`OrderWorkflow`) isn't the ID in the template. `--resource` needs the exact ID, so copy it from the error:
 
 ```bash
 npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow0015CDD9 -o orders.svg
@@ -75,7 +75,8 @@ them for a readable placeholder:
 | `{ "Fn::GetAtt": ["ValidateFn1051E81A", "Arn"] }` | `<ValidateFn1051E81A.Arn>` |
 | `{ "Ref": "OrdersTable" }` | `<Ref:OrdersTable>` |
 | `{ "Ref": "AWS::Partition" }` | `${AWS::Partition}` |
-| `Fn::Join` and `Fn::Sub` | Joined or substituted text |
+| `Fn::Join` | The joined text |
+| `Fn::Sub` | The text with its variables filled in from its own map or from `DefinitionSubstitutions`. Any other `${…}` reference stays as written |
 | Any other `Fn::*` | `<Fn::Name>`, plus a `warning:` line on stderr |
 
 The states, transitions, Choice rules, Retry and Catch all come straight from the
@@ -102,7 +103,7 @@ const { aslDefinition, warnings } = extractAslFromTemplate({
   resourceId: 'OrderWorkflow0015CDD9',
   template: Template.fromStack(stack).toJSON(),
 });
-writeFileSync('docs/orders.svg', generateSvg({ aslDefinition }).svg);
+writeFileSync('orders.svg', generateSvg({ aslDefinition }).svg);
 ```
 
 Leave out `resourceId` when the stack has a single state machine. CDK apps in Python, Java,
@@ -225,7 +226,8 @@ template is compared with the live definition (see
 [What it combines with](/guides/cli/#what-it-combines-with)).
 
 For pull requests, the [GitHub Action](/ecosystem/github-action/) comments a diagram and
-diff for changed `.asl.json` files. It reads ASL files, not templates, so it fits SAM
+diff for changed ASL files (`*.asl.json` and `*.asl` by default, set by its `asl-glob`
+input). It reads ASL files, not templates, so it fits SAM
 projects that use `DefinitionUri`.
 
 ## Lint before you deploy
@@ -248,7 +250,7 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 |---|---|---|
 | `ASL definition is not valid JSON` | A YAML template without `--resolve-cfn`, or a `cdk synth` printout saved to a file | Add `--resolve-cfn`, or read the file in `cdk.out/` |
 | `Template has multiple state machines (…)` | More than one state machine in the template | Pass one of the listed IDs with `--resource` |
-| `Resource '…' is not a state machine` | The `--resource` value doesn't match exactly. With CDK, this is usually the ID without its hash suffix | Copy an ID from the `Found:` list in the message |
+| `Resource '…' is not a state machine` | The `--resource` value doesn't match exactly. With a CDK `StateMachine`, this is usually the ID without its hash suffix | Copy an ID from the `Found:` list in the message |
 | `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Point at the template that declares the machine. A CDK nested stack gets its own `*.nested.template.json` file in `cdk.out/` |
 | `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | The same mistake with `--resolve-cfn` | Same fix |
 | `… loads its definition from DefinitionUri …` | The definition is in a separate file | Render that `.asl.json` file directly |
