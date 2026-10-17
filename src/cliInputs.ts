@@ -307,7 +307,9 @@ export interface CommonInputRootParams {
  * every positional's base sits in.
  *
  * A glob contributes its non-glob prefix ({@link patternRoot}) and a literal path its
- * directory — never the files a glob happened to match. Rooting at the matches would
+ * directory — never the files a glob happened to match. A glob also contributes its own
+ * resolved directory, which only matters when a `..` follows its magic segment: such a
+ * glob matches nothing, is kept as a literal path, and lies above its prefix. Rooting at the matches would
  * make every output move as soon as a new match appeared higher up the tree, which is
  * the reason a mirrored layout is opt-in at all (#328). Rooted at the command line,
  * outputs move only when the command line changes, and `--watch` keeps the same root on
@@ -486,10 +488,9 @@ export function planOutputPaths(
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
-            // Reachable from the command line: a glob that matched nothing is kept as
-            // a literal path, and a `..` after its magic segment can resolve above the
-            // glob's prefix. Refusing here guarantees nothing is written outside
-            // --out-dir.
+            // Defense in depth: commonInputRoot contains every input it is given, so
+            // no command line is known to reach this. Refusing here still guarantees
+            // nothing is written outside --out-dir if the two ever drift apart.
             throw new CliInputError(
                 `--preserve-tree cannot place ${source.label}: it resolves outside the inputs' common root ${treeRoot}`,
             );

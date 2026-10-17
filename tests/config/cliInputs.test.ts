@@ -421,8 +421,8 @@ describe('planOutputPaths', () => {
         ]);
     });
 
-    /** The collision message for a batch that must be refused. */
-    const collisionMessage = (
+    /** The CliInputError message for a batch that must be refused. */
+    const refusalMessage = (
         params: Parameters<typeof planOutputPaths>[0],
     ) => {
         try {
@@ -431,12 +431,12 @@ describe('planOutputPaths', () => {
             expect(error).toBeInstanceOf(CliInputError);
             return (error as Error).message;
         }
-        return expect.unreachable('the batch should collide');
+        return expect.unreachable('the batch should be refused');
     };
 
     it('suggests --preserve-tree when the colliding inputs sit in different directories', () => {
         expect(
-            collisionMessage({
+            refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: fileSources('a/order.asl.json', 'b/order.asl.json'),
@@ -447,7 +447,7 @@ describe('planOutputPaths', () => {
     it('does not suggest --preserve-tree when it would not help', () => {
         // Same directory: mirroring the tree changes nothing.
         expect(
-            collisionMessage({
+            refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: fileSources('order.asl.json', 'order.asl'),
@@ -455,7 +455,7 @@ describe('planOutputPaths', () => {
         ).not.toContain('--preserve-tree');
         // ARNs have no directory, and the flag is refused with --from-aws anyway.
         expect(
-            collisionMessage({
+            refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: [
@@ -466,7 +466,7 @@ describe('planOutputPaths', () => {
         ).not.toContain('--preserve-tree');
         // The two a/ inputs would still collide under the flag.
         expect(
-            collisionMessage({
+            refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: fileSources(
@@ -523,7 +523,7 @@ describe('planOutputPaths', () => {
         });
 
         it('still refuses two inputs in one directory that derive the same name', () => {
-            const message = collisionMessage({
+            const message = refusalMessage({
                 format: 'svg',
                 outDir: 'out',
                 sources: treeSources('a/order.asl.json', 'a/order.asl'),
@@ -534,8 +534,8 @@ describe('planOutputPaths', () => {
         });
 
         it('refuses an input outside treeRoot rather than writing outside out-dir', () => {
-            expect(() =>
-                planOutputPaths({
+            expect(
+                refusalMessage({
                     format: 'svg',
                     outDir: 'out',
                     sources: [
@@ -546,20 +546,7 @@ describe('planOutputPaths', () => {
                     ],
                     treeRoot: root,
                 }),
-            ).toThrowError(CliInputError);
-            expect(() =>
-                planOutputPaths({
-                    format: 'svg',
-                    outDir: 'out',
-                    sources: [
-                        {
-                            label: 'x.json',
-                            nameSource: resolve('/elsewhere/x.json'),
-                        },
-                    ],
-                    treeRoot: root,
-                }),
-            ).toThrowError(/cannot place/);
+            ).toContain('cannot place');
         });
     });
 
