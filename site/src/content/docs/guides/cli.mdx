@@ -801,11 +801,12 @@ How `--redact-fields` matches:
   state's copy inside its Parallel or Map container is caught as well as its own entry.
 - `Payload` also matches `Payload.$`, the same field with a dynamic value.
 - A dotted name names a nested key: `Parameters.Token` redacts only that key and keeps
-  the rest of `Parameters`. It does not reach through an array: `Catch.Next` matches
-  nothing, because `Catch` holds a list; name the inner key alone (`Next`) instead.
-- Matching never runs on a state's own name, so a state called `Parameters` keeps its
-  own entry. Inside its Parallel or Map container's copy, though, its name is a key
-  under `States`, and `--redact-fields Parameters` redacts that copy of it whole.
+  the rest of `Parameters`. Array items are named by index, so `Catch.Next` does not
+  reach into `Catch`'s list; write `Catch[0].Next` for the first catcher's target.
+- A state's own entry is never matched by its name, so a state called `Parameters`
+  keeps its entry. Inside its Parallel or Map container's copy, though, a nested
+  state's name is a key like any other: a state named after a field (`Parameters`, or
+  `Catch` for `Catch.Next`) is matched there, and that copy is redacted.
 - It is repeatable, and a comma inside a name is written `\,`.
 
 The two flags combine, and the config file can set them too (`redactFields`,
@@ -817,7 +818,7 @@ formats never inline raw ASL.
 What they do **not** cover: they redact the detail panel's copy of the ASL, nothing
 else. Anything the diagram derives from the ASL is not redacted, and it travels in the
 document even where it is not drawn: in the drawn SVG, the embedded Mermaid source, the
-collapse model, and the edge data the edge panel prints. That includes:
+collapse model, and the edge data the edge panel prints. That includes, among others:
 
 - state names, and the machine-level and per-state `Comment` (a state's `Comment` is its
   node label unless `--hide-comments`; `--redact-fields Comment` blanks the panel copy,
@@ -826,11 +827,16 @@ collapse model, and the edge data the edge panel prints. That includes:
 - Choice conditions
 - Retry and Catch `ErrorEquals` names
 - `TimeoutSeconds`/`HeartbeatSeconds` paths, Wait `SecondsPath`/`TimestampPath`
-- Map `ItemsPath` and `Label`
+- Map `ItemsPath`, `Label`, `ItemSelector` key names, and `MaxConcurrency` and
+  `ToleratedFailure` expressions
 - `Assign` variable names
-- JSONata `Arguments` and `Output` key names, or the whole expression when the field is
-  a single `{% %}` string (`--redact-fields Arguments` blanks the values in the panel,
-  not the `args …` label)
+- JSONata `Arguments` and `Output`: an object's key names, or the value itself when it
+  is a string, an array or any other non-object (`--redact-fields Arguments` blanks the
+  panel copy, not the `args …` label)
+
+A field whose value is drawn on the diagram is not safe to share however it is
+redacted here; keep the value out of the definition, or use `--format svg` and check
+what it draws.
 
 Not drawn does not mean not shipped. An execution overlay's error names are not touched
 either; the CLI inlines no other execution payload. For anything beyond field names, use

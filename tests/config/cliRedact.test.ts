@@ -188,6 +188,74 @@ describe('buildCliRedact', () => {
         });
     });
 
+    it('redacts a nested state named after a field inside its container copy', () => {
+        const asl = {
+            StartAt: 'Fan',
+            States: {
+                Fan: {
+                    Branches: [
+                        {
+                            StartAt: 'Parameters',
+                            States: {
+                                Parameters: { End: true, Type: 'Pass' },
+                            },
+                        },
+                    ],
+                    End: true,
+                    Type: 'Parallel',
+                },
+            },
+        } as unknown as AslDefinition;
+        const data = redactWith({
+            asl,
+            redact: buildCliRedact({
+                fields: ['Parameters'],
+                includeRawState: true,
+            }),
+        });
+        const branches = data.Fan.Branches as Array<{
+            States: Record<string, unknown>;
+        }>;
+        expect(branches[0].States.Parameters).toBe(REDACTED);
+        expect(data[idOf(data, 'Parameters')]).toEqual({
+            End: true,
+            Type: 'Pass',
+        });
+    });
+
+    it('names an array item by index, not by a dotted key', () => {
+        const asl = {
+            StartAt: 'Try',
+            States: {
+                Try: {
+                    Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Done' }],
+                    Next: 'Done',
+                    Type: 'Pass',
+                },
+                Done: { End: true, Type: 'Succeed' },
+            },
+        } as unknown as AslDefinition;
+        const dotted = redactWith({
+            asl,
+            redact: buildCliRedact({
+                fields: ['Catch.Next'],
+                includeRawState: true,
+            }),
+        });
+        expect(dotted.Try).toEqual(asl.States.Try);
+
+        const indexed = redactWith({
+            asl,
+            redact: buildCliRedact({
+                fields: ['Catch[0].Next'],
+                includeRawState: true,
+            }),
+        });
+        const catchers = indexed.Try.Catch as Array<Record<string, unknown>>;
+        expect(catchers[0].Next).toBe(REDACTED);
+        expect(indexed.Try.Next).toBe('Done');
+    });
+
     it('redacts every state whole without raw state', () => {
         const data = redactWith({
             redact: buildCliRedact({ fields: [], includeRawState: false }),

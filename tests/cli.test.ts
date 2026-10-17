@@ -3206,7 +3206,9 @@ describe('parseArgs: redaction flags', () => {
         (value) => {
             expect(() =>
                 parseArgs(['in.json', '--redact-fields', value]),
-            ).toThrowError(CliError);
+            ).toThrowError(
+                'Invalid --redact-fields: expected at least one name',
+            );
             try {
                 parseArgs(['in.json', '--redact-fields', value]);
             } catch (error) {
