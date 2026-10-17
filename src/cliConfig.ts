@@ -159,7 +159,8 @@ export function discoverConfigPath(
  *
  * Only data-valued options appear. `iconResolver`, `redact`, `customColors`,
  * `nodeOverrides`, `edgeOverrides` and `nodeAnnotations` are callbacks or record maps
- * with no textual form the CLI can accept, and stay API-only.
+ * with no textual form the CLI can accept, and stay API-only; `redactFields` and
+ * `includeRawState` cover the common cases of `redact`.
  */
 export interface CliConfig {
     backgroundColor?: string;
@@ -173,6 +174,8 @@ export interface CliConfig {
     iconPosition?: 'left' | 'right' | 'top';
     iconSize?: number;
     includeComments?: boolean;
+    /** HTML only: `false` inlines no state's raw ASL. Other formats ignore it. */
+    includeRawState?: boolean;
     layout?: LayoutDirection;
     /** PNG only: also parse every installed font. Other formats ignore it. */
     loadSystemFonts?: boolean;
@@ -181,6 +184,8 @@ export interface CliConfig {
     nodeWidth?: number;
     padding?: number;
     rankSeparation?: number;
+    /** HTML only: ASL field names to redact. Other formats ignore it. */
+    redactFields?: string[];
     /** PNG only: resolution multiplier, at most {@link MAX_PNG_SCALE}. Other formats ignore it. */
     scale?: number;
     showIcons?: boolean;
@@ -219,6 +224,7 @@ const STRING_FIELDS = [
 /** Boolean config fields. */
 const BOOLEAN_FIELDS = [
     'includeComments',
+    'includeRawState',
     'loadSystemFonts',
     'showIcons',
     'showStateTypes',
@@ -380,6 +386,20 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
             reject('collapse', 'true, false, or an array of state names');
         }
         config.collapse = value;
+    }
+
+    if (raw.redactFields !== undefined) {
+        const value = raw.redactFields;
+        if (
+            !Array.isArray(value) ||
+            !value.every(
+                (name) => typeof name === 'string' && name.trim() !== '',
+            )
+        ) {
+            reject('redactFields', 'an array of non-empty field names');
+        }
+        // Trimmed as the flag's values are, so " Parameters" still matches.
+        config.redactFields = (value as string[]).map((name) => name.trim());
     }
 
     if (raw.theme !== undefined) {

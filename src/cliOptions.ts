@@ -32,6 +32,7 @@ export interface CliOptionSource {
     iconPosition: 'left' | 'right' | 'top' | null;
     iconSize: number | null;
     includeComments: boolean | null;
+    includeRawState: boolean | null;
     layout: LayoutDirection | null;
     loadSystemFonts: boolean | null;
     nodeHeight: number | null;
@@ -39,6 +40,7 @@ export interface CliOptionSource {
     nodeWidth: number | null;
     padding: number | null;
     rankSeparation: number | null;
+    redactFields: string[] | null;
     scale: number | null;
     showIcons: boolean | null;
     showStateTypes: boolean | null;
@@ -50,9 +52,10 @@ export interface CliOptionSource {
 /**
  * The effective options for one invocation, after flags, config and defaults.
  *
- * The four fields the CLI has always had a default for are non-nullable; every other
- * field stays `null` when nothing set it, so `run()` can keep using conditional spreads
- * and let the library apply its own documented default rather than restating it here.
+ * The four fields the CLI has always had a default for are non-nullable, and so are
+ * the two redaction fields, which default to redacting nothing; every other field
+ * stays `null` when nothing set it, so `run()` can keep using conditional spreads and
+ * let the library apply its own documented default rather than restating it here.
  */
 export interface ResolvedCliOptions {
     backgroundColor: string | null;
@@ -66,6 +69,7 @@ export interface ResolvedCliOptions {
     iconPosition: 'left' | 'right' | 'top' | null;
     iconSize: number | null;
     includeComments: boolean | null;
+    includeRawState: boolean;
     layout: LayoutDirection;
     loadSystemFonts: boolean | null;
     nodeHeight: number | null;
@@ -73,6 +77,7 @@ export interface ResolvedCliOptions {
     nodeWidth: number | null;
     padding: number | null;
     rankSeparation: number | null;
+    redactFields: string[];
     scale: number | null;
     showIcons: boolean | null;
     showStateTypes: boolean | null;
@@ -166,6 +171,11 @@ export function resolveCliOptions(
             args.includeComments,
             settings.includeComments,
         ),
+        // Redaction accumulates instead of following "the flag wins": a flag can add
+        // to what the project config withholds, never re-expose it.
+        includeRawState:
+            args.includeRawState !== false &&
+            settings.includeRawState !== false,
         layout: pick(args.layout, settings.layout, 'TB'),
         loadSystemFonts: pickOptional(
             args.loadSystemFonts,
@@ -182,6 +192,12 @@ export function resolveCliOptions(
             args.rankSeparation,
             settings.rankSeparation,
         ),
+        redactFields: [
+            ...new Set([
+                ...(settings.redactFields ?? []),
+                ...(args.redactFields ?? []),
+            ]),
+        ],
         scale: pickOptional(args.scale, settings.scale),
         showIcons: pickOptional(args.showIcons, settings.showIcons),
         showStateTypes: pickOptional(

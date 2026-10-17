@@ -3174,6 +3174,355 @@ describe('run: --scale and --load-system-fonts refusals', () => {
     );
 });
 
+describe('parseArgs: redaction flags', () => {
+    it('reports both as absent when neither flag was given', () => {
+        expect(parseArgs(['in.json'])).toMatchObject({
+            includeRawState: null,
+            redactFields: null,
+        });
+    });
+
+    it('collects --redact-fields across commas and repeats', () => {
+        expect(
+            parseArgs([
+                'in.json',
+                '--redact-fields',
+                'Parameters, Arguments',
+                '--redact-fields',
+                'Credentials',
+            ]).redactFields,
+        ).toEqual(['Parameters', 'Arguments', 'Credentials']);
+    });
+
+    it('keeps an escaped comma inside a field name', () => {
+        expect(
+            parseArgs(['in.json', '--redact-fields', 'Odd\\,Name'])
+                .redactFields,
+        ).toEqual(['Odd,Name']);
+    });
+
+    it.each([[''], [' , ']])(
+        'rejects a --redact-fields value naming no field (%j)',
+        (value) => {
+            expect(() =>
+                parseArgs(['in.json', '--redact-fields', value]),
+            ).toThrowError(CliError);
+            try {
+                parseArgs(['in.json', '--redact-fields', value]);
+            } catch (error) {
+                expect((error as CliError).exitCode).toBe(2);
+            }
+        },
+    );
+
+    it('reads --no-raw-state as includeRawState: false', () => {
+        expect(parseArgs(['in.json', '--no-raw-state']).includeRawState).toBe(
+            false,
+        );
+    });
+});
+
+describe('run: --redact-fields and --no-raw-state', () => {
+    const SECRET = 'sk-live-0123456789';
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi
+            .spyOn(process.stdout, 'write')
+            .mockImplementation((chunk) => {
+                stdoutData += chunk.toString();
+                return true;
+            });
+        stderr = vi
+            .spyOn(process.stderr, 'write')
+            .mockImplementation((chunk) => {
+                stderrData += chunk.toString();
+                return true;
+            });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-redact-'));
+        writeFileSync(join(tempDir, '.git'), '');
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const write = (name: string, contents: string): string => {
+        const path = join(tempDir, name);
+        writeFileSync(path, contents);
+        return path;
+    };
+
+    /** The parsed `#sfn-state-data` blob of a generated document. */
+    const stateBlob = (html: string): Record<string, unknown> => {
+        const match =
+            /<script type="application\/json" id="sfn-state-data">([\s\S]*?)<\/script>/.exec(
+                html,
+            );
+        if (!match) throw new Error('no #sfn-state-data blob in the document');
+        return JSON.parse(match[1]) as Record<string, unknown>;
+    };
+
+    /** A Task carrying the secret, then a Parallel whose branch carries it too. */
+    const secretAsl = (): string =>
+        write(
+            'secret.asl.json',
+            JSON.stringify({
+                StartAt: 'Fetch',
+                States: {
+                    Fetch: {
+                        Arguments: { Note: 'ARGUMENT-VALUE' },
+                        Next: 'Fan',
+                        Parameters: { Token: SECRET },
+                        Resource: 'arn:aws:states:::lambda:invoke',
+                        Type: 'Task',
+                    },
+                    Fan: {
+                        Branches: [
+                            {
+                                StartAt: 'Inner',
+                                States: {
+                                    Inner: {
+                                        End: true,
+                                        Parameters: { Token: SECRET },
+                                        Type: 'Pass',
+                                    },
+                                },
+                            },
+                        ],
+                        End: true,
+                        Type: 'Parallel',
+                    },
+                },
+            }),
+        );
+
+    it('inlines the secret without either flag (control)', async () => {
+        expect(await run([secretAsl(), '--format', 'html'])).toBe(0);
+        expect(stdoutData).toContain(SECRET);
+    });
+
+    it('redacts the named fields with --redact-fields', async () => {
+        expect(
+            await run([
+                secretAsl(),
+                '--format',
+                'html',
+                '--redact-fields',
+                'Parameters',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).not.toContain(SECRET);
+        const fetch = stateBlob(stdoutData).Fetch as Record<string, unknown>;
+        expect(fetch.Parameters).toBe('[redacted]');
+        expect(fetch.Resource).toBe('arn:aws:states:::lambda:invoke');
+    });
+
+    it('redacts every state whole with --no-raw-state', async () => {
+        expect(
+            await run([secretAsl(), '--format', 'html', '--no-raw-state']),
+        ).toBe(0);
+        expect(stdoutData).not.toContain(SECRET);
+        const values = Object.values(stateBlob(stdoutData));
+        expect(values.length).toBeGreaterThan(0);
+        for (const value of values) expect(value).toBe('[redacted]');
+    });
+
+    it('redacts a state the --diff baseline removed', async () => {
+        const base = write(
+            'base.asl.json',
+            JSON.stringify({
+                StartAt: 'Gone',
+                States: {
+                    Gone: {
+                        End: true,
+                        Parameters: { Token: SECRET },
+                        Type: 'Pass',
+                    },
+                },
+            }),
+        );
+        const head = write(
+            'head.asl.json',
+            JSON.stringify({
+                StartAt: 'Kept',
+                States: { Kept: { End: true, Type: 'Pass' } },
+            }),
+        );
+        expect(
+            await run([
+                head,
+                '--diff',
+                base,
+                '--format',
+                'html',
+                '--redact-fields',
+                'Parameters',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).not.toContain(SECRET);
+    });
+
+    it('keeps the execution timeline under --no-raw-state', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--execution',
+                executionHistoryFixture,
+                '--format',
+                'html',
+                '--no-raw-state',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('sfn-timeline-data');
+        for (const value of Object.values(stateBlob(stdoutData))) {
+            expect(value).toBe('[redacted]');
+        }
+    });
+
+    it('leaves the diagram labels alone, as documented', async () => {
+        const asl = write(
+            'labels.asl.json',
+            JSON.stringify({
+                StartAt: 'Note',
+                States: {
+                    Note: {
+                        Comment: 'LABELCOMMENT',
+                        Next: 'Bad',
+                        Type: 'Pass',
+                    },
+                    Bad: { Cause: 'LABELCAUSE', Error: 'Oops', Type: 'Fail' },
+                },
+            }),
+        );
+        expect(
+            await run([
+                asl,
+                '--format',
+                'html',
+                '--no-raw-state',
+                '--redact-fields',
+                'Comment',
+            ]),
+        ).toBe(0);
+        expect(stateBlob(stdoutData).Bad).toBe('[redacted]');
+        expect(stdoutData).toContain('LABELCAUSE');
+        expect(stdoutData).toContain('LABELCOMMENT');
+
+        stdoutData = '';
+        expect(
+            await run([asl, '--format', 'html', '--redact-fields', 'Comment']),
+        ).toBe(0);
+        const note = stateBlob(stdoutData).Note as Record<string, unknown>;
+        expect(note.Comment).toBe('[redacted]');
+        expect(stdoutData).toContain('LABELCOMMENT');
+    });
+
+    it('refuses --redact-fields under the default svg format', async () => {
+        expect(
+            await run([simpleFixture, '--redact-fields', 'Parameters']),
+        ).toBe(2);
+        expect(stderrData).toContain(
+            '--redact-fields only applies to --format html, not svg',
+        );
+    });
+
+    it('names every HTML-only flag given', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--format',
+                'png',
+                '-o',
+                join(tempDir, 'x.png'),
+                '--redact-fields',
+                'A',
+                '--no-raw-state',
+            ]),
+        ).toBe(2);
+        expect(stderrData).toContain(
+            '--redact-fields and --no-raw-state only apply to --format html, not png',
+        );
+    });
+
+    it('refuses --no-raw-state when the config sets a non-html format', async () => {
+        const config = write('c.json', JSON.stringify({ format: 'mermaid' }));
+        expect(
+            await run([simpleFixture, '--no-raw-state', '--config', config]),
+        ).toBe(2);
+        expect(stderrData).toContain(
+            '--no-raw-state only applies to --format html, not mermaid',
+        );
+    });
+
+    it('does not refuse them under --check', async () => {
+        expect(
+            await run([
+                simpleFixture,
+                '--check',
+                '--no-raw-state',
+                '--redact-fields',
+                'Parameters',
+            ]),
+        ).toBe(0);
+    });
+
+    it('ignores the config redaction keys for other formats', async () => {
+        const config = write(
+            'c.json',
+            JSON.stringify({
+                includeRawState: false,
+                redactFields: ['Parameters'],
+            }),
+        );
+        expect(
+            await run([simpleFixture, '--format', 'svg', '--config', config]),
+        ).toBe(0);
+        expect(stdoutData).toContain('<svg');
+    });
+
+    it('unions the config field names with the flag', async () => {
+        const config = write(
+            'c.json',
+            JSON.stringify({ redactFields: ['Parameters'] }),
+        );
+        expect(
+            await run([
+                secretAsl(),
+                '--format',
+                'html',
+                '--redact-fields',
+                'Arguments',
+                '--config',
+                config,
+            ]),
+        ).toBe(0);
+        expect(stdoutData).not.toContain(SECRET);
+        expect(stdoutData).not.toContain('ARGUMENT-VALUE');
+    });
+
+    it('takes includeRawState: false from the config', async () => {
+        const config = write(
+            'c.json',
+            JSON.stringify({ includeRawState: false }),
+        );
+        expect(
+            await run([secretAsl(), '--format', 'html', '--config', config]),
+        ).toBe(0);
+        for (const value of Object.values(stateBlob(stdoutData))) {
+            expect(value).toBe('[redacted]');
+        }
+    });
+});
+
 describe('run: config load ordering and --no-collapse', () => {
     let stdout: ReturnType<typeof vi.spyOn>;
     let stderr: ReturnType<typeof vi.spyOn>;

@@ -44,6 +44,7 @@ import {
 } from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions } from './cliOptions';
+import { buildCliRedact } from './cliRedact';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { generateDiff, generateMermaidDiff } from './diff';
@@ -113,6 +114,8 @@ export interface CliArgs {
     iconSize: number | null;
     /** `false` from `--hide-comments`, `true` from `--show-comments`, `null` if neither. */
     includeComments: boolean | null;
+    /** `false` from `--no-raw-state`, `null` otherwise. */
+    includeRawState: boolean | null;
     /**
      * Every positional, in the order given, before glob expansion. Empty when none was
      * given, which means stdin. A single `'-'` also means stdin.
@@ -141,6 +144,8 @@ export interface CliArgs {
      */
     preserveTree: boolean;
     rankSeparation: number | null;
+    /** Every `--redact-fields` name, across commas and repeats, or `null` if absent. */
+    redactFields: string[] | null;
     resolveCfn: boolean;
     resource: string | null;
     /** PNG resolution multiplier from `--scale`, or `null`. */
@@ -250,7 +255,12 @@ Options:
   --load-system-fonts              PNG: also parse every installed font (~250ms per
                                    export). Overrides SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS
   --no-load-system-fonts           PNG: load only the one resolved font file
-  --diff <baseline>                Compare the input (head) against a baseline definition;
+  --redact-fields <names>          HTML: inline '[redacted]' for these ASL fields at
+                                   any depth (comma-separated, repeatable), e.g.
+                                   Parameters,Arguments,Credentials
+  --no-raw-state                   HTML: inline no state's raw ASL; the state detail
+                                   panel shows '[redacted]'
+  --diff <baseline>               Compare the input (head) against a baseline definition;
                                    added/modified/removed states are highlighted
   --execution <history.json|arn>   Overlay a run on the diagram: a saved
                                    GetExecutionHistory result, or an execution ARN
@@ -341,6 +351,12 @@ Notes:
   --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
   given with another format they exit 2 (--check ignores them). Set in the config
   file, they apply to PNG runs and are ignored otherwise.
+
+  --redact-fields and --no-raw-state apply to --format html only, the same way
+  (redactFields and includeRawState in the config). Config and flags add up: a flag
+  never re-exposes what the config redacts. They cover the state detail panel's ASL
+  only; anything the diagram derives from the ASL (state names, comments, error
+  names, conditions) still travels in the document, even where it is not drawn.
 
 Examples:
   sfn-diagram state.asl.json --format svg -o diagram.svg
@@ -474,6 +490,7 @@ const OPTION_SPEC = {
     'node-separation': { type: 'string' },
     'no-collapse': { type: 'boolean' },
     'no-load-system-fonts': { type: 'boolean' },
+    'no-raw-state': { type: 'boolean' },
     'node-width': { type: 'string' },
     'out-dir': { type: 'string' },
     output: { short: 'o', type: 'string' },
@@ -481,6 +498,7 @@ const OPTION_SPEC = {
     'poll-interval': { type: 'string' },
     'preserve-tree': { type: 'boolean' },
     'rank-separation': { type: 'string' },
+    'redact-fields': { multiple: true, type: 'string' },
     'resolve-cfn': { type: 'boolean' },
     resource: { type: 'string' },
     scale: { type: 'string' },
@@ -663,17 +681,41 @@ function expectNonBlank(params: ExpectNonBlankParams): string {
 }
 
 /**
- * Split a `--collapse=Name1,Name2` value into trimmed, non-empty state names.
+ * Split a comma-separated `--collapse` or `--redact-fields` value into trimmed,
+ * non-empty state or field names.
  *
- * A state name may itself contain a comma (unusual, but valid ASL), so a comma
+ * A name may itself contain a comma (unusual, but valid ASL), so a comma
  * preceded by a backslash is kept as part of the name instead of ending it:
  * `--collapse='Fetch\, then merge'` targets the single state `Fetch, then merge`.
  */
-function parseCollapseNames(value: string): string[] {
+function parseNameList(value: string): string[] {
     return value
         .split(/(?<!\\),/)
         .map((name) => name.replaceAll('\\,', ',').trim())
         .filter((name) => name.length > 0);
+}
+
+/** Parameters for {@link expectNameList}. */
+interface ExpectNameListParams {
+    /** The flag, for the error message. */
+    flag: string;
+    /** Every value given for a repeatable name-list flag. */
+    values: string[];
+}
+
+/** Read a repeatable name-list flag, refusing a value that names nothing. */
+function expectNameList(params: ExpectNameListParams): string[] {
+    const { flag, values } = params;
+    return values.flatMap((value) => {
+        const names = parseNameList(value);
+        if (names.length === 0) {
+            throw new CliError(
+                `Invalid ${flag}: expected at least one field name`,
+                EXIT_USAGE,
+            );
+        }
+        return names;
+    });
 }
 
 /**
@@ -722,7 +764,7 @@ interface ParseCollapseValueParams {
 /** Read a `--collapse` value: `true` for a bare flag, otherwise the named states. */
 function parseCollapseValue(params: ParseCollapseValueParams): string[] | true {
     const { value } = params;
-    return value === BARE_COLLAPSE_SENTINEL ? true : parseCollapseNames(value);
+    return value === BARE_COLLAPSE_SENTINEL ? true : parseNameList(value);
 }
 /** How long `--follow` waits between polls when `--poll-interval` is absent. */
 const DEFAULT_POLL_INTERVAL_SECONDS = 2;
@@ -1055,6 +1097,7 @@ export function parseArgs(argv: string[]): CliArgs {
             whenFalse: false,
             whenTrue: true,
         }),
+        includeRawState: values['no-raw-state'] === true ? false : null,
         inputs: positionals,
         layout:
             values.layout === undefined
@@ -1092,6 +1135,13 @@ export function parseArgs(argv: string[]): CliArgs {
                   }),
         preserveTree: values['preserve-tree'] === true,
         rankSeparation: readPixels('rank-separation', true),
+        redactFields:
+            values['redact-fields'] === undefined
+                ? null
+                : expectNameList({
+                      flag: '--redact-fields',
+                      values: values['redact-fields'] as string[],
+                  }),
         resolveCfn: values['resolve-cfn'] === true,
         resource: (values.resource as string | undefined) ?? null,
         scale:
@@ -1433,18 +1483,29 @@ function pngOnlyFlagsGiven(args: CliArgs): string[] {
     return flags;
 }
 
-/** Parameters for {@link pngOnlyRefusal}. */
-interface PngOnlyRefusalParams {
-    /** The PNG-only flags given, from {@link pngOnlyFlagsGiven}. */
+/** As {@link pngOnlyFlagsGiven}, for the flags only `--format html` reads. */
+function htmlOnlyFlagsGiven(args: CliArgs): string[] {
+    if (args.check) return [];
+    const flags: string[] = [];
+    if (args.redactFields !== null) flags.push('--redact-fields');
+    if (args.includeRawState === false) flags.push('--no-raw-state');
+    return flags;
+}
+
+/** Parameters for {@link formatOnlyRefusal}. */
+interface FormatOnlyRefusalParams {
+    /** The format-only flags given, from {@link pngOnlyFlagsGiven} or {@link htmlOnlyFlagsGiven}. */
     flags: string[];
     /** The format the run would render. */
     format: DiagramFormat;
+    /** The one format those flags apply to. */
+    only: DiagramFormat;
 }
 
-/** The usage error for a PNG-only flag given with another format. */
-function pngOnlyRefusal(params: PngOnlyRefusalParams): string {
-    const { flags, format } = params;
-    return `${flags.join(' and ')} only appl${flags.length === 1 ? 'ies' : 'y'} to --format png, not ${format}\n`;
+/** The usage error for a format-only flag given with another format. */
+function formatOnlyRefusal(params: FormatOnlyRefusalParams): string {
+    const { flags, format, only } = params;
+    return `${flags.join(' and ')} only appl${flags.length === 1 ? 'ies' : 'y'} to --format ${only}, not ${format}\n`;
 }
 
 /** Statuses printed in the `--execution` summary, worst outcome first. */
@@ -1904,12 +1965,17 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         if (options.format === 'html') {
             // The viewer applies either overlay, or both at once, itself; icons are
             // inlined so the document stays offline.
+            const redact = buildCliRedact({
+                fields: options.redactFields,
+                includeRawState: options.includeRawState,
+            });
             const result = await generateHtmlAsync({
                 aslDefinition: definitionSource,
                 ...(baselineDefinition !== null
                     ? { diff: { before: baselineDefinition } }
                     : {}),
                 ...(historySource !== null ? { history: historySource } : {}),
+                ...(redact ? { redact } : {}),
                 ...svgOptions,
             });
             if (result.metadata.diff) writeDiffSummary(result.metadata.diff);
@@ -2039,8 +2105,8 @@ export async function run(argv: string[]): Promise<number> {
     // contradictory invocation is a usage error whether or not a config file nearby
     // happens to be broken, and reporting the file first would call an argv mistake a
     // runtime failure. A format that comes from the config or the default is not known
-    // yet, so renderResolvedBatch checks --diff with --execution, and the PNG-only
-    // flags, again once it is.
+    // yet, so renderResolvedBatch checks --diff with --execution, and the PNG-only and
+    // HTML-only flags, again once it is.
     if (
         args.diff !== null &&
         args.execution !== null &&
@@ -2057,7 +2123,26 @@ export async function run(argv: string[]): Promise<number> {
         args.format !== 'png'
     ) {
         process.stderr.write(
-            pngOnlyRefusal({ flags: pngOnlyFlags, format: args.format }),
+            formatOnlyRefusal({
+                flags: pngOnlyFlags,
+                format: args.format,
+                only: 'png',
+            }),
+        );
+        return EXIT_USAGE;
+    }
+    const htmlOnlyFlags = htmlOnlyFlagsGiven(args);
+    if (
+        htmlOnlyFlags.length > 0 &&
+        args.format !== null &&
+        args.format !== 'html'
+    ) {
+        process.stderr.write(
+            formatOnlyRefusal({
+                flags: htmlOnlyFlags,
+                format: args.format,
+                only: 'html',
+            }),
         );
         return EXIT_USAGE;
     }
@@ -2578,7 +2663,22 @@ async function renderResolvedBatch(
     const pngOnlyFlags = pngOnlyFlagsGiven(args);
     if (pngOnlyFlags.length > 0 && options.format !== 'png') {
         process.stderr.write(
-            pngOnlyRefusal({ flags: pngOnlyFlags, format: options.format }),
+            formatOnlyRefusal({
+                flags: pngOnlyFlags,
+                format: options.format,
+                only: 'png',
+            }),
+        );
+        return { code: EXIT_USAGE, configPath, watchTargets };
+    }
+    const htmlOnlyFlags = htmlOnlyFlagsGiven(args);
+    if (htmlOnlyFlags.length > 0 && options.format !== 'html') {
+        process.stderr.write(
+            formatOnlyRefusal({
+                flags: htmlOnlyFlags,
+                format: options.format,
+                only: 'html',
+            }),
         );
         return { code: EXIT_USAGE, configPath, watchTargets };
     }
