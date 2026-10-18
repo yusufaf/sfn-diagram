@@ -85,16 +85,20 @@ async function emulate(params: EmulateParams): Promise<void> {
 /** Parameters for {@link openViewer}. */
 interface OpenViewerParams {
     definition: AslDefinition;
+    /** Emulate `forced-colors: active`. Defaults to `false`. */
+    forced?: boolean;
+    /** Execution history, for a document with the playback bar. */
+    history?: string;
     scheme: Scheme;
     theme: ThemeOption;
 }
 
 async function openViewer(params: OpenViewerParams): Promise<Page> {
-    const { definition, scheme, theme } = params;
+    const { definition, forced = false, history, scheme, theme } = params;
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
-    await emulate({ forced: false, page, scheme });
-    await page.setContent(generateHtml({ aslDefinition: definition, theme }).html, { waitUntil: 'load' });
+    await emulate({ forced, page, scheme });
+    await page.setContent(generateHtml({ aslDefinition: definition, history, theme }).html, { waitUntil: 'load' });
     return page;
 }
 
@@ -195,6 +199,132 @@ describe("viewer colour scheme: theme 'auto'", () => {
             expect(drawn.selected).toBe(true);
             // The dark chrome accent, not the dark normal edge colour rgb(144, 164, 174).
             expect(drawn.stroke).toBe('rgb(83, 159, 229)');
+        } finally {
+            await page.close();
+        }
+    }, 60_000);
+});
+
+/** WCAG contrast ratio between two computed `rgb()`/`rgba()` colours. */
+function contrastRatio(first: string, second: string): number {
+    const luminance = (color: string): number => {
+        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+        const [red, green, blue] = channels.map((channel) => {
+            const value = channel / 255;
+            return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    };
+    const [lighter, darker] = [luminance(first), luminance(second)].sort((a, b) => b - a);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+const RETRY_DEFINITION: AslDefinition = {
+    StartAt: 'Submit',
+    States: {
+        Submit: {
+            Type: 'Task',
+            Resource: 'arn:aws:lambda:us-east-1:123456789012:function:submit',
+            Retry: [{ ErrorEquals: ['States.Timeout'], MaxAttempts: 3 }],
+            Next: 'Done',
+        },
+        Done: { Type: 'Succeed' },
+    },
+};
+const RETRY_HISTORY = readFileSync(join(__dirname, '..', 'fixtures', 'execution-retry-success.json'), 'utf-8');
+
+const STATE_TYPES = ['Pass', 'Task', 'Choice', 'Wait', 'Succeed', 'Fail', 'Parallel', 'Map'];
+
+/**
+ * Chromium forces the HTML chrome's colours under forced-colors but leaves SVG paint
+ * alone, so the diagram keeps its theme palette and only the chrome needs care.
+ */
+describe('viewer under forced colours', () => {
+    const combinations = (['light', 'dark', 'auto'] as const).flatMap((theme) =>
+        (['light', 'dark'] as const).map((scheme) => [theme, scheme] as const),
+    );
+
+    it.each(combinations)('keeps theme %s legible under the %s scheme', async (theme, scheme) => {
+        const accent = (theme === 'auto' ? scheme : theme) === 'dark' ? 'rgb(83, 159, 229)' : 'rgb(9, 114, 211)';
+        const page = await openViewer({ definition: PLAIN_DEFINITION, forced: true, scheme, theme });
+        try {
+            const toolbar = await page.evaluate(() => {
+                const bar = document.querySelector('[data-sfn="toolbar"]')!;
+                const button = getComputedStyle(bar.querySelector('button')!);
+                return {
+                    background: getComputedStyle(bar).backgroundColor,
+                    buttonBackground: button.backgroundColor,
+                    buttonText: button.color,
+                    divider: getComputedStyle(bar.querySelector('.sfn-divider')!).backgroundColor,
+                };
+            });
+            expect(contrastRatio(toolbar.buttonText, toolbar.buttonBackground)).toBeGreaterThanOrEqual(4.5);
+            expect(contrastRatio(toolbar.divider, toolbar.background)).toBeGreaterThanOrEqual(3);
+
+            const labels = await page.evaluate((stateTypes) => {
+                const groups = Array.from(document.querySelectorAll('[data-sfn="content"] g.node[data-state-type]'));
+                return groups
+                    .filter((group) => stateTypes.includes(group.getAttribute('data-state-type')!))
+                    .map((group) => ({
+                        id: group.getAttribute('data-state-id'),
+                        shape: getComputedStyle(group.querySelector(':scope > title + *')!).fill,
+                        text: getComputedStyle(group.querySelector(':scope > text')!).fill,
+                    }));
+            }, STATE_TYPES);
+            expect(labels.length).toBe(Object.keys(PLAIN_DEFINITION.States).length);
+            for (const label of labels) {
+                expect(contrastRatio(label.text, label.shape), label.id!).toBeGreaterThanOrEqual(4.5);
+            }
+
+            await page.click('[data-sfn="minimap-toggle"]');
+            const viewportBorder = await page.$eval(
+                '[data-sfn="minimap-viewport"]',
+                (element) => getComputedStyle(element).borderTopColor,
+            );
+            expect(viewportBorder).toBe(accent);
+
+            await page.focus('[data-sfn="search"]');
+            let focused: { outline: string } | null = null;
+            for (let attempt = 0; attempt < 15 && focused === null; attempt++) {
+                await page.keyboard.press('Tab');
+                focused = await page.evaluate(() => {
+                    const active = document.activeElement;
+                    if (!active?.hasAttribute('data-state-id')) return null;
+                    return { outline: getComputedStyle(active.querySelector(':scope > title + *')!).outlineColor };
+                });
+            }
+            expect(focused).not.toBeNull();
+            const background = await page.$eval(
+                '[data-sfn="content"] svg > rect',
+                (element) => getComputedStyle(element).fill,
+            );
+            expect(contrastRatio(focused!.outline, background)).toBeGreaterThanOrEqual(3);
+        } finally {
+            await page.close();
+        }
+    }, 60_000);
+
+    it.each(combinations)('shows the pressed playback control for theme %s under the %s scheme', async (theme, scheme) => {
+        const page = await openViewer({
+            definition: RETRY_DEFINITION,
+            forced: true,
+            history: RETRY_HISTORY,
+            scheme,
+            theme,
+        });
+        try {
+            const buttons = await page.evaluate(() => {
+                const paint = (selector: string): { background: string; text: string } => {
+                    const style = getComputedStyle(document.querySelector(selector)!);
+                    return { background: style.backgroundColor, text: style.color };
+                };
+                return {
+                    pressed: paint('[data-sfn="playback"] button[aria-pressed="true"]'),
+                    unpressed: paint('[data-sfn="playback"] button[aria-pressed="false"]'),
+                };
+            });
+            expect(buttons.pressed.background).not.toBe(buttons.unpressed.background);
+            expect(contrastRatio(buttons.pressed.text, buttons.pressed.background)).toBeGreaterThanOrEqual(4.5);
         } finally {
             await page.close();
         }

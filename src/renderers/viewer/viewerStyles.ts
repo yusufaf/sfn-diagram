@@ -270,7 +270,7 @@ ${statusRules}
 export function buildViewerStyles(params: BuildViewerStylesParams = {}): string {
     const { scope = 'document', theme = 'light' } = params;
     if (theme !== 'auto') {
-        return paletteStyles({ palette: theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE, scope });
+        return paletteStyles({ palette: theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE, scope }) + FORCED_COLORS_RULES;
     }
     // The whole dark stylesheet, not just its colours, goes inside the media query:
     // it keeps light and dark output byte-identical, at the cost of repeating the
@@ -280,9 +280,28 @@ export function buildViewerStyles(params: BuildViewerStylesParams = {}): string 
         colorSchemeRule(scope) +
         `@media (prefers-color-scheme: dark) {${paletteStyles({ palette: DARK_PALETTE, scope })}}\n` +
         AUTO_THEME_DARK_CSS +
-        '\n'
+        '\n' +
+        FORCED_COLORS_RULES
     );
 }
+
+/**
+ * Chrome that loses its meaning when forced-colors repaints the HTML in system
+ * colours. Chromium leaves SVG paint alone there, so the diagram keeps its palette and
+ * only these need help. Inert outside forced-colors mode.
+ */
+const FORCED_COLORS_RULES = `@media (forced-colors: active) {
+  /* The pressed fill is forced to ButtonFace like every other button, so the active
+     speed looks unpressed. Author system colours survive forcing. Scoped to playback
+     because that is the only pressed styling the viewer has outside this mode. */
+  [data-sfn="playback"] button[aria-pressed="true"] { background: Highlight; color: HighlightText; }
+  /* A divider's fill is forced to Canvas: an invisible line on a Canvas toolbar. */
+  .sfn-divider { background: CanvasText; }
+  /* The viewport frame sits over the thumbnail, an unforced SVG, where a forced
+     CanvasText border can vanish; keep the accent it was given. */
+  [data-sfn="minimap-viewport"] { forced-color-adjust: none; }
+}
+`;
 
 /**
  * Tell the browser the page renders in both schemes, so form controls and

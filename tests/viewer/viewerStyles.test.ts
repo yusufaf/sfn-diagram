@@ -227,3 +227,11 @@ describe("theme: 'auto'", () => {
         }
     });
 });
+
+describe('forced colours', () => {
+    it('adds the forced-colors chrome rules for every theme', () => {
+        for (const theme of ['light', 'dark', 'auto'] as const) {
+            expect(buildViewerStyles({ theme })).toContain('@media (forced-colors: active)');
+        }
+    });
+});
