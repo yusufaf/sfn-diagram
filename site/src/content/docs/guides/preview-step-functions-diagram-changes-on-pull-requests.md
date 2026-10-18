@@ -19,8 +19,9 @@ no AWS credentials, and the comment updates itself on every push.
 This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as of October
 2026. With 1.8.0, the current npm release:
 - **CDK and plain CloudFormation:** the workflows run.
-- **SAM:** a template with an inline `AWS::Serverless::StateMachine` fails the SAM workflow
-  (see [Troubleshooting](#troubleshooting)).
+- **SAM:** an inline `AWS::Serverless::StateMachine` is skipped, with a line in the job log
+  (see [Troubleshooting](#troubleshooting)). Other state machines in the same template are
+  still compared.
 - **`DefinitionSubstitutions`:** they're filled in only in part, so a change to a
   substitution value alone may not show in the comment.
 
@@ -126,11 +127,16 @@ function listTemplates(path) {
         .map((relative) => ({ file: join(path, relative), label: `${relative.replace(/\.template\.json$/, '')}/` }));
 }
 
+// A machine that fails to extract on either side is left out of the comment entirely,
+// so a failure on one side can't show up as "New file" or "File deleted".
+const failed = new Set();
+
 function readStateMachines(path) {
     const machines = new Map();
     for (const { file, label } of listTemplates(path)) {
         const text = readFileSync(file, 'utf8');
-        const resources = parse(text, { logLevel: 'silent' })?.Resources ?? {};
+        // 'error' still accepts CloudFormation tags such as !GetAtt, but throws on invalid YAML.
+        const resources = parse(text, { logLevel: 'error' })?.Resources ?? {};
         for (const [logicalId, resource] of Object.entries(resources)) {
             const properties = resource?.Properties ?? {};
             if (!STATE_MACHINE_TYPES.includes(resource?.Type)) continue;
@@ -138,8 +144,13 @@ function readStateMachines(path) {
                 console.error(`Skipped ${label}${logicalId}: its definition is in a separate file. Use the GitHub Action on that file.`);
                 continue;
             }
-            const { aslDefinition } = extractAslFromTemplate({ resourceId: logicalId, template: text });
-            machines.set(`${label}${logicalId}`, aslDefinition);
+            try {
+                const { aslDefinition } = extractAslFromTemplate({ resourceId: logicalId, template: text });
+                machines.set(`${label}${logicalId}`, aslDefinition);
+            } catch (error) {
+                console.error(`Skipped ${label}${logicalId}: ${error.message}`);
+                failed.add(`${label}${logicalId}`);
+            }
         }
     }
     return machines;
@@ -151,6 +162,7 @@ const after = readStateMachines(headPath);
 
 const sections = [...new Set([...before.keys(), ...after.keys()])]
     .sort()
+    .filter((name) => !failed.has(name))
     .filter((name) => JSON.stringify(before.get(name)) !== JSON.stringify(after.get(name)))
     .map((name) =>
         buildAslFileSection({ afterAsl: after.get(name) ?? null, beforeAsl: before.get(name) ?? null, filename: name }),
@@ -170,6 +182,16 @@ if (sections.length > 0) {
         if (body.length <= MAX_COMMENT_CHARS) break;
         omitted.add(section);
         body = render();
+    }
+    if (body.length > MAX_COMMENT_CHARS) {
+        // Even without diagrams the state tables are too long, so post a short summary instead.
+        body = assembleCommentBody({
+            marker: MARKER,
+            sections: [
+                `> 📎 The changes to ${sections.length} state machine${sections.length === 1 ? '' : 's'} are too long for one comment, ` +
+                    'even without diagrams. Run this script locally to see the full report.\n',
+            ],
+        });
     }
     process.stdout.write(body);
 }
@@ -222,7 +244,7 @@ jobs:
           node head/.github/sfn-diagram/comment.mjs base/cdk.out head/cdk.out > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -252,6 +274,11 @@ gets that path instead, such as `assembly-Prod/ProdOrdersStack2EDBF9CE/OrderWork
 - **Removed:** labelled "File deleted". The labels come from the Action, which works on
   files.
 - **Unchanged:** left out.
+- **Changed only outside its states**, for example `TimeoutSeconds` or `Comment`: the
+  machine still gets a section, but its table says "No changes", because only states are
+  compared there.
+- **Couldn't be read on either side:** left out, with a `Skipped` line in the job log
+  explaining why.
 
 When a later push makes every definition match the base branch again, the comment is
 rewritten to say so instead of being left out of date. If no state machine changed and no
@@ -276,7 +303,8 @@ the cached values.
 
 A diagram that would push the comment over the size limit is left out, largest first. A note
 in its place explains how to render it locally. A 1,500-state machine came out as a
-702-character comment.
+702-character comment. If the tables of changed states are still too long without any
+diagrams, the comment becomes a one-line summary.
 
 The script stops at 65,536 characters, the number in GitHub's error message. In our tests
 GitHub actually accepted up to 262,144 bytes of UTF-8 and rejected one byte more with
@@ -346,7 +374,7 @@ jobs:
           node head/.github/sfn-diagram/comment.mjs base/template.yaml head/template.yaml > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -375,8 +403,9 @@ definition with `DefinitionUri` is skipped with a note in the job log. Use the
 For a pull request from a fork, GitHub gives the workflow a read-only token, so it can't
 post a comment
 ([events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)).
-That's why the post step only runs when the pull request comes from the same repository. For
-a fork, the comment's Markdown is still in the run's job summary.
+Dependabot pull requests get a read-only token too. That's why the post step only runs when
+the pull request comes from the same repository and wasn't opened by Dependabot. In both
+cases the comment's Markdown is still in the run's job summary.
 
 Don't switch to `pull_request_target` to get a write token. GitHub's docs say to avoid that
 event "if you need to build or run code from the pull request", and `cdk synth` runs the
@@ -402,7 +431,8 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 | Message | Cause | Fix |
 |---|---|---|
 | `Context lookups have been disabled. … Missing context keys: …` | The stack uses a context lookup, such as `valueFromLookup` or `fromLookup`, with no cached value | Run `cdk synth` locally with AWS credentials and commit `cdk.context.json` |
-| `Template contains no AWS::StepFunctions::StateMachine resource.` | The template's only state machines are SAM `AWS::Serverless::StateMachine` resources, and step 1 installed sfn-diagram 1.8.0 | 1.8.0 doesn't read SAM resources. See the version note at the top of this page |
-| `Resource 'OrderStateMachine' is not an AWS::StepFunctions::StateMachine. Found: PaymentStateMachine.` | The template has both SAM and plain CloudFormation state machines, on sfn-diagram 1.8.0 | Same as above |
+| `Skipped OrderStateMachine: Template contains no AWS::StepFunctions::StateMachine resource.` in the job log | The template's only state machines are SAM `AWS::Serverless::StateMachine` resources, and step 1 installed sfn-diagram 1.8.0 | 1.8.0 doesn't read SAM resources. See the version note at the top of this page |
+| `Skipped OrderStateMachine: Resource 'OrderStateMachine' is not an AWS::StepFunctions::StateMachine. Found: PaymentStateMachine.` in the job log | The template has both SAM and plain CloudFormation state machines, on sfn-diagram 1.8.0. The plain ones are still compared | Same as above |
 | `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` in the job log | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
+| `YAMLParseError: …` and the "Build the comment" step fails | `template.yaml` isn't valid YAML on one side, for example a duplicate key | Fix the template. The script fails rather than guess which state machines it holds |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
