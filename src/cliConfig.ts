@@ -161,6 +161,9 @@ export function discoverConfigPath(
  * `nodeOverrides`, `edgeOverrides` and `nodeAnnotations` are callbacks or record maps
  * with no textual form the CLI can accept, and stay API-only; `redactFields` and
  * `includeRawState` cover the common cases of `redact`.
+ *
+ * A `commentGitlab` block in the same file is not part of this type: it belongs to
+ * `sfn-diagram comment gitlab` ({@link CommentGitlabConfig}), and the main CLI ignores it.
  */
 export interface CliConfig {
     backgroundColor?: string;
@@ -298,9 +301,11 @@ const CUSTOM_THEME_FIELDS: readonly string[] = [
 
 /** Parameters for {@link validateConfig}. */
 interface ValidateConfigParams {
+    /** Prepended to a field's name in errors, such as `commentGitlab.` for a nested block. */
+    fieldPrefix?: string;
     /** The file the object came from, named in every error. */
     path: string;
-    /** The parsed top-level object. */
+    /** The parsed object to validate. */
     raw: Record<string, unknown>;
 }
 
@@ -308,8 +313,9 @@ interface ValidateConfigParams {
  * Validate one parsed config object, dropping keys the CLI does not know.
  *
  * @param params - Validation parameters
+ * @param params.fieldPrefix - Prepended to a field's name in errors
  * @param params.path - The file the object came from, named in every error
- * @param params.raw - The parsed top-level object
+ * @param params.raw - The parsed object to validate
  *
  * @returns The validated config.
  *
@@ -317,11 +323,11 @@ interface ValidateConfigParams {
  *   value.
  */
 function validateConfig(params: ValidateConfigParams): CliConfig {
-    const { path, raw } = params;
+    const { fieldPrefix = '', path, raw } = params;
     const config: Record<string, unknown> = {};
     const reject = (field: string, expected: string): never => {
         throw new CliConfigError(
-            `Invalid ${field} in ${path}: expected ${expected}`,
+            `Invalid ${fieldPrefix}${field} in ${path}: expected ${expected}`,
         );
     };
 
@@ -429,31 +435,25 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
     return config as CliConfig;
 }
 
+/** Parameters for {@link readConfigFile}. */
+type ReadConfigFileParams = LoadCliConfigParams;
+
 /**
- * Load the config file, either the one `--config` names or the nearest discovered one.
+ * Find, read and parse the config file, without validating any field.
  *
- * Unknown keys are dropped rather than rejected, so a `$schema` key for editor
- * completion is harmless and a field added by a later release does not make an older
- * CLI fail on the same file.
- *
- * @param params - Load parameters
+ * @param params - Read parameters
  * @param params.explicitPath - Path from `--config`, or `null` to search
  * @param params.startDir - Directory the search starts from
  *
- * @returns The config and the file it came from, or `null` when there is no config.
+ * @returns The parsed top-level object and the file it came from, or `null` when there
+ *   is no config. An empty file, or a `null` document, gives an empty object.
  *
  * @throws {CliConfigError} When `explicitPath` cannot be read, the file is not valid
- *   JSON or YAML, its top level is not an object, or a known field is invalid.
- *
- * @example
- * ```typescript
- * const loaded = loadCliConfig({ explicitPath: null, startDir: process.cwd() });
- * if (loaded) console.log(loaded.path, loaded.config);
- * ```
+ *   JSON or YAML, or its top level is not an object.
  */
-export function loadCliConfig(
-    params: LoadCliConfigParams,
-): { config: CliConfig; path: string } | null {
+function readConfigFile(
+    params: ReadConfigFileParams,
+): { path: string; raw: Record<string, unknown> } | null {
     const { explicitPath, startDir } = params;
     const path =
         explicitPath === null
@@ -480,7 +480,7 @@ export function loadCliConfig(
 
     // An empty file, and an explicit `null` document, both mean "no settings" rather
     // than "invalid" - a config someone has commented out should not fail the run.
-    if (parsed === undefined || parsed === null) return { config: {}, path };
+    if (parsed === undefined || parsed === null) return { path, raw: {} };
 
     if (typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new CliConfigError(
@@ -488,11 +488,153 @@ export function loadCliConfig(
         );
     }
 
+    return { path, raw: parsed as Record<string, unknown> };
+}
+
+/**
+ * Load the config file, either the one `--config` names or the nearest discovered one.
+ *
+ * Unknown keys are dropped rather than rejected, so a `$schema` key for editor
+ * completion is harmless and a field added by a later release does not make an older
+ * CLI fail on the same file. The `commentGitlab` block is one such key here: it
+ * belongs to `comment gitlab` ({@link loadCommentGitlabConfig}), and a mistake in it
+ * does not fail a local render.
+ *
+ * @param params - Load parameters
+ * @param params.explicitPath - Path from `--config`, or `null` to search
+ * @param params.startDir - Directory the search starts from
+ *
+ * @returns The config and the file it came from, or `null` when there is no config.
+ *
+ * @throws {CliConfigError} When `explicitPath` cannot be read, the file is not valid
+ *   JSON or YAML, its top level is not an object, or a known field is invalid.
+ *
+ * @example
+ * ```typescript
+ * const loaded = loadCliConfig({ explicitPath: null, startDir: process.cwd() });
+ * if (loaded) console.log(loaded.path, loaded.config);
+ * ```
+ */
+export function loadCliConfig(
+    params: LoadCliConfigParams,
+): { config: CliConfig; path: string } | null {
+    const file = readConfigFile(params);
+    if (file === null) return null;
+    return {
+        config: validateConfig({ path: file.path, raw: file.raw }),
+        path: file.path,
+    };
+}
+
+/** The `commentGitlab` block fields `comment gitlab` honours: the render settings it forwards. */
+export const COMMENT_GITLAB_CONFIG_FIELDS = [
+    'catchHandling',
+    'collapse',
+    'layout',
+    'theme',
+] as const;
+
+/** A validated `commentGitlab` block. */
+export type CommentGitlabConfig = Pick<
+    CliConfig,
+    (typeof COMMENT_GITLAB_CONFIG_FIELDS)[number]
+>;
+
+/** Parameters for {@link loadCommentGitlabConfig}. */
+export type LoadCommentGitlabConfigParams = LoadCliConfigParams;
+
+/**
+ * Load the `commentGitlab` block of the config file, for `sfn-diagram comment gitlab`.
+ *
+ * The subcommand reads only this block, never the top-level fields: most of those are
+ * options it has no use for, and a file written for local renders should not quietly
+ * change what a pipeline posts to a merge request. Unlike the top level, the block is
+ * strict. A key outside {@link COMMENT_GITLAB_CONFIG_FIELDS} is an error rather than
+ * dropped, because a setting the subcommand silently ignores is exactly the
+ * half-working behaviour the block exists to avoid.
+ *
+ * @param params - Load parameters
+ * @param params.explicitPath - Path from `--config`, or `null` to search
+ * @param params.startDir - Directory the search starts from
+ *
+ * @returns The validated block and the file it came from, or `null` when no file was
+ *   found or a discovered file has no `commentGitlab` key. A `commentGitlab: null`
+ *   block gives an empty config.
+ *
+ * @throws {CliConfigError} When the file cannot be read or parsed; it has a top-level
+ *   key that differs from `commentGitlab` only in case, spacing or punctuation (such as
+ *   `commentGitLab` or `comment_gitlab`), even beside a correct block; `explicitPath`
+ *   names a file with no `commentGitlab` block; the block is not an object; it has an
+ *   unsupported key; or a field is invalid.
+ *
+ * @example
+ * ```typescript
+ * // sfn-diagram.config.yaml:  commentGitlab: { theme: dark, catchHandling: hide }
+ * loadCommentGitlabConfig({ explicitPath: null, startDir: process.cwd() });
+ * // { config: { catchHandling: 'hide', theme: 'dark' }, path: '/repo/sfn-diagram.config.yaml' }
+ * ```
+ */
+export function loadCommentGitlabConfig(
+    params: LoadCommentGitlabConfigParams,
+): { config: CommentGitlabConfig; path: string } | null {
+    const file = readConfigFile(params);
+    if (file === null) return null;
+    const { path, raw } = file;
+
+    // The main CLI drops unknown top-level keys, so a near miss such as `commentGitLab`,
+    // `comment_gitlab` or `comment gitlab` would otherwise leave the block silently
+    // unread. Quoted, since a stray space is one way to miss.
+    const nearMisses = Object.keys(raw)
+        .filter(
+            (key) =>
+                key !== 'commentGitlab' &&
+                key.toLowerCase().replace(/[^a-z0-9]/g, '') === 'commentgitlab',
+        )
+        .sort();
+    if (nearMisses.length > 0) {
+        const named = nearMisses.map((key) => JSON.stringify(key)).join(', ');
+        throw new CliConfigError(
+            `Unknown ${nearMisses.length === 1 ? 'key' : 'keys'} ${named} in ${path}: did you mean commentGitlab?`,
+        );
+    }
+
+    if (!('commentGitlab' in raw)) {
+        // An explicit path is a statement of intent; a no-op there would hide a typo.
+        if (params.explicitPath !== null) {
+            throw new CliConfigError(
+                `${path} has no commentGitlab block; comment gitlab reads only that block`,
+            );
+        }
+        return null;
+    }
+
+    const block = raw.commentGitlab;
+    if (block === null || block === undefined) return { config: {}, path };
+    if (typeof block !== 'object' || Array.isArray(block)) {
+        throw new CliConfigError(
+            `Invalid commentGitlab in ${path}: expected an object`,
+        );
+    }
+
+    const supported: readonly string[] = COMMENT_GITLAB_CONFIG_FIELDS;
+    const unsupported = Object.keys(block)
+        .filter((key) => !supported.includes(key))
+        .sort();
+    if (unsupported.length > 0) {
+        const named = unsupported
+            .map((key) => `commentGitlab.${key}`)
+            .join(', ');
+        throw new CliConfigError(
+            `Unsupported ${named} in ${path}: comment gitlab reads only ${supported.join(', ')}`,
+        );
+    }
+
     return {
         config: validateConfig({
+            fieldPrefix: 'commentGitlab.',
             path,
-            raw: parsed as Record<string, unknown>,
-        }),
+            raw: block as Record<string, unknown>,
+        }) as CommentGitlabConfig,
         path,
     };
 }

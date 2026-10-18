@@ -22,7 +22,19 @@ sfn-preview:
     when: on_success
 ```
 
-Options: `--asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `--comment-tag` (marker used to find/update the note, default `sfn-diagram-preview`), `--theme`, `--layout`, `--collapse` (bare for every container, or `--collapse=GroupA,GroupB`), `--hide-catch`, `--out-dir` (default `sfn-diagram-artifacts`; `--output-dir` still works). Every value flag also takes the `--flag=value` form. Run `sfn-diagram comment gitlab --help` for the full list, including the `execution-mode` / `state-machine-arn` overlay (same idea as the GitHub Action's).
+Options: `--asl-glob` (comma-separated globs, default `**/*.asl.json,**/*.asl`), `--comment-tag` (marker used to find/update the note, default `sfn-diagram-preview`), `--theme`, `--layout`, `--collapse` (bare for every container, or `--collapse=GroupA,GroupB`), `--no-collapse`, `--hide-catch`, `--show-catch`, `--config` (see [Project defaults](#project-defaults)), `--out-dir` (default `sfn-diagram-artifacts`; `--output-dir` still works). Every value flag also takes the `--flag=value` form. Run `sfn-diagram comment gitlab --help` for the full list, including the `execution-mode` / `state-machine-arn` overlay (same idea as the GitHub Action's).
+
+## Project defaults
+
+To set the render options once instead of in every job, add a `commentGitlab` block to the project's `sfn-diagram.config.yaml` (or `.json`, `.yml`, `.sfn-diagramrc`):
+
+```yaml
+commentGitlab:
+  theme: dark
+  catchHandling: hide
+```
+
+The block takes `theme`, `layout`, `catchHandling` and `collapse`; a flag in the job still wins. The subcommand ignores the file's top-level fields, and a key the block does not support fails the job. See [`comment gitlab` reads its own block](/guides/cli/#comment-gitlab-reads-its-own-block) for the details.
 
 ## The Mermaid size limit
 

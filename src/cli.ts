@@ -30,6 +30,7 @@ import {
     discoverConfigPath,
     isValidPngScale,
     loadCliConfig,
+    loadCommentGitlabConfig,
     MAX_PNG_SCALE,
 } from './cliConfig';
 import type { PlannedOutput } from './cliInputs';
@@ -43,7 +44,7 @@ import {
     toPosix,
 } from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
-import { resolveCliOptions } from './cliOptions';
+import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { buildCliRedact } from './cliRedact';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
@@ -300,7 +301,7 @@ Notes:
   Defaults can come from sfn-diagram.config.json (or .yaml/.yml, or .sfn-diagramrc),
   searched upward from the working directory and stopping at the repository root.
   --config <path> reads that file instead of searching. Any explicit flag overrides
-  the file, and "comment gitlab" does not read it.
+  the file. "comment gitlab" reads only the file's commentGitlab block.
 
   --execution takes a saved history file or an execution ARN
   (arn:aws:states:<region>:<account>:execution:<state-machine>:<execution>). An ARN
@@ -399,6 +400,11 @@ merge request widget.
 
 Value flags also accept the --flag=value form.
 
+Defaults for --theme, --layout, --hide-catch/--show-catch and --collapse can come
+from a commentGitlab block in sfn-diagram.config.* (found as for the main command).
+Top-level fields are not read, and a key the block does not support is an error.
+A flag overrides the block.
+
 Options:
   --asl-glob <patterns>             Comma-separated globs matching ASL files
                                      (default: **/*.asl.json,**/*.asl)
@@ -409,9 +415,15 @@ Options:
   --collapse[=<names>]               Collapse Parallel/Map containers into one node: bare
                                      collapses every container, --collapse=A,B only those
                                      states (write a comma inside a name as \\,)
+  --no-collapse                      Collapse nothing (overrides the config's
+                                     commentGitlab.collapse)
   --hide-catch                       Drop error-handler (Catch) branches from added/deleted
                                      diagrams. --collapse and --hide-catch leave a diff
                                      diagram unaffected — see the docs
+  --show-catch                       Draw Catch branches (overrides the config's
+                                     commentGitlab.catchHandling)
+  --config <path>                    Read the commentGitlab block from this file instead
+                                     of searching; the file must have one
   --out-dir <path>                   Where SVG fallback artifacts are written
                                      (default: sfn-diagram-artifacts; alias: --output-dir)
   --execution-mode <off|latest|latest-failed>
@@ -1570,18 +1582,26 @@ function writeExecutionSummary(metadata: ExecutionSummary): void {
     );
 }
 
+/**
+ * The parsed `comment gitlab` command line.
+ *
+ * The four render options are `null` when their flag was not given, as in `CliArgs`, so
+ * {@link resolveCommentGitlabOptions} can tell "absent" from "set to the default" when
+ * it merges them over the config file's `commentGitlab` block.
+ */
 export interface CommentGitlabArgs {
     aslGlob: string;
     awsRegion?: string;
-    collapse?: string[] | true;
+    catchHandling: CatchHandling | null;
+    collapse: string[] | boolean | null;
     commentTag: string;
+    config: string | null;
     executionMode: ExecutionMode;
-    hideCatch: boolean;
-    layout?: LayoutDirection;
+    layout: LayoutDirection | null;
     outputDir: string;
     showHelp: boolean;
     stateMachineArn: string;
-    theme: ThemeOption;
+    theme: 'dark' | 'light' | null;
 }
 
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed'];
@@ -1592,12 +1612,15 @@ const COMMENT_GITLAB_OPTION_SPEC = {
     'aws-region': { type: 'string' },
     collapse: { type: 'string' },
     'comment-tag': { type: 'string' },
+    config: { type: 'string' },
     'execution-mode': { type: 'string' },
     help: { short: 'h', type: 'boolean' },
     'hide-catch': { type: 'boolean' },
     layout: { type: 'string' },
+    'no-collapse': { type: 'boolean' },
     'out-dir': { type: 'string' },
     'output-dir': { type: 'string' },
+    'show-catch': { type: 'boolean' },
     'state-machine-arn': { type: 'string' },
     theme: { type: 'string' },
 } as const;
@@ -1610,17 +1633,19 @@ const COMMENT_GITLAB_OPTION_SPEC = {
  *
  * @param argv - The tokens after `comment gitlab`
  *
- * @returns The parsed flags, with defaults applied. `awsRegion`, `collapse` and
- * `layout` are only present when given.
+ * @returns The parsed flags. The CI-shaped ones have their defaults applied;
+ * `catchHandling`, `collapse`, `config`, `layout` and `theme` are `null` when not
+ * given, and `awsRegion` is only present when given.
  *
  * @throws {CliError} With exit code 2 for an unknown flag, a missing or unexpected
- * value, an invalid `--theme`/`--layout`/`--execution-mode`, a blank `--out-dir`,
- * both `--out-dir` and `--output-dir`, or a stray positional argument.
+ * value, an invalid `--theme`/`--layout`/`--execution-mode`, a blank `--out-dir` or
+ * `--config`, both `--out-dir` and `--output-dir`, both halves of `--hide-catch`/
+ * `--show-catch` or `--collapse`/`--no-collapse`, or a stray positional argument.
  *
  * @example
  * ```typescript
  * parseCommentGitlabArgs(['--theme=dark', '--layout', 'LR', '--collapse']);
- * // { theme: 'dark', layout: 'LR', collapse: true, ... }
+ * // { theme: 'dark', layout: 'LR', collapse: true, catchHandling: null, ... }
  * ```
  */
 export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
@@ -1669,9 +1694,37 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
         values['output-dir'] !== undefined ? '--output-dir' : '--out-dir';
     const outDirValue = values['out-dir'] ?? values['output-dir'];
 
+    // Each render flag has an opposite so a commentGitlab config block's setting can
+    // be undone from the job; the main CLI's wording, since it is the same mistake.
+    const sawHideCatch = values['hide-catch'] === true;
+    const sawShowCatch = values['show-catch'] === true;
+    if (sawHideCatch && sawShowCatch) {
+        throw new CliError(
+            '--hide-catch and --show-catch cannot be combined; pick one',
+            EXIT_USAGE,
+        );
+    }
+    const sawNoCollapse = values['no-collapse'] === true;
+    if (values.collapse !== undefined && sawNoCollapse) {
+        throw new CliError(
+            '--collapse and --no-collapse cannot be combined; pick one',
+            EXIT_USAGE,
+        );
+    }
+
     const args: CommentGitlabArgs = {
         aslGlob: values['asl-glob'] ?? '**/*.asl.json,**/*.asl',
+        catchHandling: sawHideCatch ? 'hide' : sawShowCatch ? 'show' : null,
+        collapse: sawNoCollapse
+            ? false
+            : values.collapse === undefined
+              ? null
+              : parseCollapseValue({ value: values.collapse }),
         commentTag: values['comment-tag'] ?? 'sfn-diagram-preview',
+        config:
+            values.config === undefined
+                ? null
+                : expectNonBlank({ flag: '--config', value: values.config }),
         executionMode:
             values['execution-mode'] === undefined
                 ? 'off'
@@ -1680,7 +1733,14 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
                       flag: '--execution-mode',
                       value: values['execution-mode'],
                   }),
-        hideCatch: values['hide-catch'] === true,
+        layout:
+            values.layout === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_LAYOUTS,
+                      flag: '--layout',
+                      value: values.layout,
+                  }),
         outputDir:
             outDirValue === undefined
                 ? 'sfn-diagram-artifacts'
@@ -1689,7 +1749,7 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
         stateMachineArn: values['state-machine-arn'] ?? '',
         theme:
             values.theme === undefined
-                ? 'light'
+                ? null
                 : expectEnum({
                       allowed: BUILT_IN_THEMES,
                       flag: '--theme',
@@ -1698,16 +1758,6 @@ export function parseCommentGitlabArgs(argv: string[]): CommentGitlabArgs {
     };
     if (values['aws-region'] !== undefined) {
         args.awsRegion = values['aws-region'];
-    }
-    if (values.collapse !== undefined) {
-        args.collapse = parseCollapseValue({ value: values.collapse });
-    }
-    if (values.layout !== undefined) {
-        args.layout = expectEnum({
-            allowed: VALID_LAYOUTS,
-            flag: '--layout',
-            value: values.layout,
-        });
     }
     return args;
 }
@@ -1738,17 +1788,39 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
         return EXIT_USAGE;
     }
 
+    let loaded: ReturnType<typeof loadCommentGitlabConfig>;
+    try {
+        loaded = loadCommentGitlabConfig({
+            explicitPath: args.config,
+            startDir: process.cwd(),
+        });
+    } catch (error) {
+        if (!(error instanceof CliConfigError)) throw error;
+        process.stderr.write(`Error: ${error.message}\n`);
+        return EXIT_FAILURE;
+    }
+    if (loaded !== null) {
+        // Says where a setting came from, so a changed note can be traced in the CI log.
+        process.stdout.write(
+            `Read commentGitlab settings from ${loaded.path}\n`,
+        );
+    }
+    const options = resolveCommentGitlabOptions({
+        args,
+        config: loaded?.config ?? null,
+    });
+
     const { exitCode, logs } = await runGitlabComment({
         aslGlob: args.aslGlob,
         awsRegion: args.awsRegion,
-        catchHandling: args.hideCatch ? 'hide' : undefined,
-        collapse: args.collapse,
+        catchHandling: options.catchHandling,
+        collapse: options.collapse,
         commentTag: args.commentTag,
         executionMode: args.executionMode,
-        layout: args.layout,
+        layout: options.layout,
         outputDir: args.outputDir,
         stateMachineArn: args.stateMachineArn,
-        theme: args.theme,
+        theme: options.theme,
     });
 
     for (const entry of logs) {

@@ -1,4 +1,4 @@
-import type { CliConfig } from './cliConfig';
+import type { CliConfig, CommentGitlabConfig } from './cliConfig';
 import type {
     CatchHandling,
     CatchLabelStyle,
@@ -7,6 +7,7 @@ import type {
     EdgePathStyle,
     LayoutDirection,
     StylePreset,
+    ThemeOption,
 } from './types';
 
 /**
@@ -207,5 +208,78 @@ export function resolveCliOptions(
         showVariables: pickOptional(args.showVariables, settings.showVariables),
         stylePreset: pickOptional(args.stylePreset, settings.stylePreset),
         theme: pick(args.theme, settings.theme, 'light'),
+    };
+}
+
+/**
+ * The absence-preserving view of the `comment gitlab` command line that
+ * {@link resolveCommentGitlabOptions} reads: `null` for every flag not given.
+ *
+ * `src/cli.ts`'s `CommentGitlabArgs` is a structural superset, as `CliArgs` is of
+ * {@link CliOptionSource}. `theme` is `'light' | 'dark'` because the flag takes no theme
+ * file; a custom theme object is reachable only through the config block.
+ */
+export interface CommentGitlabOptionSource {
+    catchHandling: CatchHandling | null;
+    collapse: string[] | boolean | null;
+    layout: LayoutDirection | null;
+    theme: 'dark' | 'light' | null;
+}
+
+/**
+ * The render options `comment gitlab` passes to `runGitlabComment`.
+ *
+ * Only `theme` has a default here, matching the flag's documented default. The other
+ * three stay `undefined` when nothing set them, so `runGitlabComment` applies its own
+ * defaults exactly as it did before the config block existed.
+ */
+export interface ResolvedCommentGitlabOptions {
+    catchHandling: CatchHandling | undefined;
+    collapse: string[] | boolean | undefined;
+    layout: LayoutDirection | undefined;
+    theme: ThemeOption;
+}
+
+/** Parameters for {@link resolveCommentGitlabOptions}. */
+export interface ResolveCommentGitlabOptionsParams {
+    /** The `comment gitlab` command line, with `null` for every option not given. */
+    args: CommentGitlabOptionSource;
+    /** The loaded `commentGitlab` block, or `null` when there is none. */
+    config: CommentGitlabConfig | null;
+}
+
+/**
+ * Merge `comment gitlab`'s flags over its `commentGitlab` config block over the defaults.
+ *
+ * The same precedence as {@link resolveCliOptions}: an explicit flag always wins,
+ * including `--show-catch` or `--no-collapse` undoing a setting in the block.
+ *
+ * @param params - Merge parameters
+ * @param params.args - The command line, with `null` for every option not given
+ * @param params.config - The loaded `commentGitlab` block, or `null`
+ *
+ * @returns The render options to pass to `runGitlabComment`.
+ *
+ * @example
+ * ```typescript
+ * resolveCommentGitlabOptions({
+ *     args: { catchHandling: null, collapse: false, layout: null, theme: null },
+ *     config: { collapse: true, theme: 'dark' },
+ * }); // { catchHandling: undefined, collapse: false, layout: undefined, theme: 'dark' }
+ * ```
+ */
+export function resolveCommentGitlabOptions(
+    params: ResolveCommentGitlabOptionsParams,
+): ResolvedCommentGitlabOptions {
+    const { args, config } = params;
+    const settings: CommentGitlabConfig = config ?? {};
+
+    return {
+        catchHandling:
+            pickOptional(args.catchHandling, settings.catchHandling) ??
+            undefined,
+        collapse: pickOptional(args.collapse, settings.collapse) ?? undefined,
+        layout: pickOptional(args.layout, settings.layout) ?? undefined,
+        theme: pick<ThemeOption>(args.theme, settings.theme, 'light'),
     };
 }

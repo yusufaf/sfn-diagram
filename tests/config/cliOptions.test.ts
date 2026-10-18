@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { resolveCliOptions } from '../../src/cliOptions';
-import type { CliOptionSource } from '../../src/cliOptions';
+import {
+    resolveCliOptions,
+    resolveCommentGitlabOptions,
+} from '../../src/cliOptions';
+import type {
+    CliOptionSource,
+    CommentGitlabOptionSource,
+} from '../../src/cliOptions';
 
 /** A command line on which no option-bearing flag was given. */
 const noFlags: CliOptionSource = {
@@ -285,6 +291,69 @@ describe('resolveCliOptions', () => {
             showVariables: false,
             stylePreset: 'enhanced',
             theme: 'dark',
+        });
+    });
+});
+
+describe('resolveCommentGitlabOptions', () => {
+    const noGitlabFlags: CommentGitlabOptionSource = {
+        catchHandling: null,
+        collapse: null,
+        layout: null,
+        theme: null,
+    };
+
+    it('defaults to the light theme and leaves the rest to runGitlabComment', () => {
+        expect(
+            resolveCommentGitlabOptions({ args: noGitlabFlags, config: null }),
+        ).toEqual({
+            catchHandling: undefined,
+            collapse: undefined,
+            layout: undefined,
+            theme: 'light',
+        });
+    });
+
+    it('takes every field from the commentGitlab block when no flag is given', () => {
+        expect(
+            resolveCommentGitlabOptions({
+                args: noGitlabFlags,
+                config: {
+                    catchHandling: 'hide',
+                    collapse: ['A'],
+                    layout: 'LR',
+                    theme: 'dark',
+                },
+            }),
+        ).toEqual({
+            catchHandling: 'hide',
+            collapse: ['A'],
+            layout: 'LR',
+            theme: 'dark',
+        });
+    });
+
+    it('lets each flag override the block, including back to a default', () => {
+        expect(
+            resolveCommentGitlabOptions({
+                args: {
+                    catchHandling: 'show',
+                    collapse: false,
+                    layout: 'TB',
+                    theme: 'light',
+                },
+                config: {
+                    catchHandling: 'hide',
+                    collapse: true,
+                    layout: 'LR',
+                    theme: 'dark',
+                },
+            }),
+        ).toEqual({
+            catchHandling: 'show',
+            collapse: false,
+            layout: 'TB',
+            theme: 'light',
         });
     });
 });
