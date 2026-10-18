@@ -18,13 +18,19 @@ This guide shows how to use the CLI with each tool. The full flag list is in
 [the CLI guide](/guides/cli/).
 
 :::note[Which version you need]
-CDK templates and plain CloudFormation work with sfn-diagram 1.8.0, the current npm release.
-Three things need 1.9.0 or later, which hadn't been released as of October 2026:
-- reading SAM `AWS::Serverless::StateMachine` resources;
-- filling in `DefinitionSubstitutions`;
-- six of the lint rules.
+This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as of October
+2026. Version 1.8.0, the current npm release, handles CDK templates and plain CloudFormation,
+with these differences:
+- It doesn't recognize SAM `AWS::Serverless::StateMachine` resources.
+- **`DefinitionSubstitutions`:**
+  - 1.8.0 applies them only inside `Fn::Sub`, and a value that is a `Ref` or `Fn::GetAtt`
+    comes out as `[object Object]`.
+  - Anywhere else, including CDK output, a `${Name}` placeholder stays as written.
+  - An unquoted placeholder, such as `"Seconds": ${Wait}`, fails with
+    `ASL definition is not valid JSON`.
+- `--check` has fewer rules, and some error messages are worded differently.
 
-Each section below says where this applies. Run `npx sfn-diagram --version` to check yours.
+Run `npx sfn-diagram --version` to check yours.
 :::
 
 ## AWS CDK
@@ -86,7 +92,7 @@ them for a readable placeholder:
 | `{ "Ref": "OrdersTable" }` | `<Ref:OrdersTable>` |
 | `{ "Ref": "AWS::Partition" }` | `${AWS::Partition}` |
 | `Fn::Join` | The joined text |
-| `Fn::Sub` | The text with its variables filled in from its own map, or from `DefinitionSubstitutions` (1.9.0 or later). Any other `${…}` reference stays as written |
+| `Fn::Sub` | The text with its variables filled in from its own map or from `DefinitionSubstitutions`. Any other `${…}` reference stays as written |
 | Any other `Fn::*` | `<Fn::Name>`, plus a `warning:` line on stderr |
 
 The states, transitions, Choice rules, Retry and Catch all come straight from the
@@ -211,12 +217,6 @@ definition can be in `DefinitionString` or `Definition`. A definition stored in 
 `DefinitionS3Location` gets the same refusal as SAM's `DefinitionUri`, so download the file
 and render it directly.
 
-On 1.8.0, two things differ:
-- A `DefinitionS3Location` machine fails with
-  `State machine '…' has no DefinitionString or Definition.` instead.
-- `DefinitionSubstitutions` aren't applied, so `${Name}` placeholders stay as written. That
-  includes a CDK `StateMachine` created with `definitionSubstitutions`.
-
 ## See what a change does to the graph
 
 Synthesize before and after a change, then diff the two templates. Both sides go through
@@ -260,8 +260,7 @@ npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow0015CD
 ```
 
 Findings come in two severities. Errors are mistakes Step Functions would reject, such as a
-state with both `End` and `Next`, or a `Retry` on a Pass state. Version 1.9.0 adds more,
-including a Wait state with no duration and a Choice with no rules. Any error makes
+state with both `End` and `Next`, or a Wait state with no duration. Any error makes
 `--check` exit 1, so it fails a CI job. Warnings point at likely bugs, such
 as a Choice with no `Default` or a state nothing can reach. They're printed, but on their
 own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule list.
@@ -272,7 +271,7 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 |---|---|---|
 | `ASL definition is not valid JSON` | A YAML template without `--resolve-cfn`, or a `cdk synth` printout saved to a file | Add `--resolve-cfn`, or read the file in `cdk.out/` |
 | `Template has multiple state machines (…)` | More than one state machine in the template | Pass one of the listed IDs with `--resource` |
-| `Resource '…' is not a state machine` (1.8.0: `… is not an AWS::StepFunctions::StateMachine`) | The `--resource` value doesn't match exactly. With a CDK `StateMachine`, this is usually the ID without its hash suffix | Copy an ID from the `Found:` list in the message |
+| `Resource '…' is not a state machine` | The `--resource` value doesn't match exactly. With a CDK `StateMachine`, this is usually the ID without its hash suffix | Copy an ID from the `Found:` list in the message |
 | `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Point at the template that declares the machine. A CDK nested stack gets its own `*.nested.template.json` file in `cdk.out/` |
 | `Template contains no AWS::StepFunctions::StateMachine …` | The same mistake with `--resolve-cfn`. On 1.8.0, also any SAM template | Same fix. For SAM, use 1.9.0 or later |
 | `… loads its definition from DefinitionUri …` | The definition is in a separate file | Render that `.asl.json` file directly |
