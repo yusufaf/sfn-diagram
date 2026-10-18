@@ -345,6 +345,41 @@ describe('accessibility', () => {
     });
 });
 
+describe('document title', () => {
+    const titled = (comment?: string): AslDefinition => ({
+        ...(comment === undefined ? {} : { Comment: comment }),
+        StartAt: 'A',
+        States: { A: { Type: 'Succeed' } },
+    });
+    // The embedded SVG carries its own <title>, so read the document's from <head>.
+    const documentTitle = (html: string): string | undefined =>
+        /<head>[\s\S]*?<title>([^<]*)<\/title>[\s\S]*?<\/head>/.exec(html)?.[1];
+
+    it('uses the definition Comment, escaped', () => {
+        const result = generateHtml({ aslDefinition: titled('Order <flow> & co') });
+        expect(documentTitle(result.html)).toBe('Order &lt;flow&gt; &amp; co');
+    });
+
+    it('prefers diagramTitle over the Comment', () => {
+        const result = generateHtml({ aslDefinition: titled('From comment'), diagramTitle: 'Custom' });
+        expect(documentTitle(result.html)).toBe('Custom');
+    });
+
+    it('falls back to sfn-diagram without a title', () => {
+        expect(documentTitle(generateHtml({ aslDefinition: titled() }).html)).toBe('sfn-diagram');
+    });
+
+    it('falls back to sfn-diagram for a blank title', () => {
+        const result = generateHtml({ aslDefinition: titled(), diagramTitle: '   ' });
+        expect(documentTitle(result.html)).toBe('sfn-diagram');
+    });
+
+    it('uses the Comment in generateHtmlAsync too', async () => {
+        const result = await generateHtmlAsync({ aslDefinition: titled('Async flow') });
+        expect(documentTitle(result.html)).toBe('Async flow');
+    });
+});
+
 describe('resolveViewerTheme', () => {
     it('maps the built-in themes directly', () => {
         expect(resolveViewerTheme({ theme: 'dark' })).toBe('dark');

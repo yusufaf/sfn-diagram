@@ -41,8 +41,9 @@ export function escapeAttribute(value: string): string {
  * Escape a string for use as element text content.
  *
  * Matches the HTML serialization algorithm: `&`, U+00A0, `<`, and `>` are escaped.
+ * Shared with the viewer shell, which escapes the document `<title>` with it.
  */
-function escapeText(value: string): string {
+export function escapeText(value: string): string {
     return value
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&nbsp;')

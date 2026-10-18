@@ -6,6 +6,7 @@ import { serializeForScriptBlock } from './scriptJson';
 import { buildViewerScript } from './viewerScript';
 import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
 import type { RelayoutModel } from './relayout';
+import { escapeText } from '../svgBuilder';
 
 export { minimapStartsCollapsed };
 export type { MinimapStartsCollapsedParams } from './minimapThreshold';
@@ -319,6 +320,8 @@ export interface WrapSvgInInteractiveHtmlParams {
      * playback bar; omit it for a document with no playback controls at all.
      */
     timeline?: ExecutionTimeline;
+    /** Diagram title for the document `<title>`; blank or omitted falls back to `sfn-diagram`. */
+    title?: string;
     /** Viewer chrome theme. Defaults to `'light'`. */
     theme?: ViewerTheme;
 }
@@ -340,6 +343,7 @@ export interface WrapSvgInInteractiveHtmlParams {
  * @param params.stateData - Raw ASL per state; enables the detail panel
  * @param params.svg - Rendered SVG markup to embed
  * @param params.theme - Viewer chrome theme, `'light'` (default) or `'dark'`
+ * @param params.title - Document title; blank or omitted falls back to `sfn-diagram`
  * @returns Complete HTML document as a string
  *
  * @example
@@ -366,6 +370,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         svg,
         theme = 'light',
         timeline,
+        title,
     } = params;
     const hasStateData = stateData !== undefined && Object.keys(stateData).length > 0;
     const hasEdgeData = edgeData !== undefined && Object.keys(edgeData).length > 0;
@@ -412,12 +417,14 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         svg,
     });
 
+    const documentTitle = title !== undefined && title.trim() !== '' ? title : 'sfn-diagram';
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sfn-diagram</title>
+<title>${escapeText(documentTitle)}</title>
 <style${nonceAttr}>${buildViewerStyles({ theme })}</style>
 </head>
 <body>
