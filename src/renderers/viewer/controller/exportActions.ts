@@ -1,11 +1,14 @@
 import { hook, type ListenerRegistry, type ViewerData } from './dom';
+import { inlineRemoteImages, RASTER_SCALE, rasterizeSvg } from './rasterize';
 import type { Viewport } from './viewport';
 
 /**
- * The toolbar's two ways of getting the diagram back out of a document that was
- * opened away from whatever produced it: download the SVG, and copy the Mermaid.
+ * The toolbar's three ways of getting the diagram back out of a document that was
+ * opened away from whatever produced it: download the SVG, download a PNG, and copy
+ * the Mermaid.
  *
  * The SVG is already on the page, so it only needs cleaning and wrapping in a Blob.
+ * The PNG is that same cleaned SVG drawn through a canvas (see `rasterize.ts`).
  * Mermaid is not, and cannot be: the controller bundle may only contain
  * `src/renderers/viewer/**` (`scripts/build-viewer-script.mjs` fails the build on
  * anything else), and `MermaidRenderer` lives outside it. So the Mermaid is rendered
@@ -97,7 +100,7 @@ export async function copyText(params: { ownerDoc: Document | null; text: string
 }
 
 /**
- * Serialize the SVG on screen, without the classes the viewer painted onto it.
+ * Clone the SVG on screen, without the classes the viewer painted onto it.
  *
  * A clone, so nothing here disturbs the live diagram. Search dimming, a selected
  * edge's highlight and playback's status colours are all viewer state rather than
@@ -105,16 +108,16 @@ export async function copyText(params: { ownerDoc: Document | null; text: string
  * session, not of the state machine. Everything else is left exactly as rendered,
  * including the edge hit areas, which are part of what `generateSvg` produced.
  *
- * @param params - Serialization parameters
+ * @param params - Clone parameters
  * @param params.svg - The live SVG element to copy
- * @returns Standalone SVG markup
+ * @returns A detached, standalone copy of the SVG
  *
  * @example
  * ```typescript
- * const markup = serializeVisibleSvg({ svg: viewport.activeSvg()! });
+ * const clone = cleanVisibleSvgClone({ svg: viewport.activeSvg()! });
  * ```
  */
-export function serializeVisibleSvg(params: { svg: SVGSVGElement }): string {
+export function cleanVisibleSvgClone(params: { svg: SVGSVGElement }): SVGSVGElement {
     const clone = params.svg.cloneNode(true) as SVGSVGElement;
 
     for (const className of TRANSIENT_CLASSES) {
@@ -128,15 +131,33 @@ export function serializeVisibleSvg(params: { svg: SVGSVGElement }): string {
 
     // A file opened on its own has no page to inherit the SVG namespace from.
     if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    return clone.outerHTML;
+    return clone;
 }
 
-/** Wire up the toolbar's download-SVG and copy-Mermaid buttons, when present. */
+/**
+ * Serialize the SVG on screen, without the classes the viewer painted onto it (see
+ * {@link cleanVisibleSvgClone}).
+ *
+ * @param params - Serialization parameters
+ * @param params.svg - The live SVG element to copy
+ * @returns Standalone SVG markup
+ *
+ * @example
+ * ```typescript
+ * const markup = serializeVisibleSvg({ svg: viewport.activeSvg()! });
+ * ```
+ */
+export function serializeVisibleSvg(params: { svg: SVGSVGElement }): string {
+    return cleanVisibleSvgClone(params).outerHTML;
+}
+
+/** Wire up the toolbar's download-SVG, download-PNG and copy-Mermaid buttons, when present. */
 export function attachExportActions(params: AttachExportActionsParams): void {
     const { data, ownerDoc, registry, root, viewport } = params;
     const { on } = registry;
 
     const downloadButton = hook(root, 'export-svg');
+    const pngButton = hook(root, 'export-png') as HTMLButtonElement | null;
     const copyButton = hook(root, 'copy-mermaid');
 
     // One entry per button, not one per click: a standalone document is never
@@ -167,7 +188,27 @@ export function attachExportActions(params: AttachExportActionsParams): void {
 
     /** Revoke an object URL once the click that consumed it has been dispatched. */
     let revokeTimer: ReturnType<typeof setTimeout> | undefined;
-    registry.cleanups.push(() => clearTimeout(revokeTimer));
+    // A PNG finishes after awaits; one that lands after teardown must not download.
+    let destroyed = false;
+    registry.cleanups.push(() => {
+        clearTimeout(revokeTimer);
+        destroyed = true;
+    });
+
+    /** Hand `blob` to the browser as a download named `filename`. */
+    const download = (doc: Document, blob: Blob, filename: string): void => {
+        const url = URL.createObjectURL(blob);
+        const link = doc.createElement('a');
+        link.href = url;
+        link.download = filename;
+        doc.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Freed on the next turn rather than immediately: revoking synchronously
+        // races the navigation the click just started, and Firefox drops it.
+        clearTimeout(revokeTimer);
+        revokeTimer = setTimeout(() => URL.revokeObjectURL(url), 0);
+    };
 
     if (downloadButton) {
         on(downloadButton, 'click', () => {
@@ -180,17 +221,50 @@ export function attachExportActions(params: AttachExportActionsParams): void {
             const blob = new Blob([serializeVisibleSvg({ svg })], {
                 type: 'image/svg+xml;charset=utf-8',
             });
-            const url = URL.createObjectURL(blob);
-            const link = ownerDoc.createElement('a');
-            link.href = url;
-            link.download = 'diagram.svg';
-            ownerDoc.body.appendChild(link);
-            link.click();
-            link.remove();
-            // Freed on the next turn rather than immediately: revoking synchronously
-            // races the navigation the click just started, and Firefox drops it.
-            clearTimeout(revokeTimer);
-            revokeTimer = setTimeout(() => URL.revokeObjectURL(url), 0);
+            download(ownerDoc, blob, 'diagram.svg');
+        });
+    }
+
+    if (pngButton) {
+        on(pngButton, 'click', () => {
+            if (pngButton.disabled) return;
+            const svg = viewport.activeSvg();
+            const view = ownerDoc?.defaultView;
+            if (!svg || !ownerDoc || !view) {
+                flash(pngButton, 'Failed');
+                return;
+            }
+
+            // Disabled for the duration, so a second click cannot start a second
+            // rasterisation and download the diagram twice.
+            pngButton.disabled = true;
+            void (async () => {
+                try {
+                    const clone = cleanVisibleSvgClone({ svg });
+                    const width = parseFloat(clone.getAttribute('width') ?? '');
+                    const height = parseFloat(clone.getAttribute('height') ?? '');
+                    if (!(Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0)) {
+                        throw new Error('The diagram has no size to rasterise at');
+                    }
+
+                    const missing = await inlineRemoteImages({ clone, ownerDoc, scale: RASTER_SCALE });
+                    // XMLSerializer, not outerHTML: outerHTML writes `&nbsp;`, which stops
+                    // the markup loading as an image at all.
+                    const markup = new view.XMLSerializer().serializeToString(clone);
+                    const blob = await rasterizeSvg({ height, markup, ownerDoc, scale: RASTER_SCALE, width });
+                    if (destroyed) return;
+                    if (!blob) {
+                        flash(pngButton, 'Failed');
+                        return;
+                    }
+                    download(ownerDoc, blob, 'diagram.png');
+                    if (missing > 0) flash(pngButton, 'No icons');
+                } catch {
+                    if (!destroyed) flash(pngButton, 'Failed');
+                } finally {
+                    pngButton.disabled = false;
+                }
+            })();
         });
     }
 

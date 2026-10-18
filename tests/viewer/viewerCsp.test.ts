@@ -89,4 +89,72 @@ describe('interactive viewer under a strict CSP', () => {
 
         await page.close();
     }, 30_000);
+
+    it('exports a PNG with icons under the strict policy', async () => {
+        // `fetch` would be refused here (connect-src falls back to 'none'), so this is
+        // what proves the icons are inlined through an <img> the policy already allows.
+        const { html } = generateHtml({ aslDefinition: parallelFixture, nonce: NONCE, showIcons: true });
+        const withCsp = html.replace('<head>', `<head>\n${strictCspMeta(NONCE)}`);
+
+        page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+            if (!request.url().startsWith('https://cdn.jsdelivr.net/')) {
+                void request.continue();
+                return;
+            }
+            void request.respond({
+                body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#ff0000"/></svg>',
+                contentType: 'image/svg+xml',
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                status: 200,
+            });
+        });
+        const consoleErrors: string[] = [];
+        page.on('console', (message) => {
+            if (message.type() === 'error') consoleErrors.push(message.text());
+        });
+        await page.setContent(withCsp, { waitUntil: 'load' });
+
+        await page.evaluate(() => {
+            const store = window as unknown as { sfnPng?: Blob };
+            const realCreate = URL.createObjectURL.bind(URL);
+            URL.createObjectURL = (blob: Blob) => {
+                store.sfnPng = blob;
+                return realCreate(blob);
+            };
+            HTMLAnchorElement.prototype.click = () => undefined;
+            (document.querySelector('[data-sfn="export-png"]') as HTMLElement).click();
+        });
+        await page.waitForFunction(() => (window as unknown as { sfnPng?: Blob }).sfnPng !== undefined, {
+            polling: 20,
+            timeout: 10_000,
+        });
+
+        const result = await page.evaluate(async () => {
+            const store = window as unknown as { sfnPng: Blob };
+            const image = document.querySelector('[data-sfn="content"] svg image') as SVGGraphicsElement;
+            const box = image.getBBox();
+            const centre = new DOMPoint(box.x + box.width / 2, box.y + box.height / 2).matrixTransform(
+                image.getCTM()!,
+            );
+            const svg = document.querySelector('[data-sfn="content"] svg')!;
+            const bitmap = await createImageBitmap(store.sfnPng);
+            const ratio = bitmap.width / parseFloat(svg.getAttribute('width')!);
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            const context = canvas.getContext('2d')!;
+            context.drawImage(bitmap, 0, 0);
+            const pixel = context.getImageData(Math.floor(centre.x * ratio), Math.floor(centre.y * ratio), 1, 1).data;
+            return { pixel: Array.from(pixel), type: store.sfnPng.type };
+        });
+
+        expect(result.type).toBe('image/png');
+        expect(result.pixel).toEqual([255, 0, 0, 255]);
+        expect(consoleErrors.filter((text) => /content security policy/i.test(text))).toEqual([]);
+
+        await page.close();
+    }, 30_000);
 });

@@ -34,6 +34,11 @@ export interface BuildViewerBodyParams {
      * any, since `MermaidRenderer` sits outside the bundle's reach.
      */
     copyMermaid?: boolean;
+    /**
+     * Whether to render the toolbar's "download PNG" button; rasterised in the browser
+     * from the SVG on the page.
+     */
+    exportPng?: boolean;
     /** Whether to render the toolbar's "download SVG" button. The SVG is always on the page. */
     exportSvg?: boolean;
     /**
@@ -169,6 +174,7 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         collapsedMinimapCollapsed = params.minimapCollapsed,
         collapsedSvg,
         copyMermaid = false,
+        exportPng = false,
         exportSvg = false,
         legacyIds = false,
         minimapCollapsed,
@@ -196,12 +202,16 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
     // The SVG is on the page either way, so the download needs nothing embedded; the
     // copy button only appears alongside the Mermaid blob that feeds it.
     const exportMarkup =
-        exportSvg || copyMermaid
+        exportSvg || exportPng || copyMermaid
             ? `
   <span class="sfn-divider"></span>` +
               (exportSvg
                   ? `
   <button data-sfn="export-svg" title="${strings.exportSvgTitle}">${strings.exportSvgButton}</button>`
+                  : '') +
+              (exportPng
+                  ? `
+  <button data-sfn="export-png" title="${strings.exportPngTitle}">${strings.exportPngButton}</button>`
                   : '') +
               (copyMermaid
                   ? `
@@ -410,6 +420,7 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         collapsedMinimapCollapsed,
         collapsedSvg,
         copyMermaid: hasMermaid,
+        exportPng: true,
         exportSvg: true,
         legacyIds: true,
         minimapCollapsed,
