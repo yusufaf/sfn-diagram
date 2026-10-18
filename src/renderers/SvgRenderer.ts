@@ -123,6 +123,14 @@ interface RenderNodeParams {
     node: StateNode;
 }
 
+interface NodeThemeClassesParams {
+    /** Whether a `nodeOverrides` fill replaces the theme fill. */
+    fillOverridden: boolean;
+    node: StateNode;
+    /** Whether a `nodeOverrides` stroke replaces the theme stroke. */
+    strokeOverridden: boolean;
+}
+
 interface AppendArrowMarkerParams {
     /** `'auto'` theme class for the arrowhead polygon. */
     className?: string;
@@ -269,7 +277,10 @@ export class SvgRenderer {
             layout.nodes.map((node) => [node.id, node]),
         );
         for (const node of layout.nodes) {
-            this.endpointLabels.set(node.id, node.label);
+            // End markers have no label; one left unmapped below keeps its id instead.
+            if (node.label !== '') {
+                this.endpointLabels.set(node.id, node.label);
+            }
         }
         for (const node of layout.nodes) {
             for (const childId of node.children ?? []) {
@@ -605,16 +616,12 @@ export class SvgRenderer {
             stroke = node.style?.stroke || '#c2185b',
         } = this.resolveNodeColors(node);
 
-        const containerClass = this.themeClass(
-            this.isThemedNodeChannel({ channel: 'fill', node, overridden: false }) &&
-                nodeColorClass({ channel: 'fill', stateType: node.type as StateType }),
-            this.isThemedNodeChannel({ channel: 'stroke', node, overridden: false }) &&
-                nodeColorClass({ channel: 'stroke', stateType: node.type as StateType }),
-        );
-        const containerStrokeClass = this.themeClass(
-            this.isThemedNodeChannel({ channel: 'stroke', node, overridden: false }) &&
-                nodeColorClass({ channel: 'stroke', stateType: node.type as StateType }),
-        );
+        // nodeOverrides never reach containers (see resolveNodeColors), so nothing is overridden.
+        const { className: containerClass, strokeClass: containerStrokeClass } = this.nodeThemeClasses({
+            fillOverridden: false,
+            node,
+            strokeOverridden: false,
+        });
 
         // Draw translucent bounding box
         const boundingBox = containerGroup
@@ -883,23 +890,11 @@ export class SvgRenderer {
         };
 
         const nodeOverride = this.options.nodeOverrides?.[node.id];
-        const fillThemed = this.isThemedNodeChannel({
-            channel: 'fill',
+        const { className, strokeClass } = this.nodeThemeClasses({
+            fillOverridden: nodeOverride?.fill !== undefined,
             node,
-            overridden: nodeOverride?.fill !== undefined,
+            strokeOverridden: nodeOverride?.stroke !== undefined,
         });
-        const strokeThemed = this.isThemedNodeChannel({
-            channel: 'stroke',
-            node,
-            overridden: nodeOverride?.stroke !== undefined,
-        });
-        const strokeClass = this.themeClass(
-            strokeThemed && nodeColorClass({ channel: 'stroke', stateType: node.type as StateType }),
-        );
-        const className = this.themeClass(
-            fillThemed && nodeColorClass({ channel: 'fill', stateType: node.type as StateType }),
-            strokeThemed && nodeColorClass({ channel: 'stroke', stateType: node.type as StateType }),
-        );
 
         // Render shape based on type
         switch (style.shape) {
@@ -1083,7 +1078,7 @@ export class SvgRenderer {
         if (variablesShown && node.assignedVariables) {
             nodeGroup
                 .append('text')
-                .attr('class', this.autoTheme ? `node-variables ${TEXT_FILL_CLASS}` : 'node-variables')
+                .attr('class', this.themeClass('node-variables', TEXT_FILL_CLASS) ?? 'node-variables')
                 .attr('x', labelX)
                 .attr('y', labelY + variablesOffset)
                 .attr('text-anchor', 'middle')
@@ -1458,23 +1453,24 @@ export class SvgRenderer {
     }
 
     /**
-     * Whether a node's colour on `channel` is the theme's own state-type colour, which
-     * `'auto'` may repaint: not a `customColors` entry or a `nodeOverrides` colour,
-     * both of which stay fixed in either scheme, and not a synthetic type (markers,
-     * Distributed Map satellites) that keeps its parse-time colour.
+     * `'auto'` classes for a node's or container's shape: `className` for both channels,
+     * `strokeClass` for a collapse control's border. A channel is tagged only when it
+     * carries the theme's own state-type colour, which `'auto'` may repaint: not a
+     * `customColors` entry or a `nodeOverrides` colour, both of which stay fixed in
+     * either scheme, and not a synthetic type (markers, Distributed Map satellites)
+     * that keeps its parse-time colour.
      */
-    private isThemedNodeChannel(params: {
-        channel: ThemeColorChannel;
-        node: StateNode;
-        overridden: boolean;
-    }): boolean {
-        const { channel, node, overridden } = params;
+    private nodeThemeClasses(params: NodeThemeClassesParams): { className?: string; strokeClass?: string } {
+        const { fillOverridden, node, strokeOverridden } = params;
         const stateType = node.type as StateType;
-        return (
+        const tag = (channel: ThemeColorChannel, overridden: boolean): string | false =>
             !overridden &&
             this.theme.nodeColors?.[stateType]?.[channel] !== undefined &&
-            this.options.customColors?.[stateType]?.[channel] === undefined
-        );
+            this.options.customColors?.[stateType]?.[channel] === undefined &&
+            nodeColorClass({ channel, stateType });
+        const fillClass = tag('fill', fillOverridden);
+        const strokeClass = tag('stroke', strokeOverridden);
+        return { className: this.themeClass(fillClass, strokeClass), strokeClass: this.themeClass(strokeClass) };
     }
 
     /**

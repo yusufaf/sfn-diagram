@@ -1083,6 +1083,21 @@ describe('SvgRenderer', () => {
             }
         });
 
+        it('falls back to the id for an end marker no container claims', () => {
+            const { nodes, edges } = parseAsl({ definition: loadFixture('parallel') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            const orphaned = {
+                ...positioned,
+                nodes: positioned.nodes.map((node) => ({ ...node, children: undefined })),
+            };
+            const { svg } = new SvgRenderer({}).render(orphaned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="Branch1-&gt;ParallelExecution__branch0__end[^"]*"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match![1]).toBe('<title>Branch1 to ParallelExecution__branch0__end</title>');
+        });
+
         it('titles edges by endpoint label, not by a scope-qualified id', () => {
             const branch = {
                 StartAt: 'Validate',

@@ -68386,23 +68386,13 @@ function nodeColorClass(params) {
 function edgeColorClass(params) {
   return `sfn-t-edge-${params.edgeType}-${params.channel}`;
 }
-var STATE_TYPES = [
-  "Pass",
-  "Task",
-  "Choice",
-  "Wait",
-  "Succeed",
-  "Fail",
-  "Parallel",
-  "Map"
-];
-var EDGE_TYPES = [
-  "normal",
-  "error",
-  "choice",
-  "default",
-  "retry"
-];
+var EDGE_TYPES = Object.keys({
+  choice: true,
+  default: true,
+  error: true,
+  normal: true,
+  retry: true
+});
 function buildAutoThemeDarkCss() {
   const { background, edgeColors, nodeColors, textColor } = AWS_DARK_THEME;
   const rules = [
@@ -68410,8 +68400,8 @@ function buildAutoThemeDarkCss() {
     `.${TEXT_FILL_CLASS} { fill: ${textColor}; }`,
     `.${TEXT_STROKE_CLASS} { stroke: ${textColor}; }`
   ];
-  for (const stateType of STATE_TYPES) {
-    const colors = nodeColors[stateType];
+  for (const [key, colors] of Object.entries(nodeColors)) {
+    const stateType = key;
     rules.push(`.${nodeColorClass({
       channel: "fill",
       stateType

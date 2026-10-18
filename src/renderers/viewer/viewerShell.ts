@@ -322,10 +322,10 @@ export interface WrapSvgInInteractiveHtmlParams {
      * playback bar; omit it for a document with no playback controls at all.
      */
     timeline?: ExecutionTimeline;
-    /** Diagram title for the document `<title>`; blank or omitted falls back to `sfn-diagram`. */
-    title?: string;
     /** Viewer chrome theme. Defaults to `'light'`. */
     theme?: ViewerTheme;
+    /** Diagram title for the document `<title>`; blank or omitted falls back to `sfn-diagram`. */
+    title?: string;
 }
 
 /**
