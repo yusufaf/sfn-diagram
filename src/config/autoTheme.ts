@@ -65,7 +65,19 @@ export function edgeColorClass(params: EdgeColorClassParams): string {
     return `sfn-t-edge-${params.edgeType}-${params.channel}`;
 }
 
-// Exhaustive by construction: a new EdgeType fails to compile here until it gets a rule.
+// Exhaustive by construction: a new StateType or EdgeType fails to compile here until
+// it gets a rule.
+const STATE_TYPE_KEYS: Record<StateType, true> = {
+    Choice: true,
+    Fail: true,
+    Map: true,
+    Parallel: true,
+    Pass: true,
+    Succeed: true,
+    Task: true,
+    Wait: true,
+};
+const STATE_TYPES = Object.keys(STATE_TYPE_KEYS) as StateType[];
 const EDGE_TYPE_KEYS: Record<EdgeType, true> = { choice: true, default: true, error: true, normal: true, retry: true };
 const EDGE_TYPES = Object.keys(EDGE_TYPE_KEYS) as EdgeType[];
 
@@ -76,9 +88,8 @@ function buildAutoThemeDarkCss(): string {
         `.${TEXT_FILL_CLASS} { fill: ${textColor}; }`,
         `.${TEXT_STROKE_CLASS} { stroke: ${textColor}; }`,
     ];
-    // nodeColors is a Record<StateType, ...>, so its keys are every state type.
-    for (const [key, colors] of Object.entries(nodeColors)) {
-        const stateType = key as StateType;
+    for (const stateType of STATE_TYPES) {
+        const colors = nodeColors[stateType];
         rules.push(`.${nodeColorClass({ channel: 'fill', stateType })} { fill: ${colors.fill}; }`);
         rules.push(`.${nodeColorClass({ channel: 'stroke', stateType })} { stroke: ${colors.stroke}; }`);
     }

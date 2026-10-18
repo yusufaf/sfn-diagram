@@ -1095,6 +1095,7 @@ describe('SvgRenderer', () => {
             const match = svg.match(
                 /<path d="[^"]*" data-edge-id="Branch1-&gt;ParallelExecution__branch0__end[^"]*"[^>]*>(.*?)<\/path>/,
             );
+            expect(match).not.toBeNull();
             expect(match![1]).toBe('<title>Branch1 to ParallelExecution__branch0__end</title>');
         });
 

@@ -227,8 +227,10 @@ export class SvgRenderer {
     // Cleared at the top of render() for the same reason as edgeMidpointCache.
     private arrowMarkerIds = new Map<string, string>();
     // Node id -> the label edgeAccessibleTitle announces for it: the node's own label,
-    // or for a branch/iterator end marker its owning container's label, so an edge
-    // never announces a scope-qualified or synthetic id. Populated at the top of render().
+    // or for a branch/iterator end marker its owning container's label, so an edge does
+    // not announce a scope-qualified or synthetic id. A node with no label and no owning
+    // container (a hand-built layout) is left out and announced by its id, which beats
+    // an empty name. Populated at the top of render().
     private endpointLabels = new Map<string, string>();
 
     constructor(options: DiagramOptions) {
@@ -499,7 +501,8 @@ export class SvgRenderer {
      */
     private edgeAccessibleTitle(edge: GraphEdge): string {
         const detail = edge.label ?? edge.condition;
-        // The id fallback only applies to hand-built layouts missing an endpoint node.
+        // The id fallback covers endpoints endpointLabels leaves out: a missing node, or
+        // an unlabelled one (an end marker) that no container claims.
         const from = this.endpointLabels.get(edge.from) ?? edge.from;
         const to = this.endpointLabels.get(edge.to) ?? edge.to;
         const base = `${from} to ${to}`;
@@ -1463,14 +1466,18 @@ export class SvgRenderer {
     private nodeThemeClasses(params: NodeThemeClassesParams): { className?: string; strokeClass?: string } {
         const { fillOverridden, node, strokeOverridden } = params;
         const stateType = node.type as StateType;
-        const tag = (channel: ThemeColorChannel, overridden: boolean): string | false =>
+        const channelClass = (channel: ThemeColorChannel, overridden: boolean): string | undefined =>
             !overridden &&
             this.theme.nodeColors?.[stateType]?.[channel] !== undefined &&
-            this.options.customColors?.[stateType]?.[channel] === undefined &&
-            nodeColorClass({ channel, stateType });
-        const fillClass = tag('fill', fillOverridden);
-        const strokeClass = tag('stroke', strokeOverridden);
-        return { className: this.themeClass(fillClass, strokeClass), strokeClass: this.themeClass(strokeClass) };
+            this.options.customColors?.[stateType]?.[channel] === undefined
+                ? nodeColorClass({ channel, stateType })
+                : undefined;
+        const fillChannelClass = channelClass('fill', fillOverridden);
+        const strokeChannelClass = channelClass('stroke', strokeOverridden);
+        return {
+            className: this.themeClass(fillChannelClass, strokeChannelClass),
+            strokeClass: this.themeClass(strokeChannelClass),
+        };
     }
 
     /**

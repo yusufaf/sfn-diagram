@@ -68386,6 +68386,16 @@ function nodeColorClass(params) {
 function edgeColorClass(params) {
   return `sfn-t-edge-${params.edgeType}-${params.channel}`;
 }
+var STATE_TYPES = Object.keys({
+  Choice: true,
+  Fail: true,
+  Map: true,
+  Parallel: true,
+  Pass: true,
+  Succeed: true,
+  Task: true,
+  Wait: true
+});
 var EDGE_TYPES = Object.keys({
   choice: true,
   default: true,
@@ -68400,8 +68410,8 @@ function buildAutoThemeDarkCss() {
     `.${TEXT_FILL_CLASS} { fill: ${textColor}; }`,
     `.${TEXT_STROKE_CLASS} { stroke: ${textColor}; }`
   ];
-  for (const [key, colors] of Object.entries(nodeColors)) {
-    const stateType = key;
+  for (const stateType of STATE_TYPES) {
+    const colors = nodeColors[stateType];
     rules.push(`.${nodeColorClass({
       channel: "fill",
       stateType
