@@ -200,10 +200,10 @@ export class SvgRenderer {
     // whose `edgeOverrides` stroke differs from their type's colour - see arrowMarkerId.
     // Cleared at the top of render() for the same reason as edgeMidpointCache.
     private arrowMarkerIds = new Map<string, string>();
-    // Branch/iterator end marker id -> its owning container's label. edgeAccessibleTitle
-    // uses this so an edge ending at a marker announces the container it feeds into
-    // rather than the marker's internal synthetic id. Populated at the top of render().
-    private markerContainerLabels = new Map<string, string>();
+    // Node id -> the label edgeAccessibleTitle announces for it: the node's own label,
+    // or for a branch/iterator end marker its owning container's label, so an edge
+    // never announces a scope-qualified or synthetic id. Populated at the top of render().
+    private endpointLabels = new Map<string, string>();
 
     constructor(options: DiagramOptions) {
         this.options = options;
@@ -245,15 +245,18 @@ export class SvgRenderer {
                 : this.anchorCatchLanes(positioned);
         this.edgeMidpointCache.clear();
         this.arrowMarkerIds.clear();
-        this.markerContainerLabels.clear();
+        this.endpointLabels.clear();
         const nodesByIdForMarkers = new Map(
             layout.nodes.map((node) => [node.id, node]),
         );
         for (const node of layout.nodes) {
+            this.endpointLabels.set(node.id, node.label);
+        }
+        for (const node of layout.nodes) {
             for (const childId of node.children ?? []) {
                 const child = nodesByIdForMarkers.get(childId);
                 if (child && isMarkerNode(child)) {
-                    this.markerContainerLabels.set(childId, node.label);
+                    this.endpointLabels.set(childId, node.label);
                 }
             }
         }
@@ -457,10 +460,10 @@ export class SvgRenderer {
      */
     private edgeAccessibleTitle(edge: GraphEdge): string {
         const detail = edge.label ?? edge.condition;
-        // An edge into a branch/iterator end marker has nothing meaningful to announce
-        // at that internal synthetic id - name the container it feeds into instead.
-        const to = this.markerContainerLabels.get(edge.to) ?? edge.to;
-        const base = `${edge.from} to ${to}`;
+        // The id fallback only applies to hand-built layouts missing an endpoint node.
+        const from = this.endpointLabels.get(edge.from) ?? edge.from;
+        const to = this.endpointLabels.get(edge.to) ?? edge.to;
+        const base = `${from} to ${to}`;
         return detail ? `${base}: ${detail}` : base;
     }
 
@@ -669,21 +672,25 @@ export class SvgRenderer {
                 headerTop + CONTAINER_HEADER_TEXT_HEIGHT - fontSize / 2,
             );
 
-        containerGroup
-            .append('text')
-            .attr('x', 0)
-            .attr(
-                'y',
-                subLabel
-                    ? clampToText(textMiddle - lineGap / 2, nameFontSize)
-                    : textMiddle,
-            )
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', nameFontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(name);
+        // A name too long for even the truncation marker is left out; the group's
+        // <title> still carries it in full.
+        if (name !== '') {
+            containerGroup
+                .append('text')
+                .attr('x', 0)
+                .attr(
+                    'y',
+                    subLabel
+                        ? clampToText(textMiddle - lineGap / 2, nameFontSize)
+                        : textMiddle,
+                )
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', nameFontSize)
+                .attr('font-family', this.theme.fontFamily)
+                .text(name);
+        }
 
         if (subLabel) {
             containerGroup
@@ -954,17 +961,21 @@ export class SvgRenderer {
             stackBelow: lastStackedOffset,
         });
 
-        // Add label
-        nodeGroup
-            .append('text')
-            .attr('x', labelX)
-            .attr('y', labelY)
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', this.theme.fontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(nameText);
+        // End markers have no name, and a name too long for even the truncation marker
+        // fits to ''; an empty <text> would only add noise, and the group's <title>
+        // still carries the full name.
+        if (nameText !== '') {
+            nodeGroup
+                .append('text')
+                .attr('x', labelX)
+                .attr('y', labelY)
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', this.theme.fontSize)
+                .attr('font-family', this.theme.fontFamily)
+                .text(nameText);
+        }
 
         if (secondLineText) {
             nodeGroup
