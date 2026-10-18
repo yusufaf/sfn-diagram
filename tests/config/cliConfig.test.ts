@@ -631,6 +631,19 @@ describe('loadCommentGitlabConfig', () => {
         );
     });
 
+    it('rejects a single near miss beside a correct block from a discovered file', () => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({
+                commentGitLab: { theme: 'dark' },
+                commentGitlab: { layout: 'LR' },
+            }),
+        );
+        expect(() => load()).toThrow(
+            `Unknown key "commentGitLab" in ${path}: did you mean commentGitlab?`,
+        );
+    });
+
     it('leaves unrelated top-level keys alone', () => {
         write(
             'sfn-diagram.config.json',

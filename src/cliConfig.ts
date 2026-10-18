@@ -562,7 +562,7 @@ export type LoadCommentGitlabConfigParams = LoadCliConfigParams;
  *   block gives an empty config.
  *
  * @throws {CliConfigError} When the file cannot be read or parsed; it has a top-level
- *   key that differs from `commentGitlab` only in case or punctuation (such as
+ *   key that differs from `commentGitlab` only in case, spacing or punctuation (such as
  *   `commentGitLab` or `comment_gitlab`), even beside a correct block; `explicitPath`
  *   names a file with no `commentGitlab` block; the block is not an object; it has an
  *   unsupported key; or a field is invalid.
