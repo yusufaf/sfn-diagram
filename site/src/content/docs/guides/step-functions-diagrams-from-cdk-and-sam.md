@@ -22,17 +22,15 @@ This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as o
 2026. Version 1.8.0, the current npm release, handles CDK templates and plain CloudFormation,
 with these differences:
 - It doesn't recognize SAM `AWS::Serverless::StateMachine` resources.
-- **`DefinitionSubstitutions`:**
-  - Inside `Fn::Sub`, a plain string value is filled in. Any other value, such as a `Ref` or
-    `Fn::GetAtt`, comes out as `[object Object]`.
-  - Anywhere else, including CDK output, a `${Name}` placeholder stays as written.
-  - An unquoted placeholder there, such as `"Seconds": ${Wait}`, fails with
-    `ASL definition is not valid JSON`.
+- **`DefinitionSubstitutions` are handled only in part:**
+  - Plain values used inside `Fn::Sub` are filled in.
+  - A `Ref` or `Fn::GetAtt` value shows as `[object Object]`.
+  - Elsewhere, including CDK output, `${Name}` stays as written.
+  - A placeholder that isn't filled with valid JSON in an unquoted position, such as
+    `"Seconds": ${Wait}`, fails with `ASL definition is not valid JSON`.
 - `--check` is missing some error rules, including the Wait-with-no-duration check below.
-- **Two messages are worded differently:**
-  - A wrong `--resource` gives `Resource '…' is not an AWS::StepFunctions::StateMachine.`
-  - A `DefinitionS3Location` machine gives
-    `State machine '…' has no DefinitionString or Definition.`
+- Some error messages are worded differently. For example, a wrong `--resource` gives
+  `Resource '…' is not an AWS::StepFunctions::StateMachine. Found: …`.
 
 Run `npx sfn-diagram --version` to check yours.
 :::
