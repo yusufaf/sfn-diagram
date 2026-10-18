@@ -138,7 +138,7 @@ describe('parseArgs', () => {
     });
 
     it('carries an unrecognised --theme through as a file path', () => {
-        // `--theme` accepts light, dark, or a path, so the parser can no longer tell a
+        // `--theme` accepts light, dark, auto, or a path, so the parser can no longer tell a
         // typo from a filename; `run()` reports it when the read fails.
         expect(parseArgs(['in.json', '--theme', 'neon'])).toMatchObject({
             theme: null,
@@ -525,6 +525,13 @@ describe('run', () => {
         expect(code).toBe(0);
         expect(stdoutData).toContain('<!DOCTYPE html>');
         expect(stdoutData).toContain('data-sfn-zoom');
+    });
+
+    it('--theme auto emits a viewer that follows the colour scheme', async () => {
+        const code = await run([simpleFixture, '--format', 'html', '--theme', 'auto']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('@media (prefers-color-scheme: dark)');
+        expect(stdoutData).toContain('color-scheme: light dark');
     });
 
     it('writes HTML to a file with -o', async () => {
@@ -1816,13 +1823,17 @@ describe('parseArgs: DiagramOptions flags', () => {
         ).toBe(true);
     });
 
-    it('keeps --theme light|dark on the enum, with no theme file', () => {
+    it('keeps --theme light|dark|auto on the enum, with no theme file', () => {
         expect(parseArgs(['in.json', '--theme', 'light'])).toMatchObject({
             theme: 'light',
             themeFile: null,
         });
         expect(parseArgs(['in.json', '--theme', 'dark'])).toMatchObject({
             theme: 'dark',
+            themeFile: null,
+        });
+        expect(parseArgs(['in.json', '--theme', 'auto'])).toMatchObject({
+            theme: 'auto',
             themeFile: null,
         });
     });
@@ -2257,7 +2268,7 @@ describe('run: DiagramOptions flags', () => {
             ).toBe(1);
             expect(stderrData).toContain('Cannot read theme file');
             expect(stderrData).toContain(
-                '--theme takes light, dark, or a path',
+                '--theme takes light, dark, auto, or a path',
             );
             expect(stdoutData).toBe('');
         });

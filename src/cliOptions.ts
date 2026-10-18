@@ -47,7 +47,7 @@ export interface CliOptionSource {
     showStateTypes: boolean | null;
     showVariables: boolean | null;
     stylePreset: StylePreset | null;
-    theme: CustomTheme | 'dark' | 'light' | null;
+    theme: CustomTheme | 'auto' | 'dark' | 'light' | null;
 }
 
 /**
@@ -84,7 +84,7 @@ export interface ResolvedCliOptions {
     showStateTypes: boolean | null;
     showVariables: boolean | null;
     stylePreset: StylePreset | null;
-    theme: CustomTheme | 'dark' | 'light';
+    theme: CustomTheme | 'auto' | 'dark' | 'light';
 }
 
 /** Parameters for {@link resolveCliOptions}. */
@@ -216,14 +216,14 @@ export function resolveCliOptions(
  * {@link resolveCommentGitlabOptions} reads: `null` for every flag not given.
  *
  * `src/cli.ts`'s `CommentGitlabArgs` is a structural superset, as `CliArgs` is of
- * {@link CliOptionSource}. `theme` is `'light' | 'dark'` because the flag takes no theme
+ * {@link CliOptionSource}. `theme` is a built-in name because the flag takes no theme
  * file; a custom theme object is reachable only through the config block.
  */
 export interface CommentGitlabOptionSource {
     catchHandling: CatchHandling | null;
     collapse: string[] | boolean | null;
     layout: LayoutDirection | null;
-    theme: 'dark' | 'light' | null;
+    theme: 'auto' | 'dark' | 'light' | null;
 }
 
 /**

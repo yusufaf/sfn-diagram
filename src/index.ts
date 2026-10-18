@@ -53,7 +53,7 @@ import type {
  *
  * @param params - Configuration object
  * @param params.aslDefinition - ASL definition as an object or JSON string
- * @param params.theme - Color theme: 'light' (default), 'dark', or a CustomTheme object
+ * @param params.theme - Color theme: 'light' (default), 'dark', 'auto' (follows prefers-color-scheme), or a CustomTheme object
  * @param params.layout - Layout direction: 'TB' (top-bottom, default), 'LR' (left-right), 'RL', or 'BT'
  * @param params.nodeWidth - Width of state nodes in pixels (default: 120)
  * @param params.nodeHeight - Height of state nodes in pixels (default: 60)

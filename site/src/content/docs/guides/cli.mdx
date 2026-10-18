@@ -30,7 +30,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--poll-interval <seconds>` | How often `--follow` polls (default: `2`) |
 | `--follow-timeout <seconds>` | Give up after this long and exit `1` |
 | `--config <path>` | Read defaults from this [config file](#configuration-file) instead of searching for one |
-| `--theme <light\|dark\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`) |
+| `--theme <light\|dark\|auto\|path>` | Color theme for SVG/PNG/HTML: a built-in name, or a path to a [custom theme JSON file](#custom-theme-files) (default: `light`). `auto` follows the reader's colour scheme; PNG renders it as light |
 | `--layout <TB\|LR\|RL\|BT>` | Graph direction (default: `TB`) |
 | `--hide-catch` | Drop error-handler (`Catch`) branches |
 | `--show-catch` | Draw them — overrides a config file's `catchHandling` |
@@ -142,7 +142,7 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `scale` | number above `0`, at most `10` (PNG only) |
 | `showIcons`, `showStateTypes`, `showVariables` | boolean |
 | `stylePreset` | `"aws-standard"` \| `"enhanced"` |
-| `theme` | `"light"` \| `"dark"`, or a [custom theme object](#custom-theme-files) |
+| `theme` | `"light"` \| `"dark"` \| `"auto"`, or a [custom theme object](#custom-theme-files) |
 
 Keys it doesn't recognise are ignored, so a `$schema` key for editor completion is
 harmless and a field added by a later release won't break an older CLI reading the same
@@ -187,7 +187,7 @@ exit `2` is reserved for what is wrong on the command line. See [Exit codes](#ex
 
 ```
 $ sfn-diagram state.asl.json --config ci/sfn.json
-Error: Invalid theme in /repo/ci/sfn.json: expected 'light', 'dark', or a custom theme object
+Error: Invalid theme in /repo/ci/sfn.json: expected 'light', 'dark', 'auto', or a custom theme object
 $ echo $?
 1
 ```
@@ -207,7 +207,7 @@ commentGitlab:        # comment gitlab only
 ```
 
 The block takes the four render settings the subcommand forwards: `theme` (`light`,
-`dark`, or a custom theme object), `layout`, `catchHandling` and `collapse`, with the same
+`dark`, `auto`, or a custom theme object), `layout`, `catchHandling` and `collapse`, with the same
 values as the top-level fields. Any other key in it is an error (exit `1`), rather than
 silently ignored, and so is a block name that differs only in case, spacing or
 punctuation, such as `commentGitLab` or `comment_gitlab`. The CI-shaped options
@@ -591,8 +591,8 @@ matters.
 
 ## Custom theme files
 
-`--theme` takes a built-in name (`light` or `dark`) or a path to a JSON file holding a
-[`CustomTheme`](/guides/configuration/#themes). Any value that isn't `light` or `dark` is
+`--theme` takes a built-in name (`light`, `dark` or `auto`) or a path to a JSON file holding a
+[`CustomTheme`](/guides/configuration/#themes). Any value that isn't a built-in name is
 read as a path:
 
 ```bash
@@ -716,7 +716,7 @@ error message names all the accepted forms for that reason:
 ```
 $ sfn-diagram state.asl.json --theme ligth
 Error: Cannot read theme file ligth: ENOENT: no such file or directory, open '…/ligth'
---theme takes light, dark, or a path to a theme JSON file.
+--theme takes light, dark, auto, or a path to a theme JSON file.
 ```
 
 ### In CI

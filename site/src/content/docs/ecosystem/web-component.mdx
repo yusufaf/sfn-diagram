@@ -46,7 +46,7 @@ defineSfnDiagram({ name: 'my-diagram' }); // <my-diagram> instead of <sfn-diagra
 | — | `history` | `ExecutionHistoryInput` | — | Property-only — objects don't survive an attribute round-trip. Renders an execution overlay when set |
 | `format` | `format` | `'svg' \| 'mermaid'` | `'svg'` | |
 | `layout` | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | |
-| `theme` | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | Attribute accepts `'light'`/`'dark'` only; set the property for a `CustomTheme` object |
+| `theme` | `theme` | `'light' \| 'dark' \| 'auto' \| CustomTheme` | `'light'` | Attribute accepts `'light'`/`'dark'`/`'auto'` (follow the reader's colour scheme); set the property for a `CustomTheme` object |
 | `interactive` | `interactive` | `boolean` | `false` | Enables pan/zoom, state search, the minimap, and the detail panel for a clicked state or edge |
 
 An embedded viewer sits inside a page that scrolls, so it doesn't take over the mouse

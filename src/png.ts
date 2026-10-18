@@ -32,6 +32,9 @@ export type { ExportPngParams, PngOutput } from './types';
  * Generates an SVG from the definition, then rasterizes it to PNG using the
  * native `resvg` engine by default. Runs on Node only.
  *
+ * `theme: 'auto'` renders as `'light'`: a raster has no colour scheme to follow, and
+ * the html-to-image engine's headless Chromium would otherwise pick one from the OS.
+ *
  * @param params - ASL definition plus diagram, background, PNG engine, and font options.
  * @returns The PNG buffer along with its dimensions and format metadata.
  *
@@ -58,7 +61,8 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         scale,
         ...svgOptions
     } = params;
-    const svgOutput = generateSvg({ aslDefinition, cache, ...svgOptions });
+    const theme = svgOptions.theme === 'auto' ? 'light' : svgOptions.theme;
+    const svgOutput = generateSvg({ aslDefinition, cache, ...svgOptions, theme });
 
     // resvg (the default engine) does not fetch remote <image href> icons the
     // way the html-to-image engine's headless Chromium did - inline them as
@@ -77,7 +81,7 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         loadSystemFonts,
         pngQuality,
         scale,
-        theme: svgOptions.theme,
+        theme,
     });
     return exporter.convert({
         height: svgOutput.height,

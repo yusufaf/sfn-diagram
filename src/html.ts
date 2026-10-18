@@ -170,6 +170,7 @@ function buildHtmlViews(params: {
     mermaid: string;
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
+    title?: string;
 } {
     const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, options, redact, relayout } =
         params;
@@ -285,6 +286,7 @@ function buildHtmlViews(params: {
         mermaid,
         relayoutModel,
         svgOutput,
+        title: viewOptions.diagramTitle,
     };
 }
 
@@ -317,14 +319,15 @@ function buildHtmlViewParts(params: {
     mermaid: string;
     relayoutModel?: RelayoutModel;
     svgOutput: SvgOutput;
+    title?: string;
 } {
-    const { collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
+    const { collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput, title } =
         buildHtmlViews(params);
     const collapsedSvg =
         collapsedSvgOutput && collapsedSvgOutput.metadata.nodeCount < svgOutput.metadata.nodeCount
             ? collapsedSvgOutput.svg
             : undefined;
-    return { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput };
+    return { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput, title };
 }
 
 /**
@@ -457,7 +460,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput, title } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
@@ -484,6 +487,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
             svg: svgOutput.svg,
             theme: resolveViewerTheme({ theme: options.theme }),
             timeline: execution?.timeline,
+            title,
         }),
         metadata: buildHtmlMetadata({ diff, execution, svgOutput }),
         width: svgOutput.width,
@@ -572,7 +576,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
     const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, nonce, options, redact } =
         resolveHtmlInputs(params);
 
-    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput } =
+    const { collapsedSvg, collapsedSvgOutput, edges, execution, mermaid, relayoutModel, svgOutput, title } =
         buildHtmlViewParts({
             afterObj,
             aslObj,
@@ -612,6 +616,7 @@ export async function generateHtmlAsync(params: GenerateHtmlParams): Promise<Htm
             svg: embeddedSvg,
             theme: resolveViewerTheme({ theme: options.theme }),
             timeline: execution?.timeline,
+            title,
         }),
         metadata: buildHtmlMetadata({ diff, execution, svgOutput }),
         width: svgOutput.width,

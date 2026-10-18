@@ -35,6 +35,15 @@ import {
     getContainerHeaderFontSizes,
     isBottomHeaderLayout,
 } from '../constants';
+import {
+    AUTO_THEME_DARK_CSS,
+    BACKGROUND_FILL_CLASS,
+    edgeColorClass,
+    nodeColorClass,
+    TEXT_FILL_CLASS,
+    TEXT_STROKE_CLASS,
+    type ThemeColorChannel,
+} from '../config/autoTheme';
 import { getTheme } from '../config/themes';
 import { SvgElement } from './svgBuilder';
 
@@ -97,6 +106,8 @@ export function iconLabelShift(iconSize: number): number {
 }
 
 interface RenderShapeParams {
+    /** `'auto'` theme classes for the shape, when it carries themed colours. */
+    className?: string;
     group: SvgElement;
     node: StateNode;
     style: NodeStyle;
@@ -112,7 +123,17 @@ interface RenderNodeParams {
     node: StateNode;
 }
 
+interface NodeThemeClassesParams {
+    /** Whether a `nodeOverrides` fill replaces the theme fill. */
+    fillOverridden: boolean;
+    node: StateNode;
+    /** Whether a `nodeOverrides` stroke replaces the theme stroke. */
+    strokeOverridden: boolean;
+}
+
 interface AppendArrowMarkerParams {
+    /** `'auto'` theme class for the arrowhead polygon. */
+    className?: string;
     defs: SvgElement;
     fill: string;
     id: string;
@@ -123,6 +144,8 @@ interface ArrowMarkerIdParams {
     defs: SvgElement;
     /** The colour the edge's path is drawn in. */
     fill: string;
+    /** Whether the edge's colour is its theme colour rather than an `edgeOverrides` stroke. */
+    themed: boolean;
     type: NonNullable<GraphEdge['type']>;
 }
 
@@ -188,6 +211,9 @@ interface RenderIconParams {
 export class SvgRenderer {
     private options: DiagramOptions;
     private theme: ResolvedTheme;
+    // `'auto'` draws the light palette inline and tags every themed colour with a
+    // class that AUTO_THEME_DARK_CSS repaints under prefers-color-scheme: dark.
+    private readonly autoTheme: boolean;
     private pathGenerator: (
         points: Array<{ x: number; y: number }>,
     ) => string | null;
@@ -200,14 +226,17 @@ export class SvgRenderer {
     // whose `edgeOverrides` stroke differs from their type's colour - see arrowMarkerId.
     // Cleared at the top of render() for the same reason as edgeMidpointCache.
     private arrowMarkerIds = new Map<string, string>();
-    // Branch/iterator end marker id -> its owning container's label. edgeAccessibleTitle
-    // uses this so an edge ending at a marker announces the container it feeds into
-    // rather than the marker's internal synthetic id. Populated at the top of render().
-    private markerContainerLabels = new Map<string, string>();
+    // Node id -> the label edgeAccessibleTitle announces for it: the node's own label,
+    // or for a branch/iterator end marker its owning container's label, so an edge does
+    // not announce a scope-qualified or synthetic id. A node with no label and no owning
+    // container (a hand-built layout) is left out and announced by its id, which beats
+    // an empty name. Populated at the top of render().
+    private endpointLabels = new Map<string, string>();
 
     constructor(options: DiagramOptions) {
         this.options = options;
         this.theme = getTheme(options.theme, options.customColors);
+        this.autoTheme = options.theme === 'auto';
 
         // Build the edge path generator once - it's stateless and reused for every
         // edge, so there's no need to recreate it inside the per-edge render loop.
@@ -245,15 +274,21 @@ export class SvgRenderer {
                 : this.anchorCatchLanes(positioned);
         this.edgeMidpointCache.clear();
         this.arrowMarkerIds.clear();
-        this.markerContainerLabels.clear();
+        this.endpointLabels.clear();
         const nodesByIdForMarkers = new Map(
             layout.nodes.map((node) => [node.id, node]),
         );
         for (const node of layout.nodes) {
+            // End markers have no label; one left unmapped below keeps its id instead.
+            if (node.label !== '') {
+                this.endpointLabels.set(node.id, node.label);
+            }
+        }
+        for (const node of layout.nodes) {
             for (const childId of node.children ?? []) {
                 const child = nodesByIdForMarkers.get(childId);
                 if (child && isMarkerNode(child)) {
-                    this.markerContainerLabels.set(childId, node.label);
+                    this.endpointLabels.set(childId, node.label);
                 }
             }
         }
@@ -285,15 +320,19 @@ export class SvgRenderer {
         svg.attr('role', 'graphics-document').attr('aria-label', titleText);
         svg.append('title').text(titleText);
         svg.append('desc').text(this.accessibleDescription(layout));
+        if (this.autoTheme) {
+            svg.append('style').text(AUTO_THEME_DARK_CSS);
+        }
 
         // Add background
         if (this.theme.background && this.theme.background !== 'transparent') {
-            svg.append('rect')
+            const background = svg.append('rect')
                 .attr('x', bounds.minX)
                 .attr('y', bounds.minY)
                 .attr('width', bounds.width)
                 .attr('height', bounds.height)
                 .attr('fill', this.theme.background);
+            background.attr('class', this.themeClass(BACKGROUND_FILL_CLASS));
         }
 
         // Define arrow markers for edges
@@ -303,27 +342,32 @@ export class SvgRenderer {
         // colour variant of its own - see arrowMarkerId.
         this.appendArrowMarker({
             defs,
+            className: this.themeClass(edgeColorClass({ channel: 'fill', edgeType: 'normal' })),
             fill: this.theme.edgeColors.normal,
             id: 'arrowhead-normal',
         });
         this.appendArrowMarker({
             defs,
+            className: this.themeClass(edgeColorClass({ channel: 'fill', edgeType: 'error' })),
             fill: this.theme.edgeColors.error,
             id: 'arrowhead-error',
         });
         this.appendArrowMarker({
             defs,
+            className: this.themeClass(edgeColorClass({ channel: 'fill', edgeType: 'choice' })),
             fill: this.theme.edgeColors.choice,
             id: 'arrowhead-choice',
         });
         this.appendArrowMarker({
             defs,
+            className: this.themeClass(edgeColorClass({ channel: 'fill', edgeType: 'default' })),
             fill: this.theme.edgeColors.default,
             id: 'arrowhead-default',
         });
         // Retry arrow (self-loops)
         this.appendArrowMarker({
             defs,
+            className: this.themeClass(edgeColorClass({ channel: 'fill', edgeType: 'retry' })),
             fill: this.resolveEdgeColor('retry'),
             id: 'arrowhead-retry',
         });
@@ -457,10 +501,11 @@ export class SvgRenderer {
      */
     private edgeAccessibleTitle(edge: GraphEdge): string {
         const detail = edge.label ?? edge.condition;
-        // An edge into a branch/iterator end marker has nothing meaningful to announce
-        // at that internal synthetic id - name the container it feeds into instead.
-        const to = this.markerContainerLabels.get(edge.to) ?? edge.to;
-        const base = `${edge.from} to ${to}`;
+        // The id fallback covers endpoints endpointLabels leaves out: a missing node, or
+        // an unlabelled one (an end marker) that no container claims.
+        const from = this.endpointLabels.get(edge.from) ?? edge.from;
+        const to = this.endpointLabels.get(edge.to) ?? edge.to;
+        const base = `${from} to ${to}`;
         return detail ? `${base}: ${detail}` : base;
     }
 
@@ -574,8 +619,15 @@ export class SvgRenderer {
             stroke = node.style?.stroke || '#c2185b',
         } = this.resolveNodeColors(node);
 
+        // nodeOverrides never reach containers (see resolveNodeColors), so nothing is overridden.
+        const { className: containerClass, strokeClass: containerStrokeClass } = this.nodeThemeClasses({
+            fillOverridden: false,
+            node,
+            strokeOverridden: false,
+        });
+
         // Draw translucent bounding box
-        containerGroup
+        const boundingBox = containerGroup
             .append('rect')
             .attr('x', -width / 2)
             .attr('y', -height / 2)
@@ -586,9 +638,10 @@ export class SvgRenderer {
             .attr('stroke', stroke)
             .attr('stroke-width', 2)
             .attr('opacity', 0.5);
+        boundingBox.attr('class', containerClass);
 
         // Draw header area
-        containerGroup
+        const headerBand = containerGroup
             .append('rect')
             .attr('x', -width / 2)
             .attr('y', isBottomHeader ? height / 2 - headerHeight : -height / 2)
@@ -598,6 +651,7 @@ export class SvgRenderer {
             .attr('fill', fill)
             .attr('stroke', stroke)
             .attr('stroke-width', 2);
+        headerBand.attr('class', containerClass);
 
         // The zone the header *text* is clamped into - the part of the band
         // genuinely clear of children (see CONTAINER_HEADER_TEXT_HEIGHT). For a
@@ -669,21 +723,26 @@ export class SvgRenderer {
                 headerTop + CONTAINER_HEADER_TEXT_HEIGHT - fontSize / 2,
             );
 
-        containerGroup
-            .append('text')
-            .attr('x', 0)
-            .attr(
-                'y',
-                subLabel
-                    ? clampToText(textMiddle - lineGap / 2, nameFontSize)
-                    : textMiddle,
-            )
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', nameFontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(name);
+        // A name too long for even the truncation marker is left out; the group's
+        // <title> still carries it in full.
+        if (name !== '') {
+            containerGroup
+                .append('text')
+                .attr('x', 0)
+                .attr(
+                    'y',
+                    subLabel
+                        ? clampToText(textMiddle - lineGap / 2, nameFontSize)
+                        : textMiddle,
+                )
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', nameFontSize)
+                .attr('font-family', this.theme.fontFamily)
+                .attr('class', this.themeClass(TEXT_FILL_CLASS))
+                .text(name);
+        }
 
         if (subLabel) {
             containerGroup
@@ -696,6 +755,7 @@ export class SvgRenderer {
                 .attr('font-size', subFontSize)
                 .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.7)
+                .attr('class', this.themeClass(TEXT_FILL_CLASS))
                 .text(subLabel);
         }
 
@@ -705,6 +765,7 @@ export class SvgRenderer {
                 group: controlsGroup,
                 node,
                 stroke,
+                strokeClass: containerStrokeClass,
                 x:
                     (node.x ?? 0) +
                     width / 2 -
@@ -729,10 +790,12 @@ export class SvgRenderer {
         group: SvgElement;
         node: StateNode;
         stroke: string;
+        /** `'auto'` theme class for the control's border, when `stroke` is a theme colour. */
+        strokeClass?: string;
         x: number;
         y: number;
     }): void {
-        const { action, group, node, stroke, x, y } = params;
+        const { action, group, node, stroke, strokeClass, x, y } = params;
         const half = COLLAPSE_CONTROL_SIZE / 2;
         const arm = half - 4;
         const verb = action === 'collapse' ? 'Collapse' : 'Expand';
@@ -756,7 +819,8 @@ export class SvgRenderer {
             .attr('rx', 3)
             .attr('fill', this.theme.background)
             .attr('stroke', stroke)
-            .attr('stroke-width', 1);
+            .attr('stroke-width', 1)
+            .attr('class', this.themeClass(BACKGROUND_FILL_CLASS, strokeClass));
         control
             .append('path')
             .attr(
@@ -768,7 +832,8 @@ export class SvgRenderer {
             .attr('stroke', this.theme.textColor)
             .attr('stroke-width', 1.5)
             .attr('stroke-linecap', 'round')
-            .attr('fill', 'none');
+            .attr('fill', 'none')
+            .attr('class', this.themeClass(TEXT_STROKE_CLASS));
     }
 
     /**
@@ -827,16 +892,23 @@ export class SvgRenderer {
             ...this.options.nodeOverrides?.[node.id],
         };
 
+        const nodeOverride = this.options.nodeOverrides?.[node.id];
+        const { className, strokeClass } = this.nodeThemeClasses({
+            fillOverridden: nodeOverride?.fill !== undefined,
+            node,
+            strokeOverridden: nodeOverride?.stroke !== undefined,
+        });
+
         // Render shape based on type
         switch (style.shape) {
             case 'circle':
-                this.renderCircle({ group: nodeGroup, node, style });
+                this.renderCircle({ className, group: nodeGroup, node, style });
                 break;
             case 'diamond':
-                this.renderDiamond({ group: nodeGroup, node, style });
+                this.renderDiamond({ className, group: nodeGroup, node, style });
                 break;
             default:
-                this.renderRect({ group: nodeGroup, node, style });
+                this.renderRect({ className, group: nodeGroup, node, style });
         }
 
         // A collapsed placeholder gets its expand control in the top-right corner,
@@ -848,6 +920,7 @@ export class SvgRenderer {
                 group: controlsGroup,
                 node,
                 stroke: style.stroke ?? this.theme.textColor,
+                strokeClass,
                 x:
                     (node.x ?? 0) +
                     (node.width || DEFAULT_NODE_WIDTH) / 2 -
@@ -954,17 +1027,22 @@ export class SvgRenderer {
             stackBelow: lastStackedOffset,
         });
 
-        // Add label
-        nodeGroup
-            .append('text')
-            .attr('x', labelX)
-            .attr('y', labelY)
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', this.theme.textColor)
-            .attr('font-size', this.theme.fontSize)
-            .attr('font-family', this.theme.fontFamily)
-            .text(nameText);
+        // End markers have no name, and a name too long for even the truncation marker
+        // fits to ''; an empty <text> would only add noise, and the group's <title>
+        // still carries the full name.
+        if (nameText !== '') {
+            nodeGroup
+                .append('text')
+                .attr('x', labelX)
+                .attr('y', labelY)
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', this.theme.textColor)
+                .attr('font-size', this.theme.fontSize)
+                .attr('font-family', this.theme.fontFamily)
+                .attr('class', this.themeClass(TEXT_FILL_CLASS))
+                .text(nameText);
+        }
 
         if (secondLineText) {
             nodeGroup
@@ -977,6 +1055,7 @@ export class SvgRenderer {
                 .attr('font-size', this.theme.fontSize - 2)
                 .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.7)
+                .attr('class', this.themeClass(TEXT_FILL_CLASS))
                 .text(secondLineText);
         }
 
@@ -993,6 +1072,7 @@ export class SvgRenderer {
                 .attr('font-size', this.theme.fontSize - 3)
                 .attr('font-family', this.theme.fontFamily)
                 .attr('opacity', 0.75)
+                .attr('class', this.themeClass(TEXT_FILL_CLASS))
                 .text(annotation);
         }
 
@@ -1001,7 +1081,7 @@ export class SvgRenderer {
         if (variablesShown && node.assignedVariables) {
             nodeGroup
                 .append('text')
-                .attr('class', 'node-variables')
+                .attr('class', this.themeClass('node-variables', TEXT_FILL_CLASS) ?? 'node-variables')
                 .attr('x', labelX)
                 .attr('y', labelY + variablesOffset)
                 .attr('text-anchor', 'middle')
@@ -1018,7 +1098,7 @@ export class SvgRenderer {
      * Render rectangle node
      */
     private renderRect(params: RenderShapeParams): void {
-        const { group, node, style } = params;
+        const { className, group, node, style } = params;
         const width = node.width || 120;
         const height = node.height || 60;
 
@@ -1038,13 +1118,14 @@ export class SvgRenderer {
         if (node.collapsed) {
             rect.attr('stroke-dasharray', '6 3');
         }
+        rect.attr('class', className);
     }
 
     /**
      * Render circle node
      */
     private renderCircle(params: RenderShapeParams): void {
-        const { group, node, style } = params;
+        const { className, group, node, style } = params;
         const radius = (node.width || 60) / 2;
 
         group
@@ -1052,14 +1133,15 @@ export class SvgRenderer {
             .attr('r', radius)
             .attr('fill', style.fill)
             .attr('stroke', style.stroke)
-            .attr('stroke-width', style.strokeWidth);
+            .attr('stroke-width', style.strokeWidth)
+            .attr('class', className);
     }
 
     /**
      * Render diamond node
      */
     private renderDiamond(params: RenderShapeParams): void {
-        const { group, node, style } = params;
+        const { className, group, node, style } = params;
         const halfWidth = (node.width || 120) / 2;
         const halfHeight = (node.height || 60) / 2;
         const path = `M 0,-${halfHeight} L ${halfWidth},0 L 0,${halfHeight} L -${halfWidth},0 Z`;
@@ -1069,7 +1151,8 @@ export class SvgRenderer {
             .attr('d', path)
             .attr('fill', style.fill)
             .attr('stroke', style.stroke)
-            .attr('stroke-width', style.strokeWidth);
+            .attr('stroke-width', style.strokeWidth)
+            .attr('class', className);
     }
 
     /**
@@ -1197,6 +1280,11 @@ export class SvgRenderer {
                 ? { ...broadOverride, ...exactOverride }
                 : undefined;
         const strokeColor = override?.stroke ?? edgeColor;
+        // An override colour is fixed in both schemes, so only a theme colour is tagged.
+        const edgeThemed = override?.stroke === undefined;
+        const edgeStrokeClass = edgeThemed
+            ? edgeColorClass({ channel: 'stroke', edgeType: markerType })
+            : undefined;
         const strokeWidth =
             override?.strokeWidth ?? (edge.type === 'error' ? 2 : 1.5);
         const edgeTitle = this.edgeAccessibleTitle(edge);
@@ -1234,7 +1322,7 @@ export class SvgRenderer {
             .attr('stroke-width', strokeWidth)
             .attr(
                 'marker-end',
-                `url(#${this.arrowMarkerId({ defs, fill: strokeColor, type: markerType })})`,
+                `url(#${this.arrowMarkerId({ defs, fill: strokeColor, themed: edgeThemed, type: markerType })})`,
             );
 
         pathElement.append('title').text(edgeTitle);
@@ -1253,6 +1341,7 @@ export class SvgRenderer {
         } else if (edge.type === 'retry') {
             pathElement.attr('stroke-dasharray', '4,3');
         }
+        pathElement.attr('class', this.themeClass(edgeStrokeClass));
 
         // Add edge label if present
         if (edge.label) {
@@ -1272,7 +1361,8 @@ export class SvgRenderer {
                 .attr('fill', this.theme.background || '#ffffff')
                 .attr('stroke', strokeColor)
                 .attr('stroke-width', 0.5)
-                .attr('rx', 3);
+                .attr('rx', 3)
+                .attr('class', this.themeClass(BACKGROUND_FILL_CLASS, edgeStrokeClass));
 
             const labelText = group
                 .append('text')
@@ -1283,6 +1373,10 @@ export class SvgRenderer {
                 .attr('fill', strokeColor)
                 .attr('font-size', labelDimensions.fontSize)
                 .attr('font-family', this.theme.fontFamily)
+                .attr(
+                    'class',
+                    this.themeClass(edgeThemed && edgeColorClass({ channel: 'fill', edgeType: markerType })),
+                )
                 .text(labelDimensions.text);
 
             // Dim the label's stroke and glyphs, not the whole element: the box's own
@@ -1308,7 +1402,7 @@ export class SvgRenderer {
      * the viewer prefixes marker ids with a regex that expects `<marker id="arrowhead-`.
      */
     private appendArrowMarker(params: AppendArrowMarkerParams): void {
-        const { defs, fill, id } = params;
+        const { className, defs, fill, id } = params;
         defs.append('marker')
             .attr('id', id)
             .attr('markerWidth', 10)
@@ -1318,7 +1412,8 @@ export class SvgRenderer {
             .attr('orient', 'auto')
             .append('polygon')
             .attr('points', '0 0, 10 3, 0 6')
-            .attr('fill', fill);
+            .attr('fill', fill)
+            .attr('class', className);
     }
 
     /**
@@ -1330,10 +1425,14 @@ export class SvgRenderer {
      * matches it; otherwise one variant per distinct colour is added to `<defs>` and
      * shared by every edge in that colour. Variants keep the `arrowhead-` prefix so the
      * viewer's marker-id namespacing covers them.
+     *
+     * Under `'auto'` the shared marker is themed and repaints in dark mode, so an
+     * override that happens to equal the light type colour still gets its own fixed
+     * variant: it must not turn into the dark type colour.
      */
     private arrowMarkerId(params: ArrowMarkerIdParams): string {
-        const { defs, fill, type } = params;
-        if (fill === this.resolveEdgeColor(type)) {
+        const { defs, fill, themed, type } = params;
+        if (fill === this.resolveEdgeColor(type) && (themed || !this.autoTheme)) {
             return `arrowhead-${type}`;
         }
         let id = this.arrowMarkerIds.get(fill);
@@ -1343,6 +1442,42 @@ export class SvgRenderer {
             this.appendArrowMarker({ defs, fill, id });
         }
         return id;
+    }
+
+    /**
+     * Class attribute value for `'auto'` theme classes: the truthy names joined, or
+     * `undefined` (no attribute at all) outside `'auto'` or when none apply, so other
+     * themes' output never changes.
+     */
+    private themeClass(...classNames: Array<string | false | undefined>): string | undefined {
+        if (!this.autoTheme) return undefined;
+        const names = classNames.filter((name): name is string => !!name);
+        return names.length > 0 ? names.join(' ') : undefined;
+    }
+
+    /**
+     * `'auto'` classes for a node's or container's shape: `className` for both channels,
+     * `strokeClass` for a collapse control's border. A channel is tagged only when it
+     * carries the theme's own state-type colour, which `'auto'` may repaint: not a
+     * `customColors` entry or a `nodeOverrides` colour, both of which stay fixed in
+     * either scheme, and not a synthetic type (markers, Distributed Map satellites)
+     * that keeps its parse-time colour.
+     */
+    private nodeThemeClasses(params: NodeThemeClassesParams): { className?: string; strokeClass?: string } {
+        const { fillOverridden, node, strokeOverridden } = params;
+        const stateType = node.type as StateType;
+        const channelClass = (channel: ThemeColorChannel, overridden: boolean): string | undefined =>
+            !overridden &&
+            this.theme.nodeColors?.[stateType]?.[channel] !== undefined &&
+            this.options.customColors?.[stateType]?.[channel] === undefined
+                ? nodeColorClass({ channel, stateType })
+                : undefined;
+        const fillChannelClass = channelClass('fill', fillOverridden);
+        const strokeChannelClass = channelClass('stroke', strokeOverridden);
+        return {
+            className: this.themeClass(fillChannelClass, strokeChannelClass),
+            strokeClass: this.themeClass(strokeChannelClass),
+        };
     }
 
     /**

@@ -1072,6 +1072,61 @@ describe('SvgRenderer', () => {
             expect(match![1]).not.toContain('<title>');
         });
 
+        it.each(['parallel', 'nested-map'])('emits no empty <text> for end markers (%s)', (fixture) => {
+            const { svg } = generateSvg({ aslDefinition: loadFixture(fixture) });
+
+            expect(svg.match(/<text[^>]*><\/text>/g)).toBeNull();
+            const markerGroups = svg.match(/<g class="node node-(?:BranchEnd|IteratorEnd)"[^>]*>.*?<\/g>/g) ?? [];
+            expect(markerGroups.length).toBeGreaterThan(0);
+            for (const group of markerGroups) {
+                expect(group).not.toContain('<text');
+            }
+        });
+
+        it('falls back to the id for an end marker no container claims', () => {
+            const { nodes, edges } = parseAsl({ definition: loadFixture('parallel') });
+            const positioned = new DagreLayout({}).calculate(nodes, edges);
+            const orphaned = {
+                ...positioned,
+                nodes: positioned.nodes.map((node) => ({ ...node, children: undefined })),
+            };
+            const { svg } = new SvgRenderer({}).render(orphaned);
+
+            const match = svg.match(
+                /<path d="[^"]*" data-edge-id="Branch1-&gt;ParallelExecution__branch0__end[^"]*"[^>]*>(.*?)<\/path>/,
+            );
+            expect(match).not.toBeNull();
+            expect(match![1]).toBe('<title>Branch1 to ParallelExecution__branch0__end</title>');
+        });
+
+        it('titles edges by endpoint label, not by a scope-qualified id', () => {
+            const branch = {
+                StartAt: 'Validate',
+                States: { Validate: { Type: 'Task', Resource: 'arn:aws:lambda:us-east-1:123:function:v', End: true } },
+            };
+            const asl: AslDefinition = {
+                StartAt: 'Fan',
+                States: {
+                    Fan: { Type: 'Parallel', Branches: [branch, branch], Next: 'Done' },
+                    Done: { Type: 'Succeed' },
+                },
+            };
+            const { svg } = generateSvg({ aslDefinition: asl });
+            const titles = svg.match(/<title>[^<]*<\/title>/g) ?? [];
+
+            expect(svg).toContain('data-state-id="Fan__branch0__Validate"');
+            expect(titles.filter((title) => title.includes('__branch'))).toEqual([]);
+            expect(titles).toContain('<title>Fan to Validate</title>');
+            expect(titles).toContain('<title>Validate to Fan</title>');
+        });
+
+        it('titles a Distributed Map satellite edge by the satellite label', () => {
+            const { svg } = generateSvg({ aslDefinition: loadFixture('distributed-map') });
+
+            expect(svg).toContain('<title>ItemReader (s3) to ProcessItems: ItemReader</title>');
+            expect(svg).not.toMatch(/<title>[^<]*__itemreader/);
+        });
+
         it("titles an edge into a branch end marker with the container's label, not the marker's internal id", () => {
             const asl = loadFixture('parallel');
             const { nodes, edges } = parseAsl({ definition: asl });
@@ -1119,7 +1174,7 @@ describe('SvgRenderer', () => {
                 /<path d="[^"]*" data-edge-id="Start-&gt;Process#normal#0"[^>]*>(.*?)<\/path>/,
             );
             expect(match).not.toBeNull();
-            expect(match![1]).toBe('<title>Start to Process</title>');
+            expect(match![1]).toBe('<title>Starting state to Process</title>');
         });
 
         it('titles both the drawn path and its hit area when edgeHitAreas is on', () => {
@@ -1135,7 +1190,7 @@ describe('SvgRenderer', () => {
                 /<path d="[^"]*" data-edge-id="Start-&gt;Process#normal#0" data-edge-hit-area=""[^>]*>(.*?)<\/path>/,
             );
             expect(hitMatch).not.toBeNull();
-            expect(hitMatch![1]).toBe('<title>Start to Process</title>');
+            expect(hitMatch![1]).toBe('<title>Starting state to Process</title>');
         });
     });
 
@@ -1621,17 +1676,19 @@ describe('node name fitting (#368)', () => {
         expectInsideShape(line);
     });
 
-    it('leaves the name line empty when not even an ellipsis fits', () => {
+    it('omits the name line when not even an ellipsis fits', () => {
         const { svg } = generateSvg({
             aslDefinition: longCommentTask,
             iconPosition: 'left',
             nodeWidth: 40,
             showIcons: true,
         });
-        const line = measureNameLine(svg, 'ValidateOrder');
+        const start = svg.indexOf('data-state-id="ValidateOrder"');
+        const markup = svg.slice(start, svg.indexOf('</g>', start));
 
-        expect(line.text).toBe('');
-        expect(line.markup).toContain(`<title>${LONG_COMMENT} (Task)</title>`);
+        expect(markup).not.toMatch(/<text[^>]*><\/text>/);
+        expect(markup).not.toContain('…');
+        expect(markup).toContain(`<title>${LONG_COMMENT} (Task)</title>`);
     });
 });
 

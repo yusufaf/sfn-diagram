@@ -41,8 +41,9 @@ export function escapeAttribute(value: string): string {
  * Escape a string for use as element text content.
  *
  * Matches the HTML serialization algorithm: `&`, U+00A0, `<`, and `>` are escaped.
+ * Shared with the viewer shell, which escapes the document `<title>` with it.
  */
-function escapeText(value: string): string {
+export function escapeText(value: string): string {
     return value
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&nbsp;')
@@ -69,9 +70,12 @@ export class SvgElement {
     /**
      * Set an attribute. Repeated calls preserve insertion order, matching the DOM,
      * so a later call appends the attribute rather than reordering an existing one.
+     * An `undefined` value sets nothing, for attributes only some renders carry.
      */
-    attr(name: string, value: SvgAttrValue): this {
-        this.attributes.push([name, String(value)]);
+    attr(name: string, value: SvgAttrValue | undefined): this {
+        if (value !== undefined) {
+            this.attributes.push([name, String(value)]);
+        }
         return this;
     }
 

@@ -205,6 +205,14 @@ describe('loadCliConfig', () => {
         });
     });
 
+    it('accepts the auto theme', () => {
+        const path = write('.sfn-diagramrc', 'theme: auto\n');
+        expect(loadCliConfig({ explicitPath: null, startDir: root })).toEqual({
+            config: { theme: 'auto' },
+            path,
+        });
+    });
+
     it('accepts JSON in an extensionless .sfn-diagramrc', () => {
         // YAML 1.2 is a JSON superset, so one parse path covers both.
         const path = write('.sfn-diagramrc', '{ "theme": "dark" }');
