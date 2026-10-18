@@ -19,9 +19,9 @@ no AWS credentials, and the comment updates itself on every push.
 This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as of October
 2026. With 1.8.0, the current npm release:
 - **CDK and plain CloudFormation:** the workflows run.
-- **SAM:** an inline `AWS::Serverless::StateMachine` is skipped, with a line in the job log
-  (see [Troubleshooting](#troubleshooting)). Other state machines in the same template are
-  still compared.
+- **SAM:** an inline `AWS::Serverless::StateMachine` can't be read. The comment says so, and
+  other state machines in the same template are still compared (see
+  [Troubleshooting](#troubleshooting)).
 - **`DefinitionSubstitutions`:** they're filled in only in part, so a change to a
   substitution value alone may not show in the comment.
 
@@ -101,7 +101,7 @@ Then save this as `.github/sfn-diagram/comment.mjs`:
 ```js
 // Usage: node comment.mjs <base> <head> > comment.md
 // Each argument is a cdk.out folder or a single CloudFormation/SAM template. A missing path counts as empty.
-// Prints nothing when no state machine definition differs.
+// Prints nothing when no state machine definition differs and everything could be read.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -127,55 +127,77 @@ function listTemplates(path) {
         .map((relative) => ({ file: join(path, relative), label: `${relative.replace(/\.template\.json$/, '')}/` }));
 }
 
-// A machine that fails to extract on either side is left out of the comment entirely,
-// so a failure on one side can't show up as "New file" or "File deleted".
-const failed = new Set();
-
+// Returns the readable state machines, plus the ones it had to skip:
+// `external` for a definition kept in a separate file, `error` for anything that failed to read.
 function readStateMachines(path) {
     const machines = new Map();
+    const skipped = [];
     for (const { file, label } of listTemplates(path)) {
         const text = readFileSync(file, 'utf8');
-        // 'error' still accepts CloudFormation tags such as !GetAtt, but throws on invalid YAML.
-        const resources = parse(text, { logLevel: 'error' })?.Resources ?? {};
+        let resources;
+        try {
+            // 'error' still accepts CloudFormation tags such as !GetAtt, but throws on invalid YAML.
+            resources = parse(text, { logLevel: 'error' })?.Resources ?? {};
+        } catch (error) {
+            skipped.push({ kind: 'error', name: file, reason: error.message.split('\n')[0] });
+            continue;
+        }
         for (const [logicalId, resource] of Object.entries(resources)) {
-            const properties = resource?.Properties ?? {};
             if (!STATE_MACHINE_TYPES.includes(resource?.Type)) continue;
+            const name = `${label}${logicalId}`;
+            const properties = resource?.Properties ?? {};
             if (!('Definition' in properties) && !('DefinitionString' in properties)) {
-                console.error(`Skipped ${label}${logicalId}: its definition is in a separate file. Use the GitHub Action on that file.`);
+                skipped.push({ kind: 'external', name, reason: 'its definition is in a separate file. Use the GitHub Action on that file.' });
                 continue;
             }
             try {
-                const { aslDefinition } = extractAslFromTemplate({ resourceId: logicalId, template: text });
-                machines.set(`${label}${logicalId}`, aslDefinition);
+                machines.set(name, extractAslFromTemplate({ resourceId: logicalId, template: text }).aslDefinition);
             } catch (error) {
-                console.error(`Skipped ${label}${logicalId}: ${error.message}`);
-                failed.add(`${label}${logicalId}`);
+                skipped.push({ kind: 'error', name, reason: error.message });
             }
         }
     }
-    return machines;
+    return { machines, skipped };
 }
 
 const [basePath, headPath] = process.argv.slice(2);
 const before = readStateMachines(basePath);
 const after = readStateMachines(headPath);
 
-const sections = [...new Set([...before.keys(), ...after.keys()])]
+const skipped = [...before.skipped, ...after.skipped];
+for (const { name, reason } of skipped) console.error(`Skipped ${name}: ${reason}`);
+// A machine skipped on either side is left out on both, so it can't show up as "New file" or "File deleted".
+const skippedNames = new Set(skipped.map(({ name }) => name));
+// Something that failed to read is always reported, so the comment never claims that nothing changed.
+const errors = [...new Set(skipped.filter(({ kind }) => kind === 'error').map(({ name }) => name))];
+const errorNote =
+    errors.length === 0
+        ? []
+        : [`> ⚠️ Couldn't read ${errors.map((name) => `\`${name}\``).join(', ')}, so changes there aren't shown. See the job log.\n`];
+
+const sections = [...new Set([...before.machines.keys(), ...after.machines.keys()])]
     .sort()
-    .filter((name) => !failed.has(name))
-    .filter((name) => JSON.stringify(before.get(name)) !== JSON.stringify(after.get(name)))
+    .filter((name) => !skippedNames.has(name))
+    .filter((name) => JSON.stringify(before.machines.get(name)) !== JSON.stringify(after.machines.get(name)))
     .map((name) =>
-        buildAslFileSection({ afterAsl: after.get(name) ?? null, beforeAsl: before.get(name) ?? null, filename: name }),
+        buildAslFileSection({
+            afterAsl: after.machines.get(name) ?? null,
+            beforeAsl: before.machines.get(name) ?? null,
+            filename: name,
+        }),
     );
 
-if (sections.length > 0) {
+if (sections.length > 0 || errorNote.length > 0) {
     const omitted = new Set();
     const render = () =>
         assembleCommentBody({
             marker: MARKER,
-            sections: sections.map((section) =>
-                renderAslFileSection(section, { includeDiagram: !omitted.has(section), omissionNote: OMITTED_NOTE }),
-            ),
+            sections: [
+                ...errorNote,
+                ...sections.map((section) =>
+                    renderAslFileSection(section, { includeDiagram: !omitted.has(section), omissionNote: OMITTED_NOTE }),
+                ),
+            ],
         });
     let body = render();
     for (const section of [...sections].sort((a, b) => b.mermaidCode.length - a.mermaidCode.length)) {
@@ -184,12 +206,14 @@ if (sections.length > 0) {
         body = render();
     }
     if (body.length > MAX_COMMENT_CHARS) {
-        // Even without diagrams the state tables are too long, so post a short summary instead.
+        // Even without diagrams the state tables are too long, so list the changed machines instead.
+        const names = sections.map((section) => `\`${section.filename}\``).join(', ').slice(0, MAX_COMMENT_CHARS / 2);
         body = assembleCommentBody({
             marker: MARKER,
             sections: [
-                `> 📎 The changes to ${sections.length} state machine${sections.length === 1 ? '' : 's'} are too long for one comment, ` +
-                    'even without diagrams. Run this script locally to see the full report.\n',
+                ...errorNote,
+                `> 📎 These state machines changed, but the details are too long for one comment: ${names}. ` +
+                    'Run this script locally against the base and head templates to see the full report.\n',
             ],
         });
     }
@@ -244,7 +268,7 @@ jobs:
           node head/.github/sfn-diagram/comment.mjs base/cdk.out head/cdk.out > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment
-        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -277,8 +301,13 @@ gets that path instead, such as `assembly-Prod/ProdOrdersStack2EDBF9CE/OrderWork
 - **Changed only outside its states**, for example `TimeoutSeconds` or `Comment`: the
   machine still gets a section, but its table says "No changes", because only states are
   compared there.
-- **Couldn't be read on either side:** left out, with a `Skipped` line in the job log
-  explaining why.
+- **Couldn't be read on either side,** for example because the template isn't valid YAML:
+  left out, with a "Couldn't read" note at the top of the comment and a `Skipped` line in the
+  job log that says why. So a comment never claims nothing changed when part of the
+  template couldn't be read.
+- **Definition in a separate file** (`DefinitionUri`, `DefinitionS3Location` or CDK's
+  `DefinitionBody.fromFile`): left out on both sides, with a `Skipped` line in the job log.
+  The GitHub Action covers those files.
 
 When a later push makes every definition match the base branch again, the comment is
 rewritten to say so instead of being left out of date. If no state machine changed and no
@@ -304,7 +333,7 @@ the cached values.
 A diagram that would push the comment over the size limit is left out, largest first. A note
 in its place explains how to render it locally. A 1,500-state machine came out as a
 702-character comment. If the tables of changed states are still too long without any
-diagrams, the comment becomes a one-line summary.
+diagrams, the comment lists only the names of the state machines that changed.
 
 The script stops at 65,536 characters, the number in GitHub's error message. In our tests
 GitHub actually accepted up to 262,144 bytes of UTF-8 and rejected one byte more with
@@ -374,7 +403,7 @@ jobs:
           node head/.github/sfn-diagram/comment.mjs base/template.yaml head/template.yaml > comment.md
           cat comment.md >> "$GITHUB_STEP_SUMMARY"
       - name: Post or update the comment
-        if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
@@ -403,9 +432,11 @@ definition with `DefinitionUri` is skipped with a note in the job log. Use the
 For a pull request from a fork, GitHub gives the workflow a read-only token, so it can't
 post a comment
 ([events that trigger workflows](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request)).
-Dependabot pull requests get a read-only token too. That's why the post step only runs when
-the pull request comes from the same repository and wasn't opened by Dependabot. In both
-cases the comment's Markdown is still in the run's job summary.
+That's why the post step only runs when the pull request comes from the same repository. For
+a fork, the comment's Markdown is still in the run's job summary. Dependabot pull requests
+aren't affected: their token is read-only by default too, but the workflow's `permissions`
+block raises it
+([Dependabot on GitHub Actions](https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions)).
 
 Don't switch to `pull_request_target` to get a write token. GitHub's docs say to avoid that
 event "if you need to build or run code from the pull request", and `cdk synth` runs the
@@ -431,8 +462,9 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 | Message | Cause | Fix |
 |---|---|---|
 | `Context lookups have been disabled. … Missing context keys: …` | The stack uses a context lookup, such as `valueFromLookup` or `fromLookup`, with no cached value | Run `cdk synth` locally with AWS credentials and commit `cdk.context.json` |
-| `Skipped OrderStateMachine: Template contains no AWS::StepFunctions::StateMachine resource.` in the job log | The template's only state machines are SAM `AWS::Serverless::StateMachine` resources, and step 1 installed sfn-diagram 1.8.0 | 1.8.0 doesn't read SAM resources. See the version note at the top of this page |
-| `Skipped OrderStateMachine: Resource 'OrderStateMachine' is not an AWS::StepFunctions::StateMachine. Found: PaymentStateMachine.` in the job log | The template has both SAM and plain CloudFormation state machines, on sfn-diagram 1.8.0. The plain ones are still compared | Same as above |
-| `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` in the job log | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
-| `YAMLParseError: …` and the "Build the comment" step fails | `template.yaml` isn't valid YAML on one side, for example a duplicate key | Fix the template. The script fails rather than guess which state machines it holds |
+| The comment says `⚠️ Couldn't read` a state machine | The job log has a `Skipped <name>: <reason>` line for it | Fix what the reason names. The rows below cover the common ones |
+| `Skipped OrderStateMachine: Template contains no AWS::StepFunctions::StateMachine resource.` | The template's only state machines are SAM `AWS::Serverless::StateMachine` resources, and step 1 installed sfn-diagram 1.8.0 | 1.8.0 doesn't read SAM resources. See the version note at the top of this page |
+| `Skipped OrderStateMachine: Resource 'OrderStateMachine' is not an AWS::StepFunctions::StateMachine. Found: PaymentStateMachine.` | The template has both SAM and plain CloudFormation state machines, on sfn-diagram 1.8.0. The plain ones are still compared | Same as above |
+| `Skipped <file>: Map keys must be unique …` or another YAML error | The template isn't valid YAML on that side | Fix the template |
+| `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
