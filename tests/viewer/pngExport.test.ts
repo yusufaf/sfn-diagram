@@ -26,7 +26,11 @@ const definition: AslDefinition = {
 const RED_ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#ff0000"/></svg>';
 
-type IconMode = 'abort' | 'red' | 'stall';
+/** The same, twice as wide as it is tall. */
+const WIDE_RED_ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32"><rect width="64" height="32" fill="#ff0000"/></svg>';
+
+type IconMode = 'abort' | 'red' | 'stall' | 'wide';
 
 interface PngStore {
     sfnPngs: Array<{ blob: Blob; name: string }>;
@@ -64,7 +68,7 @@ async function interceptIcons(target: Page, mode: IconMode): Promise<void> {
         // 'stall': never answered, so the icon load neither succeeds nor fails.
         if (mode === 'stall') return;
         void request.respond({
-            body: RED_ICON,
+            body: mode === 'wide' ? WIDE_RED_ICON : RED_ICON,
             contentType: 'image/svg+xml',
             headers: { 'Access-Control-Allow-Origin': '*' },
             status: 200,
@@ -374,10 +378,81 @@ describe('toolbar PNG export', () => {
                 document.querySelector('[data-sfn="export-png"]')!.textContent === 'No icons',
             { polling: 20, timeout: ICON_TIMEOUT_MS + 2_000 },
         );
-        expect(await target.$eval('[data-sfn="export-png"]', (button) => (button as HTMLButtonElement).disabled)).toBe(
-            false,
+        // Free for another export once this one is over.
+        expect(await target.$eval('[data-sfn="export-png"]', (button) => button.getAttribute('aria-disabled'))).toBe(
+            null,
         );
         await target.close();
+    }, 20_000);
+
+    it('keeps keyboard focus on the button while it works', async () => {
+        const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
+        await target.focus('[data-sfn="export-png"]');
+        await target.keyboard.press('Enter');
+        await waitForDownload(target);
+        expect(await target.evaluate(() => document.activeElement?.getAttribute('data-sfn'))).toBe('export-png');
+        await target.close();
+    }, 20_000);
+
+    it('keeps a non-square icon at its own aspect ratio', async () => {
+        // 64x32: on screen the square <image> box letterboxes it; stretched to fill the
+        // box, it would come out red top to bottom.
+        const target = await openViewer({
+            html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
+            icons: 'wide',
+        });
+        await clickPng(target);
+        await waitForDownload(target);
+
+        const icon = await svgCentre(target, '[data-state-id="Alpha"] image');
+        const box = await target.$eval('[data-state-id="Alpha"] image', (image) =>
+            parseFloat(image.getAttribute('height')!),
+        );
+        const png = await readPng(target, [icon, { x: icon.x, y: icon.y - box * 0.4 }]);
+        expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
+        expect(png.pixels[1]).not.toEqual([255, 0, 0, 255]);
+        await target.close();
+    }, 20_000);
+
+    it('sizes the PNG from the viewBox when width and height are not pixel lengths', async () => {
+        const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
+        const viewBox = await target.$eval('[data-sfn="content"] svg', (svg) => {
+            const [, , width, height] = svg.getAttribute('viewBox')!.split(/\s+/).map(Number);
+            svg.setAttribute('width', '100%');
+            svg.setAttribute('height', '100%');
+            return { height, width };
+        });
+        await clickPng(target);
+        await waitForDownload(target);
+
+        const png = await target.evaluate(async () => {
+            const entries = (window as unknown as PngStore).sfnPngs.filter((entry) => entry.name);
+            const bitmap = await createImageBitmap(entries[entries.length - 1].blob);
+            return { height: bitmap.height, width: bitmap.width };
+        });
+        expect(png).toEqual({ height: Math.floor(viewBox.height * 2), width: Math.floor(viewBox.width * 2) });
+        await target.close();
+    }, 20_000);
+
+    it("follows the page's colour scheme with the auto theme", async () => {
+        const backgroundIn = async (scheme: 'dark' | 'light'): Promise<number[]> => {
+            const target = await browser.newPage();
+            await target.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
+            await target.setContent(generateHtml({ aslDefinition: definition, theme: 'auto' }).html, {
+                waitUntil: 'load',
+            });
+            await captureDownloads(target);
+            await clickPng(target);
+            await waitForDownload(target);
+            const png = await readPng(target, [{ x: 1, y: 1 }]);
+            await target.close();
+            return png.pixels[0];
+        };
+
+        const light = await backgroundIn('light');
+        const dark = await backgroundIn('dark');
+        expect(light).not.toEqual(dark);
+        expect(dark[0] + dark[1] + dark[2]).toBeLessThan(light[0] + light[1] + light[2]);
     }, 20_000);
 
     it('downloads for real from a sandboxed iframe', async () => {

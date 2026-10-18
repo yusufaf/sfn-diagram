@@ -1,5 +1,5 @@
 import { hook, type ListenerRegistry, type ViewerData } from './dom';
-import { inlineRemoteImages, RASTER_SCALE, rasterizeSvg } from './rasterize';
+import { diagramSize, inlineRemoteImages, RASTER_SCALE, rasterizeSvg } from './rasterize';
 import type { Viewport } from './viewport';
 
 /**
@@ -157,7 +157,7 @@ export function attachExportActions(params: AttachExportActionsParams): void {
     const { on } = registry;
 
     const downloadButton = hook(root, 'export-svg');
-    const pngButton = hook(root, 'export-png') as HTMLButtonElement | null;
+    const pngButton = hook(root, 'export-png');
     const copyButton = hook(root, 'copy-mermaid');
 
     // One entry per button, not one per click: a standalone document is never
@@ -186,17 +186,19 @@ export function attachExportActions(params: AttachExportActionsParams): void {
         );
     };
 
-    /** Revoke an object URL once the click that consumed it has been dispatched. */
-    let revokeTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Object URLs waiting to be revoked once the click that consumed them has been dispatched. */
+    const revokeTimers = new Set<ReturnType<typeof setTimeout>>();
     // A PNG finishes after awaits; one that lands after teardown must not download.
     let destroyed = false;
     registry.cleanups.push(() => {
-        clearTimeout(revokeTimer);
+        for (const timer of revokeTimers) clearTimeout(timer);
+        revokeTimers.clear();
         destroyed = true;
     });
 
     /** Hand `blob` to the browser as a download named `filename`. */
-    const download = (doc: Document, blob: Blob, filename: string): void => {
+    const download = (params: { blob: Blob; doc: Document; filename: string }): void => {
+        const { blob, doc, filename } = params;
         const url = URL.createObjectURL(blob);
         const link = doc.createElement('a');
         link.href = url;
@@ -205,9 +207,13 @@ export function attachExportActions(params: AttachExportActionsParams): void {
         link.click();
         link.remove();
         // Freed on the next turn rather than immediately: revoking synchronously
-        // races the navigation the click just started, and Firefox drops it.
-        clearTimeout(revokeTimer);
-        revokeTimer = setTimeout(() => URL.revokeObjectURL(url), 0);
+        // races the navigation the click just started, and Firefox drops it. One timer
+        // per download, so an SVG and a PNG landing together cannot strand either URL.
+        const timer = setTimeout(() => {
+            revokeTimers.delete(timer);
+            URL.revokeObjectURL(url);
+        }, 0);
+        revokeTimers.add(timer);
     };
 
     if (downloadButton) {
@@ -221,13 +227,16 @@ export function attachExportActions(params: AttachExportActionsParams): void {
             const blob = new Blob([serializeVisibleSvg({ svg })], {
                 type: 'image/svg+xml;charset=utf-8',
             });
-            download(ownerDoc, blob, 'diagram.svg');
+            download({ blob, doc: ownerDoc, filename: 'diagram.svg' });
         });
     }
 
     if (pngButton) {
+        // Busy rather than `disabled`: disabling the focused button would drop keyboard
+        // focus back to the top of the document.
+        let busy = false;
         on(pngButton, 'click', () => {
-            if (pngButton.disabled) return;
+            if (busy) return;
             const svg = viewport.activeSvg();
             const view = ownerDoc?.defaultView;
             if (!svg || !ownerDoc || !view) {
@@ -235,34 +244,37 @@ export function attachExportActions(params: AttachExportActionsParams): void {
                 return;
             }
 
-            // Disabled for the duration, so a second click cannot start a second
-            // rasterisation and download the diagram twice.
-            pngButton.disabled = true;
+            // A second click cannot start a second rasterisation and download the
+            // diagram twice.
+            busy = true;
+            pngButton.setAttribute('aria-disabled', 'true');
             void (async () => {
                 try {
                     const clone = cleanVisibleSvgClone({ svg });
-                    const width = parseFloat(clone.getAttribute('width') ?? '');
-                    const height = parseFloat(clone.getAttribute('height') ?? '');
-                    if (!(Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0)) {
-                        throw new Error('The diagram has no size to rasterise at');
-                    }
+                    const size = diagramSize({ svg: clone });
+                    if (!size) throw new Error('The diagram has no size to rasterise at');
+                    // Pinned to plain pixels, so the image the markup loads as has the
+                    // same intrinsic size the canvas is sized from.
+                    clone.setAttribute('width', String(size.width));
+                    clone.setAttribute('height', String(size.height));
 
                     const missing = await inlineRemoteImages({ clone, ownerDoc, scale: RASTER_SCALE });
                     // XMLSerializer, not outerHTML: outerHTML writes `&nbsp;`, which stops
                     // the markup loading as an image at all.
                     const markup = new view.XMLSerializer().serializeToString(clone);
-                    const blob = await rasterizeSvg({ height, markup, ownerDoc, scale: RASTER_SCALE, width });
+                    const blob = await rasterizeSvg({ ...size, markup, ownerDoc, scale: RASTER_SCALE });
                     if (destroyed) return;
                     if (!blob) {
                         flash(pngButton, 'Failed');
                         return;
                     }
-                    download(ownerDoc, blob, 'diagram.png');
+                    download({ blob, doc: ownerDoc, filename: 'diagram.png' });
                     if (missing > 0) flash(pngButton, 'No icons');
                 } catch {
                     if (!destroyed) flash(pngButton, 'Failed');
                 } finally {
-                    pngButton.disabled = false;
+                    busy = false;
+                    pngButton.removeAttribute('aria-disabled');
                 }
             })();
         });

@@ -83,6 +83,40 @@ export function fitRasterScale(params: FitRasterScaleParams): number {
     );
 }
 
+/** A `width`/`height` attribute that is a plain pixel length, not a percentage or other unit. */
+const PIXEL_LENGTH = /^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/;
+
+/**
+ * The size an SVG draws at in its own pixels: its `width`/`height` attributes when
+ * both are plain pixel lengths, otherwise its `viewBox`.
+ *
+ * Every diagram the renderer produces has numeric attributes, but the viewer wraps
+ * caller-supplied SVG too, and `width="100%"` would otherwise read as 100 pixels.
+ *
+ * @param params - Size parameters
+ * @param params.svg - The SVG to measure
+ * @returns The size, or null when neither source gives a positive one
+ *
+ * @example
+ * ```typescript
+ * diagramSize({ svg }); // { height: 210, width: 160 }
+ * ```
+ */
+export function diagramSize(params: { svg: Element }): { height: number; width: number } | null {
+    const { svg } = params;
+    const width = PIXEL_LENGTH.exec(svg.getAttribute('width') ?? '');
+    const height = PIXEL_LENGTH.exec(svg.getAttribute('height') ?? '');
+    if (width && height && parseFloat(width[1]) > 0 && parseFloat(height[1]) > 0) {
+        return { height: parseFloat(height[1]), width: parseFloat(width[1]) };
+    }
+
+    const viewBox = (svg.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
+    if (viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
+        return { height: viewBox[3], width: viewBox[2] };
+    }
+    return null;
+}
+
 /** Resolve once `img` has loaded `src`; reject if it fails to. */
 function loadImage(params: { img: HTMLImageElement; src: string }): Promise<void> {
     const { img, src } = params;
@@ -125,12 +159,17 @@ export interface InlineRemoteImagesParams {
  */
 export async function inlineRemoteImages(params: InlineRemoteImagesParams): Promise<number> {
     const { clone, ownerDoc, scale } = params;
-    const sizeOf = (element: Element, name: string): number => {
-        const value = parseFloat(element.getAttribute(name) ?? '');
+    const sizeOf = (sizeParams: { element: Element; name: string }): number => {
+        const value = parseFloat(sizeParams.element.getAttribute(sizeParams.name) ?? '');
         return Number.isFinite(value) && value > 0 ? value : DEFAULT_ICON_SIZE;
     };
 
-    const toDataUri = async (element: Element, url: string): Promise<string | null> => {
+    const toDataUri = async (iconParams: {
+        boxHeight: number;
+        boxWidth: number;
+        url: string;
+    }): Promise<string | null> => {
+        const { boxHeight, boxWidth, url } = iconParams;
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
             const img = ownerDoc.createElement('img');
@@ -140,9 +179,14 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
             });
             await Promise.race([loadImage({ img, src: url }), timeout]);
 
+            // Kept at the icon's own aspect ratio, fitted inside the box: the <image>'s
+            // preserveAspectRatio then places it exactly as it did the original.
+            const naturalWidth = img.naturalWidth || boxWidth;
+            const naturalHeight = img.naturalHeight || boxHeight;
+            const fit = Math.min(boxWidth / naturalWidth, boxHeight / naturalHeight) * scale;
             const canvas = ownerDoc.createElement('canvas');
-            canvas.width = Math.ceil(sizeOf(element, 'width') * scale);
-            canvas.height = Math.ceil(sizeOf(element, 'height') * scale);
+            canvas.width = Math.max(1, Math.ceil(naturalWidth * fit));
+            canvas.height = Math.max(1, Math.ceil(naturalHeight * fit));
             const context = canvas.getContext('2d');
             if (!context) return null;
             context.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -154,16 +198,20 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
         }
     };
 
-    const byUrl = new Map<string, Promise<string | null>>();
-    const remote: Array<{ element: Element; url: string }> = [];
+    // Keyed by size as well as URL: the same icon drawn at two sizes gets a bitmap for each.
+    const byIcon = new Map<string, Promise<string | null>>();
+    const remote: Array<{ element: Element; key: string }> = [];
     for (const element of Array.from(clone.querySelectorAll('image'))) {
         const url = element.getAttribute('href') ?? element.getAttributeNS(XLINK_NS, 'href');
         if (!url || url.startsWith('data:')) continue;
-        remote.push({ element, url });
-        if (!byUrl.has(url)) byUrl.set(url, toDataUri(element, url));
+        const boxWidth = sizeOf({ element, name: 'width' });
+        const boxHeight = sizeOf({ element, name: 'height' });
+        const key = `${boxWidth}x${boxHeight} ${url}`;
+        remote.push({ element, key });
+        if (!byIcon.has(key)) byIcon.set(key, toDataUri({ boxHeight, boxWidth, url }));
     }
 
-    const results = await Promise.all(remote.map(({ url }) => byUrl.get(url)!));
+    const results = await Promise.all(remote.map(({ key }) => byIcon.get(key)!));
     let missing = 0;
     remote.forEach(({ element }, index) => {
         const dataUri = results[index];
@@ -248,9 +296,15 @@ export async function rasterizeSvg(params: RasterizeSvgParams): Promise<Blob | n
         try {
             const blob = await drawRung({ canvas, img });
             if (blob) return blob;
-        } catch {
+        } catch (error) {
             // Some engines throw on a canvas they cannot back, rather than failing
-            // quietly; that is a reason to try the next rung, not to give up.
+            // quietly; that is a reason to try the next rung. A tainted canvas is not -
+            // every smaller one would taint the same way.
+            if ((error as { name?: string } | null)?.name === 'SecurityError') {
+                canvas.width = 0;
+                canvas.height = 0;
+                return null;
+            }
         }
         // Release the backing store before the next rung allocates its own.
         canvas.width = 0;
