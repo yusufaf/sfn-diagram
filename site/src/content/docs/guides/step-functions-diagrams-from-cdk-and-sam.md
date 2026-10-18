@@ -23,12 +23,16 @@ This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as o
 with these differences:
 - It doesn't recognize SAM `AWS::Serverless::StateMachine` resources.
 - **`DefinitionSubstitutions`:**
-  - 1.8.0 applies them only inside `Fn::Sub`, and a value that is a `Ref` or `Fn::GetAtt`
-    comes out as `[object Object]`.
+  - Inside `Fn::Sub`, a plain string value is filled in. Any other value, such as a `Ref` or
+    `Fn::GetAtt`, comes out as `[object Object]`.
   - Anywhere else, including CDK output, a `${Name}` placeholder stays as written.
-  - An unquoted placeholder, such as `"Seconds": ${Wait}`, fails with
+  - An unquoted placeholder there, such as `"Seconds": ${Wait}`, fails with
     `ASL definition is not valid JSON`.
-- `--check` has fewer rules, and some error messages are worded differently.
+- `--check` is missing some error rules, including the Wait-with-no-duration check below.
+- **Two messages are worded differently:**
+  - A wrong `--resource` gives `Resource '…' is not an AWS::StepFunctions::StateMachine.`
+  - A `DefinitionS3Location` machine gives
+    `State machine '…' has no DefinitionString or Definition.`
 
 Run `npx sfn-diagram --version` to check yours.
 :::
