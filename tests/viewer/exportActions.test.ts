@@ -3,7 +3,7 @@ import { join } from 'path';
 import { describe, it, expect } from 'vitest';
 import { generateHtml, generateMermaid, generateViewerUpdate } from '../../src';
 import { buildViewerBody } from '../../src/renderers/viewer';
-import { CANVAS_LIMITS, fitRasterScale } from '../../src/renderers/viewer/controller/rasterize';
+import { CANVAS_LIMITS, diagramSize, fitRasterScale } from '../../src/renderers/viewer/controller/rasterize';
 import type { AslDefinition } from '../../src/types';
 
 /**
@@ -160,5 +160,30 @@ describe('fitRasterScale', () => {
         for (let index = 1; index < CANVAS_LIMITS.length; index++) {
             expect(CANVAS_LIMITS[index].maxArea).toBeLessThan(CANVAS_LIMITS[index - 1].maxArea);
         }
+    });
+});
+
+describe('diagramSize', () => {
+    /** Just enough of an Element for diagramSize, which only reads attributes. */
+    const svgWith = (attributes: Record<string, string>): Element =>
+        ({ getAttribute: (name: string) => attributes[name] ?? null }) as unknown as Element;
+
+    it('reads plain pixel lengths, with or without a px unit', () => {
+        expect(diagramSize({ svg: svgWith({ height: '210px', width: '160' }) })).toEqual({ height: 210, width: 160 });
+    });
+
+    it('accepts the other forms an SVG length can take', () => {
+        expect(diagramSize({ svg: svgWith({ height: '1.2e3', width: '.5' }) })).toEqual({ height: 1200, width: 0.5 });
+        expect(diagramSize({ svg: svgWith({ height: '+800', width: '800.' }) })).toEqual({ height: 800, width: 800 });
+    });
+
+    it('falls back to the viewBox for a percentage size', () => {
+        const svg = svgWith({ height: '100%', viewBox: '0 0 400 600', width: '100%' });
+        expect(diagramSize({ svg })).toEqual({ height: 600, width: 400 });
+    });
+
+    it('returns null when nothing gives a positive size', () => {
+        expect(diagramSize({ svg: svgWith({ width: '100%' }) })).toBeNull();
+        expect(diagramSize({ svg: svgWith({ height: '0', viewBox: '0 0 0 0', width: '0' }) })).toBeNull();
     });
 });

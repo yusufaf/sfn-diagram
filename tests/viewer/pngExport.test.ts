@@ -30,7 +30,11 @@ const RED_ICON =
 const WIDE_RED_ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="32"><rect width="64" height="32" fill="#ff0000"/></svg>';
 
-type IconMode = 'abort' | 'red' | 'stall' | 'wide';
+/** Square but sized only by its viewBox, like the real aws-icons files. */
+const VIEWBOX_RED_ICON =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#ff0000"/></svg>';
+
+type IconMode = 'abort' | 'red' | 'stall' | 'viewBox' | 'wide';
 
 interface PngStore {
     sfnPngs: Array<{ blob: Blob; name: string }>;
@@ -68,7 +72,7 @@ async function interceptIcons(target: Page, mode: IconMode): Promise<void> {
         // 'stall': never answered, so the icon load neither succeeds nor fails.
         if (mode === 'stall') return;
         void request.respond({
-            body: mode === 'wide' ? WIDE_RED_ICON : RED_ICON,
+            body: { red: RED_ICON, viewBox: VIEWBOX_RED_ICON, wide: WIDE_RED_ICON }[mode],
             contentType: 'image/svg+xml',
             headers: { 'Access-Control-Allow-Origin': '*' },
             status: 200,
@@ -411,6 +415,26 @@ describe('toolbar PNG export', () => {
         const png = await readPng(target, [icon, { x: icon.x, y: icon.y - box * 0.4 }]);
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         expect(png.pixels[1]).not.toEqual([255, 0, 0, 255]);
+        await target.close();
+    }, 20_000);
+
+    it('fills the box with a square icon that has only a viewBox', async () => {
+        // The real aws-icons files declare no width or height, and an <img> may report
+        // a 300x150 default size for them - an aspect ratio the icon does not have.
+        const target = await openViewer({
+            html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
+            icons: 'viewBox',
+        });
+        await clickPng(target);
+        await waitForDownload(target);
+
+        const icon = await svgCentre(target, '[data-state-id="Alpha"] image');
+        const box = await target.$eval('[data-state-id="Alpha"] image', (image) =>
+            parseFloat(image.getAttribute('height')!),
+        );
+        const png = await readPng(target, [icon, { x: icon.x, y: icon.y - box * 0.4 }]);
+        expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
+        expect(png.pixels[1]).toEqual([255, 0, 0, 255]);
         await target.close();
     }, 20_000);
 

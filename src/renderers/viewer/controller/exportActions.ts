@@ -187,18 +187,22 @@ export function attachExportActions(params: AttachExportActionsParams): void {
     };
 
     /** Object URLs waiting to be revoked once the click that consumed them has been dispatched. */
-    const revokeTimers = new Set<ReturnType<typeof setTimeout>>();
+    const revokeTimers = new Map<ReturnType<typeof setTimeout>, string>();
     // A PNG finishes after awaits; one that lands after teardown must not download.
     let destroyed = false;
     registry.cleanups.push(() => {
-        for (const timer of revokeTimers) clearTimeout(timer);
+        // Revoked now rather than dropped, so a multi-megabyte PNG is not kept alive.
+        for (const [timer, url] of revokeTimers) {
+            clearTimeout(timer);
+            URL.revokeObjectURL(url);
+        }
         revokeTimers.clear();
         destroyed = true;
     });
 
     /** Hand `blob` to the browser as a download named `filename`. */
-    const download = (params: { blob: Blob; doc: Document; filename: string }): void => {
-        const { blob, doc, filename } = params;
+    const download = (downloadParams: { blob: Blob; doc: Document; filename: string }): void => {
+        const { blob, doc, filename } = downloadParams;
         const url = URL.createObjectURL(blob);
         const link = doc.createElement('a');
         link.href = url;
@@ -213,7 +217,7 @@ export function attachExportActions(params: AttachExportActionsParams): void {
             revokeTimers.delete(timer);
             URL.revokeObjectURL(url);
         }, 0);
-        revokeTimers.add(timer);
+        revokeTimers.set(timer, url);
     };
 
     if (downloadButton) {

@@ -84,7 +84,28 @@ export function fitRasterScale(params: FitRasterScaleParams): number {
 }
 
 /** A `width`/`height` attribute that is a plain pixel length, not a percentage or other unit. */
-const PIXEL_LENGTH = /^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/;
+const PIXEL_LENGTH = /^\s*\+?((?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)(?:px)?\s*$/i;
+
+/** `value` as pixels when it is a positive plain pixel length, otherwise null. */
+function pixelLength(params: { value: string | null }): number | null {
+    const match = PIXEL_LENGTH.exec(params.value ?? '');
+    const pixels = match ? parseFloat(match[1]) : NaN;
+    return Number.isFinite(pixels) && pixels > 0 ? pixels : null;
+}
+
+/** Parameters for {@link diagramSize}. */
+export interface DiagramSizeParams {
+    /** The SVG to measure. */
+    svg: Element;
+}
+
+/** A diagram's size in its own pixels. */
+export interface DiagramSize {
+    /** Height in pixels. */
+    height: number;
+    /** Width in pixels. */
+    width: number;
+}
 
 /**
  * The size an SVG draws at in its own pixels: its `width`/`height` attributes when
@@ -102,13 +123,11 @@ const PIXEL_LENGTH = /^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/;
  * diagramSize({ svg }); // { height: 210, width: 160 }
  * ```
  */
-export function diagramSize(params: { svg: Element }): { height: number; width: number } | null {
+export function diagramSize(params: DiagramSizeParams): DiagramSize | null {
     const { svg } = params;
-    const width = PIXEL_LENGTH.exec(svg.getAttribute('width') ?? '');
-    const height = PIXEL_LENGTH.exec(svg.getAttribute('height') ?? '');
-    if (width && height && parseFloat(width[1]) > 0 && parseFloat(height[1]) > 0) {
-        return { height: parseFloat(height[1]), width: parseFloat(width[1]) };
-    }
+    const width = pixelLength({ value: svg.getAttribute('width') });
+    const height = pixelLength({ value: svg.getAttribute('height') });
+    if (width !== null && height !== null) return { height, width };
 
     const viewBox = (svg.getAttribute('viewBox') ?? '').trim().split(/[\s,]+/).map(Number);
     if (viewBox.length === 4 && viewBox[2] > 0 && viewBox[3] > 0) {
@@ -159,9 +178,31 @@ export interface InlineRemoteImagesParams {
  */
 export async function inlineRemoteImages(params: InlineRemoteImagesParams): Promise<number> {
     const { clone, ownerDoc, scale } = params;
-    const sizeOf = (sizeParams: { element: Element; name: string }): number => {
-        const value = parseFloat(sizeParams.element.getAttribute(sizeParams.name) ?? '');
-        return Number.isFinite(value) && value > 0 ? value : DEFAULT_ICON_SIZE;
+
+    /** One load per URL, however many sizes it is drawn at; null when it fails or stalls. */
+    const loads = new Map<string, Promise<HTMLImageElement | null>>();
+    const load = (url: string): Promise<HTMLImageElement | null> => {
+        let pending = loads.get(url);
+        if (!pending) {
+            pending = (async () => {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                try {
+                    const img = ownerDoc.createElement('img');
+                    img.crossOrigin = 'anonymous';
+                    const timeout = new Promise<never>((_, reject) => {
+                        timer = setTimeout(() => reject(new Error('Icon timed out')), ICON_TIMEOUT_MS);
+                    });
+                    await Promise.race([loadImage({ img, src: url }), timeout]);
+                    return img;
+                } catch {
+                    return null;
+                } finally {
+                    clearTimeout(timer);
+                }
+            })();
+            loads.set(url, pending);
+        }
+        return pending;
     };
 
     const toDataUri = async (iconParams: {
@@ -170,15 +211,9 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
         url: string;
     }): Promise<string | null> => {
         const { boxHeight, boxWidth, url } = iconParams;
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        const img = await load(url);
+        if (!img) return null;
         try {
-            const img = ownerDoc.createElement('img');
-            img.crossOrigin = 'anonymous';
-            const timeout = new Promise<never>((_, reject) => {
-                timer = setTimeout(() => reject(new Error('Icon timed out')), ICON_TIMEOUT_MS);
-            });
-            await Promise.race([loadImage({ img, src: url }), timeout]);
-
             // Kept at the icon's own aspect ratio, fitted inside the box: the <image>'s
             // preserveAspectRatio then places it exactly as it did the original.
             const naturalWidth = img.naturalWidth || boxWidth;
@@ -193,25 +228,23 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
             return canvas.toDataURL('image/png');
         } catch {
             return null;
-        } finally {
-            clearTimeout(timer);
         }
     };
 
-    // Keyed by size as well as URL: the same icon drawn at two sizes gets a bitmap for each.
-    const byIcon = new Map<string, Promise<string | null>>();
+    // A bitmap per size, so the same icon drawn at two sizes is sharp at both.
+    const bitmaps = new Map<string, Promise<string | null>>();
     const remote: Array<{ element: Element; key: string }> = [];
     for (const element of Array.from(clone.querySelectorAll('image'))) {
         const url = element.getAttribute('href') ?? element.getAttributeNS(XLINK_NS, 'href');
         if (!url || url.startsWith('data:')) continue;
-        const boxWidth = sizeOf({ element, name: 'width' });
-        const boxHeight = sizeOf({ element, name: 'height' });
+        const boxWidth = pixelLength({ value: element.getAttribute('width') }) ?? DEFAULT_ICON_SIZE;
+        const boxHeight = pixelLength({ value: element.getAttribute('height') }) ?? DEFAULT_ICON_SIZE;
         const key = `${boxWidth}x${boxHeight} ${url}`;
         remote.push({ element, key });
-        if (!byIcon.has(key)) byIcon.set(key, toDataUri({ boxHeight, boxWidth, url }));
+        if (!bitmaps.has(key)) bitmaps.set(key, toDataUri({ boxHeight, boxWidth, url }));
     }
 
-    const results = await Promise.all(remote.map(({ key }) => byIcon.get(key)!));
+    const results = await Promise.all(remote.map(({ key }) => bitmaps.get(key)!));
     let missing = 0;
     remote.forEach(({ element }, index) => {
         const dataUri = results[index];
