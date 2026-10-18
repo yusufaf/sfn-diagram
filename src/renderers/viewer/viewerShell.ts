@@ -7,6 +7,7 @@ import { buildViewerScript } from './viewerScript';
 import { buildViewerStyles, type ViewerTheme } from './viewerStyles';
 import type { RelayoutModel } from './relayout';
 import { escapeText } from '../svgBuilder';
+import { VIEWER_STRINGS } from './viewerStrings';
 
 export { minimapStartsCollapsed };
 export type { MinimapStartsCollapsedParams } from './minimapThreshold';
@@ -177,13 +178,14 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
         svg,
     } = params;
     const id = (name: string): string => (legacyIds ? ` id="sfn-${name}"` : '');
+    const strings = VIEWER_STRINGS;
     const hasCollapse = collapsedSvg !== undefined || relayout;
 
     const panelMarkup = panel
         ? `<aside${id('panel')} data-sfn="panel" role="dialog" tabindex="-1">
   <div${id('panel-head')} data-sfn="panel-head">
     <span${id('panel-title')} data-sfn="panel-title"></span>
-    <button${id('panel-close')} data-sfn="panel-close" title="Close (Esc)" aria-label="Close details">&times;</button>
+    <button${id('panel-close')} data-sfn="panel-close" title="${strings.panelCloseTitle}" aria-label="${strings.panelCloseLabel}">&times;</button>
   </div>
   <div${id('panel-body')} data-sfn="panel-body"></div>
 </aside>\n`
@@ -199,16 +201,16 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
   <span class="sfn-divider"></span>` +
               (exportSvg
                   ? `
-  <button data-sfn="export-svg" title="Download this diagram as an SVG file">SVG</button>`
+  <button data-sfn="export-svg" title="${strings.exportSvgTitle}">${strings.exportSvgButton}</button>`
                   : '') +
               (copyMermaid
                   ? `
-  <button data-sfn="copy-mermaid" title="Copy this diagram as Mermaid source">Mermaid</button>`
+  <button data-sfn="copy-mermaid" title="${strings.copyMermaidTitle}">${strings.copyMermaidButton}</button>`
                   : '')
             : '';
 
     const collapseToggleMarkup = hasCollapse
-        ? '<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="Toggle collapsed containers" aria-expanded="true">Collapse</button>'
+        ? `<span class="sfn-divider"></span><button data-sfn="collapse-toggle" data-sfn-collapse-toggle title="${strings.collapseTitle}" aria-expanded="true">${strings.collapseButton}</button>`
         : '';
 
     // Its own bar rather than more buttons on the toolbar: playback needs a full-width
@@ -217,32 +219,32 @@ export function buildViewerBody(params: BuildViewerBodyParams): string {
     // over the bar's right-hand end, can shrink it with a sibling rule.
     const playbackMarkup = playback
         ? `<div${id('playback')} data-sfn="playback">
-  <button data-sfn="playback-play" data-sfn-playback="toggle" title="Play / pause (Space)" aria-label="Play">&#9654;</button>
-  <button data-sfn="playback-prev" data-sfn-playback="prev" title="Previous step (Left arrow)" aria-label="Previous step">&#9198;</button>
-  <button data-sfn="playback-next" data-sfn-playback="next" title="Next step (Right arrow)" aria-label="Next step">&#9197;</button>
-  <input${id('playback-scrub')} data-sfn="playback-scrub" type="range" min="0" max="1000" value="0" aria-label="Playback position">
+  <button data-sfn="playback-play" data-sfn-playback="toggle" title="${strings.playbackPlayTitle}" aria-label="${strings.playbackPlayLabel}">&#9654;</button>
+  <button data-sfn="playback-prev" data-sfn-playback="prev" title="${strings.playbackPrevTitle}" aria-label="${strings.playbackPrevLabel}">&#9198;</button>
+  <button data-sfn="playback-next" data-sfn-playback="next" title="${strings.playbackNextTitle}" aria-label="${strings.playbackNextLabel}">&#9197;</button>
+  <input${id('playback-scrub')} data-sfn="playback-scrub" type="range" min="0" max="1000" value="0" aria-label="${strings.playbackScrubLabel}">
   <span${id('playback-time')} data-sfn="playback-time" role="status" aria-live="off"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn-speed="1" title="Normal speed" aria-pressed="true">1x</button>
-  <button data-sfn-speed="4" title="4x speed" aria-pressed="false">4x</button>
-  <button data-sfn-speed="16" title="16x speed" aria-pressed="false">16x</button>
-  <button data-sfn-speed="Infinity" title="Jump to the end" aria-pressed="false">Instant</button>
-  <button data-sfn-playback="proportional" title="Play in real-time proportions instead of compressed" aria-pressed="false">Real</button>
+  <button data-sfn-speed="1" title="${strings.playbackSpeedNormalTitle}" aria-pressed="true">1x</button>
+  <button data-sfn-speed="4" title="${strings.playbackSpeed4Title}" aria-pressed="false">4x</button>
+  <button data-sfn-speed="16" title="${strings.playbackSpeed16Title}" aria-pressed="false">16x</button>
+  <button data-sfn-speed="Infinity" title="${strings.playbackSpeedInstantTitle}" aria-pressed="false">${strings.playbackSpeedInstantButton}</button>
+  <button data-sfn-playback="proportional" title="${strings.playbackProportionalTitle}" aria-pressed="false">${strings.playbackProportionalButton}</button>
   <span${id('playback-entry')} data-sfn="playback-entry" role="status" aria-live="polite"></span>
 </div>\n`
         : '';
 
     return `<div${id('toolbar')} data-sfn="toolbar">
-  <button data-sfn="zoom-out" data-sfn-zoom="out" title="Zoom out" aria-label="Zoom out">-</button>
+  <button data-sfn="zoom-out" data-sfn-zoom="out" title="${strings.zoomOutTitle}" aria-label="${strings.zoomOutLabel}">-</button>
   <span${id('zoom-label')} data-sfn="zoom-label" role="status" aria-live="polite">100%</span>
-  <button data-sfn="zoom-in" data-sfn-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
-  <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="Zoom to fit">Fit</button>
-  <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="Reset">Reset</button>
+  <button data-sfn="zoom-in" data-sfn-zoom="in" title="${strings.zoomInTitle}" aria-label="${strings.zoomInLabel}">+</button>
+  <button data-sfn="zoom-fit" data-sfn-zoom="fit" title="${strings.zoomFitTitle}">${strings.zoomFitButton}</button>
+  <button data-sfn="zoom-reset" data-sfn-zoom="reset" title="${strings.zoomResetTitle}">${strings.zoomResetButton}</button>
   <span class="sfn-divider"></span>
-  <input${id('search')} data-sfn="search" type="search" placeholder="Search states (/)" aria-label="Search states">
+  <input${id('search')} data-sfn="search" type="search" placeholder="${strings.searchPlaceholder}" aria-label="${strings.searchLabel}">
   <span${id('search-count')} data-sfn="search-count" role="status" aria-live="polite"></span>
   <span class="sfn-divider"></span>
-  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="Toggle minimap (m)" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">Map</button>${collapseToggleMarkup}${exportMarkup}
+  <button data-sfn="minimap-toggle" data-sfn-minimap-toggle title="${strings.minimapTitle}" aria-pressed="${minimapCollapsed ? 'false' : 'true'}">${strings.minimapButton}</button>${collapseToggleMarkup}${exportMarkup}
 </div>
 ${panelMarkup}${playbackMarkup}<div${id('stage')} data-sfn="stage"><div${id('content')} data-sfn="content">${contentInner}</div><div${id('minimap')}${minimapCollapsed ? ' class="sfn-minimap-collapsed"' : ''} data-sfn="minimap" aria-hidden="true"><div${id('minimap-thumb')} data-sfn="minimap-thumb"></div><div${id('minimap-viewport')} data-sfn="minimap-viewport"></div></div></div>`;
 }
@@ -417,10 +419,10 @@ export function wrapSvgInInteractiveHtml(params: WrapSvgInInteractiveHtmlParams)
         svg,
     });
 
-    const documentTitle = title !== undefined && title.trim() !== '' ? title : 'sfn-diagram';
+    const documentTitle = title !== undefined && title.trim() !== '' ? title : VIEWER_STRINGS.documentTitle;
 
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${VIEWER_STRINGS.lang}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

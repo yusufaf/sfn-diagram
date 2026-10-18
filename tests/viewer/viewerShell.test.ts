@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildViewerBody, buildViewerContent, minimapStartsCollapsed } from '../../src/renderers/viewer';
+import {
+    buildViewerBody,
+    buildViewerContent,
+    minimapStartsCollapsed,
+    VIEWER_STRINGS,
+    wrapSvgInInteractiveHtml,
+} from '../../src/renderers/viewer';
 
 describe('buildViewerContent', () => {
     it('renders the svg directly for a single view', () => {
@@ -76,5 +82,32 @@ describe('minimapStartsCollapsed', () => {
 
     it('starts collapsed when nodeCount is undefined', () => {
         expect(minimapStartsCollapsed({})).toBe(true);
+    });
+});
+
+describe('VIEWER_STRINGS', () => {
+    it('supplies every word of the full-featured toolbar markup', () => {
+        const body = buildViewerBody({
+            copyMermaid: true,
+            exportSvg: true,
+            minimapCollapsed: false,
+            panel: true,
+            playback: true,
+            relayout: true,
+            svg: '<svg></svg>',
+        });
+        const { documentTitle, lang, ...shellStrings } = VIEWER_STRINGS;
+        expect(documentTitle).toBe('sfn-diagram');
+        expect(lang).toBe('en');
+        for (const [key, value] of Object.entries(shellStrings)) {
+            const asAttribute = ['title', 'aria-label', 'placeholder'].some((attribute) =>
+                body.includes(`${attribute}="${value}"`),
+            );
+            expect(asAttribute || body.includes(`>${value}</button>`), key).toBe(true);
+        }
+    });
+
+    it('sets the document language', () => {
+        expect(wrapSvgInInteractiveHtml({ svg: '<svg></svg>' })).toContain('<html lang="en">');
     });
 });

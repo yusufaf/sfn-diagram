@@ -32,6 +32,8 @@ export type {
     MinimapStartsCollapsedParams,
     WrapSvgInInteractiveHtmlParams,
 } from './viewerShell';
+export { VIEWER_STRINGS } from './viewerStrings';
+export type { ViewerStrings } from './viewerStrings';
 export { buildViewerStyles, resolveViewerTheme } from './viewerStyles';
 export type {
     BuildViewerStylesParams,
