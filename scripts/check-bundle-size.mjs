@@ -80,6 +80,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * redrive handling and a decoder for every failure event (#375), which took ci.cjs from
  * 286,322 to 290,001 raw and from 83,469 to 84,611 gzip. The previous 287,000 / 83,500 left it
  * at 0.0% gzip headroom before that change landed.
+ *
+ * `png`, `index`, `element`, `element-auto` and `ci` were last restated, to about 5% above
+ * their measurement, when the `'auto'` theme, forced-colors chrome and the gathered viewer
+ * strings landed (#383). Every diagram-drawing entry carries the new theme classes in
+ * `SvgRenderer` and the in-browser relayout bundle, which took index.js from 561,944 to
+ * 577,897 raw (+2.8%) and from 164,932 to 168,973 gzip, and pushed png.js past its budget
+ * (250,043 to 258,353 raw). The others were left under 1.5% headroom.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
@@ -87,16 +94,16 @@ export const BUNDLE_BUDGETS = {
     'bin.js': { gzip: 251000, raw: 855000 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
-    'ci.cjs': { gzip: 96500, raw: 332000 },
-    'ci.js': { gzip: 96000, raw: 330000 },
-    'element-auto.cjs': { gzip: 118500, raw: 411000 },
-    'element-auto.js': { gzip: 118000, raw: 409000 },
-    'element.cjs': { gzip: 118500, raw: 410000 },
-    'element.js': { gzip: 118000, raw: 409000 },
-    'index.cjs': { gzip: 171500, raw: 584000 },
-    'index.js': { gzip: 171000, raw: 582000 },
-    'png.cjs': { gzip: 75500, raw: 257000 },
-    'png.js': { gzip: 75000, raw: 256000 },
+    'ci.cjs': { gzip: 100500, raw: 345500 },
+    'ci.js': { gzip: 99500, raw: 343000 },
+    'element-auto.cjs': { gzip: 123500, raw: 430000 },
+    'element-auto.js': { gzip: 123500, raw: 429000 },
+    'element.cjs': { gzip: 123500, raw: 429500 },
+    'element.js': { gzip: 123000, raw: 428500 },
+    'index.cjs': { gzip: 178500, raw: 609000 },
+    'index.js': { gzip: 177500, raw: 607000 },
+    'png.cjs': { gzip: 80000, raw: 273000 },
+    'png.js': { gzip: 79500, raw: 271500 },
     'terraform.cjs': { gzip: 11200, raw: 39600 },
     'terraform.js': { gzip: 11200, raw: 39600 },
 };
