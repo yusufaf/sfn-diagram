@@ -217,12 +217,23 @@ Big, branchy state machines are hard to read as a static image. A few options he
 
   ### Getting the diagram back out
 
-  The toolbar has two export actions, so a document opened away from whatever produced
+  The toolbar has three export actions, so a document opened away from whatever produced
   it is not a dead end:
 
   - **SVG** downloads the view currently on screen as `diagram.svg`. What is saved is
     the diagram, not your session: search dimming, a selected edge's highlight and
     playback's status colours are stripped from the copy.
+  - **PNG** downloads the same view, stripped the same way, as `diagram.png` at twice
+    the diagram's size. It is rasterised in the browser through a canvas, so:
+    - A diagram too large for the browser's canvas limits is scaled down to fit rather
+      than refused.
+    - Remote AWS service icons are inlined before drawing. An icon that fails to load,
+      or takes longer than 3 seconds, is left out and the button says `No icons`.
+    - Text is drawn with the fonts installed on the reader's machine; the built-in
+      themes use Arial.
+    - With `theme: 'auto'`, the PNG follows the colour scheme the page is showing.
+
+    For a fixed scale, or outside a browser, use `sfn-diagram/png` or the CLI.
   - **Mermaid** copies the diagram as Mermaid source. On a page served over `file://`
     there is no `navigator.clipboard` — that needs a secure context — so it falls back
     to a staged selection, and the button says `Copied`, `Failed` or `Unavailable`
