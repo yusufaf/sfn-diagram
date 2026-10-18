@@ -186,17 +186,11 @@ export function attachExportActions(params: AttachExportActionsParams): void {
         );
     };
 
-    /** Object URLs waiting to be revoked once the click that consumed them has been dispatched. */
-    const revokeTimers = new Map<ReturnType<typeof setTimeout>, string>();
     // A PNG finishes after awaits; one that lands after teardown must not download.
+    // Pending revokes are deliberately left to run: cancelling one leaks its Blob, and
+    // revoking early races the download the click just started.
     let destroyed = false;
     registry.cleanups.push(() => {
-        // Revoked now rather than dropped, so a multi-megabyte PNG is not kept alive.
-        for (const [timer, url] of revokeTimers) {
-            clearTimeout(timer);
-            URL.revokeObjectURL(url);
-        }
-        revokeTimers.clear();
         destroyed = true;
     });
 
@@ -212,12 +206,9 @@ export function attachExportActions(params: AttachExportActionsParams): void {
         link.remove();
         // Freed on the next turn rather than immediately: revoking synchronously
         // races the navigation the click just started, and Firefox drops it. One timer
-        // per download, so an SVG and a PNG landing together cannot strand either URL.
-        const timer = setTimeout(() => {
-            revokeTimers.delete(timer);
-            URL.revokeObjectURL(url);
-        }, 0);
-        revokeTimers.set(timer, url);
+        // per download, so an SVG and a PNG landing together cannot strand either URL;
+        // never cancelled, since a cancelled revoke would keep the Blob alive.
+        setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 
     if (downloadButton) {

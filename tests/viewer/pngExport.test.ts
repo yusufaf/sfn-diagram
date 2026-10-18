@@ -438,6 +438,29 @@ describe('toolbar PNG export', () => {
         await target.close();
     }, 20_000);
 
+    it('treats a 300x150 natural size as unknown rather than as the icon shape', async () => {
+        // Chromium reports a viewBox-only SVG's real aspect ratio; some engines report
+        // the replaced-element default instead. Simulated here, since CI has only Chromium.
+        const target = await openViewer({
+            html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
+            icons: 'viewBox',
+        });
+        await target.evaluate(() => {
+            Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { get: () => 300 });
+            Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { get: () => 150 });
+        });
+        await clickPng(target);
+        await waitForDownload(target);
+
+        const icon = await svgCentre(target, '[data-state-id="Alpha"] image');
+        const box = await target.$eval('[data-state-id="Alpha"] image', (image) =>
+            parseFloat(image.getAttribute('height')!),
+        );
+        const png = await readPng(target, [{ x: icon.x, y: icon.y - box * 0.4 }]);
+        expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
+        await target.close();
+    }, 20_000);
+
     it('sizes the PNG from the viewBox when width and height are not pixel lengths', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
         const viewBox = await target.$eval('[data-sfn="content"] svg', (svg) => {

@@ -137,14 +137,31 @@ export function diagramSize(params: DiagramSizeParams): DiagramSize | null {
 }
 
 /** Resolve once `img` has loaded `src`; reject if it fails to. */
-function loadImage(params: { img: HTMLImageElement; src: string }): Promise<void> {
-    const { img, src } = params;
+function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: number }): Promise<void> {
+    const { img, src, timeoutMs } = params;
     return new Promise((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Image failed to load: ' + src.slice(0, 64)));
+        const timer =
+            timeoutMs === undefined
+                ? undefined
+                : setTimeout(() => reject(new Error('Image timed out: ' + src.slice(0, 64))), timeoutMs);
+        img.onload = () => {
+            clearTimeout(timer);
+            resolve();
+        };
+        img.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error('Image failed to load: ' + src.slice(0, 64)));
+        };
         img.src = src;
     });
 }
+
+/**
+ * The size an `<img>` reports when the image gives it nothing better: an SVG sized only
+ * by its viewBox can come back as this in some engines, an aspect ratio it does not have.
+ */
+const DEFAULT_REPLACED_WIDTH = 300;
+const DEFAULT_REPLACED_HEIGHT = 150;
 
 /** Parameters for {@link inlineRemoteImages}. */
 export interface InlineRemoteImagesParams {
@@ -181,25 +198,16 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
 
     /** One load per URL, however many sizes it is drawn at; null when it fails or stalls. */
     const loads = new Map<string, Promise<HTMLImageElement | null>>();
-    const load = (url: string): Promise<HTMLImageElement | null> => {
+    const load = (loadParams: { url: string }): Promise<HTMLImageElement | null> => {
+        const { url } = loadParams;
         let pending = loads.get(url);
         if (!pending) {
-            pending = (async () => {
-                let timer: ReturnType<typeof setTimeout> | undefined;
-                try {
-                    const img = ownerDoc.createElement('img');
-                    img.crossOrigin = 'anonymous';
-                    const timeout = new Promise<never>((_, reject) => {
-                        timer = setTimeout(() => reject(new Error('Icon timed out')), ICON_TIMEOUT_MS);
-                    });
-                    await Promise.race([loadImage({ img, src: url }), timeout]);
-                    return img;
-                } catch {
-                    return null;
-                } finally {
-                    clearTimeout(timer);
-                }
-            })();
+            const img = ownerDoc.createElement('img');
+            img.crossOrigin = 'anonymous';
+            pending = loadImage({ img, src: url, timeoutMs: ICON_TIMEOUT_MS }).then(
+                () => img,
+                () => null,
+            );
             loads.set(url, pending);
         }
         return pending;
@@ -211,13 +219,19 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
         url: string;
     }): Promise<string | null> => {
         const { boxHeight, boxWidth, url } = iconParams;
-        const img = await load(url);
+        const img = await load({ url });
         if (!img) return null;
         try {
             // Kept at the icon's own aspect ratio, fitted inside the box: the <image>'s
-            // preserveAspectRatio then places it exactly as it did the original.
-            const naturalWidth = img.naturalWidth || boxWidth;
-            const naturalHeight = img.naturalHeight || boxHeight;
+            // preserveAspectRatio then places it exactly as it did the original. A size
+            // that is missing, or is only the 300x150 default, says nothing about the
+            // icon's shape, so the box's shape stands in for it.
+            const reported =
+                img.naturalWidth > 0 &&
+                img.naturalHeight > 0 &&
+                !(img.naturalWidth === DEFAULT_REPLACED_WIDTH && img.naturalHeight === DEFAULT_REPLACED_HEIGHT);
+            const naturalWidth = reported ? img.naturalWidth : boxWidth;
+            const naturalHeight = reported ? img.naturalHeight : boxHeight;
             const fit = Math.min(boxWidth / naturalWidth, boxHeight / naturalHeight) * scale;
             const canvas = ownerDoc.createElement('canvas');
             canvas.width = Math.max(1, Math.ceil(naturalWidth * fit));

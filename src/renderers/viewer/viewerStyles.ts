@@ -369,7 +369,7 @@ function paletteStyles(params: PaletteStylesParams): string {
   [data-sfn="toolbar"] > * { flex: 0 0 auto; }
   [data-sfn="toolbar"] button { border: 0; background: ${palette.surface}; color: ${palette.text}; border-radius: 4px;
     padding: 4px 8px; cursor: pointer; font-size: 14px; }
-  [data-sfn="toolbar"] button:hover { background: ${palette.surfaceHover}; }
+  [data-sfn="toolbar"] button:not([aria-disabled="true"]):hover { background: ${palette.surfaceHover}; }
   [data-sfn="toolbar"] button[aria-disabled="true"] { cursor: progress; opacity: .6; }
   [data-sfn="zoom-label"] { min-width: 44px; text-align: center; font-size: 12px; color: ${palette.mutedText}; }
   [data-sfn="search"] { width: 160px; border: 1px solid ${palette.border}; background: ${palette.panelBackground};
