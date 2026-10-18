@@ -17,7 +17,7 @@ Console visualizer and the Mermaid Live Editor.
 - **Modern ASL**: Variables (`Assign`) shown per state, and Distributed Map rendered distinctly from an inline Map — including its `MaxConcurrency`, `ItemReader` source, and `ResultWriter` sink
 - **Visual Diffing**: Compare two definitions and highlight added / modified / removed states — drives the PR-preview GitHub Action
 - **Execution Overlays**: Paint a real execution's history onto the diagram — succeeded/failed/caught/not-reached states, the taken path, and per-state duration & retry counts
-- **Customizable Themes**: AWS light/dark themes plus custom theme support
+- **Customizable Themes**: AWS light/dark themes, an `auto` theme that follows the system colour scheme, plus custom theme support
 - **Flexible Layouts**: Top-bottom, left-right, right-left, bottom-top
 - **Type-Safe**: Full TypeScript support with comprehensive type definitions
 - **AWS SDK Integration**: Direct integration with AWS Step Functions API

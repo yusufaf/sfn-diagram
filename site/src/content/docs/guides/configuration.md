@@ -8,6 +8,14 @@ description: Themes, layouts, edge styles, large diagrams, service icons, and ot
 **Built-in themes:**
 - `'light'` - AWS light theme (default)
 - `'dark'` - AWS dark theme
+- `'auto'` - follows the reader's colour scheme: the SVG draws the light palette and embeds a
+  `@media (prefers-color-scheme: dark)` stylesheet that repaints it exactly as `'dark'` would,
+  live, with no reload. PNG and Mermaid output render it as light, since neither has a colour
+  scheme to follow. `customColors`, `nodeOverrides` and `edgeOverrides` colours (and so the diff
+  and execution overlays) stay fixed in both schemes. The repaint is a `<style>` inside the SVG,
+  so a page with a strict `style-src` Content Security Policy blocks it when the SVG is inlined
+  on its own; the HTML viewer repeats the rules in its own nonce'd stylesheet, so a viewer
+  document generated with `nonce` still switches.
 
 **Custom theme:**
 
@@ -201,7 +209,11 @@ Big, branchy state machines are hard to read as a static image. A few options he
   path (including `--diff` and `--execution`) set for themselves, and which stays off
   for plain `generateSvg()`/PNG output.
 
-  The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell.
+  The viewer chrome follows the diagram theme — `--theme dark` gets a dark shell, and
+  `--theme auto` a shell that switches with the reader's colour scheme along with the diagram.
+  In forced-colors mode (Windows High Contrast) the browser repaints the chrome in system
+  colours and leaves the diagram's own palette alone; the viewer keeps the pressed playback
+  speed, the toolbar dividers and the minimap frame visible there.
 
   ### Getting the diagram back out
 
