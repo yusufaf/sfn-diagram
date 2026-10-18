@@ -195,7 +195,7 @@ export interface CliConfig {
     showStateTypes?: boolean;
     showVariables?: boolean;
     stylePreset?: StylePreset;
-    theme?: CustomTheme | 'dark' | 'light';
+    theme?: CustomTheme | 'auto' | 'dark' | 'light';
 }
 
 /** Parameters for {@link loadCliConfig}. */
@@ -410,7 +410,7 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
 
     if (raw.theme !== undefined) {
         const value = raw.theme;
-        if (value === 'dark' || value === 'light') {
+        if (value === 'auto' || value === 'dark' || value === 'light') {
             config.theme = value;
         } else if (
             typeof value === 'object' &&
@@ -428,7 +428,7 @@ function validateConfig(params: ValidateConfigParams): CliConfig {
             }
             config.theme = value;
         } else {
-            reject('theme', "'light', 'dark', or a custom theme object");
+            reject('theme', "'light', 'dark', 'auto', or a custom theme object");
         }
     }
 

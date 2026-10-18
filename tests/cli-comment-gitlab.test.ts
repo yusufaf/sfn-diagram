@@ -193,6 +193,10 @@ describe('parseCommentGitlabArgs', () => {
         }
     });
 
+    it('accepts --theme auto', () => {
+        expect(parseCommentGitlabArgs(['--theme', 'auto']).theme).toBe('auto');
+    });
+
     it('rejects an invalid --theme and --execution-mode', () => {
         expect(() => parseCommentGitlabArgs(['--theme', 'neon'])).toThrowError(
             CliError,

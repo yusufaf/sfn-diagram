@@ -1,8 +1,12 @@
 import type { ThemeOption } from '../../types';
+import { AUTO_THEME_DARK_CSS } from '../../config/autoTheme';
 import { getTheme } from '../../config/themes';
 
-/** Viewer chrome theme. Matches the diagram themes so the shell doesn't clash with the SVG. */
-export type ViewerTheme = 'dark' | 'light';
+/**
+ * Viewer chrome theme. Matches the diagram themes so the shell doesn't clash with the
+ * SVG; `'auto'` follows `prefers-color-scheme` like an `'auto'`-themed diagram.
+ */
+export type ViewerTheme = 'auto' | 'dark' | 'light';
 
 /** Parameters for {@link resolveViewerTheme}. */
 export interface ResolveViewerThemeParams {
@@ -43,13 +47,13 @@ function hexLuminance(color: string): number | null {
 /**
  * Decide which viewer chrome to use for a given diagram theme.
  *
- * Built-in themes map directly. A {@link CustomTheme} is classified by its
- * background luminance, so a custom dark palette gets dark chrome rather than
- * silently falling back to light.
+ * Built-in themes map directly, `'auto'` included. A {@link CustomTheme} is
+ * classified by its background luminance, so a custom dark palette gets dark chrome
+ * rather than silently falling back to light.
  *
  * @param params - Resolution parameters
  * @param params.theme - The diagram theme the SVG was rendered with
- * @returns `'dark'` or `'light'`
+ * @returns `'dark'`, `'light'`, or `'auto'` for an `'auto'` diagram
  *
  * @example
  * ```typescript
@@ -60,8 +64,8 @@ function hexLuminance(color: string): number | null {
 export function resolveViewerTheme(params: ResolveViewerThemeParams): ViewerTheme {
     const { theme } = params;
 
-    if (theme === 'dark') {
-        return 'dark';
+    if (theme === 'dark' || theme === 'auto') {
+        return theme;
     }
     if (theme === undefined || theme === 'light') {
         return 'light';
@@ -81,7 +85,7 @@ export interface BuildViewerStylesParams {
      * itself and resize the host document's `<body>`.
      */
     scope?: 'document' | 'element';
-    /** Chrome theme. Defaults to `'light'`. */
+    /** Chrome theme: `'light'` (default), `'dark'`, or `'auto'` to follow `prefers-color-scheme`. */
     theme?: ViewerTheme;
 }
 
@@ -247,10 +251,14 @@ ${statusRules}
  * Build the viewer's inline stylesheet.
  *
  * The chrome (stage background, toolbar, detail panel) is themed alongside the
- * diagram, so a dark-theme SVG no longer sits inside a light shell.
+ * diagram, so a dark-theme SVG no longer sits inside a light shell. `'auto'` emits
+ * the light stylesheet, then the dark one inside `@media (prefers-color-scheme: dark)`,
+ * then the diagram's own dark repaint ({@link AUTO_THEME_DARK_CSS}) - repeated here
+ * because a strict nonce CSP blocks the SVG's un-nonced `<style>` but not this one.
  *
  * @param params - Style parameters
- * @param params.theme - Chrome theme, `'light'` (default) or `'dark'`
+ * @param params.scope - `'document'` (default) or `'element'`
+ * @param params.theme - Chrome theme, `'light'` (default), `'dark'`, or `'auto'`
  * @returns CSS text for inlining into a `<style>` element
  *
  * @example
@@ -261,7 +269,38 @@ ${statusRules}
  */
 export function buildViewerStyles(params: BuildViewerStylesParams = {}): string {
     const { scope = 'document', theme = 'light' } = params;
-    const palette = theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE;
+    if (theme !== 'auto') {
+        return paletteStyles({ palette: theme === 'dark' ? DARK_PALETTE : LIGHT_PALETTE, scope });
+    }
+    // The whole dark stylesheet, not just its colours, goes inside the media query:
+    // it keeps light and dark output byte-identical, at the cost of repeating the
+    // non-colour rules in auto documents only.
+    return (
+        paletteStyles({ palette: LIGHT_PALETTE, scope }) +
+        colorSchemeRule(scope) +
+        `@media (prefers-color-scheme: dark) {${paletteStyles({ palette: DARK_PALETTE, scope })}}\n` +
+        AUTO_THEME_DARK_CSS +
+        '\n'
+    );
+}
+
+/**
+ * Tell the browser the page renders in both schemes, so form controls and
+ * scrollbars follow the reader's scheme too.
+ */
+function colorSchemeRule(scope: 'document' | 'element'): string {
+    return `${scope === 'document' ? ':root' : '[data-sfn-viewer]'} { color-scheme: light dark; }\n`;
+}
+
+/** Parameters for {@link paletteStyles}. */
+interface PaletteStylesParams {
+    palette: ChromePalette;
+    scope: 'document' | 'element';
+}
+
+/** The viewer stylesheet for one chrome palette. */
+function paletteStyles(params: PaletteStylesParams): string {
+    const { palette, scope } = params;
 
     const documentReset =
         scope === 'document'

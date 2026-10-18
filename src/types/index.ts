@@ -514,8 +514,15 @@ export interface LintDiagnostic {
 /** Supported output formats for diagram generation */
 export type DiagramFormat = 'html' | 'mermaid' | 'png' | 'svg';
 
-/** Theme options: built-in themes or custom theme object */
-export type ThemeOption = 'light' | 'dark' | CustomTheme;
+/**
+ * Theme options: a built-in theme or a custom theme object.
+ *
+ * `'auto'` follows the reader's colour scheme: it draws the light palette inline plus
+ * an embedded `@media (prefers-color-scheme: dark)` stylesheet that repaints it in the
+ * dark palette. PNG and Mermaid output render it as light, and `customColors` and
+ * override colours stay fixed in both schemes.
+ */
+export type ThemeOption = 'light' | 'dark' | 'auto' | CustomTheme;
 
 /** Graph layout direction */
 export type LayoutDirection = 'TB' | 'LR' | 'RL' | 'BT';
@@ -716,7 +723,11 @@ export interface DiagramOptions {
      */
     stylePreset?: StylePreset;
 
-    /** Color theme: 'light', 'dark', or custom theme object */
+    /**
+     * Color theme: 'light', 'dark', 'auto', or a custom theme object. `'auto'` repaints
+     * in the dark palette under `prefers-color-scheme: dark` and renders as light in
+     * PNG and Mermaid output; see {@link ThemeOption}.
+     */
     theme?: ThemeOption;
 
     /**

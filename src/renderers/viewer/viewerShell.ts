@@ -344,7 +344,7 @@ export interface WrapSvgInInteractiveHtmlParams {
  * @param params.nodeCount - Diagram node count; decides the minimap's initial visibility
  * @param params.stateData - Raw ASL per state; enables the detail panel
  * @param params.svg - Rendered SVG markup to embed
- * @param params.theme - Viewer chrome theme, `'light'` (default) or `'dark'`
+ * @param params.theme - Viewer chrome theme, `'light'` (default), `'dark'`, or `'auto'`
  * @param params.title - Document title; blank or omitted falls back to `sfn-diagram`
  * @returns Complete HTML document as a string
  *

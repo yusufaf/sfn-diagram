@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildViewerStyles } from '../../src/renderers/viewer';
+import { buildViewerStyles, resolveViewerTheme } from '../../src/renderers/viewer';
+import { AUTO_THEME_DARK_CSS } from '../../src/config/autoTheme';
 
 describe('buildViewerStyles', () => {
     describe('focus styling', () => {
@@ -191,5 +192,38 @@ describe('buildViewerStyles', () => {
             // Never outside compact mode - the side panel and the minimap don't overlap.
             expect(css.slice(0, css.indexOf('@media (max-width: 640px)'))).not.toContain(rule);
         });
+    });
+});
+
+describe("theme: 'auto'", () => {
+    it('resolves an auto diagram to auto chrome', () => {
+        expect(resolveViewerTheme({ theme: 'auto' })).toBe('auto');
+    });
+
+    it('carries both palettes, the scheme switch and the diagram repaint', () => {
+        const css = buildViewerStyles({ theme: 'auto' });
+        expect(css).toContain(':root { color-scheme: light dark; }');
+        expect(css).toContain('@media (prefers-color-scheme: dark)');
+        // Light-only tokens (#ffffff is in both palettes, so it proves nothing).
+        expect(css).toContain('#fafafa');
+        expect(css).toContain('#0972d3');
+        expect(css).toContain('#1f2329');
+        expect(css).toContain(AUTO_THEME_DARK_CSS);
+        // The dark stylesheet only applies under the dark scheme.
+        expect(css.indexOf('#1f2329')).toBeGreaterThan(css.indexOf('@media (prefers-color-scheme: dark)'));
+    });
+
+    it('scopes the scheme switch to the element for an embedded viewer', () => {
+        const css = buildViewerStyles({ scope: 'element', theme: 'auto' });
+        expect(css).toContain('[data-sfn-viewer] { color-scheme: light dark; }');
+        expect(css).not.toContain(':root { color-scheme');
+    });
+
+    it('leaves the light and dark stylesheets scheme-independent', () => {
+        for (const theme of ['light', 'dark'] as const) {
+            const css = buildViewerStyles({ theme });
+            expect(css).not.toContain('prefers-color-scheme');
+            expect(css).not.toContain('color-scheme');
+        }
     });
 });

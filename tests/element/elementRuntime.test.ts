@@ -162,6 +162,29 @@ describe('upgrade and static rendering', () => {
         expect(result.afterTheme).not.toBe(result.before);
     });
 
+    it('accepts theme="auto" for an interactive viewer', async () => {
+        const result = await page.evaluate((definition) => {
+            const el = document.createElement('sfn-diagram') as HTMLElement & { theme: unknown };
+            el.setAttribute('interactive', '');
+            el.setAttribute('theme', 'auto');
+            document.body.appendChild(el);
+            (el as unknown as { definition: unknown }).definition = definition;
+            return new Promise<{ hasSvgStyle: boolean; headStyle: boolean; theme: unknown }>((resolve) => {
+                queueMicrotask(() =>
+                    queueMicrotask(() =>
+                        resolve({
+                            hasSvgStyle: el.querySelector('svg > style') !== null,
+                            headStyle: document.head.querySelector('style[data-sfn-viewer-styles="auto"]') !== null,
+                            theme: el.theme,
+                        }),
+                    ),
+                );
+            });
+        }, asl as unknown as object);
+
+        expect(result).toEqual({ hasSvgStyle: true, headStyle: true, theme: 'auto' });
+    });
+
     it('renders Mermaid code into a <pre> for format="mermaid"', async () => {
         const text = await page.evaluate((definition) => {
             const el = document.createElement('sfn-diagram');

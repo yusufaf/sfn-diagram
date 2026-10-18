@@ -1,4 +1,4 @@
-import type { CustomTheme, ResolvedTheme, StateType } from '../types';
+import type { ResolvedTheme, StateType, ThemeOption } from '../types';
 import { withoutUndefined } from './withoutUndefined';
 
 /**
@@ -81,14 +81,15 @@ function mergeNodeColors(
 /**
  * Resolve a theme option to a fully specified theme.
  *
- * `'light'` / `'dark'` (or nothing) return the matching built-in theme. A
+ * `'light'` / `'dark'` (or nothing) return the matching built-in theme, and `'auto'`
+ * returns the light one: its dark repaint is a stylesheet the SVG renderer embeds. A
  * {@link CustomTheme} is merged onto the built-in theme named by its `base`
  * (`'light'` unless set): top-level fields replace, `edgeColors` merges per edge
  * kind, and `nodeColors` merges per state type and channel — so `{ fontSize: 18 }`
  * or `{ nodeColors: { Task: { fill: '#eee' } } }` are complete themes. A
  * fully specified theme resolves to itself, byte for byte.
  *
- * @param theme - Theme name or custom theme; `'light'` when omitted
+ * @param theme - Theme name or custom theme; `'light'` when omitted or `'auto'`
  * @param customColors - The `customColors` diagram option, applied on top of the theme
  * @returns The resolved theme every field of which is present
  *
@@ -99,12 +100,12 @@ function mergeNodeColors(
  * ```
  */
 export function getTheme(
-    theme?: 'light' | 'dark' | CustomTheme,
+    theme?: ThemeOption,
     customColors?: NodeColorOverrides
 ): ResolvedTheme {
     let resolved: ResolvedTheme;
 
-    if (!theme || theme === 'light') {
+    if (!theme || theme === 'light' || theme === 'auto') {
         resolved = AWS_LIGHT_THEME;
     } else if (theme === 'dark') {
         resolved = AWS_DARK_THEME;

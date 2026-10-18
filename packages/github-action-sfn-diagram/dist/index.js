@@ -66655,7 +66655,7 @@ function mergeNodeColors(base, overrides) {
 }
 function getTheme(theme, customColors) {
   let resolved;
-  if (!theme || theme === "light") resolved = AWS_LIGHT_THEME;
+  if (!theme || theme === "light" || theme === "auto") resolved = AWS_LIGHT_THEME;
   else if (theme === "dark") resolved = AWS_DARK_THEME;
   else {
     const base = theme.base === "dark" ? AWS_DARK_THEME : AWS_LIGHT_THEME;
@@ -68377,6 +68377,64 @@ function extractNestedEdges(params) {
     }
   }
 }
+var BACKGROUND_FILL_CLASS = "sfn-t-bg-fill";
+var TEXT_FILL_CLASS = "sfn-t-text-fill";
+var TEXT_STROKE_CLASS = "sfn-t-text-stroke";
+function nodeColorClass(params) {
+  return `sfn-t-node-${params.stateType}-${params.channel}`;
+}
+function edgeColorClass(params) {
+  return `sfn-t-edge-${params.edgeType}-${params.channel}`;
+}
+var STATE_TYPES = [
+  "Pass",
+  "Task",
+  "Choice",
+  "Wait",
+  "Succeed",
+  "Fail",
+  "Parallel",
+  "Map"
+];
+var EDGE_TYPES = [
+  "normal",
+  "error",
+  "choice",
+  "default",
+  "retry"
+];
+function buildAutoThemeDarkCss() {
+  const { background, edgeColors, nodeColors, textColor } = AWS_DARK_THEME;
+  const rules = [
+    `.${BACKGROUND_FILL_CLASS} { fill: ${background}; }`,
+    `.${TEXT_FILL_CLASS} { fill: ${textColor}; }`,
+    `.${TEXT_STROKE_CLASS} { stroke: ${textColor}; }`
+  ];
+  for (const stateType of STATE_TYPES) {
+    const colors = nodeColors[stateType];
+    rules.push(`.${nodeColorClass({
+      channel: "fill",
+      stateType
+    })} { fill: ${colors.fill}; }`);
+    rules.push(`.${nodeColorClass({
+      channel: "stroke",
+      stateType
+    })} { stroke: ${colors.stroke}; }`);
+  }
+  for (const edgeType of EDGE_TYPES) {
+    const color = edgeColors[edgeType] ?? edgeColors.error ?? edgeColors.normal;
+    rules.push(`.${edgeColorClass({
+      channel: "stroke",
+      edgeType
+    })} { stroke: ${color}; }`);
+    rules.push(`.${edgeColorClass({
+      channel: "fill",
+      edgeType
+    })} { fill: ${color}; }`);
+  }
+  return `@media (prefers-color-scheme: dark) { ${rules.join(" ")} }`;
+}
+var AUTO_THEME_DARK_CSS = buildAutoThemeDarkCss();
 function buildMermaidScopes(params) {
   const nodes5 = params.nodes.filter((node) => !isMarkerNode(node));
   const nodesById = new Map(nodes5.map((node) => [node.id, node]));
@@ -68451,7 +68509,7 @@ function hexLuminance(color) {
 }
 function resolveViewerTheme(params) {
   const { theme } = params;
-  if (theme === "dark") return "dark";
+  if (theme === "dark" || theme === "auto") return theme;
   if (theme === void 0 || theme === "light") return "light";
   const luminance = hexLuminance(getTheme(theme).background);
   return luminance !== null && luminance < DARK_BACKGROUND_LUMINANCE ? "dark" : "light";

@@ -164,11 +164,11 @@ export interface CliArgs {
     showVersion: boolean;
     stylePreset: StylePreset | null;
     /**
-     * `'light'` or `'dark'` when `--theme` named a built-in, and `null` when `--theme`
-     * was absent *or* named a file - see {@link CliArgs.themeFile}. The default is
-     * applied by `resolveCliOptions`.
+     * `'light'`, `'dark'` or `'auto'` when `--theme` named a built-in, and `null` when
+     * `--theme` was absent *or* named a file - see {@link CliArgs.themeFile}. The default
+     * is applied by `resolveCliOptions`.
      */
-    theme: 'dark' | 'light' | null;
+    theme: 'auto' | 'dark' | 'light' | null;
     /**
      * Path to a custom theme JSON file, set when `--theme` was given anything other than
      * `light` or `dark`. When non-null it supersedes {@link CliArgs.theme} entirely, and
@@ -213,8 +213,9 @@ Options:
                                    default chain (AWS_PROFILE, SSO, instance role).
   --config <path>                  Read defaults from this config file instead of
                                    searching for one
-  --theme <light|dark|path>        Color theme for SVG/PNG/HTML: a built-in name, or a
-                                   path to a custom theme JSON file (default: light)
+  --theme <light|dark|auto|path>   Color theme for SVG/PNG/HTML: a built-in name, or a
+                                   path to a custom theme JSON file (default: light).
+                                   auto follows the reader's colour scheme (PNG: light)
   --layout <TB|LR|RL|BT>           Graph layout direction (default: TB)
   --hide-catch                     Drop error-handler (Catch) branches from the diagram
   --show-catch                     Draw them (overrides a config file's catchHandling)
@@ -410,7 +411,7 @@ Options:
                                      (default: **/*.asl.json,**/*.asl)
   --comment-tag <tag>                Marker used to find/update this run's note
                                      on later pushes (default: sfn-diagram-preview)
-  --theme <light|dark>               Theme for the diagrams (default: light)
+  --theme <light|dark|auto>          Theme for the diagrams (default: light)
   --layout <TB|LR|RL|BT>             Layout direction, diff diagrams included (default: TB)
   --collapse[=<names>]               Collapse Parallel/Map containers into one node: bare
                                      collapses every container, --collapse=A,B only those
@@ -551,7 +552,7 @@ const VALID_STYLE_PRESETS: readonly StylePreset[] = [
  * The built-in theme names `--theme` accepts before falling back to reading its value
  * as a path to a custom theme JSON file.
  */
-const BUILT_IN_THEMES: readonly ['light', 'dark'] = ['light', 'dark'];
+const BUILT_IN_THEMES: readonly ['light', 'dark', 'auto'] = ['light', 'dark', 'auto'];
 
 interface ExpectEnumParams<Value extends string> {
     allowed: readonly Value[];
@@ -998,7 +999,7 @@ export function parseArgs(argv: string[]): CliArgs {
                   flag: '--theme',
                   value: values.theme as string,
               });
-    const isBuiltInTheme = (value: string): value is 'dark' | 'light' =>
+    const isBuiltInTheme = (value: string): value is 'auto' | 'dark' | 'light' =>
         (BUILT_IN_THEMES as readonly string[]).includes(value);
 
     return {
@@ -1601,7 +1602,7 @@ export interface CommentGitlabArgs {
     outputDir: string;
     showHelp: boolean;
     stateMachineArn: string;
-    theme: 'dark' | 'light' | null;
+    theme: 'auto' | 'dark' | 'light' | null;
 }
 
 const EXECUTION_MODES: ExecutionMode[] = ['off', 'latest', 'latest-failed'];

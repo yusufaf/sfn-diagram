@@ -2,7 +2,7 @@ import { collectEdgeData, type ViewerEdge } from '../renderers/viewer/edgeData';
 import { collectStateData } from '../renderers/viewer/stateData';
 import { attachViewer, type ViewerHandle } from '../renderers/viewer/viewerController';
 import { buildViewerBody } from '../renderers/viewer/viewerShell';
-import { buildViewerStyles, resolveViewerTheme } from '../renderers/viewer/viewerStyles';
+import { buildViewerStyles, resolveViewerTheme, type ViewerTheme } from '../renderers/viewer/viewerStyles';
 import { parseAslSource } from '../AslParser';
 import { renderDiagramString } from './renderDiagram';
 import type { AslDefinition, AslState, ExecutionHistoryInput, LayoutDirection, ThemeOption } from '../types';
@@ -15,7 +15,7 @@ const OBSERVED_ATTRIBUTES = ['definition', 'format', 'layout', 'theme', 'interac
 /** One `<style>` per chrome theme, injected into `document.head` at most once each. */
 const injectedStyleThemes = new Set<string>();
 
-function ensureViewerStylesInjected(theme: 'dark' | 'light'): void {
+function ensureViewerStylesInjected(theme: ViewerTheme): void {
     if (injectedStyleThemes.has(theme)) return;
     const style = document.createElement('style');
     style.setAttribute('data-sfn-viewer-styles', theme);
@@ -124,11 +124,13 @@ export class SfnDiagramElement extends HTMLElement {
     }
 
     /**
-     * Diagram theme. The `theme` attribute only accepts `'light'`/`'dark'`; set the
-     * property directly for a `CustomTheme` object.
+     * Diagram theme. The `theme` attribute accepts `'light'`/`'dark'`/`'auto'` (follow
+     * `prefers-color-scheme`); set the property directly for a `CustomTheme` object.
      */
     get theme(): ThemeOption {
-        return this.#customTheme ?? (this.getAttribute('theme') === 'dark' ? 'dark' : 'light');
+        if (this.#customTheme) return this.#customTheme;
+        const attribute = this.getAttribute('theme');
+        return attribute === 'dark' || attribute === 'auto' ? attribute : 'light';
     }
 
     set theme(value: ThemeOption) {
@@ -270,7 +272,7 @@ export class SfnDiagramElement extends HTMLElement {
      * ASL data, so a bare-SVG hydration path never gets one - set `definition` too if
      * you need it alongside server-rendered markup.
      */
-    #hydrateExisting(chromeTheme: 'dark' | 'light'): void {
+    #hydrateExisting(chromeTheme: ViewerTheme): void {
         if (this.childElementCount === 0 || !this.interactive) return;
 
         if (this.querySelector('[data-sfn="stage"]')) {
