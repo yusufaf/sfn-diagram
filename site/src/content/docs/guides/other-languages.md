@@ -40,7 +40,7 @@ links the list of core releases):
 
 ```bash
 curl -fsSL -o sfn-diagram \
-  https://github.com/yusufaf/sfn-diagram/releases/download/sfn-diagram-v1.8.0/sfn-diagram-linux-x64  # x-release-please-version
+  https://github.com/yusufaf/sfn-diagram/releases/download/sfn-diagram-v1.9.0/sfn-diagram-linux-x64  # x-release-please-version
 chmod +x sfn-diagram
 ./sfn-diagram --version
 ```
