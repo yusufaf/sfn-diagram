@@ -87,6 +87,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `SvgRenderer` and the in-browser relayout bundle, which took index.js from 561,944 to
  * 577,897 raw (+2.8%) and from 164,932 to 168,973 gzip, and pushed png.js past its budget
  * (250,043 to 258,353 raw). The others were left under 1.5% headroom.
+ *
+ * `element` and `element-auto` were restated, to about 10% above their measurement, when the
+ * viewer toolbar gained a PNG export rasterised in the browser (#318). Both carry the viewer
+ * controller bundle, which left them at 2.4-2.7% headroom: element.js measured 416,771 raw and
+ * 120,039 gzip. `index`, `png` and `ci` stayed above 3% and were left alone.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
@@ -96,10 +101,10 @@ export const BUNDLE_BUDGETS = {
     'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.cjs': { gzip: 100500, raw: 345500 },
     'ci.js': { gzip: 99500, raw: 343000 },
-    'element-auto.cjs': { gzip: 123500, raw: 430000 },
-    'element-auto.js': { gzip: 123500, raw: 429000 },
-    'element.cjs': { gzip: 123500, raw: 429500 },
-    'element.js': { gzip: 123000, raw: 428500 },
+    'element-auto.cjs': { gzip: 132500, raw: 460500 },
+    'element-auto.js': { gzip: 132000, raw: 459000 },
+    'element.cjs': { gzip: 132500, raw: 460000 },
+    'element.js': { gzip: 132000, raw: 458500 },
     'index.cjs': { gzip: 178500, raw: 609000 },
     'index.js': { gzip: 177500, raw: 607000 },
     'png.cjs': { gzip: 80000, raw: 273000 },

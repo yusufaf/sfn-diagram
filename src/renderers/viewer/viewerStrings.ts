@@ -13,6 +13,10 @@ export interface ViewerStrings {
     copyMermaidTitle: string;
     /** Document `<title>` when the diagram has none. */
     documentTitle: string;
+    /** Download-as-PNG button text. */
+    exportPngButton: string;
+    /** Download-as-PNG tooltip. */
+    exportPngTitle: string;
     /** Download-as-SVG button text. */
     exportSvgButton: string;
     /** Download-as-SVG tooltip. */
@@ -84,6 +88,8 @@ export const VIEWER_STRINGS: ViewerStrings = {
     copyMermaidButton: 'Mermaid',
     copyMermaidTitle: 'Copy this diagram as Mermaid source',
     documentTitle: 'sfn-diagram',
+    exportPngButton: 'PNG',
+    exportPngTitle: 'Download this diagram as a PNG image',
     exportSvgButton: 'SVG',
     exportSvgTitle: 'Download this diagram as an SVG file',
     lang: 'en',

@@ -89,6 +89,7 @@ describe('VIEWER_STRINGS', () => {
     it('supplies every word of the full-featured toolbar markup', () => {
         const body = buildViewerBody({
             copyMermaid: true,
+            exportPng: true,
             exportSvg: true,
             minimapCollapsed: false,
             panel: true,
