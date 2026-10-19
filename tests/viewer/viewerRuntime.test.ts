@@ -3123,6 +3123,8 @@ describe('toolbar exports', () => {
             );
 
             await target.evaluate(() => {
+                // A host-supplied SVG may carry no xmlns; the download must declare it anyway.
+                document.querySelector('#sfn-content svg')!.removeAttribute('xmlns');
                 (document.querySelector('[data-sfn="export-svg"]') as HTMLElement).click();
             });
             await target.waitForFunction(
@@ -3149,6 +3151,7 @@ describe('toolbar exports', () => {
             expect(result.blob).not.toContain('&nbsp;');
             expect(result.stateIds).toContain('Charge\u00A0Card');
             expect(result.rootNamespace).toBe('http://www.w3.org/2000/svg');
+            expect(result.blob.split('xmlns="http://www.w3.org/2000/svg"')).toHaveLength(2);
             expect(result.styles).toEqual([AUTO_THEME_DARK_CSS]);
             expect(result.font).toBe(liveFont);
         } finally {

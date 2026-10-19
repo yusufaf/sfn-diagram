@@ -128,13 +128,6 @@ export function cleanVisibleSvgClone(params: { svg: SVGSVGElement }): SVGSVGElem
     }
     clone.classList.remove('sfn-playing');
     if (clone.getAttribute('class') === '') clone.removeAttribute('class');
-
-    // A file opened on its own has no page to inherit the SVG namespace from. Set as a
-    // namespace declaration, not a plain attribute, so XMLSerializer can never write
-    // it next to the `xmlns` it adds itself.
-    if (!clone.getAttribute('xmlns')) {
-        clone.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns', 'http://www.w3.org/2000/svg');
-    }
     return clone;
 }
 
@@ -154,6 +147,8 @@ export interface SerializeSvgParams {
  * U+00A0, and HTML serialization writes it back as `&nbsp;`, an entity XML does not
  * define. The downloaded file would then fail to open in XML consumers (a browser
  * opening it directly, Inkscape, resvg), and the markup would not load as an image.
+ * `XMLSerializer` also declares the SVG namespace on the root itself, so the file
+ * opens on its own even when the live element carries no `xmlns` attribute.
  *
  * @param params - Serialization parameters
  * @param params.svg - The SVG to write out
