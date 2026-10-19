@@ -144,7 +144,8 @@ function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: num
             timeoutMs === undefined
                 ? undefined
                 : setTimeout(() => {
-                      // Detach the loader, so a late answer is ignored rather than handled.
+                      // Detach the handlers so a late answer is ignored, and drop the src so
+                      // the browser can abandon the stalled request.
                       img.onload = null;
                       img.onerror = null;
                       img.removeAttribute('src');
@@ -172,7 +173,7 @@ const DEFAULT_REPLACED_SIZE = { height: 150, width: 300 };
 
 /** Whether `url` names a bitmap file by its extension, ignoring any query or fragment. */
 function isBitmapUrl(url: string): boolean {
-    return /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(url.split(/[?#]/)[0]);
+    return /\.(?:apng|avif|bmp|cur|gif|ico|jfif|jpe?g|jxl|pjpeg|png|tiff?|webp)$/i.test(url.split(/[?#]/)[0]);
 }
 
 /** Parameters for {@link inlineRemoteImages}. */

@@ -455,21 +455,25 @@ describe('toolbar PNG export', () => {
         await target.close();
     }, 20_000);
 
-    it('treats a 300x150 natural size as unknown rather than as the icon shape', async () => {
-        // Chromium reports a viewBox-only SVG's real aspect ratio; some engines report
-        // the replaced-element default instead. Simulated here, since CI has only Chromium.
-        // The URL has no extension, as a custom icon's may not, so only its size is known.
+    // Chromium reports a viewBox-only SVG's real aspect ratio; some engines report the
+    // replaced-element default instead. Simulated here, since CI has only Chromium. The
+    // built-in AWS icons end in .svg; a custom icon URL may have no extension at all.
+    it.each([
+        ['an AWS icon URL', null],
+        ['a URL with no extension', 'https://cdn.jsdelivr.net/custom/lambda'],
+    ])('treats a 300x150 natural size as unknown rather than as the icon shape for %s', async (_label, href) => {
         const target = await openViewer({
             html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
             icons: 'viewBox',
         });
-        await target.evaluate(() => {
+        await target.evaluate((replacement) => {
             Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { get: () => 300 });
             Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { get: () => 150 });
+            if (!replacement) return;
             for (const image of Array.from(document.querySelectorAll('[data-sfn="content"] image'))) {
-                image.setAttribute('href', 'https://cdn.jsdelivr.net/custom/lambda');
+                image.setAttribute('href', replacement);
             }
-        });
+        }, href);
         await clickPng(target);
         await waitForDownload(target);
 
@@ -483,7 +487,7 @@ describe('toolbar PNG export', () => {
     }, 20_000);
 
     it('keeps a genuine 300x150 raster icon at its own aspect ratio', async () => {
-        // Only an SVG can report the replaced-element default; a bitmap that size is 2:1.
+        // A URL that names a bitmap is trusted at 300x150, since a bitmap that size is 2:1.
         const target = await openViewer({
             html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
             icons: 'raster',
