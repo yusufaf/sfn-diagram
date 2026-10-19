@@ -110,7 +110,7 @@ export async function copyText(params: { ownerDoc: Document | null; text: string
  *
  * @param params - Clone parameters
  * @param params.svg - The live SVG element to copy
- * @returns A detached, standalone copy of the SVG
+ * @returns A detached copy of the SVG, to write out with {@link serializeSvg}
  *
  * @example
  * ```typescript
