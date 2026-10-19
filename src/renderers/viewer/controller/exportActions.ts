@@ -187,8 +187,8 @@ export function attachExportActions(params: AttachExportActionsParams): void {
     };
 
     // A PNG finishes after awaits; one that lands after teardown must not download.
-    // Pending revokes are deliberately left to run: cancelling one leaks its Blob, and
-    // revoking early races the download the click just started.
+    // Pending revokes are left alone at teardown: revoking early races the download the
+    // click just started, and each one fires on the next turn anyway.
     let destroyed = false;
     registry.cleanups.push(() => {
         destroyed = true;
@@ -207,7 +207,7 @@ export function attachExportActions(params: AttachExportActionsParams): void {
         // Freed on the next turn rather than immediately: revoking synchronously
         // races the navigation the click just started, and Firefox drops it. One timer
         // per download, so an SVG and a PNG landing together cannot strand either URL;
-        // never cancelled, since a cancelled revoke would keep the Blob alive.
+        // not cancelled at teardown either (see above).
         setTimeout(() => URL.revokeObjectURL(url), 0);
     };
 

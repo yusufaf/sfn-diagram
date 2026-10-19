@@ -143,7 +143,13 @@ function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: num
         const timer =
             timeoutMs === undefined
                 ? undefined
-                : setTimeout(() => reject(new Error('Image timed out: ' + src.slice(0, 64))), timeoutMs);
+                : setTimeout(() => {
+                      // Abandon the request too, so a stalled host is not left holding it.
+                      img.onload = null;
+                      img.onerror = null;
+                      img.removeAttribute('src');
+                      reject(new Error('Image timed out: ' + src.slice(0, 64)));
+                  }, timeoutMs);
         img.onload = () => {
             clearTimeout(timer);
             resolve();
@@ -159,9 +165,14 @@ function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: num
 /**
  * The size an `<img>` reports when the image gives it nothing better: an SVG sized only
  * by its viewBox can come back as this in some engines, an aspect ratio it does not have.
+ * Only SVG URLs are second-guessed; a bitmap that size really is 2:1.
  */
-const DEFAULT_REPLACED_WIDTH = 300;
-const DEFAULT_REPLACED_HEIGHT = 150;
+const DEFAULT_REPLACED_SIZE = { height: 150, width: 300 };
+
+/** Whether `url` names an SVG file, ignoring any query or fragment. */
+function isSvgUrl(url: string): boolean {
+    return /\.svg$/i.test(url.split(/[?#]/)[0]);
+}
 
 /** Parameters for {@link inlineRemoteImages}. */
 export interface InlineRemoteImagesParams {
@@ -226,10 +237,9 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
             // preserveAspectRatio then places it exactly as it did the original. A size
             // that is missing, or is only the 300x150 default, says nothing about the
             // icon's shape, so the box's shape stands in for it.
-            const reported =
-                img.naturalWidth > 0 &&
-                img.naturalHeight > 0 &&
-                !(img.naturalWidth === DEFAULT_REPLACED_WIDTH && img.naturalHeight === DEFAULT_REPLACED_HEIGHT);
+            const defaultSize =
+                img.naturalWidth === DEFAULT_REPLACED_SIZE.width && img.naturalHeight === DEFAULT_REPLACED_SIZE.height;
+            const reported = img.naturalWidth > 0 && img.naturalHeight > 0 && !(defaultSize && isSvgUrl(url));
             const naturalWidth = reported ? img.naturalWidth : boxWidth;
             const naturalHeight = reported ? img.naturalHeight : boxHeight;
             const fit = Math.min(boxWidth / naturalWidth, boxHeight / naturalHeight) * scale;

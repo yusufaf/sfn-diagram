@@ -461,6 +461,32 @@ describe('toolbar PNG export', () => {
         await target.close();
     }, 20_000);
 
+    it('keeps a genuine 300x150 raster icon at its own aspect ratio', async () => {
+        // Only an SVG can report the replaced-element default; a bitmap that size is 2:1.
+        const target = await openViewer({
+            html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
+            icons: 'red',
+        });
+        await target.evaluate(() => {
+            Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { get: () => 300 });
+            Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { get: () => 150 });
+            for (const image of Array.from(document.querySelectorAll('[data-sfn="content"] image'))) {
+                image.setAttribute('href', 'https://cdn.jsdelivr.net/custom/icon.png');
+            }
+        });
+        await clickPng(target);
+        await waitForDownload(target);
+
+        const icon = await svgCentre(target, '[data-state-id="Alpha"] image');
+        const box = await target.$eval('[data-state-id="Alpha"] image', (image) =>
+            parseFloat(image.getAttribute('height')!),
+        );
+        const png = await readPng(target, [icon, { x: icon.x, y: icon.y - box * 0.4 }]);
+        expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
+        expect(png.pixels[1]).not.toEqual([255, 0, 0, 255]);
+        await target.close();
+    }, 20_000);
+
     it('sizes the PNG from the viewBox when width and height are not pixel lengths', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
         const viewBox = await target.$eval('[data-sfn="content"] svg', (svg) => {
