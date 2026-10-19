@@ -3147,7 +3147,7 @@ describe('toolbar exports', () => {
 
             expect(result.parseError).toBeNull();
             expect(result.blob).not.toContain('&nbsp;');
-            expect(result.stateIds).toContain('Charge Card');
+            expect(result.stateIds).toContain('Charge\u00A0Card');
             expect(result.rootNamespace).toBe('http://www.w3.org/2000/svg');
             expect(result.styles).toEqual([AUTO_THEME_DARK_CSS]);
             expect(result.font).toBe(liveFont);

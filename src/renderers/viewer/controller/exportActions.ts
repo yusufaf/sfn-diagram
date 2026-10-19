@@ -129,8 +129,12 @@ export function cleanVisibleSvgClone(params: { svg: SVGSVGElement }): SVGSVGElem
     clone.classList.remove('sfn-playing');
     if (clone.getAttribute('class') === '') clone.removeAttribute('class');
 
-    // A file opened on its own has no page to inherit the SVG namespace from.
-    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    // A file opened on its own has no page to inherit the SVG namespace from. Set as a
+    // namespace declaration, not a plain attribute, so XMLSerializer can never write
+    // it next to the `xmlns` it adds itself.
+    if (!clone.getAttribute('xmlns')) {
+        clone.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns', 'http://www.w3.org/2000/svg');
+    }
     return clone;
 }
 
@@ -154,7 +158,7 @@ export interface SerializeSvgParams {
  * @param params - Serialization parameters
  * @param params.svg - The SVG to write out
  * @param params.view - The window that owns it
- * @returns Well-formed SVG markup
+ * @returns SVG markup with no HTML-only entities in it
  *
  * @example
  * ```typescript
