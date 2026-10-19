@@ -872,7 +872,7 @@ describe('SvgRenderer', () => {
                     .replace(/&lt;/g, '<')
                     .replace(/&gt;/g, '>')
                     .replace(/&quot;/g, '"')
-                    .replace(/&nbsp;/g, '\u00a0')
+                    .replace(/&#160;/g, '\u00a0')
                     .replace(/&amp;/g, '&');
             const definition = loadFixture('long-condition');
             const longLabel = parseAsl({ definition }).edges.find(

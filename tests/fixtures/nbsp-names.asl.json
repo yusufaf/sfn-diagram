@@ -1,0 +1,24 @@
+{
+  "Comment": "State names and a Choice condition containing U+00A0 no-break spaces (#459)",
+  "StartAt": "Route",
+  "States": {
+    "Route": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.method",
+          "StringEquals": "credit\u00a0card",
+          "Next": "Charge\u00a0Card"
+        }
+      ],
+      "Default": "Done"
+    },
+    "Charge\u00a0Card": {
+      "Type": "Pass",
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

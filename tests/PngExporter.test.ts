@@ -1,10 +1,13 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('node-html-to-image', () => {
     throw new Error('node-html-to-image must not be loaded by the default engine');
 });
 
-import { PngExporter } from '../src/png';
+import { exportPng, PngExporter } from '../src/png';
+import type { AslDefinition } from '../src/types';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
@@ -119,6 +122,18 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             expect(result.buffer).toBeDefined();
             expect(result.width).toBe(2000);
             expect(result.height).toBe(1000);
+        });
+    });
+
+    describe('exportPng with U+00A0 in a state name (#459)', () => {
+        it('renders a state named "Charge\u00A0Card"', async () => {
+            const aslDefinition: AslDefinition = JSON.parse(
+                readFileSync(join(__dirname, 'fixtures', 'nbsp-names.asl.json'), 'utf-8'),
+            );
+
+            const result = await exportPng({ aslDefinition });
+
+            expect(result.buffer.length).toBeGreaterThan(0);
         });
     });
 });
