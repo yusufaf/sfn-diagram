@@ -144,7 +144,7 @@ function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: num
             timeoutMs === undefined
                 ? undefined
                 : setTimeout(() => {
-                      // Abandon the request too, so a stalled host is not left holding it.
+                      // Detach the loader, so a late answer is ignored rather than handled.
                       img.onload = null;
                       img.onerror = null;
                       img.removeAttribute('src');
@@ -165,13 +165,14 @@ function loadImage(params: { img: HTMLImageElement; src: string; timeoutMs?: num
 /**
  * The size an `<img>` reports when the image gives it nothing better: an SVG sized only
  * by its viewBox can come back as this in some engines, an aspect ratio it does not have.
- * Only SVG URLs are second-guessed; a bitmap that size really is 2:1.
+ * Trusted only for a URL that names a bitmap, which really can be 2:1; an icon URL with
+ * no extension may well be an SVG.
  */
 const DEFAULT_REPLACED_SIZE = { height: 150, width: 300 };
 
-/** Whether `url` names an SVG file, ignoring any query or fragment. */
-function isSvgUrl(url: string): boolean {
-    return /\.svg$/i.test(url.split(/[?#]/)[0]);
+/** Whether `url` names a bitmap file by its extension, ignoring any query or fragment. */
+function isBitmapUrl(url: string): boolean {
+    return /\.(?:avif|bmp|gif|jpe?g|png|webp)$/i.test(url.split(/[?#]/)[0]);
 }
 
 /** Parameters for {@link inlineRemoteImages}. */
@@ -235,11 +236,11 @@ export async function inlineRemoteImages(params: InlineRemoteImagesParams): Prom
         try {
             // Kept at the icon's own aspect ratio, fitted inside the box: the <image>'s
             // preserveAspectRatio then places it exactly as it did the original. A size
-            // that is missing, or is only the 300x150 default, says nothing about the
-            // icon's shape, so the box's shape stands in for it.
+            // that is missing, or is the 300x150 default on anything but a bitmap URL,
+            // says nothing about the icon's shape, so the box's shape stands in for it.
             const defaultSize =
                 img.naturalWidth === DEFAULT_REPLACED_SIZE.width && img.naturalHeight === DEFAULT_REPLACED_SIZE.height;
-            const reported = img.naturalWidth > 0 && img.naturalHeight > 0 && !(defaultSize && isSvgUrl(url));
+            const reported = img.naturalWidth > 0 && img.naturalHeight > 0 && !(defaultSize && !isBitmapUrl(url));
             const naturalWidth = reported ? img.naturalWidth : boxWidth;
             const naturalHeight = reported ? img.naturalHeight : boxHeight;
             const fit = Math.min(boxWidth / naturalWidth, boxHeight / naturalHeight) * scale;

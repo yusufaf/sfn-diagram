@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import puppeteer, { type Browser, type Page, type PuppeteerLifeCycleEvent } from 'puppeteer';
+import { Resvg } from '@resvg/resvg-js';
 import { generateHtml, generateViewerUpdate } from '../../src';
 import { ICON_TIMEOUT_MS } from '../../src/renderers/viewer/controller/rasterize';
 import type { AslDefinition } from '../../src/types';
@@ -34,7 +35,14 @@ const WIDE_RED_ICON =
 const VIEWBOX_RED_ICON =
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#ff0000"/></svg>';
 
-type IconMode = 'abort' | 'red' | 'stall' | 'viewBox' | 'wide';
+/** A real 300x150 red PNG, for an icon whose natural size happens to be the `<img>` default. */
+const RASTER_RED_ICON = new Resvg(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="150"><rect width="300" height="150" fill="#ff0000"/></svg>',
+)
+    .render()
+    .asPng();
+
+type IconMode = 'abort' | 'raster' | 'red' | 'stall' | 'viewBox' | 'wide';
 
 interface PngStore {
     sfnPngs: Array<{ blob: Blob; name: string }>;
@@ -71,6 +79,15 @@ async function interceptIcons(target: Page, mode: IconMode): Promise<void> {
         }
         // 'stall': never answered, so the icon load neither succeeds nor fails.
         if (mode === 'stall') return;
+        if (mode === 'raster') {
+            void request.respond({
+                body: RASTER_RED_ICON,
+                contentType: 'image/png',
+                headers: { 'Access-Control-Allow-Origin': '*' },
+                status: 200,
+            });
+            return;
+        }
         void request.respond({
             body: { red: RED_ICON, viewBox: VIEWBOX_RED_ICON, wide: WIDE_RED_ICON }[mode],
             contentType: 'image/svg+xml',
@@ -441,6 +458,7 @@ describe('toolbar PNG export', () => {
     it('treats a 300x150 natural size as unknown rather than as the icon shape', async () => {
         // Chromium reports a viewBox-only SVG's real aspect ratio; some engines report
         // the replaced-element default instead. Simulated here, since CI has only Chromium.
+        // The URL has no extension, as a custom icon's may not, so only its size is known.
         const target = await openViewer({
             html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
             icons: 'viewBox',
@@ -448,6 +466,9 @@ describe('toolbar PNG export', () => {
         await target.evaluate(() => {
             Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { get: () => 300 });
             Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { get: () => 150 });
+            for (const image of Array.from(document.querySelectorAll('[data-sfn="content"] image'))) {
+                image.setAttribute('href', 'https://cdn.jsdelivr.net/custom/lambda');
+            }
         });
         await clickPng(target);
         await waitForDownload(target);
@@ -465,11 +486,9 @@ describe('toolbar PNG export', () => {
         // Only an SVG can report the replaced-element default; a bitmap that size is 2:1.
         const target = await openViewer({
             html: generateHtml({ aslDefinition: definition, showIcons: true }).html,
-            icons: 'red',
+            icons: 'raster',
         });
         await target.evaluate(() => {
-            Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', { get: () => 300 });
-            Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', { get: () => 150 });
             for (const image of Array.from(document.querySelectorAll('[data-sfn="content"] image'))) {
                 image.setAttribute('href', 'https://cdn.jsdelivr.net/custom/icon.png');
             }
