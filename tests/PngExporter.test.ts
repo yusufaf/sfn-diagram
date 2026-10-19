@@ -126,7 +126,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
     });
 
     describe('exportPng with U+00A0 in a state name (#459)', () => {
-        it('renders a state named "Charge Card"', async () => {
+        it('renders a state named "Charge\u00A0Card"', async () => {
             const aslDefinition: AslDefinition = JSON.parse(
                 readFileSync(join(__dirname, 'fixtures', 'nbsp-names.asl.json'), 'utf-8'),
             );

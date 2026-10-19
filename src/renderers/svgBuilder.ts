@@ -7,13 +7,13 @@
  *
  * The chainable API (`append`/`attr`/`text`) intentionally mirrors the subset of the
  * d3-selection surface the renderer relied on, and {@link SvgElement.serialize} emits
- * markup byte-compatible with JSDOM's HTML serialization (`element.outerHTML`) with two
- * deliberate deviations: every element is closed (no self-closing tags), attributes are
- * double-quoted in insertion order, and text/attribute values are HTML-escaped, but
- * attribute values also escape `<`/`>` (see {@link escapeAttribute}), which real HTML
- * serialization leaves untouched, and U+00A0 is written as the numeric reference
- * `&#160;`. SVG is XML, where the HTML named entity for no-break space is undefined,
- * so resvg and any XML-strict consumer would reject the output.
+ * markup that follows JSDOM's HTML serialization (`element.outerHTML`): every element is
+ * closed (no self-closing tags), attributes are double-quoted in insertion order, and
+ * text/attribute values are escaped. It deviates from that serialization in two
+ * deliberate ways: attribute values also escape `<`/`>` (see {@link escapeAttribute}),
+ * which real HTML serialization leaves untouched, and U+00A0 is written as the numeric
+ * reference `&#160;`. SVG is XML, where the HTML named entity for no-break space is
+ * undefined, so resvg and any XML-strict consumer would reject the output.
  */
 
 /** A value assignable to an SVG attribute; numbers are stringified like the DOM does. */

@@ -7,13 +7,13 @@
       "Choices": [
         {
           "Variable": "$.method",
-          "StringEquals": "credit card",
-          "Next": "Charge Card"
+          "StringEquals": "credit\u00a0card",
+          "Next": "Charge\u00a0Card"
         }
       ],
       "Default": "Done"
     },
-    "Charge Card": {
+    "Charge\u00a0Card": {
       "Type": "Pass",
       "Next": "Done"
     },

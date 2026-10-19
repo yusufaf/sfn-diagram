@@ -17,11 +17,11 @@ const NBSP_DEFINITION: AslDefinition = JSON.parse(
 
 describe('escapers', () => {
     it('writes U+00A0 as a numeric character reference in text', () => {
-        expect(escapeText('a b')).toBe('a&#160;b');
+        expect(escapeText('a\u00A0b')).toBe('a&#160;b');
     });
 
     it('writes U+00A0 as a numeric character reference in attributes', () => {
-        expect(escapeAttribute('a b')).toBe('a&#160;b');
+        expect(escapeAttribute('a\u00A0b')).toBe('a&#160;b');
     });
 });
 
@@ -51,7 +51,7 @@ describe('generateSvg output is well-formed XML (#459)', () => {
             }, svg);
 
             expect(result.error).toBeNull();
-            expect(result.stateIds).toContain('Charge Card');
+            expect(result.stateIds).toContain('Charge\u00A0Card');
         } finally {
             await page.close();
         }
