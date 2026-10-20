@@ -342,7 +342,8 @@ export interface WrapSvgInInteractiveHtmlParams {
  * Wrap rendered SVG in a self-contained HTML document with an inline viewer:
  * pan/zoom (drag to pan, wheel to zoom, fit/reset toolbar), state search, and — when
  * `stateData` or `edgeData` is supplied — a detail panel showing a clicked state's raw
- * ASL, or a clicked edge's id, endpoints, type, and Choice condition.
+ * ASL, or a clicked edge's id, endpoints, type, Choice condition, label and, for a retry
+ * loop, each retrier's backoff policy.
  *
  * No external references, so it works offline and from `file://`. Note that the
  * embedded SVG itself may reference CDN-hosted icons when generated with

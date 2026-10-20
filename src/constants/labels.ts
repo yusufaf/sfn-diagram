@@ -27,6 +27,12 @@ export const MAP_IO_NODE_TYPES: ReadonlySet<string> = new Set(['ItemReader', 'Re
 /** Default MaxAttempts when a Retry block omits it (per the ASL spec). */
 const DEFAULT_MAX_ATTEMPTS = 3;
 
+/** Default IntervalSeconds when a Retry block omits it (per the ASL spec). */
+const DEFAULT_INTERVAL_SECONDS = 1;
+
+/** Default BackoffRate when a Retry block omits it (per the ASL spec). */
+const DEFAULT_BACKOFF_RATE = 2;
+
 /**
  * Summarize a state's Retry blocks into a compact self-loop label,
  * e.g. "↻ States.TaskFailed (3x)" or "↻ States.ALL (2x); Timeout (5x)".
@@ -39,6 +45,73 @@ export function getRetryLabel(retryBlocks: RetryBlock[]): string {
     });
 
     return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join('; ')}`;
+}
+
+interface FormatRetryValueParams {
+    /** Shown when the field is unset; without one, an unset field yields `undefined`. */
+    fallback?: number;
+    /** The field as read, typed `unknown` because a substituted template delivers strings. */
+    value: unknown;
+}
+
+/**
+ * One retrier field for {@link getRetryDetail}: a number or a non-empty string as
+ * written (a CloudFormation-substituted `"5"` reads the same as the drawn label),
+ * anything else as the ASL default.
+ */
+function formatRetryValue(params: FormatRetryValueParams): string | undefined {
+    const { fallback, value } = params;
+    if (typeof value === 'number') return String(value);
+    if (isNonEmptyString(value)) return elide(value);
+    return fallback === undefined ? undefined : String(fallback);
+}
+
+/**
+ * Spell out a state's Retry policy for an edge tooltip and the viewer's edge panel,
+ * where {@link getRetryLabel}'s drawn `(3x)` has no room for the backoff timing.
+ *
+ * Unset fields show their ASL default, since the reader needs the policy that runs,
+ * not only what was typed. `MaxDelaySeconds` and jitter appear only when set, because
+ * their absence means no cap and no jitter.
+ *
+ * @param retryBlocks - The state's Retry entries, in order
+ * @returns One clause per retrier, joined with `; `
+ *
+ * @example
+ * ```typescript
+ * getRetryDetail([{ ErrorEquals: ['States.Timeout'], IntervalSeconds: 2, MaxAttempts: 4 }]);
+ * // 'States.Timeout: up to 4 retries, first after 2s, backoff 2x'
+ * getRetryDetail([{ ErrorEquals: ['States.TaskFailed'], JitterStrategy: 'FULL', MaxDelaySeconds: 30 }]);
+ * // 'States.TaskFailed: up to 3 retries, first after 1s, backoff 2x, max delay 30s, full jitter'
+ * getRetryDetail([{ ErrorEquals: ['States.Timeout'], MaxAttempts: 0 }]);
+ * // 'States.Timeout: never retried'
+ * ```
+ */
+export function getRetryDetail(retryBlocks: RetryBlock[]): string {
+    return retryBlocks
+        .map((retry) => {
+            const errors = retry.ErrorEquals?.join(', ') || 'All';
+            const maxAttempts = formatRetryValue({ fallback: DEFAULT_MAX_ATTEMPTS, value: retry.MaxAttempts });
+            if (maxAttempts === '0') {
+                return `${errors}: never retried`;
+            }
+
+            const parts = [
+                `up to ${maxAttempts} retr${maxAttempts === '1' ? 'y' : 'ies'}`,
+                `first after ${formatRetryValue({ fallback: DEFAULT_INTERVAL_SECONDS, value: retry.IntervalSeconds })}s`,
+                `backoff ${formatRetryValue({ fallback: DEFAULT_BACKOFF_RATE, value: retry.BackoffRate })}x`,
+            ];
+            const maxDelay = formatRetryValue({ value: retry.MaxDelaySeconds });
+            if (maxDelay !== undefined) {
+                parts.push(`max delay ${maxDelay}s`);
+            }
+            const jitter = retry.JitterStrategy;
+            if (isNonEmptyString(jitter) && jitter.toUpperCase() !== 'NONE') {
+                parts.push(`${elide(jitter.toLowerCase())} jitter`);
+            }
+            return `${errors}: ${parts.join(', ')}`;
+        })
+        .join('; ');
 }
 
 /**
@@ -535,6 +608,8 @@ export function getTaskHeartbeatLabel(params: StateLabelParams): string {
  * ```typescript
  * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailurePercentage: 5 } }); // 'tolerate 5%'
  * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailureCount: 100 } });    // 'tolerate 100 failures'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailureCountPath: '$.count' } });      // 'tolerate $.count failures'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailurePercentagePath: '$.pct' } });   // 'tolerate $.pct%'
  * ```
  */
 export function getToleratedFailureLabel(params: StateLabelParams): string {
@@ -550,12 +625,16 @@ export function getToleratedFailureLabel(params: StateLabelParams): string {
         // can. Unwrap it as the Wait path does, rather than rendering
         // `tolerate {% $count %} failures`.
         parts.push(`${elide(unwrapExpression({ queryLanguage, value: count }))} failures`);
+    } else if (isNonEmptyString(state.ToleratedFailureCountPath)) {
+        parts.push(`${elide(state.ToleratedFailureCountPath)} failures`);
     }
 
     if (typeof percentage === 'number') {
         parts.push(`${percentage}%`);
     } else if (typeof percentage === 'string') {
         parts.push(`${elide(unwrapExpression({ queryLanguage, value: percentage }))}%`);
+    } else if (isNonEmptyString(state.ToleratedFailurePercentagePath)) {
+        parts.push(`${elide(state.ToleratedFailurePercentagePath)}%`);
     }
 
     return parts.length > 0 ? `tolerate ${parts.join(' or ')}` : '';
@@ -632,6 +711,29 @@ export function getItemsPathLabel(state: AslState): string {
     return typeof state.ItemsPath === 'string' && state.ItemsPath !== ''
         ? `items ${elide(state.ItemsPath)}`
         : '';
+}
+
+/**
+ * Describe what a JSONata-mode Map state iterates, for display on the container header.
+ *
+ * The JSONata counterpart of `ItemsPath`: `Items` may be an expression, a literal
+ * array or an object, so it is summarized the way `ItemSelector` is. An expression is
+ * unwrapped, an object is described by its keys, and an array is shown as written.
+ *
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Map state to describe
+ * @returns A label such as `items $states.input.orders`, or an empty string when no `Items` is set
+ *
+ * @example
+ * ```typescript
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: '{% $states.input.orders %}' } }); // 'items $states.input.orders'
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: [1, 2, 3] } });                    // 'items [1,2,3]'
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: { a: 1, b: 2 } } });               // 'items a, b'
+ * ```
+ */
+export function getItemsLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
+    return getPayloadLabel({ emptyIsSet: false, prefix: 'items', queryLanguage, value: state.Items });
 }
 
 /** Suffix a JSONPath-mode payload key carries when its value is a path rather than a literal. */
@@ -851,6 +953,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     if (node.isDistributedMap) {
         parts.push('Distributed');
     }
+    if (node.isExpressMap) {
+        parts.push('Express');
+    }
     if (typeof node.maxConcurrency === 'number') {
         parts.push(`max ${node.maxConcurrency}`);
     } else if (typeof node.maxConcurrency === 'string') {
@@ -865,6 +970,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.itemsPath !== undefined) {
         parts.push(node.itemsPath);
+    }
+    if (node.items !== undefined) {
+        parts.push(node.items);
     }
     if (node.itemSelector !== undefined) {
         parts.push(node.itemSelector);

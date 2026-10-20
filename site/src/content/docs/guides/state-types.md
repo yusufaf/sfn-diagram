@@ -24,7 +24,7 @@ in a diagram, so they render as a `·`-separated second line under the node's na
 | State | Shows |
 |-------|-------|
 | **Wait** | how long it waits — `5s` from `Seconds`, or the `SecondsPath` / `Timestamp` / `TimestampPath` it reads. A JSONata `Seconds` is shown as the bare expression, with the `{% %}` delimiters stripped |
-| **Map** | `Distributed` for a Distributed Map, `max N` from `MaxConcurrency`, `tolerate 5%` / `tolerate 100 failures` from `ToleratedFailurePercentage` / `ToleratedFailureCount`, `batches of 50` / `batches ≤ 256KB` from `ItemBatcher`, `items $.orders` from `ItemsPath`, `selector item, index` from the keys of `ItemSelector`, and `label OrderBatch` from a Distributed Map's `Label` |
+| **Map** | `Distributed` for a Distributed Map, plus `Express` when its `ProcessorConfig.ExecutionType` is `EXPRESS`, `max N` from `MaxConcurrency` (or `max $.limit` from `MaxConcurrencyPath`), `tolerate 5%` / `tolerate 100 failures` from `ToleratedFailurePercentage` / `ToleratedFailureCount` (or `tolerate $.count failures` from their `*Path` forms), `batches of 50` / `batches ≤ 256KB` from `ItemBatcher`, `items $.orders` from `ItemsPath` or `items $states.input.orders` from a JSONata `Items`, `selector item, index` from the keys of `ItemSelector`, and `label OrderBatch` from a Distributed Map's `Label` |
 | **any** | `args FunctionName, Payload` from the keys of a JSONata `Arguments` object (or the bare expression when the whole field is one), and `output orderId, total` from `Output` in the same way — a non-object `Output` such as `true` is shown as written |
 | **any** | the state type itself, when `showStateTypes` is enabled |
 
@@ -41,7 +41,7 @@ node is elided rather than drawn over its neighbours.
 ## Error handling & retries
 
 - **`Catch`** blocks render as dashed error edges to their handler states. When four or more states catch into the same handler, the catch edges from states that lead on to another of those catchers run along a shared lane beside the diagram rather than each taking its own path, which keeps large machines fast to lay out. Lanes need a `rankSeparation` of 16 or more; below that, every catch edge takes its own path.
-- **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output.
+- **`Retry`** policies render as a labelled self-loop on the state (e.g. `↻ States.Timeout (4x); States.ALL (2x)`) — a self-transition in Mermaid output. Hovering the loop, or opening it in the interactive viewer, shows each retrier's full policy, defaults included (e.g. `States.Timeout: up to 4 retries, first after 2s, backoff 2x`), with `MaxDelaySeconds` and `JitterStrategy` when set.
 
 ## Query languages
 

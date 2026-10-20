@@ -856,11 +856,13 @@ source or the edge data. Examples:
   node label unless `--hide-comments`; `--redact-fields Comment` blanks the panel copy,
   not the label)
 - a Fail state's `Error`, `Cause` and their `*Path` forms, Choice conditions, Retry and
-  Catch `ErrorEquals`, Retry `MaxAttempts`
+  Catch `ErrorEquals`, and Retry `MaxAttempts`, `IntervalSeconds`, `BackoffRate`,
+  `MaxDelaySeconds` and `JitterStrategy` (the retry loop's `<title>` and edge data)
 - Wait `Seconds`/`Timestamp`, literal or expression, and their `*Path` forms, and Task
   `TimeoutSeconds`/`HeartbeatSeconds` and their `*Path` forms
-- Map `ItemsPath`, `Label`, `ItemSelector`, `MaxConcurrency`, `ToleratedFailure*` and
-  `ItemBatcher` limits
+- Map `ItemsPath`, JSONata `Items`, `Label`, `ItemSelector`, `MaxConcurrency` and
+  `MaxConcurrencyPath`, `ToleratedFailure*` and their `*Path` forms, `ItemBatcher`
+  limits, and whether a Distributed Map's `ExecutionType` is `EXPRESS`
 - Task `Resource`, and a Distributed Map's `ItemReader`/`ResultWriter` `Resource`
 - `Assign` variable names, and JSONata `Arguments` and `Output`
   (`--redact-fields Arguments` blanks the panel copy, not the `args …` label)

@@ -208,11 +208,12 @@ export function createDetailPanel(params: CreateDetailPanelParams): DetailPanel 
             };
 
             const SUMMARY_FIELDS = ['Type', 'Resource', 'Next', 'Retry', 'Catch', 'Assign'] as const;
-            const EDGE_FIELDS = ['from', 'to', 'type', 'condition', 'label'] as const;
+            const EDGE_FIELDS = ['from', 'to', 'type', 'condition', 'label', 'detail'] as const;
             // The panel's own labels, not content — the record keys are lowercase, but a
             // reader expects title case beside the state panel's ASL field names.
             const EDGE_FIELD_LABELS: Record<string, string> = {
                 condition: 'Condition',
+                detail: 'Details',
                 from: 'From',
                 label: 'Label',
                 to: 'To',

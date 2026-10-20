@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { parseAsl, validateAsl, AslValidationError } from '../src/AslParser';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, RetryBlock } from '../src/types';
 import { applyCollapse } from '../src/graph';
 import { DagreLayout } from '../src/layout';
+import { getNodeSubLabel, getRetryDetail, getRetryLabel } from '../src/constants';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -355,6 +356,59 @@ describe('AslParser', () => {
             expect(retry.to).toBe('Submit'); // self-loop
             expect(retry.visualOnly).toBe(true); // excluded from dagre ranking
             expect(retry.label).toBe('↻ States.Timeout (4x); States.ALL (2x)');
+            expect(retry.detail).toBe(
+                'States.Timeout: up to 4 retries, first after 2s, backoff 2x; States.ALL: up to 2 retries, first after 1s, backoff 2x',
+            );
+        });
+
+        it('spells out every field of a retrier in the detail', () => {
+            expect(
+                getRetryDetail([
+                    {
+                        BackoffRate: 1.5,
+                        ErrorEquals: ['States.TaskFailed'],
+                        IntervalSeconds: 2,
+                        JitterStrategy: 'FULL',
+                        MaxAttempts: 1,
+                        MaxDelaySeconds: 30,
+                    },
+                ]),
+            ).toBe('States.TaskFailed: up to 1 retry, first after 2s, backoff 1.5x, max delay 30s, full jitter');
+        });
+
+        it('leaves out jitter when it is NONE and the timing when nothing is retried', () => {
+            expect(
+                getRetryDetail([{ ErrorEquals: ['States.Timeout'], JitterStrategy: 'NONE' }]),
+            ).toBe('States.Timeout: up to 3 retries, first after 1s, backoff 2x');
+            expect(getRetryDetail([{ ErrorEquals: ['States.Timeout'], MaxAttempts: 0 }])).toBe(
+                'States.Timeout: never retried',
+            );
+            expect(getRetryDetail([{ ErrorEquals: [] }])).toMatch(/^All: /);
+        });
+
+        it('shortens a long substituted jitter strategy like the other fields', () => {
+            const detail = getRetryDetail([
+                { ErrorEquals: ['X'], JitterStrategy: '<Ref:SomeVeryLongJitterParameterName>' },
+            ] as unknown as RetryBlock[]);
+            expect(detail).toContain('…');
+            expect(detail).not.toContain('parametername>');
+        });
+
+        it('shows a string-valued field as written, agreeing with the drawn label', () => {
+            // CloudFormation substitution delivers numbers as strings at runtime.
+            const substituted = [
+                { ErrorEquals: ['States.Timeout'], IntervalSeconds: '10', MaxAttempts: '5' },
+            ] as unknown as RetryBlock[];
+            expect(getRetryDetail(substituted)).toBe(
+                'States.Timeout: up to 5 retries, first after 10s, backoff 2x',
+            );
+            expect(getRetryLabel(substituted)).toBe('↻ States.Timeout (5x)');
+            expect(
+                getRetryDetail([{ ErrorEquals: ['X'], MaxAttempts: '1' }] as unknown as RetryBlock[]),
+            ).toContain('up to 1 retry,');
+            expect(
+                getRetryDetail([{ ErrorEquals: ['X'], MaxDelaySeconds: '' }] as unknown as RetryBlock[]),
+            ).not.toContain('max delay');
         });
 
         it('should default MaxAttempts to 3 when omitted', () => {
@@ -1333,6 +1387,70 @@ describe('AslParser', () => {
                     mapWith({ ItemBatcher: { MaxInputBytesPerBatchPath: '$.batchBytes' } }),
                 ).itemBatching,
             ).toBe('batches ≤ $.batchBytes');
+        });
+
+        it('reads the tolerated-failure reference-path variants', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCountPath: '$.count' })).toleratedFailure,
+            ).toBe('tolerate $.count failures');
+            expect(
+                nodeFor(mapWith({ ToleratedFailurePercentagePath: '$.pct' })).toleratedFailure,
+            ).toBe('tolerate $.pct%');
+            expect(
+                nodeFor(
+                    mapWith({
+                        ToleratedFailureCountPath: '$.count',
+                        ToleratedFailurePercentagePath: '$.pct',
+                    }),
+                ).toleratedFailure,
+            ).toBe('tolerate $.count failures or $.pct%');
+        });
+
+        it('prefers a literal tolerance over its path and ignores an empty path', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: 5, ToleratedFailureCountPath: '$.count' }))
+                    .toleratedFailure,
+            ).toBe('tolerate 5 failures');
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCountPath: '' })).toleratedFailure,
+            ).toBeUndefined();
+        });
+
+        it('reads MaxConcurrencyPath when MaxConcurrency is not set', () => {
+            const node = nodeFor(mapWith({ MaxConcurrencyPath: '$.limit' }));
+            expect(node.maxConcurrency).toBe('$.limit');
+            expect(getNodeSubLabel({ node, showStateType: false })).toContain('max $.limit');
+            expect(
+                nodeFor(mapWith({ MaxConcurrency: 10, MaxConcurrencyPath: '$.limit' })).maxConcurrency,
+            ).toBe(10);
+            expect(nodeFor(mapWith({ MaxConcurrencyPath: '' })).maxConcurrency).toBeUndefined();
+        });
+
+        const mapWithExecution = (mode: 'DISTRIBUTED' | 'INLINE', executionType: string): AslDefinition =>
+            ({
+                StartAt: 'Each',
+                States: {
+                    Each: {
+                        End: true,
+                        ItemProcessor: {
+                            ProcessorConfig: { ExecutionType: executionType, Mode: mode },
+                            StartAt: 'Handle',
+                            States: { Handle: { End: true, Type: 'Pass' } },
+                        },
+                        Type: 'Map',
+                    },
+                },
+            }) as AslDefinition;
+
+        it('marks a Distributed Map that runs Express child executions', () => {
+            const node = nodeFor(mapWithExecution('DISTRIBUTED', 'EXPRESS'));
+            expect(node.isExpressMap).toBe(true);
+            expect(getNodeSubLabel({ node, showStateType: false })).toMatch(/^Distributed · Express/);
+        });
+
+        it('does not mark a Standard Distributed Map or an inline Map as Express', () => {
+            expect(nodeFor(mapWithExecution('DISTRIBUTED', 'STANDARD')).isExpressMap).toBeUndefined();
+            expect(nodeFor(mapWithExecution('INLINE', 'EXPRESS')).isExpressMap).toBeUndefined();
         });
 
         it('reports a sub-kibibyte batch size in bytes rather than as 0KB', () => {

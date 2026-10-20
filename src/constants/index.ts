@@ -26,6 +26,7 @@ export {
     getFailErrorLabel,
     getItemBatchingLabel,
     getItemSelectorLabel,
+    getItemsLabel,
     getItemsPathLabel,
     getNodeSubLabel,
     getNodeSubLabelParts,
@@ -36,5 +37,6 @@ export {
     getToleratedFailureLabel,
     getWaitDurationLabel,
     getErrorLabel,
+    getRetryDetail,
     getRetryLabel,
 } from './labels';

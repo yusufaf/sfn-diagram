@@ -289,6 +289,12 @@ export interface StateNode {
      */
     isEnd?: boolean;
     /**
+     * Whether this Distributed Map runs its child workflows as Express executions
+     * (`ProcessorConfig.ExecutionType: 'EXPRESS'`). Absent for `STANDARD` and for inline
+     * Maps, where `ExecutionType` has no effect.
+     */
+    isExpressMap?: boolean;
+    /**
      * A Map state's `ItemBatcher` sizing, pre-formatted for display (e.g. `batches of 50`).
      * Absent when the Map does not batch.
      */
@@ -298,6 +304,11 @@ export interface StateNode {
      * (e.g. `selector item, index`). Absent when the Map sets no `ItemSelector`.
      */
     itemSelector?: string;
+    /**
+     * The JSONata `Items` a Map state iterates, pre-formatted for display
+     * (e.g. `items $states.input.orders`). Absent when the Map sets no `Items`.
+     */
+    items?: string;
     /**
      * The array a Map state iterates, pre-formatted for display (e.g. `items $.orders`).
      * Absent when the Map sets no `ItemsPath`.
@@ -311,7 +322,8 @@ export interface StateNode {
     mapLabel?: string;
     /**
      * A Map state's `MaxConcurrency`, when set. Displayed on the container header.
-     * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`).
+     * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`). Without a
+     * `MaxConcurrency`, holds the `MaxConcurrencyPath` reference path as written.
      */
     maxConcurrency?: number | string;
     /**
@@ -359,6 +371,12 @@ export type DiffStatus = 'added' | 'modified' | 'removed';
 /** A directed transition between two graph nodes in the internal diagram model. */
 export interface GraphEdge {
     condition?: string;
+    /**
+     * A longer description than `label`, shown in the edge's tooltip and the viewer's
+     * edge panel but never drawn on the diagram. Set on retry self-loops, where it
+     * spells out each retrier's backoff policy.
+     */
+    detail?: string;
     from: string;
     /**
      * Stable identity for this edge, unique across the whole graph:

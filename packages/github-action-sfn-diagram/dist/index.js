@@ -66962,11 +66962,45 @@ var EDGE_LABELS = {
 };
 var MAP_IO_NODE_TYPES = /* @__PURE__ */ new Set(["ItemReader", "ResultWriter"]);
 var DEFAULT_MAX_ATTEMPTS2 = 3;
+var DEFAULT_INTERVAL_SECONDS = 1;
+var DEFAULT_BACKOFF_RATE = 2;
 function getRetryLabel(retryBlocks) {
   const parts = retryBlocks.map((retry) => {
     return `${retry.ErrorEquals?.join(", ") || "All"} (${retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS2}x)`;
   });
   return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join("; ")}`;
+}
+function formatRetryValue(params) {
+  const { fallback: fallback2, value } = params;
+  if (typeof value === "number") return String(value);
+  if (isNonEmptyString(value)) return elide(value);
+  return fallback2 === void 0 ? void 0 : String(fallback2);
+}
+function getRetryDetail(retryBlocks) {
+  return retryBlocks.map((retry) => {
+    const errors = retry.ErrorEquals?.join(", ") || "All";
+    const maxAttempts = formatRetryValue({
+      fallback: DEFAULT_MAX_ATTEMPTS2,
+      value: retry.MaxAttempts
+    });
+    if (maxAttempts === "0") return `${errors}: never retried`;
+    const parts = [
+      `up to ${maxAttempts} retr${maxAttempts === "1" ? "y" : "ies"}`,
+      `first after ${formatRetryValue({
+        fallback: DEFAULT_INTERVAL_SECONDS,
+        value: retry.IntervalSeconds
+      })}s`,
+      `backoff ${formatRetryValue({
+        fallback: DEFAULT_BACKOFF_RATE,
+        value: retry.BackoffRate
+      })}x`
+    ];
+    const maxDelay = formatRetryValue({ value: retry.MaxDelaySeconds });
+    if (maxDelay !== void 0) parts.push(`max delay ${maxDelay}s`);
+    const jitter = retry.JitterStrategy;
+    if (isNonEmptyString(jitter) && jitter.toUpperCase() !== "NONE") parts.push(`${elide(jitter.toLowerCase())} jitter`);
+    return `${errors}: ${parts.join(", ")}`;
+  }).join("; ");
 }
 function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
@@ -67086,11 +67120,13 @@ function getToleratedFailureLabel(params) {
     queryLanguage,
     value: count
   }))} failures`);
+  else if (isNonEmptyString(state2.ToleratedFailureCountPath)) parts.push(`${elide(state2.ToleratedFailureCountPath)} failures`);
   if (typeof percentage === "number") parts.push(`${percentage}%`);
   else if (typeof percentage === "string") parts.push(`${elide(unwrapExpression({
     queryLanguage,
     value: percentage
   }))}%`);
+  else if (isNonEmptyString(state2.ToleratedFailurePercentagePath)) parts.push(`${elide(state2.ToleratedFailurePercentagePath)}%`);
   return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
 }
 var BYTES_PER_KIB = 1024;
@@ -67108,6 +67144,15 @@ function getItemBatchingLabel(state2) {
 }
 function getItemsPathLabel(state2) {
   return typeof state2.ItemsPath === "string" && state2.ItemsPath !== "" ? `items ${elide(state2.ItemsPath)}` : "";
+}
+function getItemsLabel(params) {
+  const { queryLanguage, state: state2 } = params;
+  return getPayloadLabel({
+    emptyIsSet: false,
+    prefix: "items",
+    queryLanguage,
+    value: state2.Items
+  });
 }
 var JSONPATH_KEY_SUFFIX$1 = ".$";
 function getPayloadLabel(params) {
@@ -67167,11 +67212,13 @@ function getNodeSubLabelParts(params) {
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
   if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
+  if (node.isExpressMap) parts.push("Express");
   if (typeof node.maxConcurrency === "number") parts.push(`max ${node.maxConcurrency}`);
   else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(node.maxConcurrency)}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
+  if (node.items !== void 0) parts.push(node.items);
   if (node.itemSelector !== void 0) parts.push(node.itemSelector);
   if (node.mapLabel !== void 0) parts.push(node.mapLabel);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
@@ -67942,12 +67989,17 @@ function createStateNode(params) {
   }
   if (isContainer) baseNode.children = [];
   if (state2.Type === "Map") {
-    if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
+    const processorConfig = getMapProcessor(state2)?.ProcessorConfig;
+    if (processorConfig?.Mode === "DISTRIBUTED") {
+      baseNode.isDistributedMap = true;
+      if (processorConfig.ExecutionType === "EXPRESS") baseNode.isExpressMap = true;
+    }
     if (typeof state2.MaxConcurrency === "string") baseNode.maxConcurrency = unwrapExpression({
       queryLanguage,
       value: state2.MaxConcurrency
     });
     else if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+    else if (typeof state2.MaxConcurrencyPath === "string" && state2.MaxConcurrencyPath !== "") baseNode.maxConcurrency = state2.MaxConcurrencyPath;
     const toleratedFailure = getToleratedFailureLabel({
       queryLanguage,
       state: state2
@@ -67957,6 +68009,11 @@ function createStateNode(params) {
     if (itemBatching !== "") baseNode.itemBatching = itemBatching;
     const itemsPath = getItemsPathLabel(state2);
     if (itemsPath !== "") baseNode.itemsPath = itemsPath;
+    const items = getItemsLabel({
+      queryLanguage,
+      state: state2
+    });
+    if (items !== "") baseNode.items = items;
     const itemSelector = getItemSelectorLabel({
       queryLanguage,
       state: state2
@@ -68038,6 +68095,7 @@ function extractEdgesFromState(params) {
       });
   }
   if (state2.Retry && state2.Retry.length > 0) edges.push({
+    detail: getRetryDetail(state2.Retry),
     from: stateId,
     label: getRetryLabel(state2.Retry),
     to: stateId,

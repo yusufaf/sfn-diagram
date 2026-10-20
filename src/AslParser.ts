@@ -19,8 +19,10 @@ import {
     getFailErrorLabel,
     getItemBatchingLabel,
     getItemSelectorLabel,
+    getItemsLabel,
     getItemsPathLabel,
     getOutputLabel,
+    getRetryDetail,
     getRetryLabel,
     getTaskHeartbeatLabel,
     getTaskIntegrationPatternLabel,
@@ -741,14 +743,21 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // ProcessorConfig sits on the ItemProcessor sub-definition, not on the
     // Map state itself.
     if (state.Type === 'Map') {
-        if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
+        const processorConfig = getMapProcessor(state)?.ProcessorConfig;
+        if (processorConfig?.Mode === 'DISTRIBUTED') {
             baseNode.isDistributedMap = true;
+            // ExecutionType has no effect on an inline Map, and STANDARD is the default.
+            if (processorConfig.ExecutionType === 'EXPRESS') {
+                baseNode.isExpressMap = true;
+            }
         }
         if (typeof state.MaxConcurrency === 'string') {
             // A JSONata expression; a JSONPath literal string is shown as written.
             baseNode.maxConcurrency = unwrapExpression({ queryLanguage, value: state.MaxConcurrency });
         } else if (state.MaxConcurrency !== undefined) {
             baseNode.maxConcurrency = state.MaxConcurrency;
+        } else if (typeof state.MaxConcurrencyPath === 'string' && state.MaxConcurrencyPath !== '') {
+            baseNode.maxConcurrency = state.MaxConcurrencyPath;
         }
 
         const toleratedFailure = getToleratedFailureLabel({ queryLanguage, state });
@@ -764,6 +773,11 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         const itemsPath = getItemsPathLabel(state);
         if (itemsPath !== '') {
             baseNode.itemsPath = itemsPath;
+        }
+
+        const items = getItemsLabel({ queryLanguage, state });
+        if (items !== '') {
+            baseNode.items = items;
         }
 
         const itemSelector = getItemSelectorLabel({ queryLanguage, state });
@@ -878,6 +892,7 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
     // not participate in dagre ranking; it is routed manually as a loop on the node.
     if (state.Retry && state.Retry.length > 0) {
         edges.push({
+            detail: getRetryDetail(state.Retry),
             from: stateId,
             label: getRetryLabel(state.Retry),
             to: stateId,

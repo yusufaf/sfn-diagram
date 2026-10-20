@@ -6,6 +6,7 @@ import {
     getArgumentsLabel,
     getChildExecutionLabel,
     getItemSelectorLabel,
+    getItemsLabel,
     getNodeSubLabel,
     getOutputLabel,
 } from '../src/constants/labels';
@@ -108,6 +109,23 @@ describe('getItemSelectorLabel', () => {
     });
 });
 
+describe('getItemsLabel', () => {
+    it('unwraps a JSONata Items expression', () => {
+        const state: AslState = { Items: '{% $states.input.orders %}', Type: 'Map' };
+        expect(getItemsLabel(jsonata(state))).toBe('items $states.input.orders');
+    });
+
+    it('shows a literal array as written and an object by its keys', () => {
+        expect(getItemsLabel(jsonata({ Items: [1, 2, 3], Type: 'Map' }))).toBe('items [1,2,3]');
+        expect(getItemsLabel(jsonata({ Items: { a: 1, b: 2 }, Type: 'Map' }))).toBe('items a, b');
+    });
+
+    it('treats a null or absent Items as unset', () => {
+        expect(getItemsLabel(jsonata({ Items: null, Type: 'Map' } as unknown as AslState))).toBe('');
+        expect(getItemsLabel(jsonata({ Type: 'Map' }))).toBe('');
+    });
+});
+
 describe('getChildExecutionLabel', () => {
     it('shows the Label as a prefixed part', () => {
         expect(getChildExecutionLabel({ Label: 'OrderBatch', Type: 'Map' })).toBe('label OrderBatch');
@@ -138,6 +156,31 @@ describe('parseAsl surfaces JSONata I/O fields', () => {
         expect(map.inputArguments).toBeUndefined();
     });
 
+    it('sets items from a JSONata Items on a Map', () => {
+        expect(nodeById(nodes, 'ProcessItems').items).toBe('items $states.input.items');
+    });
+
+    it('sets items from an inline Map whose Items is a literal', () => {
+        const { nodes: literal } = parseAsl({
+            definition: {
+                QueryLanguage: 'JSONata',
+                StartAt: 'M',
+                States: {
+                    M: {
+                        End: true,
+                        ItemProcessor: {
+                            StartAt: 'P',
+                            States: { P: { End: true, Type: 'Pass' } },
+                        },
+                        Items: [1, 2, 3],
+                        Type: 'Map',
+                    },
+                },
+            },
+        });
+        expect(nodeById(literal, 'M').items).toBe('items [1,2,3]');
+    });
+
     it('sets whole-field expressions on a nested Task', () => {
         const nested = nodeById(nodes, 'PriceItem');
         expect(nested.inputArguments).toBe('args $states.input');
@@ -159,10 +202,21 @@ describe('parseAsl surfaces JSONata I/O fields', () => {
         expect(nodeById(plain, 'A').mapLabel).toBeUndefined();
     });
 
+    it('does not set items on a non-Map state', () => {
+        const { nodes: plain } = parseAsl({
+            definition: {
+                QueryLanguage: 'JSONata',
+                StartAt: 'A',
+                States: { A: { End: true, Items: [1], Type: 'Pass' } as unknown as AslState },
+            },
+        });
+        expect(nodeById(plain, 'A').items).toBeUndefined();
+    });
+
     it('orders the Map header parts with selector and label after items', () => {
         const map = nodeById(nodes, 'ProcessItems');
         expect(getNodeSubLabel({ node: map, showStateType: false })).toBe(
-            "Distributed · selector item, index, orderId · label OrderItems · output { 'orderId': $states.input.orde…",
+            "Distributed · items $states.input.items · selector item, index, orderId · label OrderItems · output { 'orderId': $states.input.orde…",
         );
     });
 
@@ -197,6 +251,7 @@ describe('jsonata-io fixture renders', () => {
 
         expect(code).toContain('LoadOrder: LoadOrder (args FunctionName, Payload · output orderId, items)');
         expect(code).toContain('label OrderItems');
+        expect(code).toContain('items $states.input.items');
         expect(code).toContain('Done: Done (output true)');
         // The Map Output is a JSONata object literal: its braces must be entities on
         // the state line, since `{`/`}` open a composite state in stateDiagram-v2.
