@@ -371,6 +371,12 @@ export type DiffStatus = 'added' | 'modified' | 'removed';
 /** A directed transition between two graph nodes in the internal diagram model. */
 export interface GraphEdge {
     condition?: string;
+    /**
+     * A longer description than `label`, shown in the edge's tooltip and the viewer's
+     * edge panel but never drawn on the diagram. Set on retry self-loops, where it
+     * spells out each retrier's backoff policy.
+     */
+    detail?: string;
     from: string;
     /**
      * Stable identity for this edge, unique across the whole graph:

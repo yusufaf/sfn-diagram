@@ -161,6 +161,10 @@ describe('SvgRenderer', () => {
 
             expect(result.svg).toContain('arrowhead-retry');
             expect(result.svg).toContain('↻ States.Timeout (4x); States.ALL (2x)');
+            // The tooltip spells out the policy the short drawn label leaves out.
+            expect(result.svg).toContain(
+                '<title>Submit to Submit: States.Timeout: up to 4 retries, first after 2s, backoff 2x; States.ALL: up to 2 retries, first after 1s, backoff 2x</title>',
+            );
             // Dimensions must stay finite even though the loop extends past the node
             expect(Number.isFinite(result.width)).toBe(true);
             expect(Number.isFinite(result.height)).toBe(true);

@@ -37,5 +37,6 @@ export {
     getToleratedFailureLabel,
     getWaitDurationLabel,
     getErrorLabel,
+    getRetryDetail,
     getRetryLabel,
 } from './labels';

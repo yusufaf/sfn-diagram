@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { parseAsl, validateAsl, AslValidationError } from '../src/AslParser';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, RetryBlock } from '../src/types';
 import { applyCollapse } from '../src/graph';
 import { DagreLayout } from '../src/layout';
-import { getNodeSubLabel } from '../src/constants';
+import { getNodeSubLabel, getRetryDetail, getRetryLabel } from '../src/constants';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -356,6 +356,51 @@ describe('AslParser', () => {
             expect(retry.to).toBe('Submit'); // self-loop
             expect(retry.visualOnly).toBe(true); // excluded from dagre ranking
             expect(retry.label).toBe('↻ States.Timeout (4x); States.ALL (2x)');
+            expect(retry.detail).toBe(
+                'States.Timeout: up to 4 retries, first after 2s, backoff 2x; States.ALL: up to 2 retries, first after 1s, backoff 2x',
+            );
+        });
+
+        it('spells out every field of a retrier in the detail', () => {
+            expect(
+                getRetryDetail([
+                    {
+                        BackoffRate: 1.5,
+                        ErrorEquals: ['States.TaskFailed'],
+                        IntervalSeconds: 2,
+                        JitterStrategy: 'FULL',
+                        MaxAttempts: 1,
+                        MaxDelaySeconds: 30,
+                    },
+                ]),
+            ).toBe('States.TaskFailed: up to 1 retry, first after 2s, backoff 1.5x, max delay 30s, full jitter');
+        });
+
+        it('leaves out jitter when it is NONE and the timing when nothing is retried', () => {
+            expect(
+                getRetryDetail([{ ErrorEquals: ['States.Timeout'], JitterStrategy: 'NONE' }]),
+            ).toBe('States.Timeout: up to 3 retries, first after 1s, backoff 2x');
+            expect(getRetryDetail([{ ErrorEquals: ['States.Timeout'], MaxAttempts: 0 }])).toBe(
+                'States.Timeout: never retried',
+            );
+            expect(getRetryDetail([{ ErrorEquals: [] }])).toMatch(/^All: /);
+        });
+
+        it('shows a string-valued field as written, agreeing with the drawn label', () => {
+            // CloudFormation substitution delivers numbers as strings at runtime.
+            const substituted = [
+                { ErrorEquals: ['States.Timeout'], IntervalSeconds: '10', MaxAttempts: '5' },
+            ] as unknown as RetryBlock[];
+            expect(getRetryDetail(substituted)).toBe(
+                'States.Timeout: up to 5 retries, first after 10s, backoff 2x',
+            );
+            expect(getRetryLabel(substituted)).toBe('↻ States.Timeout (5x)');
+            expect(
+                getRetryDetail([{ ErrorEquals: ['X'], MaxAttempts: '1' }] as unknown as RetryBlock[]),
+            ).toContain('up to 1 retry,');
+            expect(
+                getRetryDetail([{ ErrorEquals: ['X'], MaxDelaySeconds: '' }] as unknown as RetryBlock[]),
+            ).not.toContain('max delay');
         });
 
         it('should default MaxAttempts to 3 when omitted', () => {

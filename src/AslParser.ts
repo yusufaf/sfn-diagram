@@ -22,6 +22,7 @@ import {
     getItemsLabel,
     getItemsPathLabel,
     getOutputLabel,
+    getRetryDetail,
     getRetryLabel,
     getTaskHeartbeatLabel,
     getTaskIntegrationPatternLabel,
@@ -891,6 +892,7 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
     // not participate in dagre ranking; it is routed manually as a loop on the node.
     if (state.Retry && state.Retry.length > 0) {
         edges.push({
+            detail: getRetryDetail(state.Retry),
             from: stateId,
             label: getRetryLabel(state.Retry),
             to: stateId,

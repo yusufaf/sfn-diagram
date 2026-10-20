@@ -12,6 +12,8 @@ import type { AslDefinition, DiagramOptions, EdgeType, GraphEdge } from '../../t
 export interface ViewerEdge {
     /** Choice condition that produced this edge, for `type: 'choice'` edges. */
     condition?: string;
+    /** Longer description of the edge, e.g. a retry self-loop's backoff policy. */
+    detail?: string;
     /** Source state name. */
     from: string;
     /** Rendered edge label, when one was drawn. */
@@ -103,6 +105,7 @@ export function buildEdgeData(params: BuildEdgeDataParams): Record<string, Viewe
         const entry: ViewerEdge = { from: edge.from, to: edge.to, type: edge.type ?? 'normal' };
         if (edge.condition !== undefined) entry.condition = edge.condition;
         if (edge.label !== undefined) entry.label = edge.label;
+        if (edge.detail !== undefined) entry.detail = edge.detail;
         edgeData[edge.id] = entry;
     }
     return edgeData;

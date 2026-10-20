@@ -497,10 +497,11 @@ export class SvgRenderer {
      * Accessible name for an edge: its endpoints, plus its label or condition when
      * either is present. Every edge gets one - not only labelled edges - so a Choice
      * condition otherwise only visible as small on-canvas text is exposed as a
-     * tooltip/accessible name even when no label is drawn.
+     * tooltip/accessible name even when no label is drawn. An edge's `detail` (a retry
+     * loop's full backoff policy) wins over its short drawn label.
      */
     private edgeAccessibleTitle(edge: GraphEdge): string {
-        const detail = edge.label ?? edge.condition;
+        const detail = edge.detail ?? edge.label ?? edge.condition;
         // The id fallback covers endpoints endpointLabels leaves out: a missing node, or
         // an unlabelled one (an end marker) that no container claims.
         const from = this.endpointLabels.get(edge.from) ?? edge.from;

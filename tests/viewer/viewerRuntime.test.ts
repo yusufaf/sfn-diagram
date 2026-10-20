@@ -997,6 +997,47 @@ describe('edge detail panel on a Choice diagram', () => {
             await choicePage.$eval('#sfn-panel-title', (element) => element.textContent),
         ).toBe('Route->Skip#default#0');
     });
+
+    it("shows a retry self-loop's backoff policy", async () => {
+        const retryDefinition = JSON.parse(
+            readFileSync(join(__dirname, '..', 'fixtures', 'retry.asl.json'), 'utf-8'),
+        ) as AslDefinition;
+        const retryPage = await browser.newPage();
+        try {
+            await retryPage.setViewport({ width: 1280, height: 800 });
+            await retryPage.setContent(generateHtml({ aslDefinition: retryDefinition }).html, {
+                waitUntil: 'load',
+            });
+            const target = await retryPage.evaluate(() => {
+                const path = Array.from(document.querySelectorAll('path[data-edge-id]')).find(
+                    (element) => element.getAttribute('data-edge-id') === 'Submit->Submit#retry#0',
+                ) as SVGPathElement;
+                const point = path.getPointAtLength(path.getTotalLength() / 2);
+                const matrix = path.getScreenCTM()!;
+                return {
+                    x: point.x * matrix.a + point.y * matrix.c + matrix.e,
+                    y: point.x * matrix.b + point.y * matrix.d + matrix.f,
+                };
+            });
+            await retryPage.mouse.move(target.x, target.y);
+            await retryPage.mouse.down();
+            await retryPage.mouse.up();
+
+            expect(
+                await retryPage.$eval('#sfn-panel-title', (element) => element.textContent),
+            ).toBe('Submit->Submit#retry#0');
+            expect(
+                await retryPage.$$eval('.sfn-field dt', (els) => els.map((el) => el.textContent)),
+            ).toEqual(['From', 'To', 'Type', 'Label', 'Details']);
+            expect(
+                await retryPage.$$eval('.sfn-field dd', (els) => els.map((el) => el.textContent)),
+            ).toContain(
+                'States.Timeout: up to 4 retries, first after 2s, backoff 2x; States.ALL: up to 2 retries, first after 1s, backoff 2x',
+            );
+        } finally {
+            await retryPage.close();
+        }
+    }, 20_000);
 });
 
 describe('edge detail panel inside a Parallel container', () => {

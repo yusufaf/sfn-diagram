@@ -66962,11 +66962,45 @@ var EDGE_LABELS = {
 };
 var MAP_IO_NODE_TYPES = /* @__PURE__ */ new Set(["ItemReader", "ResultWriter"]);
 var DEFAULT_MAX_ATTEMPTS2 = 3;
+var DEFAULT_INTERVAL_SECONDS = 1;
+var DEFAULT_BACKOFF_RATE = 2;
 function getRetryLabel(retryBlocks) {
   const parts = retryBlocks.map((retry) => {
     return `${retry.ErrorEquals?.join(", ") || "All"} (${retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS2}x)`;
   });
   return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join("; ")}`;
+}
+function formatRetryValue(params) {
+  const { fallback: fallback2, value } = params;
+  if (typeof value === "number") return String(value);
+  if (isNonEmptyString(value)) return elide(value);
+  return fallback2 === void 0 ? void 0 : String(fallback2);
+}
+function getRetryDetail(retryBlocks) {
+  return retryBlocks.map((retry) => {
+    const errors = retry.ErrorEquals?.join(", ") || "All";
+    const maxAttempts = formatRetryValue({
+      fallback: DEFAULT_MAX_ATTEMPTS2,
+      value: retry.MaxAttempts
+    });
+    if (maxAttempts === "0") return `${errors}: never retried`;
+    const parts = [
+      `up to ${maxAttempts} retr${maxAttempts === "1" ? "y" : "ies"}`,
+      `first after ${formatRetryValue({
+        fallback: DEFAULT_INTERVAL_SECONDS,
+        value: retry.IntervalSeconds
+      })}s`,
+      `backoff ${formatRetryValue({
+        fallback: DEFAULT_BACKOFF_RATE,
+        value: retry.BackoffRate
+      })}x`
+    ];
+    const maxDelay = formatRetryValue({ value: retry.MaxDelaySeconds });
+    if (maxDelay !== void 0) parts.push(`max delay ${maxDelay}s`);
+    const jitter = retry.JitterStrategy;
+    if (isNonEmptyString(jitter) && jitter.toUpperCase() !== "NONE") parts.push(`${jitter.toLowerCase()} jitter`);
+    return `${errors}: ${parts.join(", ")}`;
+  }).join("; ");
 }
 function getErrorLabel(errorTypes) {
   const errors = errorTypes?.join(", ") || "Any";
@@ -68061,6 +68095,7 @@ function extractEdgesFromState(params) {
       });
   }
   if (state2.Retry && state2.Retry.length > 0) edges.push({
+    detail: getRetryDetail(state2.Retry),
     from: stateId,
     label: getRetryLabel(state2.Retry),
     to: stateId,

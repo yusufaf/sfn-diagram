@@ -57,6 +57,14 @@ describe('collectEdgeData', () => {
         });
     });
 
+    it("carries a retry self-loop's backoff policy as its detail", () => {
+        const edgeData = collectEdgeData({ definition: loadFixture('retry') });
+
+        expect(edgeData['Submit->Submit#retry#0'].detail).toBe(
+            'States.Timeout: up to 4 retries, first after 2s, backoff 2x; States.ALL: up to 2 retries, first after 1s, backoff 2x',
+        );
+    });
+
     it('distinguishes two Choice rules that share a Next', () => {
         const edgeData = collectEdgeData({ definition: loadFixture('parallel-edges') });
 
