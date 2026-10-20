@@ -66998,7 +66998,7 @@ function getRetryDetail(retryBlocks) {
     const maxDelay = formatRetryValue({ value: retry.MaxDelaySeconds });
     if (maxDelay !== void 0) parts.push(`max delay ${maxDelay}s`);
     const jitter = retry.JitterStrategy;
-    if (isNonEmptyString(jitter) && jitter.toUpperCase() !== "NONE") parts.push(`${jitter.toLowerCase()} jitter`);
+    if (isNonEmptyString(jitter) && jitter.toUpperCase() !== "NONE") parts.push(`${elide(jitter.toLowerCase())} jitter`);
     return `${errors}: ${parts.join(", ")}`;
   }).join("; ");
 }

@@ -107,7 +107,7 @@ export function getRetryDetail(retryBlocks: RetryBlock[]): string {
             }
             const jitter = retry.JitterStrategy;
             if (isNonEmptyString(jitter) && jitter.toUpperCase() !== 'NONE') {
-                parts.push(`${jitter.toLowerCase()} jitter`);
+                parts.push(`${elide(jitter.toLowerCase())} jitter`);
             }
             return `${errors}: ${parts.join(', ')}`;
         })
