@@ -102,6 +102,28 @@ describe('MermaidRenderer', () => {
             expect(result.code).toContain(
                 'Submit --> Submit: ↻ States.Timeout (4x)#59; States.ALL (2x)',
             );
+            // The full backoff policy is tooltip-only; Mermaid keeps the short label.
+            expect(result.code).not.toContain('first after');
+        });
+
+        it('marks a Distributed Map that runs Express child executions', () => {
+            const { code } = generateMermaid({
+                aslDefinition: {
+                    StartAt: 'M',
+                    States: {
+                        M: {
+                            End: true,
+                            ItemProcessor: {
+                                ProcessorConfig: { ExecutionType: 'EXPRESS', Mode: 'DISTRIBUTED' },
+                                StartAt: 'P',
+                                States: { P: { End: true, Type: 'Pass' } },
+                            },
+                            Type: 'Map',
+                        },
+                    },
+                },
+            });
+            expect(code).toContain('M: M (Distributed · Express)');
         });
     });
 

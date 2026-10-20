@@ -5,6 +5,7 @@ import { join } from 'path';
 import type { AslDefinition } from '../src/types';
 import { applyCollapse } from '../src/graph';
 import { DagreLayout } from '../src/layout';
+import { getNodeSubLabel } from '../src/constants';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -1333,6 +1334,70 @@ describe('AslParser', () => {
                     mapWith({ ItemBatcher: { MaxInputBytesPerBatchPath: '$.batchBytes' } }),
                 ).itemBatching,
             ).toBe('batches ≤ $.batchBytes');
+        });
+
+        it('reads the tolerated-failure reference-path variants', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCountPath: '$.count' })).toleratedFailure,
+            ).toBe('tolerate $.count failures');
+            expect(
+                nodeFor(mapWith({ ToleratedFailurePercentagePath: '$.pct' })).toleratedFailure,
+            ).toBe('tolerate $.pct%');
+            expect(
+                nodeFor(
+                    mapWith({
+                        ToleratedFailureCountPath: '$.count',
+                        ToleratedFailurePercentagePath: '$.pct',
+                    }),
+                ).toleratedFailure,
+            ).toBe('tolerate $.count failures or $.pct%');
+        });
+
+        it('prefers a literal tolerance over its path and ignores an empty path', () => {
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCount: 5, ToleratedFailureCountPath: '$.count' }))
+                    .toleratedFailure,
+            ).toBe('tolerate 5 failures');
+            expect(
+                nodeFor(mapWith({ ToleratedFailureCountPath: '' })).toleratedFailure,
+            ).toBeUndefined();
+        });
+
+        it('reads MaxConcurrencyPath when MaxConcurrency is not set', () => {
+            const node = nodeFor(mapWith({ MaxConcurrencyPath: '$.limit' }));
+            expect(node.maxConcurrency).toBe('$.limit');
+            expect(getNodeSubLabel({ node, showStateType: false })).toContain('max $.limit');
+            expect(
+                nodeFor(mapWith({ MaxConcurrency: 10, MaxConcurrencyPath: '$.limit' })).maxConcurrency,
+            ).toBe(10);
+            expect(nodeFor(mapWith({ MaxConcurrencyPath: '' })).maxConcurrency).toBeUndefined();
+        });
+
+        const mapWithExecution = (mode: 'DISTRIBUTED' | 'INLINE', executionType: string): AslDefinition =>
+            ({
+                StartAt: 'Each',
+                States: {
+                    Each: {
+                        End: true,
+                        ItemProcessor: {
+                            ProcessorConfig: { ExecutionType: executionType, Mode: mode },
+                            StartAt: 'Handle',
+                            States: { Handle: { End: true, Type: 'Pass' } },
+                        },
+                        Type: 'Map',
+                    },
+                },
+            }) as AslDefinition;
+
+        it('marks a Distributed Map that runs Express child executions', () => {
+            const node = nodeFor(mapWithExecution('DISTRIBUTED', 'EXPRESS'));
+            expect(node.isExpressMap).toBe(true);
+            expect(getNodeSubLabel({ node, showStateType: false })).toMatch(/^Distributed · Express/);
+        });
+
+        it('does not mark a Standard Distributed Map or an inline Map as Express', () => {
+            expect(nodeFor(mapWithExecution('DISTRIBUTED', 'STANDARD')).isExpressMap).toBeUndefined();
+            expect(nodeFor(mapWithExecution('INLINE', 'EXPRESS')).isExpressMap).toBeUndefined();
         });
 
         it('reports a sub-kibibyte batch size in bytes rather than as 0KB', () => {

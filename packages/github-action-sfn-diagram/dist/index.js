@@ -67086,11 +67086,13 @@ function getToleratedFailureLabel(params) {
     queryLanguage,
     value: count
   }))} failures`);
+  else if (isNonEmptyString(state2.ToleratedFailureCountPath)) parts.push(`${elide(state2.ToleratedFailureCountPath)} failures`);
   if (typeof percentage === "number") parts.push(`${percentage}%`);
   else if (typeof percentage === "string") parts.push(`${elide(unwrapExpression({
     queryLanguage,
     value: percentage
   }))}%`);
+  else if (isNonEmptyString(state2.ToleratedFailurePercentagePath)) parts.push(`${elide(state2.ToleratedFailurePercentagePath)}%`);
   return parts.length > 0 ? `tolerate ${parts.join(" or ")}` : "";
 }
 var BYTES_PER_KIB = 1024;
@@ -67176,6 +67178,7 @@ function getNodeSubLabelParts(params) {
   if (node.collapsed && node.collapsedCount !== void 0) parts.push(`${node.collapsedCount} state${node.collapsedCount === 1 ? "" : "s"}`);
   if (showStateType) parts.push(node.isContainer ? `${node.type} state` : node.type);
   if (node.isDistributedMap) parts.push("Distributed");
+  if (node.isExpressMap) parts.push("Express");
   if (typeof node.maxConcurrency === "number") parts.push(`max ${node.maxConcurrency}`);
   else if (typeof node.maxConcurrency === "string") parts.push(`max ${elide(node.maxConcurrency)}`);
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
@@ -67952,12 +67955,17 @@ function createStateNode(params) {
   }
   if (isContainer) baseNode.children = [];
   if (state2.Type === "Map") {
-    if (getMapProcessor(state2)?.ProcessorConfig?.Mode === "DISTRIBUTED") baseNode.isDistributedMap = true;
+    const processorConfig = getMapProcessor(state2)?.ProcessorConfig;
+    if (processorConfig?.Mode === "DISTRIBUTED") {
+      baseNode.isDistributedMap = true;
+      if (processorConfig.ExecutionType === "EXPRESS") baseNode.isExpressMap = true;
+    }
     if (typeof state2.MaxConcurrency === "string") baseNode.maxConcurrency = unwrapExpression({
       queryLanguage,
       value: state2.MaxConcurrency
     });
     else if (state2.MaxConcurrency !== void 0) baseNode.maxConcurrency = state2.MaxConcurrency;
+    else if (typeof state2.MaxConcurrencyPath === "string" && state2.MaxConcurrencyPath !== "") baseNode.maxConcurrency = state2.MaxConcurrencyPath;
     const toleratedFailure = getToleratedFailureLabel({
       queryLanguage,
       state: state2

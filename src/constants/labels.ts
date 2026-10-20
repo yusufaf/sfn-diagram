@@ -535,6 +535,8 @@ export function getTaskHeartbeatLabel(params: StateLabelParams): string {
  * ```typescript
  * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailurePercentage: 5 } }); // 'tolerate 5%'
  * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailureCount: 100 } });    // 'tolerate 100 failures'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailureCountPath: '$.count' } });      // 'tolerate $.count failures'
+ * getToleratedFailureLabel({ queryLanguage: 'JSONPath', state: { Type: 'Map', ToleratedFailurePercentagePath: '$.pct' } });   // 'tolerate $.pct%'
  * ```
  */
 export function getToleratedFailureLabel(params: StateLabelParams): string {
@@ -550,12 +552,16 @@ export function getToleratedFailureLabel(params: StateLabelParams): string {
         // can. Unwrap it as the Wait path does, rather than rendering
         // `tolerate {% $count %} failures`.
         parts.push(`${elide(unwrapExpression({ queryLanguage, value: count }))} failures`);
+    } else if (isNonEmptyString(state.ToleratedFailureCountPath)) {
+        parts.push(`${elide(state.ToleratedFailureCountPath)} failures`);
     }
 
     if (typeof percentage === 'number') {
         parts.push(`${percentage}%`);
     } else if (typeof percentage === 'string') {
         parts.push(`${elide(unwrapExpression({ queryLanguage, value: percentage }))}%`);
+    } else if (isNonEmptyString(state.ToleratedFailurePercentagePath)) {
+        parts.push(`${elide(state.ToleratedFailurePercentagePath)}%`);
     }
 
     return parts.length > 0 ? `tolerate ${parts.join(' or ')}` : '';
@@ -873,6 +879,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.isDistributedMap) {
         parts.push('Distributed');
+    }
+    if (node.isExpressMap) {
+        parts.push('Express');
     }
     if (typeof node.maxConcurrency === 'number') {
         parts.push(`max ${node.maxConcurrency}`);

@@ -289,6 +289,12 @@ export interface StateNode {
      */
     isEnd?: boolean;
     /**
+     * Whether this Distributed Map runs its child workflows as Express executions
+     * (`ProcessorConfig.ExecutionType: 'EXPRESS'`). Absent for `STANDARD` and for inline
+     * Maps, where `ExecutionType` has no effect.
+     */
+    isExpressMap?: boolean;
+    /**
      * A Map state's `ItemBatcher` sizing, pre-formatted for display (e.g. `batches of 50`).
      * Absent when the Map does not batch.
      */
@@ -316,7 +322,8 @@ export interface StateNode {
     mapLabel?: string;
     /**
      * A Map state's `MaxConcurrency`, when set. Displayed on the container header.
-     * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`).
+     * A JSONata expression is stored unwrapped (`$limit`, not `{% $limit %}`). Without a
+     * `MaxConcurrency`, holds the `MaxConcurrencyPath` reference path as written.
      */
     maxConcurrency?: number | string;
     /**

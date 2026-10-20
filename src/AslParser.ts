@@ -742,14 +742,21 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
     // ProcessorConfig sits on the ItemProcessor sub-definition, not on the
     // Map state itself.
     if (state.Type === 'Map') {
-        if (getMapProcessor(state)?.ProcessorConfig?.Mode === 'DISTRIBUTED') {
+        const processorConfig = getMapProcessor(state)?.ProcessorConfig;
+        if (processorConfig?.Mode === 'DISTRIBUTED') {
             baseNode.isDistributedMap = true;
+            // ExecutionType has no effect on an inline Map, and STANDARD is the default.
+            if (processorConfig.ExecutionType === 'EXPRESS') {
+                baseNode.isExpressMap = true;
+            }
         }
         if (typeof state.MaxConcurrency === 'string') {
             // A JSONata expression; a JSONPath literal string is shown as written.
             baseNode.maxConcurrency = unwrapExpression({ queryLanguage, value: state.MaxConcurrency });
         } else if (state.MaxConcurrency !== undefined) {
             baseNode.maxConcurrency = state.MaxConcurrency;
+        } else if (typeof state.MaxConcurrencyPath === 'string' && state.MaxConcurrencyPath !== '') {
+            baseNode.maxConcurrency = state.MaxConcurrencyPath;
         }
 
         const toleratedFailure = getToleratedFailureLabel({ queryLanguage, state });
