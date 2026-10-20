@@ -386,6 +386,14 @@ describe('AslParser', () => {
             expect(getRetryDetail([{ ErrorEquals: [] }])).toMatch(/^All: /);
         });
 
+        it('shortens a long substituted jitter strategy like the other fields', () => {
+            const detail = getRetryDetail([
+                { ErrorEquals: ['X'], JitterStrategy: '<Ref:SomeVeryLongJitterParameterName>' },
+            ] as unknown as RetryBlock[]);
+            expect(detail).toContain('…');
+            expect(detail).not.toContain('parametername>');
+        });
+
         it('shows a string-valued field as written, agreeing with the drawn label', () => {
             // CloudFormation substitution delivers numbers as strings at runtime.
             const substituted = [
