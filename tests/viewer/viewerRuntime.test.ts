@@ -7,6 +7,7 @@ import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer';
 import { generateHtml, generateViewerUpdate } from '../../src';
 import type { ViewerUpdate } from '../../src';
 import type { AslDefinition } from '../../src/types';
+import { AUTO_THEME_DARK_CSS } from '../../src/config/autoTheme';
 
 /**
  * Runtime tests for the inline viewer controller.
@@ -3005,15 +3006,12 @@ describe('toolbar exports', () => {
     const buttonLabel = (selector: string): Promise<string | null> =>
         exportPage.$eval(selector, (element) => element.textContent);
 
-    beforeAll(async () => {
-        exportPage = await browser.newPage();
-        await exportPage.setViewport({ width: 1280, height: 800 });
-        const { html } = generateHtml({ aslDefinition: definition });
-        await exportPage.setContent(html, { waitUntil: 'load' });
-
-        // Capture the download rather than letting Chromium write it to disk, and
-        // record the clipboard the copy button reaches for.
-        await exportPage.evaluate(() => {
+    /**
+     * Capture the download rather than letting Chromium write it to disk, and record
+     * the clipboard the copy button reaches for.
+     */
+    const installExportCapture = (target: Page): Promise<void> =>
+        target.evaluate(() => {
             const store = window as unknown as {
                 sfnClipboard?: string;
                 sfnDownloads?: Array<{ name: string; type: string }>;
@@ -3046,6 +3044,13 @@ describe('toolbar exports', () => {
                 },
             });
         });
+
+    beforeAll(async () => {
+        exportPage = await browser.newPage();
+        await exportPage.setViewport({ width: 1280, height: 800 });
+        const { html } = generateHtml({ aslDefinition: definition });
+        await exportPage.setContent(html, { waitUntil: 'load' });
+        await installExportCapture(exportPage);
     }, 60_000);
 
     afterAll(async () => {
@@ -3101,6 +3106,57 @@ describe('toolbar exports', () => {
             input.value = '';
             input.dispatchEvent(new Event('input', { bubbles: true }));
         });
+    }, 20_000);
+
+    it('downloads well-formed XML when a state name holds a no-break space', async () => {
+        const nbspDefinition = JSON.parse(
+            readFileSync(join(__dirname, '..', 'fixtures', 'nbsp-names.asl.json'), 'utf-8'),
+        ) as AslDefinition;
+        const target = await browser.newPage();
+        try {
+            // The auto theme, so the download carries a <style> block to check as well.
+            const { html } = generateHtml({ aslDefinition: nbspDefinition, theme: 'auto' });
+            await target.setContent(html, { waitUntil: 'load' });
+            await installExportCapture(target);
+            const liveFont = await target.$eval('#sfn-content svg [font-family]', (element) =>
+                element.getAttribute('font-family'),
+            );
+
+            await target.evaluate(() => {
+                // A host-supplied SVG may carry no xmlns; the download must declare it anyway.
+                document.querySelector('#sfn-content svg')!.removeAttribute('xmlns');
+                (document.querySelector('[data-sfn="export-svg"]') as HTMLElement).click();
+            });
+            await target.waitForFunction(
+                () => (window as unknown as { sfnLastBlob?: string }).sfnLastBlob !== undefined,
+                { polling: 20, timeout: 5_000 },
+            );
+
+            const result = await target.evaluate(() => {
+                const blob = (window as unknown as { sfnLastBlob: string }).sfnLastBlob;
+                const parsed = new DOMParser().parseFromString(blob, 'image/svg+xml');
+                return {
+                    blob,
+                    font: parsed.querySelector('[font-family]')?.getAttribute('font-family') ?? null,
+                    parseError: parsed.querySelector('parsererror')?.textContent ?? null,
+                    rootNamespace: parsed.documentElement.namespaceURI,
+                    stateIds: [...parsed.querySelectorAll('[data-state-id]')].map((element) =>
+                        element.getAttribute('data-state-id'),
+                    ),
+                    styles: [...parsed.querySelectorAll('style')].map((element) => element.textContent),
+                };
+            });
+
+            expect(result.parseError).toBeNull();
+            expect(result.blob).not.toContain('&nbsp;');
+            expect(result.stateIds).toContain('Charge\u00A0Card');
+            expect(result.rootNamespace).toBe('http://www.w3.org/2000/svg');
+            expect(result.blob.split('xmlns="http://www.w3.org/2000/svg"')).toHaveLength(2);
+            expect(result.styles).toEqual([AUTO_THEME_DARK_CSS]);
+            expect(result.font).toBe(liveFont);
+        } finally {
+            await target.close();
+        }
     }, 20_000);
 
     it('copies the embedded Mermaid source', async () => {

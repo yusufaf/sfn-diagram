@@ -325,8 +325,7 @@ export interface RasterizeSvgParams {
  *
  * Loaded from a `data:` URL rather than a `blob:` one, since a strict host CSP
  * (VS Code's) allows `data:` in `img-src` but not `blob:`. The markup must come from
- * `XMLSerializer`: `outerHTML` writes `&nbsp;`, which XML does not define, and the
- * image then fails to load.
+ * `serializeSvg` (exportActions.ts), not `outerHTML`, or the image fails to load.
  *
  * @param params - Rasterise parameters
  * @param params.height - Diagram height in CSS pixels

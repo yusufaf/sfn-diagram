@@ -110,7 +110,7 @@ export async function copyText(params: { ownerDoc: Document | null; text: string
  *
  * @param params - Clone parameters
  * @param params.svg - The live SVG element to copy
- * @returns A detached, standalone copy of the SVG
+ * @returns A detached copy of the SVG, to write out with {@link serializeSvg}
  *
  * @example
  * ```typescript
@@ -128,27 +128,40 @@ export function cleanVisibleSvgClone(params: { svg: SVGSVGElement }): SVGSVGElem
     }
     clone.classList.remove('sfn-playing');
     if (clone.getAttribute('class') === '') clone.removeAttribute('class');
-
-    // A file opened on its own has no page to inherit the SVG namespace from.
-    if (!clone.getAttribute('xmlns')) clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
     return clone;
 }
 
+/** Parameters for {@link serializeSvg}. */
+export interface SerializeSvgParams {
+    /** The detached SVG to write out, e.g. from {@link cleanVisibleSvgClone}. */
+    svg: SVGSVGElement;
+    /** The window whose `XMLSerializer` writes it. */
+    view: Window & typeof globalThis;
+}
+
 /**
- * Serialize the SVG on screen, without the classes the viewer painted onto it (see
- * {@link cleanVisibleSvgClone}).
+ * Write an SVG out as standalone XML markup, for both the SVG download and the PNG
+ * rasteriser.
+ *
+ * `XMLSerializer`, not `outerHTML`: the HTML parser has already decoded `&#160;` to
+ * U+00A0, and HTML serialization writes it back as `&nbsp;`, an entity XML does not
+ * define. The downloaded file would then fail to open in XML consumers (a browser
+ * opening it directly, Inkscape, resvg), and the markup would not load as an image.
+ * `XMLSerializer` also declares the SVG namespace on the root itself, so the file
+ * opens on its own even when the live element carries no `xmlns` attribute.
  *
  * @param params - Serialization parameters
- * @param params.svg - The live SVG element to copy
- * @returns Standalone SVG markup
+ * @param params.svg - The SVG to write out
+ * @param params.view - The window that owns it
+ * @returns SVG markup with no HTML-only entities in it
  *
  * @example
  * ```typescript
- * const markup = serializeVisibleSvg({ svg: viewport.activeSvg()! });
+ * const markup = serializeSvg({ svg: cleanVisibleSvgClone({ svg }), view: window });
  * ```
  */
-export function serializeVisibleSvg(params: { svg: SVGSVGElement }): string {
-    return cleanVisibleSvgClone(params).outerHTML;
+export function serializeSvg(params: SerializeSvgParams): string {
+    return new params.view.XMLSerializer().serializeToString(params.svg);
 }
 
 /** Wire up the toolbar's download-SVG, download-PNG and copy-Mermaid buttons, when present. */
@@ -214,12 +227,13 @@ export function attachExportActions(params: AttachExportActionsParams): void {
     if (downloadButton) {
         on(downloadButton, 'click', () => {
             const svg = viewport.activeSvg();
-            if (!svg || !ownerDoc) {
+            const view = ownerDoc?.defaultView;
+            if (!svg || !ownerDoc || !view) {
                 flash(downloadButton, 'Failed');
                 return;
             }
 
-            const blob = new Blob([serializeVisibleSvg({ svg })], {
+            const blob = new Blob([serializeSvg({ svg: cleanVisibleSvgClone({ svg }), view })], {
                 type: 'image/svg+xml;charset=utf-8',
             });
             download({ blob, doc: ownerDoc, filename: 'diagram.svg' });
@@ -254,9 +268,7 @@ export function attachExportActions(params: AttachExportActionsParams): void {
                     clone.setAttribute('height', String(size.height));
 
                     const missing = await inlineRemoteImages({ clone, ownerDoc, scale: RASTER_SCALE });
-                    // XMLSerializer, not outerHTML: outerHTML writes `&nbsp;`, which stops
-                    // the markup loading as an image at all.
-                    const markup = new view.XMLSerializer().serializeToString(clone);
+                    const markup = serializeSvg({ svg: clone, view });
                     const blob = await rasterizeSvg({ ...size, markup, ownerDoc, scale: RASTER_SCALE });
                     if (destroyed) return;
                     if (!blob) {
