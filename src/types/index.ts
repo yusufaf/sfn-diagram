@@ -299,6 +299,11 @@ export interface StateNode {
      */
     itemSelector?: string;
     /**
+     * The JSONata `Items` a Map state iterates, pre-formatted for display
+     * (e.g. `items $states.input.orders`). Absent when the Map sets no `Items`.
+     */
+    items?: string;
+    /**
      * The array a Map state iterates, pre-formatted for display (e.g. `items $.orders`).
      * Absent when the Map sets no `ItemsPath`.
      */

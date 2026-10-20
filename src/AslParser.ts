@@ -19,6 +19,7 @@ import {
     getFailErrorLabel,
     getItemBatchingLabel,
     getItemSelectorLabel,
+    getItemsLabel,
     getItemsPathLabel,
     getOutputLabel,
     getRetryLabel,
@@ -764,6 +765,11 @@ function createStateNode(params: CreateStateNodeParams): StateNode {
         const itemsPath = getItemsPathLabel(state);
         if (itemsPath !== '') {
             baseNode.itemsPath = itemsPath;
+        }
+
+        const items = getItemsLabel({ queryLanguage, state });
+        if (items !== '') {
+            baseNode.items = items;
         }
 
         const itemSelector = getItemSelectorLabel({ queryLanguage, state });

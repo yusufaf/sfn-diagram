@@ -67109,6 +67109,15 @@ function getItemBatchingLabel(state2) {
 function getItemsPathLabel(state2) {
   return typeof state2.ItemsPath === "string" && state2.ItemsPath !== "" ? `items ${elide(state2.ItemsPath)}` : "";
 }
+function getItemsLabel(params) {
+  const { queryLanguage, state: state2 } = params;
+  return getPayloadLabel({
+    emptyIsSet: false,
+    prefix: "items",
+    queryLanguage,
+    value: state2.Items
+  });
+}
 var JSONPATH_KEY_SUFFIX$1 = ".$";
 function getPayloadLabel(params) {
   const { emptyIsSet, prefix, queryLanguage, value } = params;
@@ -67172,6 +67181,7 @@ function getNodeSubLabelParts(params) {
   if (node.toleratedFailure !== void 0) parts.push(node.toleratedFailure);
   if (node.itemBatching !== void 0) parts.push(node.itemBatching);
   if (node.itemsPath !== void 0) parts.push(node.itemsPath);
+  if (node.items !== void 0) parts.push(node.items);
   if (node.itemSelector !== void 0) parts.push(node.itemSelector);
   if (node.mapLabel !== void 0) parts.push(node.mapLabel);
   if (node.waitDuration !== void 0) parts.push(node.waitDuration);
@@ -67957,6 +67967,11 @@ function createStateNode(params) {
     if (itemBatching !== "") baseNode.itemBatching = itemBatching;
     const itemsPath = getItemsPathLabel(state2);
     if (itemsPath !== "") baseNode.itemsPath = itemsPath;
+    const items = getItemsLabel({
+      queryLanguage,
+      state: state2
+    });
+    if (items !== "") baseNode.items = items;
     const itemSelector = getItemSelectorLabel({
       queryLanguage,
       state: state2

@@ -634,6 +634,29 @@ export function getItemsPathLabel(state: AslState): string {
         : '';
 }
 
+/**
+ * Describe what a JSONata-mode Map state iterates, for display on the container header.
+ *
+ * The JSONata counterpart of `ItemsPath`: `Items` may be an expression, a literal
+ * array or an object, so it is summarized the way `ItemSelector` is. An expression is
+ * unwrapped, an object is described by its keys, and an array is shown as written.
+ *
+ * @param params.queryLanguage - The state's resolved query language
+ * @param params.state - The Map state to describe
+ * @returns A label such as `items $states.input.orders`, or an empty string when no `Items` is set
+ *
+ * @example
+ * ```typescript
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: '{% $states.input.orders %}' } }); // 'items $states.input.orders'
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: [1, 2, 3] } });                    // 'items [1,2,3]'
+ * getItemsLabel({ queryLanguage: 'JSONata', state: { Type: 'Map', Items: { a: 1, b: 2 } } });               // 'items a, b'
+ * ```
+ */
+export function getItemsLabel(params: StateLabelParams): string {
+    const { queryLanguage, state } = params;
+    return getPayloadLabel({ emptyIsSet: false, prefix: 'items', queryLanguage, value: state.Items });
+}
+
 /** Suffix a JSONPath-mode payload key carries when its value is a path rather than a literal. */
 const JSONPATH_KEY_SUFFIX = '.$';
 
@@ -865,6 +888,9 @@ export function getNodeSubLabelParts(params: GetNodeSubLabelParams): string[] {
     }
     if (node.itemsPath !== undefined) {
         parts.push(node.itemsPath);
+    }
+    if (node.items !== undefined) {
+        parts.push(node.items);
     }
     if (node.itemSelector !== undefined) {
         parts.push(node.itemSelector);
