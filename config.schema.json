@@ -1,0 +1,626 @@
+{
+  "$id": "https://sfn.yusufaf.dev/config.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Configuration for the sfn-diagram CLI. See https://sfn.yusufaf.dev/guides/cli/#configuration-file",
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema this file follows, for editor completion.",
+      "type": "string"
+    },
+    "backgroundColor": {
+      "description": "Background colour (PNG only).",
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "catchHandling": {
+      "description": "How to treat per-state Catch branches: 'show' renders them, 'hide' drops error edges and handler-only states.",
+      "enum": [
+        "hide",
+        "show"
+      ],
+      "type": "string"
+    },
+    "catchLabelStyle": {
+      "description": "Catch edge labels: 'error-type' shows error names, 'catch-number' shows \"Catch #N\".",
+      "enum": [
+        "catch-number",
+        "error-type"
+      ],
+      "type": "string"
+    },
+    "collapse": {
+      "description": "Collapse Parallel/Map containers into a placeholder: true for all, or a list of container names.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "customColors": {
+      "description": "Per-state-type fill and stroke, keyed by state type and applied over whichever theme is chosen.",
+      "additionalProperties": false,
+      "properties": {
+        "Choice": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Fail": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Map": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Parallel": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Pass": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Succeed": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Task": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "Wait": {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "fill": {
+              "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "stroke": {
+              "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+              "pattern": "\\S",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "diagramDescription": {
+      "description": "Accessible description, rendered as the root <svg>'s <desc>.",
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "diagramTitle": {
+      "description": "Accessible name, rendered as the root <svg>'s <title> and aria-label.",
+      "pattern": "\\S",
+      "type": "string"
+    },
+    "edgeOverrides": {
+      "description": "Per-edge style, keyed by edge id (From->To#normal#0) or From->To for every edge between the pair (SVG, HTML and PNG).",
+      "additionalProperties": {
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "stroke": {
+            "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "strokeOpacity": {
+            "description": "Opacity of the edge path, arrowhead and label, from 0 to 1.",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "strokeWidth": {
+            "description": "Stroke width in pixels.",
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "propertyNames": {
+        "pattern": "->",
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "edgeStyle": {
+      "description": "Style of edge paths.",
+      "enum": [
+        "curved",
+        "orthogonal",
+        "straight"
+      ],
+      "type": "string"
+    },
+    "format": {
+      "description": "Output format.",
+      "enum": [
+        "html",
+        "mermaid",
+        "png",
+        "svg"
+      ],
+      "type": "string"
+    },
+    "iconPosition": {
+      "description": "Position of AWS service icons relative to the node label.",
+      "enum": [
+        "left",
+        "right",
+        "top"
+      ],
+      "type": "string"
+    },
+    "iconSize": {
+      "description": "Size of AWS service icons in pixels.",
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "includeComments": {
+      "description": "Use state comments as node labels.",
+      "type": "boolean"
+    },
+    "includeRawState": {
+      "description": "Inline each state's raw ASL in the viewer (HTML only).",
+      "type": "boolean"
+    },
+    "layout": {
+      "description": "Graph layout direction: TB (top-bottom), LR (left-right), RL (right-left), BT (bottom-top).",
+      "enum": [
+        "BT",
+        "LR",
+        "RL",
+        "TB"
+      ],
+      "type": "string"
+    },
+    "loadSystemFonts": {
+      "description": "Also parse every installed font (PNG only).",
+      "type": "boolean"
+    },
+    "nodeHeight": {
+      "description": "Height of each state node in pixels.",
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "nodeOverrides": {
+      "description": "Per-state style, keyed by state id: the state's name, or its data-state-id when the name repeats (SVG, HTML and PNG).",
+      "additionalProperties": {
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "fill": {
+            "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "shape": {
+            "description": "Node shape.",
+            "enum": [
+              "circle",
+              "diamond",
+              "rect"
+            ],
+            "type": "string"
+          },
+          "stroke": {
+            "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "strokeWidth": {
+            "description": "Stroke width in pixels.",
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "propertyNames": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "nodeSeparation": {
+      "description": "Horizontal separation between nodes in pixels.",
+      "minimum": 0,
+      "type": "number"
+    },
+    "nodeWidth": {
+      "description": "Width of each state node in pixels.",
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "padding": {
+      "description": "Padding around the diagram in pixels.",
+      "minimum": 0,
+      "type": "number"
+    },
+    "rankSeparation": {
+      "description": "Vertical separation between ranks in pixels.",
+      "minimum": 0,
+      "type": "number"
+    },
+    "redactFields": {
+      "description": "ASL field names to redact from the viewer (HTML only).",
+      "items": {
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "scale": {
+      "description": "Resolution multiplier, at most 10 (PNG only).",
+      "exclusiveMinimum": 0,
+      "maximum": 10,
+      "type": "number"
+    },
+    "showIcons": {
+      "description": "Display AWS service icons on Task state nodes.",
+      "type": "boolean"
+    },
+    "showStateTypes": {
+      "description": "Display state type labels on nodes.",
+      "type": "boolean"
+    },
+    "showVariables": {
+      "description": "Annotate nodes with the variables they assign via ASL Assign.",
+      "type": "boolean"
+    },
+    "stylePreset": {
+      "description": "Visual style preset: 'aws-standard' uses rectangles, 'enhanced' uses shapes per state type.",
+      "enum": [
+        "aws-standard",
+        "enhanced"
+      ],
+      "type": "string"
+    },
+    "theme": {
+      "description": "Colour theme: 'light', 'dark', 'auto', or a custom theme object.",
+      "anyOf": [
+        {
+          "enum": [
+            "auto",
+            "dark",
+            "light"
+          ],
+          "type": "string"
+        },
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "background": true
+              },
+              "required": [
+                "background"
+              ]
+            },
+            {
+              "properties": {
+                "base": true
+              },
+              "required": [
+                "base"
+              ]
+            },
+            {
+              "properties": {
+                "edgeColors": true
+              },
+              "required": [
+                "edgeColors"
+              ]
+            },
+            {
+              "properties": {
+                "fontFamily": true
+              },
+              "required": [
+                "fontFamily"
+              ]
+            },
+            {
+              "properties": {
+                "fontSize": true
+              },
+              "required": [
+                "fontSize"
+              ]
+            },
+            {
+              "properties": {
+                "nodeColors": true
+              },
+              "required": [
+                "nodeColors"
+              ]
+            },
+            {
+              "properties": {
+                "textColor": true
+              },
+              "required": [
+                "textColor"
+              ]
+            }
+          ],
+          "properties": {
+            "background": {
+              "description": "Diagram background colour."
+            },
+            "base": {
+              "description": "Built-in theme the omitted fields are taken from: 'light' (default) or 'dark'."
+            },
+            "edgeColors": {
+              "description": "Edge colours by edge type: normal, error and choice."
+            },
+            "fontFamily": {
+              "description": "Font family for labels."
+            },
+            "fontSize": {
+              "description": "Label font size in pixels."
+            },
+            "nodeColors": {
+              "description": "Per-state-type fill and stroke, keyed by state type."
+            },
+            "textColor": {
+              "description": "Label text colour."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "commentGitlab": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "catchHandling": {
+              "description": "How to treat per-state Catch branches: 'show' renders them, 'hide' drops error edges and handler-only states.",
+              "enum": [
+                "hide",
+                "show"
+              ],
+              "type": "string"
+            },
+            "collapse": {
+              "description": "Collapse Parallel/Map containers into a placeholder: true for all, or a list of container names.",
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "layout": {
+              "description": "Graph layout direction: TB (top-bottom), LR (left-right), RL (right-left), BT (bottom-top).",
+              "enum": [
+                "BT",
+                "LR",
+                "RL",
+                "TB"
+              ],
+              "type": "string"
+            },
+            "theme": {
+              "description": "Colour theme: 'light', 'dark', 'auto', or a custom theme object.",
+              "anyOf": [
+                {
+                  "enum": [
+                    "auto",
+                    "dark",
+                    "light"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "background": true
+                      },
+                      "required": [
+                        "background"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "base": true
+                      },
+                      "required": [
+                        "base"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "edgeColors": true
+                      },
+                      "required": [
+                        "edgeColors"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "fontFamily": true
+                      },
+                      "required": [
+                        "fontFamily"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "fontSize": true
+                      },
+                      "required": [
+                        "fontSize"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "nodeColors": true
+                      },
+                      "required": [
+                        "nodeColors"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "textColor": true
+                      },
+                      "required": [
+                        "textColor"
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "background": {
+                      "description": "Diagram background colour."
+                    },
+                    "base": {
+                      "description": "Built-in theme the omitted fields are taken from: 'light' (default) or 'dark'."
+                    },
+                    "edgeColors": {
+                      "description": "Edge colours by edge type: normal, error and choice."
+                    },
+                    "fontFamily": {
+                      "description": "Font family for labels."
+                    },
+                    "fontSize": {
+                      "description": "Label font size in pixels."
+                    },
+                    "nodeColors": {
+                      "description": "Per-state-type fill and stroke, keyed by state type."
+                    },
+                    "textColor": {
+                      "description": "Label text colour."
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "description": "Settings for `sfn-diagram comment gitlab`, which reads only this block."
+    }
+  },
+  "title": "sfn-diagram config",
+  "type": "object"
+}
