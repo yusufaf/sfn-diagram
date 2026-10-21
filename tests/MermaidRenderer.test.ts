@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { generateMermaid } from '../src';
+import { generateMermaid, generateMermaidDiff } from '../src';
 import { MermaidRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import type { AslDefinition } from '../src/types';
+import type { AslDefinition, CustomTheme } from '../src/types';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -639,6 +639,200 @@ describe('MermaidRenderer', () => {
             const result = new MermaidRenderer().render({ nodes, edges, asl: escapesAsl });
 
             expect(result.code).toMatchSnapshot();
+        });
+    });
+
+    describe('Colour values (#472)', () => {
+        const colourAsl: AslDefinition = {
+            StartAt: 'A',
+            States: {
+                A: { Type: 'Task', Resource: 'arn:aws:states:::lambda:invoke', End: true },
+            },
+        };
+        const defaultTaskLine =
+            '    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px';
+        const injected = 'red\n    A --> Injected';
+
+        const classDefLine = (code: string, className: string): string | undefined =>
+            code.split('\n').find((line) => line.startsWith(`    classDef ${className} `));
+        const noticeLines = (code: string): string[] =>
+            code.split('\n').filter((line) => line.startsWith('    %% sfn-diagram:'));
+        const defaultCode = generateMermaid({ aslDefinition: colourAsl }).code;
+
+        it('drops a customColors fill with a line break and keeps the theme colour', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: injected } },
+            });
+
+            expect(code).not.toContain('Injected');
+            expect(classDefLine(code, 'taskState')).toBe(defaultTaskLine);
+        });
+
+        it('drops a theme.nodeColors fill with a line break', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                theme: { nodeColors: { Task: { fill: injected } } },
+            });
+
+            expect(code).not.toContain('Injected');
+            expect(classDefLine(code, 'taskState')).toBe(defaultTaskLine);
+        });
+
+        it('drops a theme.nodeColors fill with a line break in diff output', () => {
+            const { code } = generateMermaidDiff({
+                after: colourAsl,
+                before: colourAsl,
+                theme: { nodeColors: { Task: { fill: injected } } },
+            });
+
+            expect(code).not.toContain('Injected');
+            expect(classDefLine(code, 'taskState')).toBe(defaultTaskLine);
+        });
+
+        it.each([
+            ['a carriage return', 'red\r    A --> Injected'],
+            ['a line separator', `red${String.fromCharCode(0x2028)}x`],
+            ['a paragraph separator', `red${String.fromCharCode(0x2029)}x`],
+            ['a semicolon', 'red;stroke-width:40px'],
+            ['braces', 'red {x}'],
+            ['a C0 control character', `red${String.fromCharCode(0x07)}`],
+            ['a C1 control character', `red${String.fromCharCode(0x85)}`],
+            ['an empty string', ''],
+            ['a blank string', '   '],
+            ['a non-string', 123 as unknown as string],
+        ])('drops a fill containing %s', (_label, fill) => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(defaultTaskLine);
+            expect(code).not.toContain('Injected');
+        });
+
+        it.each([
+            ['rgb(255, 153, 0)', 'rgb(255 153 0)'],
+            ['rgba(255, 153, 0, 0.5)', 'rgba(255 153 0 / 0.5)'],
+            ['hsl(30, 100%, 50%)', 'hsl(30 100% 50%)'],
+            ['HSLA(30,100%,50%,.5)', 'HSLA(30 100% 50% / .5)'],
+        ])('rewrites %s to %s', (colour, rewritten) => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: colour, stroke: colour } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(
+                `    classDef taskState fill:${rewritten},stroke:${rewritten},stroke-width:2px`,
+            );
+            expect(noticeLines(code)).toEqual([]);
+        });
+
+        it.each([
+            'red,stroke-width:40px',
+            'color-mix(in srgb, red, blue)',
+            'rgb(255, 153)',
+            'rgb(255 0, 0, 0)',
+        ])('drops %s, whose comma has no comma-free form', (fill) => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(defaultTaskLine);
+        });
+
+        it('falls back to theme.nodeColors when customColors is dropped', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: injected } },
+                theme: { nodeColors: { Task: { fill: '#111111' } } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(
+                '    classDef taskState fill:#111111,stroke:#d84315,stroke-width:2px',
+            );
+        });
+
+        it('falls back to the base theme when theme.nodeColors is dropped', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                theme: { base: 'dark', nodeColors: { Task: { fill: injected } } },
+            });
+
+            expect(code.startsWith("%%{init: {'theme':'dark'}}%%\n")).toBe(true);
+            expect(classDefLine(code, 'taskState')).toBe(
+                '    classDef taskState fill:#9c3400,stroke:#ffb74d,stroke-width:2px',
+            );
+        });
+
+        it('keeps a valid stroke when the fill beside it is dropped', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: injected, stroke: '#123456' } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(
+                '    classDef taskState fill:#fff3e0,stroke:#123456,stroke-width:2px',
+            );
+        });
+
+        it('notes each dropped field in a comment, without the dropped value', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: 'red,stroke-width:40px' } },
+                theme: { nodeColors: { Pass: { stroke: injected } } },
+            });
+
+            expect(noticeLines(code)).toEqual([
+                '    %% sfn-diagram: ignored theme.nodeColors.Pass.stroke, which Mermaid cannot draw',
+                '    %% sfn-diagram: ignored customColors.Task.fill, which Mermaid cannot draw',
+            ]);
+            expect(code).not.toContain('stroke-width:40px');
+            expect(code).not.toContain('%%{sfn');
+        });
+
+        it.each([
+            ['an undefined customColors fill', { customColors: { Task: { fill: undefined } } }],
+            ['an undefined theme fill', { theme: { nodeColors: { Pass: { fill: undefined } } } }],
+            ['a null theme entry', { theme: { nodeColors: { Task: null } } as unknown as CustomTheme }],
+        ])('treats %s as not set', (_label, options) => {
+            const { code } = generateMermaid({ aslDefinition: colourAsl, ...options });
+
+            expect(code).toBe(defaultCode);
+        });
+
+        it('keeps the theme stroke for a fill-only override without a notice', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill: '#ff9900' } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(
+                '    classDef taskState fill:#ff9900,stroke:#d84315,stroke-width:2px',
+            );
+            expect(noticeLines(code)).toEqual([]);
+        });
+
+        it.each(['#ff9900', 'red', 'rgb(255 153 0)'])('passes %s through unchanged', (fill) => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                customColors: { Task: { fill } },
+            });
+
+            expect(classDefLine(code, 'taskState')).toBe(
+                `    classDef taskState fill:${fill},stroke:#d84315,stroke-width:2px`,
+            );
+            expect(noticeLines(code)).toEqual([]);
+        });
+
+        it('ignores edge colours, which Mermaid never draws', () => {
+            const { code } = generateMermaid({
+                aslDefinition: colourAsl,
+                theme: { edgeColors: { normal: injected } },
+            });
+
+            expect(code).toBe(defaultCode);
         });
     });
 });
