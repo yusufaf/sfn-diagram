@@ -8,6 +8,7 @@ import {
     discoverConfigPath,
     loadCliConfig,
     loadCommentGitlabConfig,
+    validateCliConfig,
 } from '../../src/cliConfig';
 
 describe('discoverConfigPath', () => {
@@ -592,10 +593,14 @@ describe('loadCliConfig', () => {
         it('rejects a long invalid colour in linear time', () => {
             // A pattern whose leading run can also take the first non-space character
             // backtracks quadratically: 100,000 characters took seconds.
+            // Timed without file I/O, so only the check itself is measured.
             const fill = `${'a'.repeat(100_000)};`;
             const started = performance.now();
             expect(() =>
-                loadJson({ customColors: { Task: { fill } } }),
+                validateCliConfig({
+                    path: 'probe',
+                    raw: { customColors: { Task: { fill } } },
+                }),
             ).toThrowError(/Invalid customColors\.Task\.fill /);
             expect(performance.now() - started).toBeLessThan(1000);
         });
