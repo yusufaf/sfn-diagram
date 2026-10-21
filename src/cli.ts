@@ -1985,6 +1985,9 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
             ? { catchLabelStyle: options.catchLabelStyle }
             : {}),
         ...(options.collapse !== null ? { collapse: options.collapse } : {}),
+        ...(options.customColors !== null
+            ? { customColors: options.customColors }
+            : {}),
         ...(options.includeComments !== null
             ? { includeComments: options.includeComments }
             : {}),
@@ -2009,6 +2012,9 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         // Clickable edges are only wanted where a viewer is wired up. `--format svg`
         // must stay byte-identical, and generateHtmlAsync forces this on regardless.
         ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
+        ...(options.edgeOverrides !== null
+            ? { edgeOverrides: options.edgeOverrides }
+            : {}),
         ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
         ...(options.iconPosition !== null
             ? { iconPosition: options.iconPosition }
@@ -2016,6 +2022,9 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
         ...(options.nodeHeight !== null
             ? { nodeHeight: options.nodeHeight }
+            : {}),
+        ...(options.nodeOverrides !== null
+            ? { nodeOverrides: options.nodeOverrides }
             : {}),
         ...(options.nodeSeparation !== null
             ? { nodeSeparation: options.nodeSeparation }

@@ -63,8 +63,10 @@ export interface ResolvedCliOptions {
     catchHandling: CatchHandling;
     catchLabelStyle: CatchLabelStyle | null;
     collapse: string[] | boolean | null;
+    customColors: CliConfig['customColors'] | null;
     diagramDescription: string | null;
     diagramTitle: string | null;
+    edgeOverrides: CliConfig['edgeOverrides'] | null;
     edgeStyle: EdgePathStyle | null;
     format: DiagramFormat;
     iconPosition: 'left' | 'right' | 'top' | null;
@@ -74,6 +76,7 @@ export interface ResolvedCliOptions {
     layout: LayoutDirection;
     loadSystemFonts: boolean | null;
     nodeHeight: number | null;
+    nodeOverrides: CliConfig['nodeOverrides'] | null;
     nodeSeparation: number | null;
     nodeWidth: number | null;
     padding: number | null;
@@ -159,11 +162,14 @@ export function resolveCliOptions(
             settings.catchLabelStyle,
         ),
         collapse: pickOptional(args.collapse, settings.collapse),
+        // Config-only: the style maps have no flag.
+        customColors: settings.customColors ?? null,
         diagramDescription: pickOptional(
             args.diagramDescription,
             settings.diagramDescription,
         ),
         diagramTitle: pickOptional(args.diagramTitle, settings.diagramTitle),
+        edgeOverrides: settings.edgeOverrides ?? null,
         edgeStyle: pickOptional(args.edgeStyle, settings.edgeStyle),
         format: pick(args.format, settings.format, 'svg'),
         iconPosition: pickOptional(args.iconPosition, settings.iconPosition),
@@ -183,6 +189,7 @@ export function resolveCliOptions(
             settings.loadSystemFonts,
         ),
         nodeHeight: pickOptional(args.nodeHeight, settings.nodeHeight),
+        nodeOverrides: settings.nodeOverrides ?? null,
         nodeSeparation: pickOptional(
             args.nodeSeparation,
             settings.nodeSeparation,

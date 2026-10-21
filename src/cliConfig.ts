@@ -8,7 +8,10 @@ import type {
     CustomTheme,
     DiagramFormat,
     EdgePathStyle,
+    EdgeStyleOverride,
     LayoutDirection,
+    NodeStyle,
+    StateType,
     StylePreset,
 } from './types';
 
@@ -157,10 +160,10 @@ export function discoverConfigPath(
  * see the same vocabulary: `catchHandling` rather than `hideCatch`, `includeComments`
  * rather than `hideComments`.
  *
- * Only data-valued options appear. `iconResolver`, `redact`, `customColors`,
- * `nodeOverrides`, `edgeOverrides` and `nodeAnnotations` are callbacks or record maps
- * with no textual form the CLI can accept, and stay API-only; `redactFields` and
- * `includeRawState` cover the common cases of `redact`.
+ * Only data-valued options appear. `iconResolver` and `redact` are callbacks and stay
+ * API-only, as does `nodeAnnotations`; `redactFields` and `includeRawState` cover the
+ * common cases of `redact`. The style maps (`customColors`, `nodeOverrides`,
+ * `edgeOverrides`) have no flag, so the file is the CLI's only way to set them.
  *
  * A `commentGitlab` block in the same file is not part of this type: it belongs to
  * `sfn-diagram comment gitlab` ({@link CommentGitlabConfig}), and the main CLI ignores it.
@@ -170,8 +173,14 @@ export interface CliConfig {
     catchHandling?: CatchHandling;
     catchLabelStyle?: CatchLabelStyle;
     collapse?: string[] | boolean;
+    /** Per-state-type `fill` and `stroke`, applied over whichever theme is chosen. */
+    customColors?: Partial<
+        Record<StateType, Partial<Pick<NodeStyle, 'fill' | 'stroke'>>>
+    >;
     diagramDescription?: string;
     diagramTitle?: string;
+    /** Per-edge style, keyed by edge id (`From->To#normal#0`) or `From->To`. */
+    edgeOverrides?: Record<string, EdgeStyleOverride>;
     edgeStyle?: EdgePathStyle;
     format?: DiagramFormat;
     iconPosition?: 'left' | 'right' | 'top';
@@ -183,6 +192,8 @@ export interface CliConfig {
     /** PNG only: also parse every installed font. Other formats ignore it. */
     loadSystemFonts?: boolean;
     nodeHeight?: number;
+    /** Per-state style, keyed by state id. */
+    nodeOverrides?: Record<string, Partial<NodeStyle>>;
     nodeSeparation?: number;
     nodeWidth?: number;
     padding?: number;
@@ -362,6 +373,213 @@ function pixelField(params: PixelFieldParams): ConfigField {
     };
 }
 
+/** Parameters for {@link unitIntervalField}. */
+interface UnitIntervalFieldParams {
+    description: string;
+}
+
+/** A finite number from 0 to 1. */
+function unitIntervalField(params: UnitIntervalFieldParams): ConfigField {
+    const { description } = params;
+    return {
+        description,
+        schema: { maximum: 1, minimum: 0, type: 'number' },
+        validate: ({ fieldPath, reject, value }) => {
+            if (
+                typeof value !== 'number' ||
+                !Number.isFinite(value) ||
+                value < 0 ||
+                value > 1
+            ) {
+                reject({ expected: 'a number from 0 to 1', fieldPath });
+            }
+            return value;
+        },
+    };
+}
+
+/** Whether a parsed value is an object that is neither `null` nor an array. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Parameters for {@link formatFieldPath}. */
+interface FormatFieldPathParams {
+    key: string;
+    parent: string;
+}
+
+/**
+ * Append a map key to a field path: `parent.key` for an identifier-like key, otherwise
+ * `parent["key"]`, so a state name with a space or an edge id stays readable.
+ */
+function formatFieldPath(params: FormatFieldPathParams): string {
+    const { key, parent } = params;
+    return /^[A-Za-z_$][\w$]*$/.test(key)
+        ? `${parent}.${key}`
+        : `${parent}[${JSON.stringify(key)}]`;
+}
+
+/** Every state type, sorted. The `Record` makes a missing or unknown one a type error. */
+const STATE_TYPE_NAMES: readonly string[] = Object.keys({
+    Choice: true,
+    Fail: true,
+    Map: true,
+    Parallel: true,
+    Pass: true,
+    Succeed: true,
+    Task: true,
+    Wait: true,
+} satisfies Record<StateType, true>);
+
+const QUOTE_COLOURS_IN_YAML =
+    'Any SVG colour; quote it in YAML, where # starts a comment.';
+
+/** The style fields the config's style maps accept, each a field in its own right. */
+const STYLE_PROPERTIES = {
+    fill: textField({ description: `Fill colour. ${QUOTE_COLOURS_IN_YAML}` }),
+    shape: enumField({
+        description: 'Node shape.',
+        values: ['circle', 'diamond', 'rect'],
+    }),
+    stroke: textField({
+        description: `Stroke colour. ${QUOTE_COLOURS_IN_YAML}`,
+    }),
+    strokeOpacity: unitIntervalField({
+        description: 'Opacity of the edge path, arrowhead and label, from 0 to 1.',
+    }),
+    strokeWidth: pixelField({
+        allowZero: true,
+        description: 'Stroke width in pixels.',
+    }),
+} satisfies Record<string, ConfigField>;
+
+type StyleProperty = keyof typeof STYLE_PROPERTIES;
+
+/** What a style map is keyed by: its key check, its error text and its schema. */
+const STYLE_MAP_KEYS = {
+    edgeId: {
+        accepts: (key: string) => key.includes('->'),
+        expected: 'an edge id such as From->To#normal#0, or From->To',
+        label: 'edge id',
+        schema: { pattern: '->', type: 'string' },
+    },
+    nodeId: {
+        accepts: (key: string) => key !== '',
+        expected: 'a non-empty state id',
+        label: 'state id',
+        schema: { minLength: 1, type: 'string' },
+    },
+    stateType: {
+        accepts: (key: string) => STATE_TYPE_NAMES.includes(key),
+        expected: `a state type: ${STATE_TYPE_NAMES.join(', ')}`,
+        label: 'state type',
+        schema: { enum: STATE_TYPE_NAMES, type: 'string' },
+    },
+} satisfies Record<
+    string,
+    {
+        accepts: (key: string) => boolean;
+        expected: string;
+        label: string;
+        schema: JsonSchema;
+    }
+>;
+
+/** Parameters for {@link styleMapField}. */
+interface StyleMapFieldParams {
+    description: string;
+    keys: keyof typeof STYLE_MAP_KEYS;
+    /** The style fields an entry may set. */
+    properties: readonly StyleProperty[];
+}
+
+/**
+ * A map from a state type, state id or edge id to a style.
+ *
+ * Strict where the top level is lenient: an unknown key or style field is an error, since
+ * a typo inside the map would otherwise be a silent no-op.
+ */
+function styleMapField(params: StyleMapFieldParams): ConfigField {
+    const { description, keys, properties } = params;
+    const keyRule = STYLE_MAP_KEYS[keys];
+    const styleFields = properties.join(', ');
+    const entrySchema: JsonSchema = {
+        additionalProperties: false,
+        minProperties: 1,
+        properties: Object.fromEntries(
+            properties.map((name) => [
+                name,
+                {
+                    description: STYLE_PROPERTIES[name].description,
+                    ...STYLE_PROPERTIES[name].schema,
+                },
+            ]),
+        ),
+        type: 'object',
+    };
+
+    return {
+        description,
+        // A fixed key set lists each key, so editors can complete the state types.
+        schema:
+            keys === 'stateType'
+                ? {
+                      additionalProperties: false,
+                      properties: Object.fromEntries(
+                          STATE_TYPE_NAMES.map((name) => [name, entrySchema]),
+                      ),
+                      type: 'object',
+                  }
+                : {
+                      additionalProperties: entrySchema,
+                      propertyNames: keyRule.schema,
+                      type: 'object',
+                  },
+        validate: ({ fieldPath, reject, value }) => {
+            if (!isPlainObject(value)) {
+                return reject({
+                    expected: `an object keyed by ${keyRule.label}`,
+                    fieldPath,
+                });
+            }
+            for (const [key, entry] of Object.entries(value)) {
+                const entryPath = formatFieldPath({ key, parent: fieldPath });
+                if (!keyRule.accepts(key)) {
+                    reject({ expected: keyRule.expected, fieldPath: entryPath });
+                }
+                if (!isPlainObject(entry) || Object.keys(entry).length === 0) {
+                    return reject({
+                        expected: `a style naming at least one of: ${styleFields}`,
+                        fieldPath: entryPath,
+                    });
+                }
+                for (const [name, styleValue] of Object.entries(entry)) {
+                    const stylePath = formatFieldPath({
+                        key: name,
+                        parent: entryPath,
+                    });
+                    const property = properties.find(
+                        (candidate) => candidate === name,
+                    );
+                    if (property === undefined) {
+                        return reject({
+                            expected: `one of the style fields: ${styleFields}`,
+                            fieldPath: stylePath,
+                        });
+                    }
+                    STYLE_PROPERTIES[property].validate({
+                        fieldPath: stylePath,
+                        reject,
+                        value: styleValue,
+                    });
+                }
+            }
+            return value;
+        },
+    };
+}
+
 /**
  * The largest PNG `scale` the CLI accepts, from the flag or the config file.
  *
@@ -461,6 +679,12 @@ export const CONFIG_FIELDS: {
             return value;
         },
     },
+    customColors: styleMapField({
+        description:
+            'Per-state-type fill and stroke, keyed by state type and applied over whichever theme is chosen.',
+        keys: 'stateType',
+        properties: ['fill', 'stroke'],
+    }),
     diagramDescription: textField({
         description:
             "Accessible description, rendered as the root <svg>'s <desc>.",
@@ -468,6 +692,12 @@ export const CONFIG_FIELDS: {
     diagramTitle: textField({
         description:
             "Accessible name, rendered as the root <svg>'s <title> and aria-label.",
+    }),
+    edgeOverrides: styleMapField({
+        description:
+            'Per-edge style, keyed by edge id (From->To#normal#0) or From->To for every edge between the pair (SVG, HTML and PNG).',
+        keys: 'edgeId',
+        properties: ['stroke', 'strokeOpacity', 'strokeWidth'],
     }),
     edgeStyle: enumField({
         description: 'Style of edge paths.',
@@ -502,6 +732,12 @@ export const CONFIG_FIELDS: {
     nodeHeight: pixelField({
         allowZero: false,
         description: 'Height of each state node in pixels.',
+    }),
+    nodeOverrides: styleMapField({
+        description:
+            "Per-state style, keyed by state id: the state's name, or its data-state-id when the name repeats (SVG, HTML and PNG).",
+        keys: 'nodeId',
+        properties: ['fill', 'shape', 'stroke', 'strokeWidth'],
     }),
     nodeSeparation: pixelField({
         allowZero: true,

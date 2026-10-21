@@ -2910,6 +2910,73 @@ describe('run: config file', () => {
         expect(stdoutData).not.toContain('#123456');
     });
 
+    it('applies config customColors over whichever theme is chosen', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ customColors: { Pass: { fill: '#abcdef' } } }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('#abcdef');
+
+        stdoutData = '';
+        expect(await run([input, '--config', config, '--theme', 'dark'])).toBe(
+            0,
+        );
+        expect(stdoutData).toContain('#abcdef');
+    });
+
+    it('applies config customColors to Mermaid output', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ customColors: { Pass: { fill: '#abcdef' } } }),
+        );
+        expect(
+            await run([input, '--config', config, '--format', 'mermaid']),
+        ).toBe(0);
+        expect(stdoutData).toContain('#abcdef');
+    });
+
+    it('applies config nodeOverrides', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ nodeOverrides: { Only: { fill: '#123abc' } } }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('#123abc');
+    });
+
+    it('applies config edgeOverrides', async () => {
+        const input = write(
+            'm.asl.json',
+            JSON.stringify({
+                StartAt: 'A',
+                States: {
+                    A: { Next: 'B', Type: 'Pass' },
+                    B: { End: true, Type: 'Pass' },
+                },
+            }),
+        );
+        const config = write(
+            'c.json',
+            JSON.stringify({ edgeOverrides: { 'A->B': { stroke: '#fe0102' } } }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stdoutData).toContain('#fe0102');
+    });
+
+    it('fails, naming the field, on an unquoted YAML colour', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.yaml',
+            'customColors:\n  Pass:\n    fill: #fff\n',
+        );
+        expect(await run([input, '--config', config])).toBe(1);
+        expect(stderrData).toContain('Invalid customColors.Pass.fill');
+    });
+
     it('reaches the Mermaid path, not just SVG', async () => {
         const input = write('m.asl.json', simpleAsl);
         const config = write('c.json', JSON.stringify({ layout: 'LR' }));
