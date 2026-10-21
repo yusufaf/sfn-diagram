@@ -44,12 +44,18 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * growth eats the headroom, the right move is to re-measure and restate the budget in
  * the same commit — not to leave it at 2% and let an unrelated PR take the blame.
  *
- * `bin.js` was last restated at 855,000 / 251,000 when the CLI gained `--redact-fields`
+ * `bin.js` was last restated at 908,000 / 265,000 when the config file gained the style
+ * maps (`customColors`, `nodeOverrides`, `edgeOverrides`) and every field gained a schema
+ * fragment and description (#381), measuring 825,363 raw and 240,901 gzip. That change
+ * added 10,266 bytes raw and 2,737 gzip, but the build was already at 815,097 / 238,164,
+ * 4.7% under the previous budget.
+ *
+ * That previous budget, 855,000 / 251,000, was set when the CLI gained `--redact-fields`
  * and `--no-raw-state` (#317), measuring 777,334 raw and 227,975 gzip. That change added
  * only 4,966 bytes, but the build was already at 772,368 / 226,627, within 0.6% of the
- * previous budget.
+ * budget before it.
  *
- * That previous budget, 776,500 / 228,000, was set when the CLI gained Terraform input
+ * The one before, 776,500 / 228,000, was set when the CLI gained Terraform input
  * (#287), which took it from 668,986 to 705,838 raw and from 197,331 to 207,038 gzip:
  * +36,852 bytes, +5.5%. Before that it was 674,000 / 197,500, set after the CLI gained
  * `--from-aws`, `--execution <arn> --follow` and `--watch` (#192, #283, #190), which
@@ -96,7 +102,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1000, raw: 2100 },
     'aws.js': { gzip: 1000, raw: 2100 },
-    'bin.js': { gzip: 251000, raw: 855000 },
+    'bin.js': { gzip: 265000, raw: 908000 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.cjs': { gzip: 100500, raw: 345500 },
