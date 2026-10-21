@@ -435,11 +435,12 @@ const STATE_TYPE_NAMES: readonly string[] = Object.keys({
 /**
  * A colour: not blank, on one line, and free of `;`, `{` and `}`. No colour syntax uses
  * them, and Mermaid output copies the value into a `classDef` line, where a line break
- * or a `;` would start a statement of the file's choosing. Shared as one string by the
- * check and the schema.
+ * or a `;` would start a statement of the file's choosing. Control characters and the
+ * Unicode line and paragraph separators count as line breaks. Shared as one string by
+ * the check and the schema.
  */
 const COLOUR_PATTERN =
-    '^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$';
+    '^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$';
 const COLOUR_REGEXP = new RegExp(COLOUR_PATTERN, 'u');
 
 /** Parameters for {@link colourField}. */

@@ -33,6 +33,9 @@ const STYLE_ENTRIES: unknown[] = [
     { fill: 'rgb(255 153 0 / 50%)' },
     { fill: 'red;stroke:blue' },
     { fill: 'red\nclick A call x()' },
+    { fill: 'red x' },
+    { fill: 'red\u0085x' },
+    { fill: ' red ' },
     { stroke: '{x}' },
     { stroke: '#000' },
     { shape: 'circle' },

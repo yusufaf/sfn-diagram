@@ -53,12 +53,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -70,12 +70,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -87,12 +87,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -104,12 +104,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -121,12 +121,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -138,12 +138,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -155,12 +155,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -172,12 +172,12 @@
           "properties": {
             "fill": {
               "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             },
             "stroke": {
               "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-              "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+              "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
               "type": "string"
             }
           },
@@ -204,7 +204,7 @@
         "properties": {
           "stroke": {
             "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-            "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+            "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
             "type": "string"
           },
           "strokeOpacity": {
@@ -295,7 +295,7 @@
         "properties": {
           "fill": {
             "description": "Fill colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-            "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+            "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
             "type": "string"
           },
           "shape": {
@@ -309,7 +309,7 @@
           },
           "stroke": {
             "description": "Stroke colour. Any SVG colour; quote it in YAML, where # starts a comment.",
-            "pattern": "^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$",
+            "pattern": "^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$",
             "type": "string"
           },
           "strokeWidth": {

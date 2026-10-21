@@ -568,13 +568,23 @@ describe('loadCliConfig', () => {
             expect(
                 loadJson({ customColors: { Task: { fill: 'rgb(255 153 0)' } } }),
             ).toEqual({ customColors: { Task: { fill: 'rgb(255 153 0)' } } });
-            for (const fill of ['red\nclick Only call x()', 'red;stroke:blue']) {
+            for (const fill of [
+                'red\nclick Only call x()',
+                'red click Only call x()',
+                'red;stroke:blue',
+            ]) {
                 expect(() =>
                     loadJson({ customColors: { Task: { fill } } }),
                 ).toThrowError(
                     /Invalid customColors\.Task\.fill .*on one line without ;, \{ or \}/,
                 );
             }
+            expect(() =>
+                loadJson({ nodeOverrides: { Only: { stroke: 'red;x' } } }),
+            ).toThrowError(/Invalid nodeOverrides\.Only\.stroke .*without ;/);
+            expect(() =>
+                loadJson({ edgeOverrides: { 'A->B': { stroke: '{x}' } } }),
+            ).toThrowError(/Invalid edgeOverrides\["A->B"\]\.stroke .*without ;/);
         });
 
         it('accepts nodeOverrides keyed by any state id', () => {
