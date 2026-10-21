@@ -46,8 +46,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  *
  * `bin.js` was last restated at 908,000 / 265,000 when the config file gained the style
  * maps (`customColors`, `nodeOverrides`, `edgeOverrides`) and every field gained a schema
- * fragment and description (#381), measuring 825,363 raw and 240,901 gzip. That change
- * added 10,266 bytes raw and 2,737 gzip, but the build was already at 815,097 / 238,164,
+ * fragment and description (#381), measuring 826,158 raw and 241,131 gzip. That change
+ * added 11,061 bytes raw and 2,967 gzip, but the build was already at 815,097 / 238,164,
  * 4.7% under the previous budget.
  *
  * That previous budget, 855,000 / 251,000, was set when the CLI gained `--redact-fields`

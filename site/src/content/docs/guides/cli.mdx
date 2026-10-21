@@ -172,14 +172,22 @@ edgeOverrides:
   "Check Stock->Ship": { stroke: "#1d8102" }
 ```
 
-Quote colours in YAML: an unquoted `#` starts a comment, so `fill: #ff9900` reads as an
-empty value and the run fails naming `customColors.Task.fill`.
+Quote colours in YAML: an unquoted `#` starts a comment. On its own line,
+`fill: #ff9900` reads as an empty value and the run fails naming
+`customColors.Task.fill`; inside `{ … }`, as in the example above, the comment swallows
+the closing brace and the file fails to parse at all.
 
 - `customColors` applies over whichever theme is chosen, including `--theme dark` on the
   command line. A [custom theme's](#custom-theme-files) `nodeColors` belongs to that theme
   and is replaced along with it.
+- With `theme: auto`, these colours stay fixed when the diagram switches to its dark
+  palette, while text and background change. Pick colours that read against both.
 - Mermaid output draws `customColors` but not the two override maps, and Mermaid
-  `--diff`/`--execution` output draws none of them.
+  `--diff`/`--execution` output draws none of them. Mermaid separates style properties
+  with commas, so for Mermaid write colours without one: `#ff9900` or
+  `rgb(255 153 0)`, not `rgb(255, 153, 0)`.
+- A colour must be on one line and can't contain `;`, `{` or `}`, which no colour syntax
+  uses.
 - Under `--diff` and `--execution`, an override for a state or edge wins over its status
   colour, as it does in the library.
 - Unlike the top level, mistakes inside these maps are errors: an unknown state type in

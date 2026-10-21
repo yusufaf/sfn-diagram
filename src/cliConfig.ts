@@ -432,19 +432,48 @@ const STATE_TYPE_NAMES: readonly string[] = Object.keys({
     Wait: true,
 } satisfies Record<StateType, true>);
 
-const QUOTE_COLOURS_IN_YAML =
-    'Any SVG colour; quote it in YAML, where # starts a comment.';
+/**
+ * A colour: not blank, on one line, and free of `;`, `{` and `}`. No colour syntax uses
+ * them, and Mermaid output copies the value into a `classDef` line, where a line break
+ * or a `;` would start a statement of the file's choosing. Shared as one string by the
+ * check and the schema.
+ */
+const COLOUR_PATTERN =
+    '^[^;{}\\u0000-\\u001f]*[^\\s;{}\\u0000-\\u001f][^;{}\\u0000-\\u001f]*$';
+const COLOUR_REGEXP = new RegExp(COLOUR_PATTERN, 'u');
+
+/** Parameters for {@link colourField}. */
+interface ColourFieldParams {
+    description: string;
+}
+
+/** A colour field, checked against {@link COLOUR_PATTERN}. */
+function colourField(params: ColourFieldParams): ConfigField {
+    const { description } = params;
+    return {
+        description: `${description} Any SVG colour; quote it in YAML, where # starts a comment.`,
+        schema: { pattern: COLOUR_PATTERN, type: 'string' },
+        validate: ({ fieldPath, reject, value }) => {
+            if (typeof value !== 'string' || !COLOUR_REGEXP.test(value)) {
+                reject({
+                    expected:
+                        'a non-empty string on one line without ;, { or }',
+                    fieldPath,
+                });
+            }
+            return value;
+        },
+    };
+}
 
 /** The style fields the config's style maps accept, each a field in its own right. */
 const STYLE_PROPERTIES = {
-    fill: textField({ description: `Fill colour. ${QUOTE_COLOURS_IN_YAML}` }),
+    fill: colourField({ description: 'Fill colour.' }),
     shape: enumField({
         description: 'Node shape.',
         values: ['circle', 'diamond', 'rect'],
     }),
-    stroke: textField({
-        description: `Stroke colour. ${QUOTE_COLOURS_IN_YAML}`,
-    }),
+    stroke: colourField({ description: 'Stroke colour.' }),
     strokeOpacity: unitIntervalField({
         description: 'Opacity of the edge path, arrowhead and label, from 0 to 1.',
     }),
@@ -832,17 +861,13 @@ export const CONFIG_FIELDS: {
             if (value === 'auto' || value === 'dark' || value === 'light') {
                 return value;
             }
-            if (
-                typeof value !== 'object' ||
-                value === null ||
-                Array.isArray(value)
-            ) {
-                reject({
+            if (!isPlainObject(value)) {
+                return reject({
                     expected: "'light', 'dark', 'auto', or a custom theme object",
                     fieldPath,
                 });
             }
-            const named = Object.keys(value as object).filter((key) =>
+            const named = Object.keys(value).filter((key) =>
                 CUSTOM_THEME_FIELDS.includes(key),
             );
             if (named.length === 0) {

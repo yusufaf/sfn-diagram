@@ -8,8 +8,14 @@ import {
 /** Where the docs site serves the config schema; it follows `main`, not a release. */
 export const CLI_CONFIG_SCHEMA_URL = 'https://sfn.yusufaf.dev/config.schema.json';
 
+/** Parameters for {@link describedSchema}. */
+interface DescribedSchemaParams {
+    field: ConfigField;
+}
+
 /** A config field's schema fragment with its description first, for editor hover text. */
-function describedSchema(field: ConfigField): JsonSchema {
+function describedSchema(params: DescribedSchemaParams): JsonSchema {
+    const { field } = params;
     return { description: field.description, ...field.schema };
 }
 
@@ -36,7 +42,7 @@ export function buildCliConfigSchema(): JsonSchema {
     const commentGitlabProperties = Object.fromEntries(
         COMMENT_GITLAB_CONFIG_FIELDS.map((name) => [
             name,
-            describedSchema(fields[name]),
+            describedSchema({ field: fields[name] }),
         ]),
     );
 
@@ -54,7 +60,7 @@ export function buildCliConfigSchema(): JsonSchema {
             ...Object.fromEntries(
                 Object.entries(fields).map(([name, field]) => [
                     name,
-                    describedSchema(field),
+                    describedSchema({ field }),
                 ]),
             ),
             commentGitlab: {

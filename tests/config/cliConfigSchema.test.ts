@@ -29,6 +29,11 @@ function enumStrings(node: unknown): string[] {
 const STYLE_ENTRIES: unknown[] = [
     { fill: '#fff' },
     { fill: '' },
+    { fill: ' ' },
+    { fill: 'rgb(255 153 0 / 50%)' },
+    { fill: 'red;stroke:blue' },
+    { fill: 'red\nclick A call x()' },
+    { stroke: '{x}' },
     { stroke: '#000' },
     { shape: 'circle' },
     { shape: 'hexagon' },

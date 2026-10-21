@@ -564,6 +564,19 @@ describe('loadCliConfig', () => {
             ).toThrowError(/Invalid customColors\.Task\.fill .*a non-empty string/);
         });
 
+        it('rejects a colour that would start a new Mermaid statement', () => {
+            expect(
+                loadJson({ customColors: { Task: { fill: 'rgb(255 153 0)' } } }),
+            ).toEqual({ customColors: { Task: { fill: 'rgb(255 153 0)' } } });
+            for (const fill of ['red\nclick Only call x()', 'red;stroke:blue']) {
+                expect(() =>
+                    loadJson({ customColors: { Task: { fill } } }),
+                ).toThrowError(
+                    /Invalid customColors\.Task\.fill .*on one line without ;, \{ or \}/,
+                );
+            }
+        });
+
         it('accepts nodeOverrides keyed by any state id', () => {
             const nodeOverrides = {
                 'Process Payment': { shape: 'circle', strokeWidth: 3 },
