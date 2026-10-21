@@ -68493,8 +68493,8 @@ function buildAutoThemeDarkCss() {
   return `@media (prefers-color-scheme: dark) { ${rules.join(" ")} }`;
 }
 var AUTO_THEME_DARK_CSS = buildAutoThemeDarkCss();
-var MERMAID_COLOUR_FORBIDDEN = /[;{}\p{Cc}\p{Zl}\p{Zp}]/u;
-var LEGACY_COLOUR_FUNCTION = /\b(rgba?|hsla?)\(([^()]*)\)/giu;
+var MERMAID_COLOR_FORBIDDEN = /[;{}\p{Cc}\p{Zl}\p{Zp}]/u;
+var LEGACY_COLOR_FUNCTION = /\b(rgba?|hsla?)\(([^()]*)\)/giu;
 var STATE_TYPES = Object.keys({
   Choice: true,
   Fail: true,
@@ -68505,45 +68505,45 @@ var STATE_TYPES = Object.keys({
   Task: true,
   Wait: true
 });
-var COLOUR_CHANNELS = ["fill", "stroke"];
-function rewriteLegacyColourCommas(params) {
-  return params.value.replace(LEGACY_COLOUR_FUNCTION, (match2, name, args) => {
+var COLOR_CHANNELS = ["fill", "stroke"];
+function rewriteLegacyColorCommas(params) {
+  return params.value.replace(LEGACY_COLOR_FUNCTION, (match2, name, args) => {
     const parts = args.split(",").map((part) => part.trim());
     if (!parts.every((part) => part !== "" && !/[\s/]/u.test(part)) || parts.length < 3 || parts.length > 4) return match2;
     const [first, second, third, alpha] = parts;
     return `${name}(${first} ${second} ${third}${alpha === void 0 ? "" : ` / ${alpha}`})`;
   });
 }
-function toMermaidColour(params) {
+function toMermaidColor(params) {
   const { value } = params;
   if (typeof value !== "string" || value.trim() === "") return void 0;
-  if (MERMAID_COLOUR_FORBIDDEN.test(value)) return void 0;
-  const rewritten = rewriteLegacyColourCommas({ value });
+  if (MERMAID_COLOR_FORBIDDEN.test(value)) return void 0;
+  const rewritten = rewriteLegacyColorCommas({ value });
   return rewritten.includes(",") ? void 0 : rewritten;
 }
-function sanitizeMermaidNodeColours(params) {
-  const { colours, source } = params;
-  if (!colours) return {
-    colours,
+function sanitizeMermaidNodeColors(params) {
+  const { colors, source } = params;
+  if (!colors) return {
+    colors,
     dropped: []
   };
   const sanitized = {};
   const dropped = [];
   for (const stateType of STATE_TYPES) {
-    const entry = colours[stateType];
+    const entry = colors[stateType];
     if (typeof entry !== "object" || entry === null) continue;
     const kept = {};
-    for (const channel of COLOUR_CHANNELS) {
+    for (const channel of COLOR_CHANNELS) {
       const value = entry[channel];
       if (value === void 0) continue;
-      const colour = toMermaidColour({ value });
-      if (colour === void 0) dropped.push(`${source}.${stateType}.${channel}`);
-      else kept[channel] = colour;
+      const color = toMermaidColor({ value });
+      if (color === void 0) dropped.push(`${source}.${stateType}.${channel}`);
+      else kept[channel] = color;
     }
     sanitized[stateType] = kept;
   }
   return {
-    colours: sanitized,
+    colors: sanitized,
     dropped
   };
 }
@@ -68702,20 +68702,25 @@ var MermaidRenderer = class {
       scopes,
       showVariables
     };
-    const themeColours = typeof theme === "object" ? sanitizeMermaidNodeColours({
-      colours: theme.nodeColors,
-      source: "theme.nodeColors"
-    }) : void 0;
-    const customColours = sanitizeMermaidNodeColours({
-      colours: customColors,
+    let safeTheme = theme;
+    const droppedColors = [];
+    if (typeof theme === "object" && theme !== null) {
+      const themeColors = sanitizeMermaidNodeColors({
+        colors: theme.nodeColors,
+        source: "theme.nodeColors"
+      });
+      safeTheme = {
+        ...theme,
+        nodeColors: themeColors.colors
+      };
+      droppedColors.push(...themeColors.dropped);
+    }
+    const safeCustomColors = sanitizeMermaidNodeColors({
+      colors: customColors,
       source: "customColors"
     });
-    const safeTheme = typeof theme === "object" ? {
-      ...theme,
-      nodeColors: themeColours?.colours
-    } : theme;
-    const droppedColours = [...themeColours?.dropped ?? [], ...customColours.dropped];
-    const resolvedTheme = getTheme(safeTheme, customColours.colours);
+    droppedColors.push(...safeCustomColors.dropped);
+    const resolvedTheme = getTheme(safeTheme, safeCustomColors.colors);
     const isDarkTheme = resolveViewerTheme({ theme }) === "dark";
     this.idMap = /* @__PURE__ */ new Map();
     this.usedIds = /* @__PURE__ */ new Set();
@@ -68743,7 +68748,7 @@ var MermaidRenderer = class {
       lines.push(...rootLines.ends);
     }
     lines.push("");
-    for (const field of droppedColours) lines.push(`    %% sfn-diagram: ignored ${field}, which Mermaid cannot draw`);
+    for (const field of droppedColors) lines.push(`    %% sfn-diagram: ignored ${field}, which Mermaid cannot draw`);
     for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES)) {
       const { fill, stroke } = resolvedTheme.nodeColors[stateType];
       const strokeWidth = STATE_TYPE_STROKE_WIDTHS[stateType];

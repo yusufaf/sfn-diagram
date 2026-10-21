@@ -1,6 +1,6 @@
 import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
 import { getTheme } from '../config/themes';
-import { sanitizeMermaidNodeColours } from './mermaidColours';
+import { sanitizeMermaidNodeColors } from './mermaidColors';
 import { buildMermaidScopes } from './mermaidScopes';
 import type { MermaidRegion, MermaidScopes } from './mermaidScopes';
 import { resolveViewerTheme } from './viewer/viewerStyles';
@@ -209,18 +209,22 @@ export class MermaidRenderer {
 
         // Colours are checked per input layer, before merging, so a value Mermaid
         // can't draw falls back to the layer beneath it.
-        const themeColours =
-            typeof theme === 'object'
-                ? sanitizeMermaidNodeColours({ colours: theme.nodeColors, source: 'theme.nodeColors' })
-                : undefined;
-        const customColours = sanitizeMermaidNodeColours({
-            colours: customColors,
+        let safeTheme = theme;
+        const droppedColors: string[] = [];
+        if (typeof theme === 'object' && theme !== null) {
+            const themeColors = sanitizeMermaidNodeColors({
+                colors: theme.nodeColors,
+                source: 'theme.nodeColors',
+            });
+            safeTheme = { ...theme, nodeColors: themeColors.colors };
+            droppedColors.push(...themeColors.dropped);
+        }
+        const safeCustomColors = sanitizeMermaidNodeColors({
+            colors: customColors,
             source: 'customColors',
         });
-        const safeTheme =
-            typeof theme === 'object' ? { ...theme, nodeColors: themeColours?.colours } : theme;
-        const droppedColours = [...(themeColours?.dropped ?? []), ...customColours.dropped];
-        const resolvedTheme = getTheme(safeTheme, customColours.colours);
+        droppedColors.push(...safeCustomColors.dropped);
+        const resolvedTheme = getTheme(safeTheme, safeCustomColors.colors);
         const isDarkTheme = resolveViewerTheme({ theme }) === 'dark';
 
         // Reset per-render id allocation, then pre-allocate ids for every node in
@@ -261,7 +265,7 @@ export class MermaidRenderer {
         // hard-coded light-theme palette, so `theme: 'dark'` (or a CustomTheme)
         // actually changes the emitted colours.
         lines.push('');
-        for (const field of droppedColours) {
+        for (const field of droppedColors) {
             lines.push(`    %% sfn-diagram: ignored ${field}, which Mermaid cannot draw`);
         }
         for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES) as StateType[]) {

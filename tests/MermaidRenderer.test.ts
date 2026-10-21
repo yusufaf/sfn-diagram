@@ -796,6 +796,7 @@ describe('MermaidRenderer', () => {
             ['an undefined customColors fill', { customColors: { Task: { fill: undefined } } }],
             ['an undefined theme fill', { theme: { nodeColors: { Pass: { fill: undefined } } } }],
             ['a null theme entry', { theme: { nodeColors: { Task: null } } as unknown as CustomTheme }],
+            ['a null theme', { theme: null as unknown as CustomTheme }],
         ])('treats %s as not set', (_label, options) => {
             const { code } = generateMermaid({ aslDefinition: colourAsl, ...options });
 

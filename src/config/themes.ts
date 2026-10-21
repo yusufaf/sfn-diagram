@@ -56,7 +56,7 @@ export const AWS_DARK_THEME: ResolvedTheme = {
 };
 
 /** Per-state-type colour overrides, merged one channel at a time. */
-type NodeColorOverrides = Partial<Record<StateType, Partial<{ fill: string; stroke: string }>>>;
+export type NodeColorOverrides = Partial<Record<StateType, Partial<{ fill: string; stroke: string }>>>;
 
 /**
  * Merge node colour overrides per channel rather than per state type: an entry that
