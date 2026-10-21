@@ -126,8 +126,10 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `catchHandling` | `"show"` \| `"hide"` |
 | `catchLabelStyle` | `"error-type"` \| `"catch-number"` |
 | `collapse` | boolean, or an array of state names |
+| `customColors` | object keyed by state type (`Task`, `Choice`, …), each naming `fill` and/or `stroke` |
 | `diagramDescription` | string |
 | `diagramTitle` | string |
+| `edgeOverrides` | object keyed by [edge id](/guides/configuration/#finding-an-edges-id) or `From->To`, each naming `stroke`, `strokeOpacity` (`0`–`1`) and/or `strokeWidth` (SVG, HTML and PNG) |
 | `edgeStyle` | `"straight"` \| `"curved"` \| `"orthogonal"` |
 | `format` | `"svg"` \| `"mermaid"` \| `"png"` \| `"html"` |
 | `iconPosition` | `"left"` \| `"top"` \| `"right"` |
@@ -137,6 +139,7 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `layout` | `"TB"` \| `"LR"` \| `"RL"` \| `"BT"` |
 | `loadSystemFonts` | boolean (PNG only) |
 | `nodeHeight`, `nodeWidth` | number |
+| `nodeOverrides` | object keyed by state id, each naming `fill`, `stroke`, `strokeWidth` and/or `shape` (`"rect"` \| `"diamond"` \| `"circle"`) (SVG, HTML and PNG) |
 | `nodeSeparation`, `rankSeparation`, `padding` | number |
 | `redactFields` | array of ASL field names (HTML only) |
 | `scale` | number above `0`, at most `10` (PNG only) |
@@ -144,13 +147,74 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `stylePreset` | `"aws-standard"` \| `"enhanced"` |
 | `theme` | `"light"` \| `"dark"` \| `"auto"`, or a [custom theme object](#custom-theme-files) |
 
-Keys it doesn't recognise are ignored, so a `$schema` key for editor completion is
-harmless and a field added by a later release won't break an older CLI reading the same
-file. Options that need a function — `iconResolver`, `redact`, `customColors` and the
-per-node and per-edge override maps — have no textual form and stay
-[API-only](/guides/configuration/); `redactFields` and `includeRawState` cover the
+Keys it doesn't recognise are ignored, so a `$schema` key for
+[editor completion](#editor-completion) is harmless and a field added by a later release
+won't break an older CLI reading the same file. `iconResolver` and `redact` take a
+function, and `nodeAnnotations` is meant for computed text, so those three stay
+[API-only](/guides/configuration/). `redactFields` and `includeRawState` cover the
 common cases of `redact` (see [Redacting the HTML document](#redacting-the-html-document)).
-Both need sfn-diagram 1.9.0 or later; an older CLI ignores them like any unknown key.
+`redactFields` and `includeRawState` need sfn-diagram 1.9.0 or later, as do
+`customColors`, `nodeOverrides` and `edgeOverrides`; an older CLI ignores them like any
+unknown key.
+
+#### Brand colours and per-state styling
+
+`customColors`, `nodeOverrides` and `edgeOverrides` are the
+[library's override maps](/guides/configuration/#per-node-and-per-edge-overrides), set
+once for every render. They have no flags.
+
+```yaml title="sfn-diagram.config.yaml"
+customColors:
+  Task: { fill: "#ff9900", stroke: "#232f3e" }
+nodeOverrides:
+  Process Payment: { shape: circle, strokeWidth: 3 }
+edgeOverrides:
+  "Check Stock->Ship": { stroke: "#1d8102" }
+```
+
+Quote colours in YAML: an unquoted `#` starts a comment, so `fill: #ff9900` reads as an
+empty value and the run fails naming `customColors.Task.fill`.
+
+- `customColors` applies over whichever theme is chosen, including `--theme dark` on the
+  command line. A [custom theme's](#custom-theme-files) `nodeColors` belongs to that theme
+  and is replaced along with it.
+- Mermaid output draws `customColors` but not the two override maps, and Mermaid
+  `--diff`/`--execution` output draws none of them.
+- Under `--diff` and `--execution`, an override for a state or edge wins over its status
+  colour, as it does in the library.
+- Unlike the top level, mistakes inside these maps are errors: an unknown state type in
+  `customColors`, an unknown style field, an empty entry, or an `edgeOverrides` key with
+  no `->`. A key naming a state or edge the input doesn't have is not checked; it simply
+  matches nothing.
+
+### Editor completion
+
+The config file has a published [JSON Schema](https://json-schema.org/), so an editor can
+complete field names and flag mistakes as you type. In JSON, add a `$schema` key:
+
+```json title="sfn-diagram.config.json"
+{
+  "$schema": "https://sfn.yusufaf.dev/config.schema.json",
+  "layout": "LR"
+}
+```
+
+In YAML, with an editor using the YAML language server (VS Code's YAML extension, for
+one), add a comment on the first line:
+
+```yaml title="sfn-diagram.config.yaml"
+# yaml-language-server: $schema=https://sfn.yusufaf.dev/config.schema.json
+layout: LR
+```
+
+The hosted schema follows this site, which deploys from `main`, so it can list a field
+before a release ships it. To match the version you have installed exactly, or to work
+offline, point at the copy in the package instead:
+`./node_modules/sfn-diagram/config.schema.json`.
+
+The schema is stricter than the CLI in one way: it flags a key it doesn't know, where the
+CLI ignores it. That catches a typo such as `widht` in the editor; the CLI stays lenient
+so an older version can read a file written for a newer one.
 
 JavaScript and TypeScript config files are deliberately not supported: executing one
 would run arbitrary code, and it could not work in the

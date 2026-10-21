@@ -169,4 +169,30 @@ describe('config JSON Schema', () => {
         expect(validateSchema({ widht: 1 })).toBe(false);
         expect(validatorAccepts({ widht: 1 })).toBe(true);
     });
+
+    it('lists every config field in the CLI guide\'s "What it can set" table', () => {
+        const lines = readFileSync(
+            'site/src/content/docs/guides/cli.mdx',
+            'utf-8',
+        ).split(/\r?\n/);
+        const start = lines.indexOf('### What it can set');
+        const end = lines.findIndex(
+            (line, index) => index > start && line.startsWith('### '),
+        );
+        const names = new Set(
+            lines
+                .slice(start, end)
+                .filter((line) => line.startsWith('|'))
+                .flatMap((row) =>
+                    [...(row.split('|')[1] ?? '').matchAll(/`([^`]+)`/g)].map(
+                        (match) => match[1],
+                    ),
+                ),
+        );
+        // Guards against a broken slice passing with nothing to compare.
+        expect(names.size).toBeGreaterThan(20);
+        expect(
+            Object.keys(CONFIG_FIELDS).filter((field) => !names.has(field)),
+        ).toEqual([]);
+    });
 });
