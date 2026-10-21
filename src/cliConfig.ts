@@ -438,10 +438,12 @@ const STATE_TYPE_NAMES: readonly string[] = Object.keys({
  * or a `;` would start a statement of the file's choosing. Control characters and the
  * Unicode line and paragraph separators count as line breaks. Shared as one string by
  * the check and the schema, and written without lookarounds, which JSON Schema's
- * portable regex subset leaves out.
+ * portable regex subset leaves out. The leading run takes only whitespace, so the first
+ * non-space character can split the string one way only: a run that could also take
+ * it would backtrack quadratically on a long value that fails.
  */
 const COLOUR_FORBIDDEN = ';{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029';
-const COLOUR_PATTERN = `^[^${COLOUR_FORBIDDEN}]*[^\\s${COLOUR_FORBIDDEN}][^${COLOUR_FORBIDDEN}]*$`;
+const COLOUR_PATTERN = `^[^\\S${COLOUR_FORBIDDEN}]*[^\\s${COLOUR_FORBIDDEN}][^${COLOUR_FORBIDDEN}]*$`;
 const COLOUR_REGEXP = new RegExp(COLOUR_PATTERN, 'u');
 
 /** Parameters for {@link colourField}. */
@@ -459,7 +461,7 @@ function colourField(params: ColourFieldParams): ConfigField {
             if (typeof value !== 'string' || !COLOUR_REGEXP.test(value)) {
                 reject({
                     expected:
-                        'a non-empty string on one line without ;, { or }',
+                        'a non-empty string on one line without ;, {, } or control characters',
                     fieldPath,
                 });
             }

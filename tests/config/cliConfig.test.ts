@@ -578,7 +578,7 @@ describe('loadCliConfig', () => {
                 expect(() =>
                     loadJson({ customColors: { Task: { fill } } }),
                 ).toThrowError(
-                    /Invalid customColors\.Task\.fill .*on one line without ;, \{ or \}/,
+                    /Invalid customColors\.Task\.fill .*on one line without ;, \{, \} or control characters/,
                 );
             }
             expect(() =>
@@ -587,6 +587,17 @@ describe('loadCliConfig', () => {
             expect(() =>
                 loadJson({ edgeOverrides: { 'A->B': { stroke: '{x}' } } }),
             ).toThrowError(/Invalid edgeOverrides\["A->B"\]\.stroke .*without ;/);
+        });
+
+        it('rejects a long invalid colour in linear time', () => {
+            // A pattern whose leading run can also take the first non-space character
+            // backtracks quadratically: 100,000 characters took seconds.
+            const fill = `${'a'.repeat(100_000)};`;
+            const started = performance.now();
+            expect(() =>
+                loadJson({ customColors: { Task: { fill } } }),
+            ).toThrowError(/Invalid customColors\.Task\.fill /);
+            expect(performance.now() - started).toBeLessThan(1000);
         });
 
         it('accepts nodeOverrides keyed by any state id', () => {
