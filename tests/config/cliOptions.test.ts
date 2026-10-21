@@ -228,6 +228,9 @@ describe('resolveCliOptions', () => {
         expect(resolved.catchLabelStyle).toBeNull();
         expect(resolved.edgeStyle).toBeNull();
         expect(resolved.stylePreset).toBeNull();
+        expect(resolved.customColors).toBeNull();
+        expect(resolved.edgeOverrides).toBeNull();
+        expect(resolved.nodeOverrides).toBeNull();
     });
 
     it('resolves every field the config can set', () => {
@@ -240,8 +243,10 @@ describe('resolveCliOptions', () => {
                 catchHandling: 'hide',
                 catchLabelStyle: 'catch-number',
                 collapse: ['Fan'],
+                customColors: { Task: { fill: '#ff9900' } },
                 diagramDescription: 'a description',
                 diagramTitle: 'a title',
+                edgeOverrides: { 'A->B': { stroke: '#d13212' } },
                 edgeStyle: 'straight',
                 format: 'mermaid',
                 iconPosition: 'top',
@@ -251,6 +256,7 @@ describe('resolveCliOptions', () => {
                 layout: 'RL',
                 loadSystemFonts: false,
                 nodeHeight: 90,
+                nodeOverrides: { Only: { shape: 'circle' } },
                 nodeSeparation: 120,
                 nodeWidth: 200,
                 padding: 64,
@@ -269,8 +275,10 @@ describe('resolveCliOptions', () => {
             catchHandling: 'hide',
             catchLabelStyle: 'catch-number',
             collapse: ['Fan'],
+            customColors: { Task: { fill: '#ff9900' } },
             diagramDescription: 'a description',
             diagramTitle: 'a title',
+            edgeOverrides: { 'A->B': { stroke: '#d13212' } },
             edgeStyle: 'straight',
             format: 'mermaid',
             iconPosition: 'top',
@@ -280,6 +288,7 @@ describe('resolveCliOptions', () => {
             layout: 'RL',
             loadSystemFonts: false,
             nodeHeight: 90,
+            nodeOverrides: { Only: { shape: 'circle' } },
             nodeSeparation: 120,
             nodeWidth: 200,
             padding: 64,

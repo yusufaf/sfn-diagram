@@ -102,6 +102,10 @@ generateSvg({
 });
 ```
 
+The CLI accepts `nodeOverrides` and `edgeOverrides`, along with `customColors`, in its
+[config file](/guides/cli/#brand-colours-and-per-state-styling); `nodeAnnotations` is
+API-only.
+
 ### Addressing an edge
 
 `edgeOverrides` accepts two key shapes:

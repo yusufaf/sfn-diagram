@@ -8,6 +8,7 @@ import {
     discoverConfigPath,
     loadCliConfig,
     loadCommentGitlabConfig,
+    validateCliConfig,
 } from '../../src/cliConfig';
 
 describe('discoverConfigPath', () => {
@@ -512,6 +513,140 @@ describe('loadCliConfig', () => {
             loadCliConfig({ explicitPath: null, startDir: root }),
         ).toThrowError(/theme/);
     });
+
+    describe('style maps', () => {
+        const loadJson = (config: Record<string, unknown>) => {
+            write('sfn-diagram.config.json', JSON.stringify(config));
+            return loadCliConfig({ explicitPath: null, startDir: root })
+                ?.config;
+        };
+
+        it('accepts customColors naming only a fill', () => {
+            expect(
+                loadJson({ customColors: { Task: { fill: '#ff9900' } } }),
+            ).toEqual({ customColors: { Task: { fill: '#ff9900' } } });
+        });
+
+        it('rejects a customColors key that is not a state type', () => {
+            expect(() =>
+                loadJson({ customColors: { task: { fill: '#ff9900' } } }),
+            ).toThrowError(
+                /Invalid customColors\.task .*expected a state type: Choice, Fail/,
+            );
+        });
+
+        it('rejects a customColors style field other than fill and stroke', () => {
+            // shape and strokeWidth are accepted by the API type but never drawn there.
+            expect(() =>
+                loadJson({
+                    customColors: { Task: { fill: '#f00', shape: 'circle' } },
+                }),
+            ).toThrowError(
+                /customColors\.Task\.shape .*one of the style fields: fill, stroke/,
+            );
+        });
+
+        it('rejects an empty customColors entry and a customColors array', () => {
+            expect(() => loadJson({ customColors: { Task: {} } })).toThrowError(
+                /Invalid customColors\.Task .*a style naming at least one of: fill, stroke/,
+            );
+            expect(() => loadJson({ customColors: ['Task'] })).toThrowError(
+                /Invalid customColors .*an object keyed by state type/,
+            );
+        });
+
+        it('names the field when YAML reads an unquoted colour as a comment', () => {
+            write(
+                'sfn-diagram.config.yaml',
+                'customColors:\n  Task:\n    fill: #fff\n',
+            );
+            expect(() =>
+                loadCliConfig({ explicitPath: null, startDir: root }),
+            ).toThrowError(/Invalid customColors\.Task\.fill .*a non-empty string/);
+        });
+
+        it('rejects a colour that would start a new Mermaid statement', () => {
+            expect(
+                loadJson({ customColors: { Task: { fill: 'rgb(255 153 0)' } } }),
+            ).toEqual({ customColors: { Task: { fill: 'rgb(255 153 0)' } } });
+            for (const fill of [
+                'red\nclick Only call x()',
+                'red\u2028click Only call x()',
+                'red\u2029click Only call x()',
+                'red\u007f',
+                'red;stroke:blue',
+            ]) {
+                expect(() =>
+                    loadJson({ customColors: { Task: { fill } } }),
+                ).toThrowError(
+                    /Invalid customColors\.Task\.fill .*on one line without ;, \{, \} or control characters/,
+                );
+            }
+            expect(() =>
+                loadJson({ nodeOverrides: { Only: { stroke: 'red;x' } } }),
+            ).toThrowError(/Invalid nodeOverrides\.Only\.stroke .*without ;/);
+            expect(() =>
+                loadJson({ edgeOverrides: { 'A->B': { stroke: '{x}' } } }),
+            ).toThrowError(/Invalid edgeOverrides\["A->B"\]\.stroke .*without ;/);
+        });
+
+        it('rejects a long invalid colour in linear time', () => {
+            // A pattern whose leading run can also take the first non-space character
+            // backtracks quadratically: 100,000 characters took seconds.
+            // Timed without file I/O, so only the check itself is measured.
+            const fill = `${'a'.repeat(100_000)};`;
+            const started = performance.now();
+            expect(() =>
+                validateCliConfig({
+                    path: 'probe',
+                    raw: { customColors: { Task: { fill } } },
+                }),
+            ).toThrowError(/Invalid customColors\.Task\.fill /);
+            expect(performance.now() - started).toBeLessThan(1000);
+        });
+
+        it('accepts nodeOverrides keyed by any state id', () => {
+            const nodeOverrides = {
+                'Process Payment': { shape: 'circle', strokeWidth: 3 },
+            };
+            expect(loadJson({ nodeOverrides })).toEqual({ nodeOverrides });
+        });
+
+        it('rejects a bad nodeOverrides entry, quoting a key that needs it', () => {
+            expect(() =>
+                loadJson({
+                    nodeOverrides: { 'Process Payment': { shape: 'hexagon' } },
+                }),
+            ).toThrowError(
+                'Invalid nodeOverrides["Process Payment"].shape in',
+            );
+            expect(() =>
+                loadJson({ nodeOverrides: { Only: { strokeWidth: -1 } } }),
+            ).toThrowError(/Invalid nodeOverrides\.Only\.strokeWidth /);
+            expect(() =>
+                loadJson({ nodeOverrides: { '': { fill: '#fff' } } }),
+            ).toThrowError(/expected a non-empty state id/);
+        });
+
+        it('accepts edgeOverrides keyed by qualified and legacy edge ids', () => {
+            const edgeOverrides = {
+                'A->B': { strokeOpacity: 0.4 },
+                'A->B#choice#1': { stroke: '#d13212' },
+            };
+            expect(loadJson({ edgeOverrides })).toEqual({ edgeOverrides });
+        });
+
+        it('rejects an edgeOverrides key that is not an edge id, and a bad opacity', () => {
+            expect(() =>
+                loadJson({ edgeOverrides: { Pay: { stroke: '#d13212' } } }),
+            ).toThrowError(/Invalid edgeOverrides\.Pay .*an edge id/);
+            expect(() =>
+                loadJson({ edgeOverrides: { 'A->B': { strokeOpacity: 1.5 } } }),
+            ).toThrowError(
+                /Invalid edgeOverrides\["A->B"\]\.strokeOpacity .*a number from 0 to 1/,
+            );
+        });
+    });
 });
 
 describe('loadCommentGitlabConfig', () => {
@@ -607,6 +742,16 @@ describe('loadCommentGitlabConfig', () => {
         expect(() => load()).toThrow(
             `Unsupported commentGitlab.aslGlob, commentGitlab.padding in ${path}: comment gitlab reads only catchHandling, collapse, layout, theme`,
         );
+    });
+
+    it('rejects the style maps, which only the top level accepts', () => {
+        write(
+            'sfn-diagram.config.json',
+            JSON.stringify({
+                commentGitlab: { nodeOverrides: { Only: { fill: '#fff' } } },
+            }),
+        );
+        expect(() => load()).toThrow(/Unsupported commentGitlab\.nodeOverrides /);
     });
 
     it.each([

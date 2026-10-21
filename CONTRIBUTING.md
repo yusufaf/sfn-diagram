@@ -54,6 +54,7 @@ pnpm run dev
 | `pnpm run lint` | Lint with ESLint |
 | `pnpm run examples` | Run the visual output tests |
 | `pnpm run build:viewer-script` | Regenerate the bundled interactive viewer script |
+| `pnpm run build:config-schema` | Regenerate the config-file JSON Schema (`config.schema.json`) |
 | `pnpm run test:coverage` | Run the `unit` project with coverage |
 | `pnpm turbo run typecheck` | Typecheck the root package and every workspace package |
 
@@ -419,6 +420,7 @@ sfn-diagram/
 ├── examples/                   # Example ASL definitions
 ├── docs/images/                # Generated README and gallery images (committed)
 ├── custom-elements.json        # Custom-elements manifest (generated, committed)
+├── config.schema.json          # Config-file JSON Schema (generated, committed)
 ├── jsr.json                    # JSR publish config (no-slow-types applies to src/)
 ├── Dockerfile                  # CLI container image
 ├── dist/                       # Library build output (generated, not committed)
@@ -446,6 +448,9 @@ them:
   `pnpm run build:action-bundle` and commit the result.
 - `custom-elements.json` — the custom-elements manifest consumed by editors and the
   docs site. Regenerate it with `pnpm run build:manifest`.
+- `config.schema.json` — the JSON Schema for `sfn-diagram.config.*`, shipped in the npm
+  package and served by the docs site. Regenerate it with
+  `pnpm run build:config-schema`; `pnpm test` checks it is current.
 - `src/renderers/viewer/viewerScript.generated.ts` and `viewerRelayout.generated.ts` —
   the bundled viewer code, inlined into generated HTML. Regenerate with
   `pnpm run build:viewer-script`; `pnpm test` checks both are current. The second one

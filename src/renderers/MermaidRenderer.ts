@@ -92,7 +92,9 @@ const EXECUTION_CLASS_NAMES: Record<ExecutionStateStatus, string> = {
 interface RenderMermaidParams {
     asl?: AslDefinition;
     /** Per-state-type fill/stroke overrides, merged onto the resolved theme's `nodeColors`. */
-    customColors?: Partial<Record<StateType, { fill: string; stroke: string }>>;
+    customColors?: Partial<
+        Record<StateType, Partial<{ fill: string; stroke: string }>>
+    >;
     edges: GraphEdge[];
     /** Optional per-state execution status used to colour states by run outcome */
     executionClasses?: Record<string, ExecutionStateStatus>;

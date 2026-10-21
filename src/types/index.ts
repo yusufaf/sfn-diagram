@@ -602,8 +602,12 @@ export interface DiagramOptions {
      */
     collapseControls?: boolean;
 
-    /** Custom styling overrides for specific state types */
-    customColors?: Partial<Record<StateType, NodeStyle>>;
+    /**
+     * Per-state-type fill and stroke, applied on top of the theme. Only `fill` and
+     * `stroke` are drawn; `shape` and `strokeWidth` here have no effect (use
+     * `nodeOverrides`).
+     */
+    customColors?: Partial<Record<StateType, Partial<NodeStyle>>>;
 
     /**
      * Accessible description for the diagram, rendered as the root `<svg>`'s `<desc>`.
