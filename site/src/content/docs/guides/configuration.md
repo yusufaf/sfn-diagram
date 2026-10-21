@@ -19,7 +19,7 @@ description: Themes, layouts, edge styles, large diagrams, service icons, and ot
 
 **Custom theme:**
 
-A `CustomTheme` sets the background, per-state-type fill/stroke colours, edge colours, and typography. Pass it anywhere a theme is accepted.
+A `CustomTheme` sets the background, per-state-type fill/stroke colours, edge colours, and typography. Pass it anywhere a theme is accepted. Mermaid output writes `rgb(255, 153, 0)`-style colours as `rgb(255 153 0)`, and leaves out (with a `%%` comment) any node colour it can't draw on one style line.
 
 Every field is optional. Anything you leave out comes from the built-in theme named by `base` (`'light'` unless set), so overriding one thing is a one-line theme:
 

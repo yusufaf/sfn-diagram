@@ -184,12 +184,15 @@ the closing brace and the file fails to parse at all.
   palette, while text and background change. Pick colours that read against both.
 - Mermaid output draws `customColors` but not the two override maps, and Mermaid
   `--diff`/`--execution` output draws none of them. Mermaid separates style properties
-  with commas, so for Mermaid write colours without one: `#ff9900` or
-  `rgb(255 153 0)`, not `rgb(255, 153, 0)`.
+  with commas, so Mermaid output rewrites `rgb()`, `rgba()`, `hsl()` and `hsla()` written
+  with commas to the comma-free form (`rgb(255, 153, 0)` becomes `rgb(255 153 0)`). A
+  colour that still needs a comma, such as `color-mix(…)`, is left out of Mermaid output,
+  which keeps the theme's colour and says so in a `%%` comment.
 - A colour in these three maps must be on one line and can't contain `;`, `{`, `}` or
   control characters, none of which any colour syntax uses; in Mermaid output they would
-  end the style line early. Colours inside a custom `theme` object are not checked, so
-  keep them to plain colour values too.
+  end the style line early. Colours inside a custom `theme` object aren't rejected, but
+  Mermaid output applies the same rules to them, leaving out any it can't draw. SVG, HTML
+  and PNG output take them as given.
 - Under `--diff` and `--execution`, an override for a state or edge wins over its status
   colour, as it does in the library.
 - Unlike the top level, mistakes inside these maps are errors: an unknown state type in
