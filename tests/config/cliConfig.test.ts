@@ -570,7 +570,9 @@ describe('loadCliConfig', () => {
             ).toEqual({ customColors: { Task: { fill: 'rgb(255 153 0)' } } });
             for (const fill of [
                 'red\nclick Only call x()',
-                'red click Only call x()',
+                'red\u2028click Only call x()',
+                'red\u2029click Only call x()',
+                'red\u007f',
                 'red;stroke:blue',
             ]) {
                 expect(() =>

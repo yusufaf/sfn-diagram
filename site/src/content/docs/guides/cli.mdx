@@ -186,8 +186,10 @@ the closing brace and the file fails to parse at all.
   `--diff`/`--execution` output draws none of them. Mermaid separates style properties
   with commas, so for Mermaid write colours without one: `#ff9900` or
   `rgb(255 153 0)`, not `rgb(255, 153, 0)`.
-- A colour in these three maps must be on one line and can't contain `;`, `{` or `}`,
-  which no colour syntax uses. Colours inside a custom `theme` object are not checked.
+- A colour in these three maps must be on one line and can't contain `;`, `{`, `}` or
+  control characters, none of which any colour syntax uses; in Mermaid output they would
+  end the style line early. Colours inside a custom `theme` object are not checked, so
+  keep them to plain colour values too.
 - Under `--diff` and `--execution`, an override for a state or edge wins over its status
   colour, as it does in the library.
 - Unlike the top level, mistakes inside these maps are errors: an unknown state type in

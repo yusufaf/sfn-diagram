@@ -437,10 +437,11 @@ const STATE_TYPE_NAMES: readonly string[] = Object.keys({
  * them, and Mermaid output copies the value into a `classDef` line, where a line break
  * or a `;` would start a statement of the file's choosing. Control characters and the
  * Unicode line and paragraph separators count as line breaks. Shared as one string by
- * the check and the schema.
+ * the check and the schema, and written without lookarounds, which JSON Schema's
+ * portable regex subset leaves out.
  */
-const COLOUR_PATTERN =
-    '^(?=.*\\S)[^;{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]+$';
+const COLOUR_FORBIDDEN = ';{}\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029';
+const COLOUR_PATTERN = `^[^${COLOUR_FORBIDDEN}]*[^\\s${COLOUR_FORBIDDEN}][^${COLOUR_FORBIDDEN}]*$`;
 const COLOUR_REGEXP = new RegExp(COLOUR_PATTERN, 'u');
 
 /** Parameters for {@link colourField}. */
