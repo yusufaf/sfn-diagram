@@ -16,7 +16,7 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
   `dist/` for `node20.0.0`, and the `node: '20'` leg of `unit-test.yml` proves it by
   building under 22, switching back to 20, and running the suite and the packed CLI
   there. Node >= 20 covers core, the CLI, and PNG export through the default
-  `@resvg/resvg-js` rasterizer; only the opt-in `html-to-image` PNG engine raises the
+  `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine raises the
   runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6 requires it. See
   [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).
 - **pnpm** — this is a pnpm workspace whose packages depend on each other through the

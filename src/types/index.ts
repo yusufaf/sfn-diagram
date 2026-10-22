@@ -713,9 +713,10 @@ export interface DiagramOptions {
      * PNG export quality from 1-100.
      *
      * Has no effect on the default `resvg` engine (PNG is lossless, and resvg
-     * exposes no compression knob) or on the `html-to-image` fallback engine
-     * (its `quality` option is JPEG-only). Retained for backward compatibility.
-     * Use {@link PngExportOptions.scale} to control output resolution instead.
+     * exposes no compression knob) or on the deprecated `html-to-image`
+     * fallback engine (its `quality` option is JPEG-only). Retained for
+     * backward compatibility. Use {@link PngExportOptions.scale} to control
+     * output resolution instead.
      * @default 90
      */
     pngQuality?: number;
@@ -870,15 +871,20 @@ export interface MermaidOutput {
     };
 }
 
-/** Engine used to rasterize the SVG to PNG. */
+/**
+ * Engine used to rasterize the SVG to PNG. `'html-to-image'` is deprecated and
+ * will be removed in 2.0: selecting it emits a one-time `DeprecationWarning`
+ * (code `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`). Use `'resvg'`, the default.
+ */
 export type PngEngine = 'html-to-image' | 'resvg';
 
 /** Node-only PNG rasterization options (the `sfn-diagram/png` subpath). */
 export interface PngExportOptions {
     /**
-     * Rasterization engine. `resvg` is a native, browser-free renderer;
-     * `html-to-image` launches headless Chromium via Puppeteer and is kept
-     * as an opt-in fallback.
+     * Rasterization engine. `resvg` is a native, browser-free renderer.
+     * `html-to-image` is **Deprecated:** it launches headless Chromium via
+     * Puppeteer, emits a one-time `DeprecationWarning` when used, and will be
+     * removed in 2.0. Use `resvg` (the default) instead.
      * @default 'resvg'
      */
     engine?: PngEngine;

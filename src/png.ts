@@ -5,9 +5,10 @@
  *
  * This module renders an ASL definition to SVG and rasterizes it to PNG,
  * defaulting to the native, browser-free `resvg` engine. Pass
- * `engine: 'html-to-image'` to opt into the Puppeteer-based fallback engine
- * instead (an optional peer dependency loaded lazily). It is isolated from
- * the core entry so importing `sfn-diagram` never pulls in either rasterizer.
+ * `engine: 'html-to-image'` to opt into the deprecated Puppeteer-based fallback
+ * engine instead (an optional peer dependency loaded lazily, removed in 2.0).
+ * It is isolated from the core entry so importing `sfn-diagram` never pulls in
+ * either rasterizer.
  *
  * @example
  * ```typescript
@@ -33,7 +34,8 @@ export type { ExportPngParams, PngOutput } from './types';
  * native `resvg` engine by default. Runs on Node only.
  *
  * `theme: 'auto'` renders as `'light'`: a raster has no colour scheme to follow, and
- * the html-to-image engine's headless Chromium would otherwise pick one from the OS.
+ * the deprecated html-to-image engine's headless Chromium would otherwise pick one
+ * from the OS.
  *
  * @param params - ASL definition plus diagram, background, PNG engine, and font options.
  * @returns The PNG buffer along with its dimensions and format metadata.
