@@ -22,8 +22,15 @@ by the `node-html-to-image` peer, for cases that need its headless-Chromium
 rendering instead of the native rasterizer. It is a library-only option — the CLI
 and Docker image always use `@resvg/resvg-js` and have no engine flag.
 
+**Deprecated:** the `html-to-image` engine emits a one-time `DeprecationWarning`
+(code `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`) when used and will be removed in 2.0, along
+with the `node-html-to-image` peer. Use the default `resvg` engine. To silence the
+warning in the meantime, run Node with
+`--disable-warning=SFN_DIAGRAM_DEP_HTML_TO_IMAGE` (or `--no-deprecation` to silence
+all deprecation warnings).
+
 **Node versions:** core, the CLI, and PNG export via the default `resvg` engine all
-require **Node >= 20**. Only the opt-in `html-to-image` engine raises that floor, to
+require **Node >= 20**. Only the opt-in, deprecated `html-to-image` engine raises that floor, to
 **Node >= 22.12.0**, set by `node-html-to-image` v6.
 
 ```ts
