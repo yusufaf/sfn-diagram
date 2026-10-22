@@ -80,10 +80,30 @@ function wrapSvgInHtml(params: { backgroundColor: string; height: number; svg: s
         `.trim();
 }
 
+let deprecationWarned = false;
+
+/**
+ * Emit the engine's deprecation notice, at most once per process so batch
+ * renders don't repeat it. Goes through `process.emitWarning` as a
+ * `DeprecationWarning` so `--no-deprecation`, `--throw-deprecation` and
+ * `--disable-warning=SFN_DIAGRAM_DEP_HTML_TO_IMAGE` behave as Node users expect.
+ */
+function warnDeprecated(): void {
+    if (deprecationWarned) return;
+    deprecationWarned = true;
+    process.emitWarning(
+        "The 'html-to-image' PNG engine is deprecated and will be removed in sfn-diagram 2.0. " +
+            "Use the default 'resvg' engine instead: omit `engine` or pass engine: 'resvg'.",
+        { code: 'SFN_DIAGRAM_DEP_HTML_TO_IMAGE', type: 'DeprecationWarning' }
+    );
+}
+
 /**
  * Rasterize an SVG string to PNG via headless Chromium (Puppeteer), the
- * opt-in fallback PNG engine. Kept byte-identical to the historical default
- * engine's rendering behavior.
+ * deprecated opt-in fallback PNG engine. Kept byte-identical to the historical
+ * default engine's rendering behavior. The first call in a process emits a
+ * one-time `DeprecationWarning` (code `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`); the
+ * engine is removed in 2.0.
  *
  * @param params - The SVG markup, its dimensions, and rendering options.
  * @returns The PNG buffer, at the requested dimensions.
@@ -91,6 +111,8 @@ function wrapSvgInHtml(params: { backgroundColor: string; height: number; svg: s
 export async function renderHtmlToImagePng(
     params: RenderHtmlToImagePngParams
 ): Promise<{ buffer: Buffer; height: number; width: number }> {
+    warnDeprecated();
+
     const { svg, width, height, backgroundColor, pngQuality = 90 } = params;
     const html = wrapSvgInHtml({ svg, width, height, backgroundColor: backgroundColor || 'transparent' });
 

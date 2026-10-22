@@ -26,8 +26,8 @@ export interface ConvertParams {
  * PngExporter - Converts SVG to PNG.
  *
  * Defaults to `resvg`, a native, browser-free rasterizer. Pass
- * `engine: 'html-to-image'` to opt into the Puppeteer-based fallback engine
- * instead.
+ * `engine: 'html-to-image'` to opt into the deprecated Puppeteer-based fallback
+ * engine instead (removed in 2.0).
  *
  * Note: neither engine fetches external images (like AWS service icons from
  * a CDN) itself - `exportPng` (the `sfn-diagram/png` subpath) inlines them as
