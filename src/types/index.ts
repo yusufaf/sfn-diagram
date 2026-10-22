@@ -467,6 +467,11 @@ export interface CustomTheme {
     edgeColors?: Partial<ResolvedTheme['edgeColors']>;
     fontFamily?: string;
     fontSize?: number;
+    /**
+     * Per-state-type fill and stroke. Mermaid output rewrites comma-separated
+     * `rgb()`/`hsl()` colours to the space-separated form and leaves out, with a `%%`
+     * comment, any value it can't draw on one style line.
+     */
     nodeColors?: Partial<Record<StateType, Partial<{ fill: string; stroke: string }>>>;
     textColor?: string;
 }
@@ -605,7 +610,9 @@ export interface DiagramOptions {
     /**
      * Per-state-type fill and stroke, applied on top of the theme. Only `fill` and
      * `stroke` are drawn; `shape` and `strokeWidth` here have no effect (use
-     * `nodeOverrides`).
+     * `nodeOverrides`). In Mermaid output a value that can't be drawn on one style line
+     * (a line break, `;`, `{`, `}`, or a comma outside `rgb()`/`hsl()` syntax) is left
+     * out with a `%%` comment, and the theme's colour shows instead.
      */
     customColors?: Partial<Record<StateType, Partial<NodeStyle>>>;
 

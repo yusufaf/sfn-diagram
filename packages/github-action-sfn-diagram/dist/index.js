@@ -68444,7 +68444,7 @@ function nodeColorClass(params) {
 function edgeColorClass(params) {
   return `sfn-t-edge-${params.edgeType}-${params.channel}`;
 }
-var STATE_TYPES = Object.keys({
+var STATE_TYPES$1 = Object.keys({
   Choice: true,
   Fail: true,
   Map: true,
@@ -68468,7 +68468,7 @@ function buildAutoThemeDarkCss() {
     `.${TEXT_FILL_CLASS} { fill: ${textColor}; }`,
     `.${TEXT_STROKE_CLASS} { stroke: ${textColor}; }`
   ];
-  for (const stateType of STATE_TYPES) {
+  for (const stateType of STATE_TYPES$1) {
     const colors = nodeColors[stateType];
     rules.push(`.${nodeColorClass({
       channel: "fill",
@@ -68493,6 +68493,60 @@ function buildAutoThemeDarkCss() {
   return `@media (prefers-color-scheme: dark) { ${rules.join(" ")} }`;
 }
 var AUTO_THEME_DARK_CSS = buildAutoThemeDarkCss();
+var MERMAID_COLOR_FORBIDDEN = /[;{}\p{Cc}\p{Zl}\p{Zp}]/u;
+var LEGACY_COLOR_FUNCTION = /\b(rgba?|hsla?)\(([^()]*)\)/giu;
+var STATE_TYPES = Object.keys({
+  Choice: true,
+  Fail: true,
+  Map: true,
+  Parallel: true,
+  Pass: true,
+  Succeed: true,
+  Task: true,
+  Wait: true
+});
+var COLOR_CHANNELS = ["fill", "stroke"];
+function rewriteLegacyColorCommas(params) {
+  return params.value.replace(LEGACY_COLOR_FUNCTION, (match2, name, args) => {
+    const parts = args.split(",").map((part) => part.trim());
+    if (!parts.every((part) => part !== "" && !/[\s/]/u.test(part)) || parts.length < 3 || parts.length > 4) return match2;
+    const [first, second, third, alpha] = parts;
+    return `${name}(${first} ${second} ${third}${alpha === void 0 ? "" : ` / ${alpha}`})`;
+  });
+}
+function toMermaidColor(params) {
+  const { value } = params;
+  if (typeof value !== "string" || value.trim() === "") return void 0;
+  if (MERMAID_COLOR_FORBIDDEN.test(value)) return void 0;
+  const rewritten = rewriteLegacyColorCommas({ value });
+  return rewritten.includes(",") ? void 0 : rewritten;
+}
+function sanitizeMermaidNodeColors(params) {
+  const { colors, source } = params;
+  if (!colors) return {
+    colors,
+    dropped: []
+  };
+  const sanitized = {};
+  const dropped = [];
+  for (const stateType of STATE_TYPES) {
+    const entry = colors[stateType];
+    if (typeof entry !== "object" || entry === null) continue;
+    const kept = {};
+    for (const channel of COLOR_CHANNELS) {
+      const value = entry[channel];
+      if (value === void 0) continue;
+      const color = toMermaidColor({ value });
+      if (color === void 0) dropped.push(`${source}.${stateType}.${channel}`);
+      else kept[channel] = color;
+    }
+    sanitized[stateType] = kept;
+  }
+  return {
+    colors: sanitized,
+    dropped
+  };
+}
 function buildMermaidScopes(params) {
   const nodes5 = params.nodes.filter((node) => !isMarkerNode(node));
   const nodesById = new Map(nodes5.map((node) => [node.id, node]));
@@ -68648,7 +68702,25 @@ var MermaidRenderer = class {
       scopes,
       showVariables
     };
-    const resolvedTheme = getTheme(theme, customColors);
+    let safeTheme = theme;
+    const droppedColors = [];
+    if (typeof theme === "object" && theme !== null) {
+      const themeColors = sanitizeMermaidNodeColors({
+        colors: theme.nodeColors,
+        source: "theme.nodeColors"
+      });
+      safeTheme = {
+        ...theme,
+        nodeColors: themeColors.colors
+      };
+      droppedColors.push(...themeColors.dropped);
+    }
+    const safeCustomColors = sanitizeMermaidNodeColors({
+      colors: customColors,
+      source: "customColors"
+    });
+    droppedColors.push(...safeCustomColors.dropped);
+    const resolvedTheme = getTheme(safeTheme, safeCustomColors.colors);
     const isDarkTheme = resolveViewerTheme({ theme }) === "dark";
     this.idMap = /* @__PURE__ */ new Map();
     this.usedIds = /* @__PURE__ */ new Set();
@@ -68676,6 +68748,7 @@ var MermaidRenderer = class {
       lines.push(...rootLines.ends);
     }
     lines.push("");
+    for (const field of droppedColors) lines.push(`    %% sfn-diagram: ignored ${field}, which Mermaid cannot draw`);
     for (const stateType of Object.keys(STATE_TYPE_CLASS_NAMES)) {
       const { fill, stroke } = resolvedTheme.nodeColors[stateType];
       const strokeWidth = STATE_TYPE_STROKE_WIDTHS[stateType];
