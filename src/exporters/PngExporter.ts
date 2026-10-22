@@ -9,8 +9,8 @@ export interface ConvertParams {
      * Height of the SVG in pixels.
      *
      * Only enforced on the deprecated `html-to-image` engine (removed in 2.0),
-     * which lays the SVG out in a fixed-size HTML page. The `resvg` engine (the default) computes height
-     * itself from the SVG's own aspect ratio at the requested `width`, so the
+     * which lays the SVG out in a fixed-size HTML page. The `resvg` engine (the
+     * default) computes height itself from the SVG's own aspect ratio at the requested `width`, so the
      * returned {@link PngOutput.height} can differ from this value if the two
      * disagree - pass a `height` consistent with the SVG's intrinsic aspect
      * ratio when it matters.

@@ -34,7 +34,8 @@ export type { ExportPngParams, PngOutput } from './types';
  * native `resvg` engine by default. Runs on Node only.
  *
  * `theme: 'auto'` renders as `'light'`: a raster has no colour scheme to follow, and
- * the html-to-image engine's headless Chromium would otherwise pick one from the OS.
+ * the deprecated html-to-image engine's headless Chromium would otherwise pick one
+ * from the OS.
  *
  * @param params - ASL definition plus diagram, background, PNG engine, and font options.
  * @returns The PNG buffer along with its dimensions and format metadata.

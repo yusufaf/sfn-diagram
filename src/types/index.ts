@@ -713,8 +713,8 @@ export interface DiagramOptions {
      * PNG export quality from 1-100.
      *
      * Has no effect on the default `resvg` engine (PNG is lossless, and resvg
-     * exposes no compression knob) or on the `html-to-image` fallback engine
-     * (its `quality` option is JPEG-only). Retained for backward compatibility.
+     * exposes no compression knob) or on the deprecated `html-to-image`
+     * fallback engine (its `quality` option is JPEG-only). Retained for backward compatibility.
      * Use {@link PngExportOptions.scale} to control output resolution instead.
      * @default 90
      */
