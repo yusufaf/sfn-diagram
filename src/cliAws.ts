@@ -12,8 +12,10 @@
  */
 
 import { loadOptionalPeer } from './exporters/loadOptionalPeer';
+import { paginateExecutionHistory } from './paginateExecutionHistory';
 import type {
     DescribeStateMachineCommandOutput,
+    GetExecutionHistoryCommand as GetExecutionHistoryCommandType,
     HistoryEvent,
     SFNClient,
 } from '@aws-sdk/client-sfn';
@@ -176,6 +178,7 @@ interface SfnModule {
     DescribeStateMachineCommand: new (input: {
         stateMachineArn: string;
     }) => object;
+    GetExecutionHistoryCommand: typeof GetExecutionHistoryCommandType;
     SFNClient: new (config: { region: string }) => SFNClient;
 }
 
@@ -466,11 +469,11 @@ export interface FetchExecutionHistoryForArnParams {
 /**
  * Fetch an execution's complete history, following every `nextToken` page.
  *
- * Both the SDK and `sfn-diagram/aws`'s own `fetchExecutionHistory` are loaded with
- * dynamic imports for the same reason `fetchStateMachineDefinition` does it: the
- * core entry and `dist/bin.js` must not carry AWS code for an install that never
- * asks for it. `src/aws.ts` imports the SDK statically, so it can only be reached
- * this way.
+ * The SDK is loaded with a dynamic import for the same reason
+ * `fetchStateMachineDefinition` does it: the core entry and `dist/bin.js` must not
+ * carry AWS code for an install that never asks for it. Paging comes from the
+ * SDK-free `paginateExecutionHistory` rather than `src/aws.ts`, whose static SDK
+ * import bun would hoist into the standalone binary's startup (#341).
  *
  * @param params - The parsed execution ARN.
  *
@@ -491,11 +494,11 @@ export async function fetchExecutionHistoryForArn(
 ): Promise<HistoryEvent[]> {
     const { arn, client, flag = '--execution' } = params;
 
-    const resolvedClient =
-        client ?? (await createSfnClient({ flag, region: arn.region }));
+    const sfn = await loadSfnModule({ flag });
+    const resolvedClient = client ?? new sfn.SFNClient({ region: arn.region });
     try {
-        const { fetchExecutionHistory } = await import('./aws');
-        return await fetchExecutionHistory({
+        return await paginateExecutionHistory({
+            GetExecutionHistoryCommand: sfn.GetExecutionHistoryCommand,
             client: resolvedClient,
             executionArn: arn.arn,
         });

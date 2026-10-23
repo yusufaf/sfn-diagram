@@ -11,8 +11,13 @@
  * involved — fail at startup for anyone who hasn't installed the optional
  * peer.
  */
-import type { HistoryEvent, ListExecutionsCommand as ListExecutionsCommandType, SFNClient as SFNClientType } from '@aws-sdk/client-sfn';
-import type { FetchExecutionHistoryParams } from '../aws';
+import type {
+    GetExecutionHistoryCommand as GetExecutionHistoryCommandType,
+    HistoryEvent,
+    ListExecutionsCommand as ListExecutionsCommandType,
+    SFNClient as SFNClientType,
+} from '@aws-sdk/client-sfn';
+import { paginateExecutionHistory } from '../paginateExecutionHistory';
 
 /** How a CI integration selects which execution to overlay. `off` disables the feature. */
 export type ExecutionMode = 'off' | 'latest' | 'latest-failed';
@@ -33,16 +38,16 @@ export interface OverlayExecution {
 }
 
 async function loadAwsSfn(): Promise<{
+    GetExecutionHistoryCommand: typeof GetExecutionHistoryCommandType;
     ListExecutionsCommand: typeof ListExecutionsCommandType;
     SFNClient: typeof SFNClientType;
-    fetchExecutionHistory: (params: FetchExecutionHistoryParams) => Promise<HistoryEvent[]>;
 }> {
     try {
-        const [clientSfn, aws] = await Promise.all([import('@aws-sdk/client-sfn'), import('../aws')]);
+        const clientSfn = await import('@aws-sdk/client-sfn');
         return {
+            GetExecutionHistoryCommand: clientSfn.GetExecutionHistoryCommand,
             ListExecutionsCommand: clientSfn.ListExecutionsCommand,
             SFNClient: clientSfn.SFNClient,
-            fetchExecutionHistory: aws.fetchExecutionHistory,
         };
     } catch {
         throw new Error(
@@ -55,7 +60,7 @@ async function loadAwsSfn(): Promise<{
 /**
  * Resolves the execution to overlay for a state machine: lists the newest
  * execution (optionally filtered to FAILED) and paginates its full history via
- * `fetchExecutionHistory`. Returns `undefined` when no matching execution
+ * `paginateExecutionHistory`. Returns `undefined` when no matching execution
  * exists. `ListExecutions` returns results newest-first, so `maxResults: 1` is
  * the most recent.
  */
@@ -64,7 +69,7 @@ export async function fetchExecutionForOverlay(
 ): Promise<OverlayExecution | undefined> {
     const { mode, region, stateMachineArn } = params;
 
-    const { ListExecutionsCommand, SFNClient, fetchExecutionHistory } = await loadAwsSfn();
+    const { GetExecutionHistoryCommand, ListExecutionsCommand, SFNClient } = await loadAwsSfn();
 
     const client = new SFNClient(region ? { region } : {});
     const list = await client.send(
@@ -80,7 +85,8 @@ export async function fetchExecutionForOverlay(
         return undefined;
     }
 
-    const events = await fetchExecutionHistory({
+    const events = await paginateExecutionHistory({
+        GetExecutionHistoryCommand,
         client,
         executionArn: newest.executionArn,
     });

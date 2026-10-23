@@ -10,6 +10,7 @@
  */
 import { GetExecutionHistoryCommand } from '@aws-sdk/client-sfn';
 import type { HistoryEvent, SFNClient } from '@aws-sdk/client-sfn';
+import { paginateExecutionHistory } from './paginateExecutionHistory';
 
 export interface FetchExecutionHistoryParams {
     /** A caller-constructed SFN client (with the caller's credentials/region). */
@@ -45,18 +46,5 @@ export interface FetchExecutionHistoryParams {
 export async function fetchExecutionHistory(
     params: FetchExecutionHistoryParams
 ): Promise<HistoryEvent[]> {
-    const { client, executionArn, maxResults = 1000 } = params;
-
-    const events: HistoryEvent[] = [];
-    let nextToken: string | undefined;
-
-    do {
-        const page = await client.send(
-            new GetExecutionHistoryCommand({ executionArn, maxResults, nextToken })
-        );
-        events.push(...(page.events ?? []));
-        nextToken = page.nextToken;
-    } while (nextToken);
-
-    return events;
+    return paginateExecutionHistory({ ...params, GetExecutionHistoryCommand });
 }

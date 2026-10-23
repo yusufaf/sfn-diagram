@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
 const repoRoot = resolve(__dirname, '..');
@@ -29,6 +29,38 @@ interface BarePackagesReachableFromParams {
 interface NodeSpecifiersReachableFromParams {
     /** Absolute path to the entry module to walk from. */
     entry: string;
+}
+
+/** Parameters for {@link staticImportersReachableFrom}. */
+interface StaticImportersReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
+/** Parameters for {@link externalImportsReachableFrom}. */
+interface ExternalImportsReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
+/** Parameters for {@link externalSpecifiersReachableFrom}. */
+interface ExternalSpecifiersReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
+/** One runtime import edge out of a file. */
+interface RuntimeImport {
+    /** Whether the edge is an `import()` call rather than an import/export declaration. */
+    dynamic: boolean;
+    /** The module specifier as written. */
+    specifier: string;
+}
+
+/** A non-relative runtime import, with the file that makes it. */
+interface ExternalImport extends RuntimeImport {
+    /** Absolute path of the importing file. */
+    file: string;
 }
 
 /** Reduce a specifier to the package that installs it, keeping the scope. */
@@ -63,17 +95,21 @@ function everyBindingIsTypeOnly(
  * installer nothing. Side-effect imports (`import './register'`) are included —
  * they are real runtime edges.
  */
-function runtimeSpecifiersOf(file: string): string[] {
+function runtimeImportsOf(file: string): RuntimeImport[] {
     const source = ts.createSourceFile(
         file,
         readFileSync(file, 'utf-8'),
         ts.ScriptTarget.ESNext,
         true,
     );
-    const specifiers: string[] = [];
+    const imports: RuntimeImport[] = [];
 
-    const record = (node: ts.Expression | undefined): void => {
-        if (node && ts.isStringLiteralLike(node)) specifiers.push(node.text);
+    const record = (
+        node: ts.Expression | undefined,
+        dynamic: boolean,
+    ): void => {
+        if (node && ts.isStringLiteralLike(node))
+            imports.push({ dynamic, specifier: node.text });
     };
 
     const visit = (node: ts.Node): void => {
@@ -81,29 +117,30 @@ function runtimeSpecifiersOf(file: string): string[] {
             const clause = node.importClause;
             const erased =
                 clause?.isTypeOnly === true ||
-                (clause?.namedBindings !== undefined &&
+                (clause?.name === undefined &&
+                    clause?.namedBindings !== undefined &&
                     ts.isNamedImports(clause.namedBindings) &&
                     everyBindingIsTypeOnly(clause.namedBindings));
-            if (!erased) record(node.moduleSpecifier);
+            if (!erased) record(node.moduleSpecifier, false);
         } else if (ts.isExportDeclaration(node)) {
             const erased =
                 node.isTypeOnly ||
                 (node.exportClause !== undefined &&
                     ts.isNamedExports(node.exportClause) &&
                     everyBindingIsTypeOnly(node.exportClause));
-            if (!erased) record(node.moduleSpecifier);
+            if (!erased) record(node.moduleSpecifier, false);
         } else if (
             ts.isCallExpression(node) &&
             node.expression.kind === ts.SyntaxKind.ImportKeyword
         ) {
-            record(node.arguments[0]);
+            record(node.arguments[0], true);
         }
 
         ts.forEachChild(node, visit);
     };
 
     ts.forEachChild(source, visit);
-    return specifiers;
+    return imports;
 }
 
 /** Resolve a relative specifier the way the TypeScript resolver does. */
@@ -178,13 +215,26 @@ function nodeSpecifiersReachableFrom(
         .sort();
 }
 
-/** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
-function externalSpecifiersReachableFrom(
-    params: NodeSpecifiersReachableFromParams,
-): string[] {
+/**
+ * Every non-relative runtime import (bare package or `node:` built-in) in the graph an
+ * entry reaches, following every relative edge, static and `import()` alike. The one
+ * walker the helpers below share, so a resolver fix reaches all of them.
+ *
+ * @param params - The entry module to walk from.
+ * @returns One record per import, in walk order; a package imported twice appears twice.
+ *
+ * @example
+ * ```typescript
+ * externalImportsReachableFrom({ entry: join(repoRoot, 'src/aws.ts') })
+ *     .some((edge) => edge.specifier === '@aws-sdk/client-sfn' && !edge.dynamic); // true
+ * ```
+ */
+function externalImportsReachableFrom(
+    params: ExternalImportsReachableFromParams,
+): ExternalImport[] {
     const { entry } = params;
     const visited = new Set<string>();
-    const external = new Set<string>();
+    const external: ExternalImport[] = [];
     const queue = [entry];
 
     while (queue.length > 0) {
@@ -192,17 +242,61 @@ function externalSpecifiersReachableFrom(
         if (visited.has(file)) continue;
         visited.add(file);
 
-        for (const specifier of runtimeSpecifiersOf(file)) {
-            if (specifier.startsWith('.')) {
-                queue.push(resolveLocalModule(file, specifier));
+        for (const edge of runtimeImportsOf(file)) {
+            if (edge.specifier.startsWith('.')) {
+                queue.push(resolveLocalModule(file, edge.specifier));
                 continue;
             }
 
-            external.add(specifier);
+            external.push({ ...edge, file });
         }
     }
 
-    return [...external];
+    return external;
+}
+
+/** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
+function externalSpecifiersReachableFrom(
+    params: ExternalSpecifiersReachableFromParams,
+): string[] {
+    return [
+        ...new Set(
+            externalImportsReachableFrom(params).map((edge) => edge.specifier),
+        ),
+    ];
+}
+
+/**
+ * Which files statically import each bare package, across everything an entry
+ * reaches. The walk follows every relative edge, `import()` included, but only
+ * records the static (declaration) imports of bare packages.
+ *
+ * @param params - The entry module to walk from.
+ * @returns Package name to the repo-relative files that import it statically.
+ *
+ * @example
+ * ```typescript
+ * staticImportersReachableFrom({ entry: join(repoRoot, 'src/aws.ts') })
+ *     .get('@aws-sdk/client-sfn'); // ['src/aws.ts']
+ * ```
+ */
+function staticImportersReachableFrom(
+    params: StaticImportersReachableFromParams,
+): Map<string, string[]> {
+    const importers = new Map<string, string[]>();
+
+    for (const { dynamic, file, specifier } of externalImportsReachableFrom(
+        params,
+    )) {
+        if (dynamic || specifier.startsWith('node:')) continue;
+
+        const name = packageNameOf(specifier);
+        const files = importers.get(name) ?? [];
+        files.push(relative(repoRoot, file).split(sep).join('/'));
+        importers.set(name, files);
+    }
+
+    return importers;
 }
 
 describe("the browser-facing entries' runtime dependency surface", () => {
@@ -280,7 +374,54 @@ const packageJson = JSON.parse(
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
     peerDependencies?: Record<string, string>;
+    peerDependenciesMeta?: Record<string, { optional?: boolean }>;
 };
+
+const OPTIONAL_PEERS = Object.entries(packageJson.peerDependenciesMeta ?? {})
+    .filter(([, meta]) => meta.optional === true)
+    .map(([name]) => name)
+    .sort();
+
+describe('the CLI graph bun compiles into the standalone binaries', () => {
+    // bun --compile hoists a static import of an --external package out of every
+    // module it inlines, including one reached only through import(), so the
+    // binary resolves it at startup and crashes without node_modules (#341).
+    it('reads the optional peers from package.json', () => {
+        expect(OPTIONAL_PEERS).toEqual([
+            '@aws-sdk/client-sfn',
+            '@resvg/resvg-js',
+            'node-html-to-image',
+        ]);
+    });
+
+    it.each(OPTIONAL_PEERS)(
+        'no module reachable from src/bin.ts imports %s statically',
+        (peer) => {
+            const importers = staticImportersReachableFrom({
+                entry: join(repoRoot, 'src/bin.ts'),
+            });
+
+            expect(importers.get(peer) ?? []).toEqual([]);
+        },
+    );
+
+    it('sees the static SDK import in src/aws.ts, so the check above can fail', () => {
+        expect(
+            staticImportersReachableFrom({
+                entry: join(repoRoot, 'src/aws.ts'),
+            }).get('@aws-sdk/client-sfn'),
+        ).toContain('src/aws.ts');
+    });
+
+    it('still reaches the SDK from the CLI, through import() only', () => {
+        const sdkEdges = externalImportsReachableFrom({
+            entry: join(repoRoot, 'src/bin.ts'),
+        }).filter((edge) => edge.specifier === '@aws-sdk/client-sfn');
+
+        expect(sdkEdges.length).toBeGreaterThan(0);
+        expect(sdkEdges.every((edge) => edge.dynamic)).toBe(true);
+    });
+});
 
 describe.each(['minimatch', 'yaml'])('%s', (name) => {
     // The CLI shipped in this same package (dist/bin.js) imports both, so an

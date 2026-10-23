@@ -1531,8 +1531,7 @@ describe('standalone binary build info', () => {
 
     it('refuses an ARN --diff baseline too, not only --from-aws', async () => {
         // Same AWS call by another flag. Without this the binary contradicted both
-        // its own --from-aws refusal and the docs, and (since the SDK is bundled
-        // today) actually reached AWS.
+        // its own --from-aws refusal and the docs.
         sfnSendMock.mockReset();
         const code = await run([
             simpleFixture,
@@ -1556,6 +1555,66 @@ describe('standalone binary build info', () => {
         expect(code).toBe(2);
         expect(stderrData).toContain('not available in the standalone binary');
         expect(sfnSendMock).not.toHaveBeenCalled();
+    });
+
+    // An empty base SHA makes runGitlabComment return 0 before any git call, so a
+    // regressed guard fails these the same way on every runner, GitLab MR ones included.
+    it('refuses comment gitlab --execution-mode, the fourth route to an AWS call', async () => {
+        vi.stubEnv('CI_MERGE_REQUEST_DIFF_BASE_SHA', '');
+        try {
+            const code = await run([
+                'comment',
+                'gitlab',
+                '--execution-mode',
+                'latest',
+                '--state-machine-arn',
+                'arn:aws:states:us-east-1:123456789012:stateMachine:Orders',
+            ]);
+            expect(code).toBe(2);
+            expect(stderrData).toContain(
+                'not available in the standalone binary',
+            );
+            expect(stderrData).toContain('@aws-sdk/client-sfn');
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('refuses --execution-mode before asking for --state-machine-arn', async () => {
+        vi.stubEnv('CI_MERGE_REQUEST_DIFF_BASE_SHA', '');
+        try {
+            const code = await run([
+                'comment',
+                'gitlab',
+                '--execution-mode',
+                'latest-failed',
+            ]);
+            expect(code).toBe(2);
+            expect(stderrData).toContain(
+                'not available in the standalone binary',
+            );
+            expect(stderrData).not.toContain('--state-machine-arn is required');
+        } finally {
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('still runs comment gitlab with --execution-mode off', async () => {
+        vi.stubEnv('CI_MERGE_REQUEST_DIFF_BASE_SHA', '');
+        try {
+            const code = await run([
+                'comment',
+                'gitlab',
+                '--execution-mode',
+                'off',
+            ]);
+            expect(code).toBe(0);
+            expect(stderrData).not.toContain(
+                'not available in the standalone binary',
+            );
+        } finally {
+            vi.unstubAllEnvs();
+        }
     });
 
     it('still renders SVG', async () => {

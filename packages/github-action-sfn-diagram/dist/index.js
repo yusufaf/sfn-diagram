@@ -58594,7 +58594,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var GetActivityTaskCommand = class extends command5(_ep05, _mw1, "GetActivityTask", GetActivityTask$) {
     };
-    var GetExecutionHistoryCommand2 = class extends command5(_ep05, _mw05, "GetExecutionHistory", GetExecutionHistory$) {
+    var GetExecutionHistoryCommand = class extends command5(_ep05, _mw05, "GetExecutionHistory", GetExecutionHistory$) {
     };
     var ListActivitiesCommand = class extends command5(_ep05, _mw05, "ListActivities", ListActivities$) {
     };
@@ -58640,7 +58640,7 @@ var require_dist_cjs16 = __commonJS({
     };
     var ValidateStateMachineDefinitionCommand = class extends command5(_ep05, _mw05, "ValidateStateMachineDefinition", ValidateStateMachineDefinition$) {
     };
-    var paginateGetExecutionHistory = createPaginator2(SFNClient, GetExecutionHistoryCommand2, "nextToken", "nextToken", "maxResults");
+    var paginateGetExecutionHistory = createPaginator2(SFNClient, GetExecutionHistoryCommand, "nextToken", "nextToken", "maxResults");
     var paginateListActivities = createPaginator2(SFNClient, ListActivitiesCommand, "nextToken", "nextToken", "maxResults");
     var paginateListExecutions = createPaginator2(SFNClient, ListExecutionsCommand, "nextToken", "nextToken", "maxResults");
     var paginateListMapRuns = createPaginator2(SFNClient, ListMapRunsCommand, "nextToken", "nextToken", "maxResults");
@@ -58660,7 +58660,7 @@ var require_dist_cjs16 = __commonJS({
       DescribeStateMachineAliasCommand,
       DescribeStateMachineForExecutionCommand,
       GetActivityTaskCommand,
-      GetExecutionHistoryCommand: GetExecutionHistoryCommand2,
+      GetExecutionHistoryCommand,
       ListActivitiesCommand,
       ListExecutionsCommand,
       ListMapRunsCommand,
@@ -58944,7 +58944,7 @@ var require_dist_cjs16 = __commonJS({
     exports2.GetActivityTaskInput$ = GetActivityTaskInput$;
     exports2.GetActivityTaskOutput$ = GetActivityTaskOutput$;
     exports2.GetExecutionHistory$ = GetExecutionHistory$;
-    exports2.GetExecutionHistoryCommand = GetExecutionHistoryCommand2;
+    exports2.GetExecutionHistoryCommand = GetExecutionHistoryCommand;
     exports2.GetExecutionHistoryInput$ = GetExecutionHistoryInput$;
     exports2.GetExecutionHistoryOutput$ = GetExecutionHistoryOutput$;
     exports2.HistoryEvent$ = HistoryEvent$;
@@ -59150,34 +59150,6 @@ var require_dist_cjs16 = __commonJS({
     exports2.paginateListExecutions = paginateListExecutions;
     exports2.paginateListMapRuns = paginateListMapRuns;
     exports2.paginateListStateMachines = paginateListStateMachines;
-  }
-});
-
-// ../../dist/aws.js
-var aws_exports = {};
-__export(aws_exports, {
-  fetchExecutionHistory: () => fetchExecutionHistory
-});
-async function fetchExecutionHistory(params) {
-  const { client, executionArn, maxResults = 1e3 } = params;
-  const events = [];
-  let nextToken;
-  do {
-    const page = await client.send(new import_client_sfn.GetExecutionHistoryCommand({
-      executionArn,
-      maxResults,
-      nextToken
-    }));
-    events.push(...page.events ?? []);
-    nextToken = page.nextToken;
-  } while (nextToken);
-  return events;
-}
-var import_client_sfn;
-var init_aws2 = __esm({
-  "../../dist/aws.js"() {
-    "use strict";
-    import_client_sfn = __toESM(require_dist_cjs16(), 1);
   }
 });
 
@@ -70214,13 +70186,28 @@ function assembleCommentBody(params) {
     footer
   ].join("\n");
 }
+async function paginateExecutionHistory(params) {
+  const { GetExecutionHistoryCommand, client, executionArn, maxResults = 1e3 } = params;
+  const events = [];
+  let nextToken;
+  do {
+    const page = await client.send(new GetExecutionHistoryCommand({
+      executionArn,
+      maxResults,
+      nextToken
+    }));
+    events.push(...page.events ?? []);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return events;
+}
 async function loadAwsSfn() {
   try {
-    const [clientSfn, aws] = await Promise.all([Promise.resolve().then(() => __toESM(require_dist_cjs16(), 1)), Promise.resolve().then(() => (init_aws2(), aws_exports))]);
+    const clientSfn = await Promise.resolve().then(() => __toESM(require_dist_cjs16(), 1));
     return {
+      GetExecutionHistoryCommand: clientSfn.GetExecutionHistoryCommand,
       ListExecutionsCommand: clientSfn.ListExecutionsCommand,
-      SFNClient: clientSfn.SFNClient,
-      fetchExecutionHistory: aws.fetchExecutionHistory
+      SFNClient: clientSfn.SFNClient
     };
   } catch {
     throw new Error("Execution overlays require the optional peer dependency '@aws-sdk/client-sfn'. Install it with: npm install @aws-sdk/client-sfn");
@@ -70228,7 +70215,7 @@ async function loadAwsSfn() {
 }
 async function fetchExecutionForOverlay(params) {
   const { mode, region, stateMachineArn } = params;
-  const { ListExecutionsCommand, SFNClient, fetchExecutionHistory: fetchExecutionHistory2 } = await loadAwsSfn();
+  const { GetExecutionHistoryCommand, ListExecutionsCommand, SFNClient } = await loadAwsSfn();
   const client = new SFNClient(region ? { region } : {});
   const newest = (await client.send(new ListExecutionsCommand({
     maxResults: 1,
@@ -70237,7 +70224,8 @@ async function fetchExecutionForOverlay(params) {
   }))).executions?.[0];
   if (!newest?.executionArn) return;
   return {
-    events: await fetchExecutionHistory2({
+    events: await paginateExecutionHistory({
+      GetExecutionHistoryCommand,
       client,
       executionArn: newest.executionArn
     }),

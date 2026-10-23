@@ -98,10 +98,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * viewer toolbar gained a PNG export rasterised in the browser (#318). Both carry the viewer
  * controller bundle, which left them at 2.4-2.7% headroom: element.js measured 416,771 raw and
  * 120,039 gzip. `index`, `png` and `ci` stayed above 3% and were left alone.
+ *
+ * `aws.js`/`aws.cjs` were restated at 3,050 / 1,160 when the history paging loop moved into
+ * the SDK-free `src/paginateExecutionHistory.ts` (#341), so the CLI could page without
+ * reaching `src/aws.ts` and its static SDK import. The helper and its JSDoc are now inlined
+ * next to `fetchExecutionHistory`, which took aws.cjs past the old 2,100 / 1,000 budget to
+ * 2,755 raw and 1,053 gzip.
  */
 export const BUNDLE_BUDGETS = {
-    'aws.cjs': { gzip: 1000, raw: 2100 },
-    'aws.js': { gzip: 1000, raw: 2100 },
+    'aws.cjs': { gzip: 1160, raw: 3050 },
+    'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 265000, raw: 908000 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },

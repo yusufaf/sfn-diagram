@@ -3,11 +3,13 @@ import { fetchExecutionForOverlay } from '../../src/ci/execution';
 
 const {
     sendMock,
-    fetchExecutionHistoryMock,
+    getExecutionHistoryCommandMock,
+    paginateExecutionHistoryMock,
     listExecutionsCommandMock,
     sfnClientMock,
 } = vi.hoisted(() => ({
-    fetchExecutionHistoryMock: vi.fn(),
+    getExecutionHistoryCommandMock: vi.fn(),
+    paginateExecutionHistoryMock: vi.fn(),
     listExecutionsCommandMock: vi.fn(function (input: unknown) {
         return { input };
     }),
@@ -16,14 +18,15 @@ const {
 }));
 
 vi.mock('@aws-sdk/client-sfn', () => ({
+    GetExecutionHistoryCommand: getExecutionHistoryCommandMock,
     ListExecutionsCommand: listExecutionsCommandMock,
     SFNClient: sfnClientMock.mockImplementation(function (config: unknown) {
         return { config, send: sendMock };
     }),
 }));
 
-vi.mock('../../src/aws', () => ({
-    fetchExecutionHistory: fetchExecutionHistoryMock,
+vi.mock('../../src/paginateExecutionHistory', () => ({
+    paginateExecutionHistory: paginateExecutionHistoryMock,
 }));
 
 beforeEach(() => {
@@ -41,7 +44,7 @@ describe('fetchExecutionForOverlay', () => {
                 },
             ],
         });
-        fetchExecutionHistoryMock.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+        paginateExecutionHistoryMock.mockResolvedValue([{ id: 1 }, { id: 2 }]);
 
         const result = await fetchExecutionForOverlay({
             mode: 'latest',
@@ -61,8 +64,11 @@ describe('fetchExecutionForOverlay', () => {
                 statusFilter: undefined,
             }),
         );
-        expect(fetchExecutionHistoryMock).toHaveBeenCalledWith(
-            expect.objectContaining({ executionArn: 'arn:exec:run-1' }),
+        expect(paginateExecutionHistoryMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                GetExecutionHistoryCommand: getExecutionHistoryCommandMock,
+                executionArn: 'arn:exec:run-1',
+            }),
         );
     });
 
@@ -70,7 +76,7 @@ describe('fetchExecutionForOverlay', () => {
         sendMock.mockResolvedValue({
             executions: [{ executionArn: 'arn:exec:run-2' }],
         });
-        fetchExecutionHistoryMock.mockResolvedValue([]);
+        paginateExecutionHistoryMock.mockResolvedValue([]);
 
         await fetchExecutionForOverlay({
             mode: 'latest-failed',
@@ -86,7 +92,7 @@ describe('fetchExecutionForOverlay', () => {
         sendMock.mockResolvedValue({
             executions: [{ executionArn: 'arn:exec:run-3' }],
         });
-        fetchExecutionHistoryMock.mockResolvedValue([]);
+        paginateExecutionHistoryMock.mockResolvedValue([]);
 
         await fetchExecutionForOverlay({
             mode: 'latest',
@@ -106,6 +112,6 @@ describe('fetchExecutionForOverlay', () => {
         });
 
         expect(result).toBeUndefined();
-        expect(fetchExecutionHistoryMock).not.toHaveBeenCalled();
+        expect(paginateExecutionHistoryMock).not.toHaveBeenCalled();
     });
 });
