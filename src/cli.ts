@@ -429,6 +429,7 @@ Options:
                                      (default: sfn-diagram-artifacts; alias: --output-dir)
   --execution-mode <off|latest|latest-failed>
                                      Optionally overlay a real execution (default: off)
+                                     (latest/latest-failed: not in the standalone binary)
   --state-machine-arn <arn>          Required when --execution-mode is not off
   --aws-region <region>              AWS region for the Step Functions client
   -h, --help                         Show this help and exit
@@ -1782,6 +1783,19 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
         return 0;
     }
 
+    // Same refusal as --from-aws in run(): the overlay needs the AWS SDK, and a
+    // compiled binary has no node_modules to load it from. Without this the job
+    // would exit 0 and silently post the note without its overlay.
+    if (args.executionMode !== 'off' && readBuildInfo()?.standalone) {
+        process.stderr.write(
+            '--execution-mode is not available in the standalone binary: the AWS SDK ' +
+                'it needs cannot be bundled into a single-file executable. Use ' +
+                '--execution-mode off, or the npm package instead (npx --package ' +
+                'sfn-diagram --package @aws-sdk/client-sfn sfn-diagram comment gitlab …).\n',
+        );
+        return EXIT_USAGE;
+    }
+
     if (args.executionMode !== 'off' && !args.stateMachineArn) {
         process.stderr.write(
             '--state-machine-arn is required when --execution-mode is not off\n',
@@ -2785,8 +2799,7 @@ async function renderResolvedBatch(
     // flag is a cost every user pays and few would use.
     // `--diff <arn>` is the same AWS call by another flag, so it has to be refused
     // here too. Left out, the binary contradicted both its own --from-aws refusal and
-    // the documented limitation, and — since the SDK is bundled into the binary today
-    // (see #341) — actually reached AWS.
+    // the documented limitation.
     if (readsFromAws(args) && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--from-aws is not available in the standalone binary: the AWS SDK it ' +

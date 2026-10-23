@@ -4,8 +4,8 @@
 #
 # Checks that the binary reports the package.json version, renders the same
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
-# `--format png` and `--from-aws` with the standalone pointer instead of a
-# missing-module error.
+# `--format png` and every route to the AWS SDK with the standalone pointer
+# instead of a missing-module error.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only, and only when
 # the host CPU matches the binary - an arm64 binary cannot run in an x64
@@ -70,10 +70,9 @@ echo "$png_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected --format png stderr: $png_stderr"
 
 # --from-aws is refused because a compiled binary has no node_modules to load an
-# optional peer from. The SDK is in fact bundled into the binary today (see #341),
-# so without this guard the flag does NOT fail as an unresolved import - it makes a
-# real DescribeStateMachine call. The guard is therefore the only reason this check
-# is safe offline, which is exactly why it is asserted here.
+# optional peer from. The SDK is external to the binary (#341), so without this
+# guard the flag would fail at the import with the npm install hint and exit 1,
+# instead of the standalone pointer and exit 2.
 echo "== --from-aws is refused with a pointer"
 set +e
 aws_stderr="$("$binary" \
@@ -113,6 +112,20 @@ set -e
     fail "expected exit 2 for an ARN --execution, got $exec_status"
 echo "$exec_stderr" | grep -q 'not available in the standalone binary' ||
     fail "unexpected ARN --execution stderr: $exec_stderr"
+
+# The fourth route to an AWS call. It skips run()'s flag parsing, so it has its
+# own guard.
+echo "== comment gitlab --execution-mode is refused too"
+set +e
+gitlab_stderr="$("$binary" comment gitlab --execution-mode latest \
+    --state-machine-arn arn:aws:states:us-east-1:123456789012:stateMachine:Orders \
+    2>&1 >/dev/null)"
+gitlab_status=$?
+set -e
+[ "$gitlab_status" -eq 2 ] ||
+    fail "expected exit 2 for comment gitlab --execution-mode, got $gitlab_status"
+echo "$gitlab_stderr" | grep -q 'not available in the standalone binary' ||
+    fail "unexpected comment gitlab --execution-mode stderr: $gitlab_stderr"
 
 # The binary is the one surface `pnpm test` cannot reach, and the exit-code
 # convention is the sort of contract that breaks silently there. Asserting one code

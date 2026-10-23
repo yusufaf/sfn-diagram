@@ -1040,7 +1040,7 @@ Each core release from v1.6.0 on attaches single-file executables for Linux (x64
 macOS (Apple silicon, Intel), and Windows (x64) that need no Node.js. See
 [CLI without Node](/installation/#cli-without-node) for where to download them.
 
-Two flags are unavailable there, both because a single-file executable has no
+A few flags are unavailable there, all because a single-file executable has no
 `node_modules` to load an optional peer dependency from. Each exits 2 with a pointer
 rather than failing obscurely:
 
@@ -1048,9 +1048,11 @@ rather than failing obscurely:
 |---|---|---|
 | `--format png` | `@resvg/resvg-js` (a native rasterizer) | `npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram …` |
 | `--from-aws`, `--diff <arn>`, `--execution <arn>` | `@aws-sdk/client-sfn` | `npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram …` |
+| `comment gitlab --execution-mode latest` / `latest-failed` | `@aws-sdk/client-sfn` | `npx --package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram comment gitlab …` |
 
 Everything else works, including SVG, Mermaid and HTML output, `--diff` against a local
-file, `--execution` against a saved history file, `--check`, templates and `--out-dir`.
+file, `--execution` against a saved history file, `--check`, templates, `--out-dir`, and
+`comment gitlab` without an execution overlay.
 
 ```bash
 brew install yusufaf/tap/sfn-diagram
