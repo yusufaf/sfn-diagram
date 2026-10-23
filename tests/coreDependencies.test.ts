@@ -37,12 +37,24 @@ interface StaticImportersReachableFromParams {
     entry: string;
 }
 
+/** Parameters for {@link externalImportsReachableFrom}. */
+interface ExternalImportsReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
 /** One runtime import edge out of a file. */
 interface RuntimeImport {
     /** Whether the edge is an `import()` call rather than an import/export declaration. */
     dynamic: boolean;
     /** The module specifier as written. */
     specifier: string;
+}
+
+/** A non-relative runtime import, with the file that makes it. */
+interface ExternalImport extends RuntimeImport {
+    /** Absolute path of the importing file. */
+    file: string;
 }
 
 /** Reduce a specifier to the package that installs it, keeping the scope. */
@@ -196,13 +208,26 @@ function nodeSpecifiersReachableFrom(
         .sort();
 }
 
-/** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
-function externalSpecifiersReachableFrom(
-    params: NodeSpecifiersReachableFromParams,
-): string[] {
+/**
+ * Every non-relative runtime import (bare package or `node:` built-in) in the graph an
+ * entry reaches, following every relative edge, static and `import()` alike. The one
+ * walker the helpers below share, so a resolver fix reaches all of them.
+ *
+ * @param params - The entry module to walk from.
+ * @returns One record per import, in walk order; a package imported twice appears twice.
+ *
+ * @example
+ * ```typescript
+ * externalImportsReachableFrom({ entry: join(repoRoot, 'src/aws.ts') })
+ *     .some((edge) => edge.specifier === '@aws-sdk/client-sfn' && !edge.dynamic); // true
+ * ```
+ */
+function externalImportsReachableFrom(
+    params: ExternalImportsReachableFromParams,
+): ExternalImport[] {
     const { entry } = params;
     const visited = new Set<string>();
-    const external = new Set<string>();
+    const external: ExternalImport[] = [];
     const queue = [entry];
 
     while (queue.length > 0) {
@@ -210,17 +235,28 @@ function externalSpecifiersReachableFrom(
         if (visited.has(file)) continue;
         visited.add(file);
 
-        for (const { specifier } of runtimeImportsOf(file)) {
-            if (specifier.startsWith('.')) {
-                queue.push(resolveLocalModule(file, specifier));
+        for (const edge of runtimeImportsOf(file)) {
+            if (edge.specifier.startsWith('.')) {
+                queue.push(resolveLocalModule(file, edge.specifier));
                 continue;
             }
 
-            external.add(specifier);
+            external.push({ ...edge, file });
         }
     }
 
-    return [...external];
+    return external;
+}
+
+/** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
+function externalSpecifiersReachableFrom(
+    params: NodeSpecifiersReachableFromParams,
+): string[] {
+    return [
+        ...new Set(
+            externalImportsReachableFrom(params).map((edge) => edge.specifier),
+        ),
+    ];
 }
 
 /**
@@ -240,28 +276,17 @@ function externalSpecifiersReachableFrom(
 function staticImportersReachableFrom(
     params: StaticImportersReachableFromParams,
 ): Map<string, string[]> {
-    const { entry } = params;
-    const visited = new Set<string>();
     const importers = new Map<string, string[]>();
-    const queue = [entry];
 
-    while (queue.length > 0) {
-        const file = queue.pop() as string;
-        if (visited.has(file)) continue;
-        visited.add(file);
+    for (const { dynamic, file, specifier } of externalImportsReachableFrom(
+        params,
+    )) {
+        if (dynamic || specifier.startsWith('node:')) continue;
 
-        for (const { dynamic, specifier } of runtimeImportsOf(file)) {
-            if (specifier.startsWith('.')) {
-                queue.push(resolveLocalModule(file, specifier));
-                continue;
-            }
-            if (dynamic || specifier.startsWith('node:')) continue;
-
-            const name = packageNameOf(specifier);
-            const files = importers.get(name) ?? [];
-            files.push(relative(repoRoot, file).split(sep).join('/'));
-            importers.set(name, files);
-        }
+        const name = packageNameOf(specifier);
+        const files = importers.get(name) ?? [];
+        files.push(relative(repoRoot, file).split(sep).join('/'));
+        importers.set(name, files);
     }
 
     return importers;
