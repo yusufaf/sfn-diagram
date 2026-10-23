@@ -1789,7 +1789,7 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
     if (args.executionMode !== 'off' && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--execution-mode is not available in the standalone binary: the AWS SDK ' +
-                'it needs cannot be bundled into a single-file executable. Use ' +
+                'it needs is not included in the single-file executable. Use ' +
                 '--execution-mode off, or the npm package instead (npx --package ' +
                 'sfn-diagram --package @aws-sdk/client-sfn sfn-diagram comment gitlab …).\n',
         );
@@ -2803,7 +2803,7 @@ async function renderResolvedBatch(
     if (readsFromAws(args) && readBuildInfo()?.standalone) {
         process.stderr.write(
             '--from-aws is not available in the standalone binary: the AWS SDK it ' +
-                'needs cannot be bundled into a single-file executable. Use the npm ' +
+                'needs is not included in the single-file executable. Use the npm ' +
                 'package instead (npx --package sfn-diagram --package ' +
                 '@aws-sdk/client-sfn sfn-diagram --from-aws …).\n',
         );
