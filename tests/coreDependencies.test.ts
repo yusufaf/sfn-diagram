@@ -407,11 +407,12 @@ describe('the CLI graph bun compiles into the standalone binaries', () => {
     });
 
     it('still reaches the SDK from the CLI, through import() only', () => {
-        expect(
-            externalSpecifiersReachableFrom({
-                entry: join(repoRoot, 'src/bin.ts'),
-            }),
-        ).toContain('@aws-sdk/client-sfn');
+        const sdkEdges = externalImportsReachableFrom({
+            entry: join(repoRoot, 'src/bin.ts'),
+        }).filter((edge) => edge.specifier === '@aws-sdk/client-sfn');
+
+        expect(sdkEdges.length).toBeGreaterThan(0);
+        expect(sdkEdges.every((edge) => edge.dynamic)).toBe(true);
     });
 });
 
