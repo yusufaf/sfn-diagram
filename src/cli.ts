@@ -1788,10 +1788,10 @@ async function runCommentGitlab(argv: string[]): Promise<number> {
     // would exit 0 and silently post the note without its overlay.
     if (args.executionMode !== 'off' && readBuildInfo()?.standalone) {
         process.stderr.write(
-            '--execution-mode is not available in the standalone binary: the AWS SDK ' +
-                'it needs is not included in the single-file executable. Use ' +
-                '--execution-mode off, or the npm package instead (npx --package ' +
-                'sfn-diagram --package @aws-sdk/client-sfn sfn-diagram comment gitlab …).\n',
+            '--execution-mode latest/latest-failed is not available in the standalone ' +
+                'binary: the AWS SDK it needs is not included in the single-file ' +
+                'executable. Use --execution-mode off, or the npm package instead (npx ' +
+                '--package sfn-diagram --package @aws-sdk/client-sfn sfn-diagram comment gitlab …).\n',
         );
         return EXIT_USAGE;
     }
