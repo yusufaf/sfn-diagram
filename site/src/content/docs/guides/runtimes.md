@@ -73,5 +73,5 @@ input. Keeping them as real dependencies also keeps their transitive tree
 patchable from this repo's `pnpm.overrides` rather than only by cutting a release
 ([#201](https://github.com/yusufaf/sfn-diagram/issues/201)).
 
-The standalone binaries and the Docker image bundle every regular dependency (only the
-optional peers are left out), so neither is affected either way.
+The standalone binaries and the Docker image both include every regular dependency,
+so neither is affected either way.
