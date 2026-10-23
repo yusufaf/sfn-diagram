@@ -43,6 +43,12 @@ interface ExternalImportsReachableFromParams {
     entry: string;
 }
 
+/** Parameters for {@link externalSpecifiersReachableFrom}. */
+interface ExternalSpecifiersReachableFromParams {
+    /** Absolute path to the entry module to walk from. */
+    entry: string;
+}
+
 /** One runtime import edge out of a file. */
 interface RuntimeImport {
     /** Whether the edge is an `import()` call rather than an import/export declaration. */
@@ -111,7 +117,8 @@ function runtimeImportsOf(file: string): RuntimeImport[] {
             const clause = node.importClause;
             const erased =
                 clause?.isTypeOnly === true ||
-                (clause?.namedBindings !== undefined &&
+                (clause?.name === undefined &&
+                    clause?.namedBindings !== undefined &&
                     ts.isNamedImports(clause.namedBindings) &&
                     everyBindingIsTypeOnly(clause.namedBindings));
             if (!erased) record(node.moduleSpecifier, false);
@@ -250,7 +257,7 @@ function externalImportsReachableFrom(
 
 /** Every non-relative specifier (bare package or `node:` built-in) an entry reaches at runtime. */
 function externalSpecifiersReachableFrom(
-    params: NodeSpecifiersReachableFromParams,
+    params: ExternalSpecifiersReachableFromParams,
 ): string[] {
     return [
         ...new Set(
