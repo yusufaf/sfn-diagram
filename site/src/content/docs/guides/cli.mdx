@@ -846,6 +846,12 @@ Diff summary:
   Unchanged: 1
 ```
 
+Under `--format svg` and `--format html`, both overlays honour `--collapse` and
+`--hide-catch`. A collapsed container's placeholder takes the status rolled up from the
+states it hides on an execution overlay, and counts the changes inside it on a diff (see
+[Large diagrams](/guides/configuration/#large-diagrams)). A Mermaid overlay reads only
+`--theme` and `--layout` and ignores every other diagram flag.
+
 `--execution` accepts either a full `GetExecutionHistory` response (`{"events": [...]}`)
 or a bare events array. See [generateDiff](/reference/index/functions/generatediff/)
 and [generateExecution](/reference/index/functions/generateexecution/) for the

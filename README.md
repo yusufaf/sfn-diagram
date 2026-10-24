@@ -113,7 +113,7 @@ from a bad definition. See
 
 ## Features
 
-- **Multiple Output Formats**: SVG (D3.js), Mermaid syntax, and PNG
+- **Multiple Output Formats**: SVG, Mermaid syntax, a self-contained interactive HTML viewer, and PNG
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
 - **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages, plus `Catch`/`Retry` rendering
 - **Modern ASL**: Variables (`Assign`) shown per state, and Distributed Map rendered distinctly from an inline Map — including its `MaxConcurrency`, `ItemReader` source, and `ResultWriter` sink
@@ -127,6 +127,7 @@ from a bad definition. See
 - **Dual APIs**: Function-based and class-based interfaces
 - **Runs Anywhere**: SVG and Mermaid generation has zero platform dependencies — works in Node, the browser, and edge runtimes
 - **Collapse Large Diagrams**: Replace Parallel/Map containers with placeholder nodes before layout so huge diagrams stay readable, with a live toggle in the interactive HTML viewer. See the [configuration guide](https://sfn.yusufaf.dev/guides/configuration/) for `collapse` and every other option.
+- **Layout Cache**: `createLayoutCache()` keeps dagre layouts between renders that don't change geometry, such as a light/dark theme switch, so a long-lived host re-renders a large diagram without laying it out again. Opt-in and bounded; see [Reusing layouts across renders](https://sfn.yusufaf.dev/guides/configuration/#reusing-layouts-across-renders).
 
 ## Supported state types
 

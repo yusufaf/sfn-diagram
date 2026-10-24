@@ -47,9 +47,9 @@ import type {
 /**
  * Generate an SVG diagram from an AWS Step Functions ASL definition
  *
- * This function parses an ASL definition and renders it as an SVG diagram using D3.js
- * with automatic graph layout via Dagre. The output is a complete SVG string that can
- * be saved to a file or embedded in HTML.
+ * This function parses an ASL definition, lays it out with Dagre, and builds the SVG
+ * as a string with no DOM (d3-shape draws curved and straight edges). The output is a
+ * complete SVG string that can be saved to a file or embedded in HTML.
  *
  * @param params - Configuration object
  * @param params.aslDefinition - ASL definition as an object or JSON string

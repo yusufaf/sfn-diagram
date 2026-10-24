@@ -486,14 +486,56 @@ Big, branchy state machines are hard to read as a static image. A few options he
   placeholder nodes so dagre lays out a smaller diagram. Pass specific state names
   (`--collapse=Name1,Name2`, or `collapse: ['Name1', 'Name2']`) to collapse only
   those containers; on the CLI, escape a comma that is part of a state name as
-  `\,`. It applies to the SVG, Mermaid and HTML outputs and to
-  `--diff` (except `--diff --format mermaid`), but not to `--execution` overlays,
-  which build their graph separately — the same limitation `--hide-catch` has there.
+  `\,`. It applies to every output format and to the `--diff` and `--execution`
+  overlays, except the Mermaid ones: `generateMermaidDiff()` and
+  `generateMermaidExecution()` take only `layout` and `theme`, so `--diff` or
+  `--execution` with `--format mermaid` ignores `collapse`, and `--hide-catch` with it.
   ```bash
   npx sfn-diagram state.asl.json --collapse --format svg -o diagram.svg
   ```
 - **`--layout LR`** (or `layout: 'LR'`) — the default `TB` layout makes catch-heavy
   or deeply branching machines extremely tall; `LR` reads better for wide graphs.
+
+### Reusing layouts across renders
+
+Laying the graph out with dagre is most of the cost of rendering a large diagram. A
+host that renders the same definition again and again — a preview pane switching
+theme, a server answering the same request — can keep layouts between calls with an
+opt-in cache:
+
+```typescript
+import { createLayoutCache, generateSvg } from 'sfn-diagram';
+
+const cache = createLayoutCache(); // keeps the 32 most recently used layouts
+generateSvg({ aslDefinition: asl, cache, theme: 'light' });
+generateSvg({ aslDefinition: asl, cache, theme: 'dark' }); // reuses the layout
+cache.stats(); // { entries: 1, hits: 1, misses: 1 }
+```
+
+- The key is the graph plus the options that can move a node — `layout`, node size and
+  separation, `padding`, icons and their position, state-type labels, variables,
+  annotations, collapse controls — and the theme's font size. Colours are not in it, so
+  switching between themes that share a font size hits, while changing `layout` or
+  `nodeWidth` misses and stores another entry.
+- `cache` is accepted by `generateSvg`, `generateDiagram`, `generateHtml`,
+  `generateHtmlAsync`, `generateViewerUpdate`, `generateDiff`, `generateExecution`,
+  `generateExecutionHtml`, `generateExecutionHtmlAsync`, `generateFromAwsResponse`,
+  the `SfnDiagramGenerator` constructor, and `exportPng` from `sfn-diagram/png`.
+  Mermaid output does no layout and ignores it.
+- An execution overlay's per-state annotations are part of the key, so a run that has
+  moved on (a state finished or retried) misses even when the geometry has not changed.
+- `maxEntries` (default 32) bounds the number of entries, not memory: each holds a full
+  layout and a key that grows with the graph. `generateViewerUpdate()` on a definition
+  with Parallel or Map containers lays out and caches two views, the expanded and the
+  collapsed one, so each such definition takes two entries. A long-lived host should
+  call `cache.clear()` when a document closes.
+- Without a cache nothing is memoised and the core stays stateless. The CLI passes one
+  to every render in a run, and a `--watch` session keeps its cache across re-renders,
+  so an edit that leaves the key alone, such as a theme colour, re-renders every input
+  without laying it out again. That cache holds 32 layouts, so a `--watch` pass that
+  stores more than that evicts each one before the next pass can reuse it.
+
+See [createLayoutCache](/reference/index/functions/createlayoutcache/) for the full API.
 
 ## Long labels
 
