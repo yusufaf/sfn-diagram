@@ -1,6 +1,6 @@
 {
   "name": "sfn-diagram",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, Terraform configs, or live AWS state machines",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
@@ -191,7 +191,7 @@
   "license": "MIT",
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
-    "@aws-sdk/client-sfn": "^3.1154.0",
+    "@aws-sdk/client-sfn": "^3.879.0",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@custom-elements-manifest/analyzer": "^0.11.0",
