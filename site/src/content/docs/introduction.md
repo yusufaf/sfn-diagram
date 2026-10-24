@@ -11,7 +11,7 @@ Console visualizer and the Mermaid Live Editor.
 
 ## Features
 
-- **Multiple Output Formats**: SVG (D3.js), Mermaid syntax, and PNG
+- **Multiple Output Formats**: SVG, Mermaid syntax, a self-contained interactive HTML viewer, and PNG
 - **Automatic Layout**: Smart graph positioning using Dagre layout engine
 - **Full ASL Support**: All state types (Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map), both JSONPath and JSONata query languages, plus `Catch`/`Retry` rendering
 - **Modern ASL**: Variables (`Assign`) shown per state, and Distributed Map rendered distinctly from an inline Map — including its `MaxConcurrency`, `ItemReader` source, and `ResultWriter` sink
