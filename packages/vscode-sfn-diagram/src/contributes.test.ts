@@ -27,8 +27,6 @@ interface ExtensionManifest {
     contributes: ExtensionContributes
 }
 
-// __dirname (not import.meta.url) - the extension ships as CommonJS (esbuild
-// --format=cjs), where import.meta is empty, so this package sticks to the CJS globals.
 const manifestPath = join(__dirname, '../package.json')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ExtensionManifest
 
