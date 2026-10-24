@@ -787,6 +787,8 @@ export interface DiagramOptions {
      *   for backwards compatibility through 1.x; removal is deferred to 2.0.
      *
      * When both match an edge, the qualified key is merged on top of the bare one.
+     * `from` and `to` are node ids, so a state name holding a character XML 1.0 forbids
+     * appears with U+FFFD in its place; read the key off the rendered `data-edge-id`.
      *
      * @example
      * ```typescript
