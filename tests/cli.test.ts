@@ -908,10 +908,12 @@ describe('diff, execution and icon flags', () => {
         stderrData = '';
         expect(await run([...args, '--hide-catch'])).toBe(0);
         expect(stdoutData).not.toContain('data-state-id="HandleError"');
+        expect(stdoutData).toContain('data-state-id="ParallelExecution"');
     });
 
     it('a Mermaid --execution overlay ignores --collapse and --hide-catch', async () => {
-        // Pins the limitation the --help note documents; lifting it must update the note.
+        // Pins the limitation the --help note documents; lifting it must update that note
+        // and its copies in the configuration and CLI guides.
         const args = [
             parallelCatchFixture,
             '--execution',
