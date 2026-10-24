@@ -477,11 +477,12 @@ function validateState(params: ValidateStateParams): void {
     }
 
     // A Retry entry is not a transition, but the retry label reads its fields, so a
-    // non-object entry is reported here like a non-object Catch entry below. An array
-    // is rejected too: it has no fields, so it would silently draw as a retry-all policy.
+    // non-object entry is reported here like a non-object Catch entry below. A null
+    // entry used to crash the label code, so this only turns that crash into an error;
+    // an array entry rendered before and is left to lint rather than made to throw.
     if (Array.isArray(state.Retry)) {
         for (const [index, entry] of (state.Retry as unknown[]).entries()) {
-            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            if (!entry || typeof entry !== 'object') {
                 report(
                     'invalid-field',
                     `${pointer}/Retry/${index}`,

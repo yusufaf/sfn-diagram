@@ -449,19 +449,22 @@ describe('AslParser', () => {
                 expect(error?.label).toBe('Error: Any');
             });
 
-            it('reports a non-object or array Retry entry in validation and lint', () => {
-                for (const entry of [null, ['States.ALL']]) {
-                    const definition = {
-                        StartAt: 'Work',
-                        States: {
-                            Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Retry: [entry], Type: 'Task' },
-                        },
-                    };
-                    expect(() => validateAsl({ definition })).toThrow('Retry[0] must be an object');
-                    expect(lintAsl({ definition })).toContainEqual(
-                        expect.objectContaining({ code: 'invalid-field', path: '/States/Work/Retry/0' }),
-                    );
-                }
+            it('reports a null Retry entry in validation and lint, but still renders an array one', () => {
+                const withEntry = (entry: unknown) => ({
+                    StartAt: 'Work',
+                    States: {
+                        Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Retry: [entry], Type: 'Task' },
+                    },
+                });
+
+                const nullEntry = withEntry(null);
+                expect(() => validateAsl({ definition: nullEntry })).toThrow('Retry[0] must be an object');
+                expect(lintAsl({ definition: nullEntry })).toContainEqual(
+                    expect.objectContaining({ code: 'invalid-field', path: '/States/Work/Retry/0' }),
+                );
+
+                // An array entry rendered before #468, so it must not start throwing now.
+                expect(() => parseTask({ Retry: [['States.ALL']] })).not.toThrow();
             });
 
             it('draws the same MaxAttempts the tooltip spells out', () => {
