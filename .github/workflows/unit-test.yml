@@ -212,8 +212,9 @@ jobs:
           }
 
       # Two commands rather than one `pnpm turbo run test`: in a single invocation
-      # turbo schedules sfn-diagram#build - pulled in by the other workspaces'
-      # `dependsOn: ["^build"]` - concurrently with sfn-diagram#test, whose very
+      # turbo schedules sfn-diagram#build - pulled in by the explicit
+      # `sfn-diagram#build` dependency in each other workspace's turbo.json -
+      # concurrently with sfn-diagram#test, whose very
       # first step is `build-viewer-script.mjs --check` reading the two generated
       # files that build rewrites. A torn read there reports a stale bundle that is
       # not stale. Splitting the two removes the overlap.
