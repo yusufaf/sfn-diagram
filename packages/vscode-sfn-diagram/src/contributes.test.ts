@@ -27,9 +27,8 @@ interface ExtensionManifest {
     contributes: ExtensionContributes
 }
 
-// __dirname (not import.meta.url) - this package's tsconfig targets `module: commonjs`,
-// and using it here keeps this file eligible for `tsc --noEmit`, which errors (TS1343)
-// on import.meta under commonjs.
+// __dirname (not import.meta.url) - the extension ships as CommonJS (esbuild
+// --format=cjs), where import.meta is empty, so this package sticks to the CJS globals.
 const manifestPath = join(__dirname, '../package.json')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ExtensionManifest
 

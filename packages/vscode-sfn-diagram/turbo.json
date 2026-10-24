@@ -5,7 +5,7 @@
     "$schema": "https://turbo.build/schema.json",
     "extends": ["//"],
     "tasks": {
-        "build": { "dependsOn": ["^build", "sfn-diagram#build"] },
+        "build": { "dependsOn": ["^build", "sfn-diagram#build"], "outputs": ["out/**"] },
         "test": { "dependsOn": ["^build", "sfn-diagram#build"] },
         "typecheck": { "dependsOn": ["^build", "sfn-diagram#build"] }
     }

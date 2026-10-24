@@ -22,8 +22,8 @@ updates:
     labels:
       - dependencies
     # TypeScript 7's npm package has no classic compiler API (it exports only
-    # ./unstable/*), typescript-eslint caps its peer at <6.1.0 and
-    # @astrojs/check at ^6. Drop this once those tools support 7.
+    # ./unstable/*), and typescript-eslint and @astrojs/check don't accept it.
+    # Drop this once those tools support 7.
     ignore:
       - dependency-name: typescript
         versions:
