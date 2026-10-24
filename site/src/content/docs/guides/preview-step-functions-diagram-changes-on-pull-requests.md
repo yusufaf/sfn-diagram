@@ -118,8 +118,8 @@ function listTemplates(path) {
 
 // Returns the readable state machines, plus what it had to skip: `template` for a file that
 // isn't valid YAML/JSON, `machine` for one that failed to extract, and `external` for a
-// definition kept in a separate file.
-function readStateMachines(path) {
+// definition kept in a separate file. `side` is 'base' or 'head', for the log and the note.
+function readStateMachines(path, side) {
     const machines = new Map();
     const skipped = [];
     for (const { file, label, name: templateName } of listTemplates(path)) {
@@ -129,7 +129,7 @@ function readStateMachines(path) {
             // 'error' still accepts CloudFormation tags such as !GetAtt, but throws on invalid YAML.
             resources = parse(text, { logLevel: 'error' })?.Resources ?? {};
         } catch (error) {
-            skipped.push({ kind: 'template', name: templateName, reason: error.message });
+            skipped.push({ kind: 'template', label, name: templateName, reason: error.message, side });
             continue;
         }
         for (const [logicalId, resource] of Object.entries(resources)) {
@@ -137,61 +137,63 @@ function readStateMachines(path) {
             const name = `${label}${logicalId}`;
             const properties = resource?.Properties ?? {};
             if (!('Definition' in properties) && !('DefinitionString' in properties)) {
-                skipped.push({ kind: 'external', name, reason: 'its definition is in a separate file. Use the GitHub Action on that file.' });
+                skipped.push({ kind: 'external', name, reason: 'its definition is in a separate file. Use the GitHub Action on that file.', side });
                 continue;
             }
             try {
                 machines.set(name, extractAslFromTemplate({ resourceId: logicalId, template: text }).aslDefinition);
             } catch (error) {
-                skipped.push({ kind: 'machine', name, reason: error.message });
+                skipped.push({ kind: 'machine', name, reason: error.message, side });
             }
         }
     }
     return { machines, skipped };
 }
 
-// Formats names as `a`, `b`, … within a character budget, ending with "and N more" when cut short.
-function listNames(names, budget) {
+// Joins items as `a, b, …` within a character budget, ending with "and N more" when cut short.
+function listNames(items, budget) {
     let text = '';
-    for (const [index, name] of names.entries()) {
-        const next = `${text}${index === 0 ? '' : ', '}\`${name}\``;
-        if (next.length > budget) return `${text} and ${names.length - index} more`;
+    for (const [index, item] of items.entries()) {
+        const next = `${text}${index === 0 ? '' : ', '}${item}`;
+        if (next.length > budget) return `${text} and ${items.length - index} more`;
         text = next;
     }
     return text;
 }
 
 const [basePath, headPath] = process.argv.slice(2);
-const before = readStateMachines(basePath);
-const after = readStateMachines(headPath);
+const before = readStateMachines(basePath, 'base');
+const after = readStateMachines(headPath, 'head');
 
 const skipped = [...before.skipped, ...after.skipped];
-for (const { name, reason } of skipped) console.error(`Skipped ${name}: ${reason.split('\n')[0]}`);
+for (const { name, reason, side } of skipped) console.error(`Skipped ${name} (${side}): ${reason.split('\n')[0]}`);
 // A machine skipped on either side is left out on both, so it can't show up as "New file" or "File deleted".
+// A template that couldn't be parsed hides its machines on that side, so all of its machines are left out.
 const skippedNames = new Set(skipped.map(({ name }) => name));
-// Anything that failed to read is reported, so the comment never claims that nothing changed.
-const unreadable = [...new Set(skipped.filter(({ kind }) => kind !== 'external').map(({ name }) => name))];
+const failedLabels = skipped.filter(({ kind }) => kind === 'template').map(({ label }) => label);
+const isSkipped = (name) => skippedNames.has(name) || failedLabels.some((label) => name.startsWith(label));
+// Anything that failed to read is reported with the side it failed on, so the comment never claims that nothing changed.
+const sidesByName = new Map();
+for (const { kind, name, side } of skipped) {
+    if (kind !== 'external') sidesByName.set(name, new Set([...(sidesByName.get(name) ?? []), side]));
+}
+const unreadable = [...sidesByName].map(([name, sides]) => `\`${name}\` (${[...sides].join(' and ')})`);
 const errorNote =
     unreadable.length === 0
         ? []
         : [`> ⚠️ Couldn't read ${listNames(unreadable, 2000)}, so changes there aren't shown. See the job log.\n`];
-// If a whole template couldn't be parsed, its state machines are unknown on that side,
-// so comparing the rest could report them as new or deleted. Show only the note.
-const templateFailed = skipped.some(({ kind }) => kind === 'template');
 
-const sections = templateFailed
-    ? []
-    : [...new Set([...before.machines.keys(), ...after.machines.keys()])]
-          .sort()
-          .filter((name) => !skippedNames.has(name))
-          .filter((name) => JSON.stringify(before.machines.get(name)) !== JSON.stringify(after.machines.get(name)))
-          .map((name) =>
-              buildAslFileSection({
-                  afterAsl: after.machines.get(name) ?? null,
-                  beforeAsl: before.machines.get(name) ?? null,
-                  filename: name,
-              }),
-          );
+const sections = [...new Set([...before.machines.keys(), ...after.machines.keys()])]
+    .sort()
+    .filter((name) => !isSkipped(name))
+    .filter((name) => JSON.stringify(before.machines.get(name)) !== JSON.stringify(after.machines.get(name)))
+    .map((name) =>
+        buildAslFileSection({
+            afterAsl: after.machines.get(name) ?? null,
+            beforeAsl: before.machines.get(name) ?? null,
+            filename: name,
+        }),
+    );
 
 if (sections.length > 0 || errorNote.length > 0) {
     const omitted = new Set();
@@ -213,7 +215,7 @@ if (sections.length > 0 || errorNote.length > 0) {
     }
     if (body.length > MAX_COMMENT_CHARS) {
         // Even without diagrams the state tables are too long, so list the changed machines instead.
-        const names = listNames(sections.map((section) => section.filename), 30000);
+        const names = listNames(sections.map((section) => `\`${section.filename}\``), 30000);
         body = assembleCommentBody({
             marker: MARKER,
             sections: [
@@ -308,10 +310,11 @@ gets that path instead, such as `assembly-Prod/ProdOrdersStack2EDBF9CE/OrderWork
   machine still gets a section, but its table says "No changes", because only states are
   compared there.
 - **Couldn't be read on either side:** left out, with a "Couldn't read" note at the top of
-  the comment and a `Skipped` line in the job log that says why. So a comment never claims
-  nothing changed when part of a template couldn't be read. If a whole template isn't valid
-  YAML or JSON, the comment shows only that note, since the script can't tell which state
-  machines it holds.
+  the comment and a `Skipped` line in the job log that says why. Both name the side that
+  failed, `base` or `head`. So a comment never claims nothing changed when part of a
+  template couldn't be read. If a whole template isn't valid YAML or JSON, the note names
+  the template and all of its state machines are left out, since the script can't tell
+  which ones it holds. Other templates in `cdk.out` are still compared.
 - **Definition in a separate file** (`DefinitionUri`, `DefinitionS3Location` or CDK's
   `DefinitionBody.fromFile`): left out on both sides, with a `Skipped` line in the job log.
   The GitHub Action covers those files.
@@ -469,7 +472,7 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 | Message | Cause | Fix |
 |---|---|---|
 | `Context lookups have been disabled. … Missing context keys: …` | The stack uses a context lookup, such as `valueFromLookup` or `fromLookup`, with no cached value | Run `cdk synth` locally with AWS credentials and commit `cdk.context.json` |
-| The comment says `⚠️ Couldn't read` a state machine | The job log has a `Skipped <name>: <reason>` line for it | Fix what the reason names. The rows below cover the common ones |
-| `Skipped template.yaml: Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | Fix the template. Until then the comment shows only the "Couldn't read" note |
+| The comment says `⚠️ Couldn't read` a state machine or a template file | The job log has a `Skipped <name> (<side>): <reason>` line for it. `base` means the base branch's copy failed, `head` the pull request's | Fix what the reason names. The rows below cover the common ones |
+| `Skipped template.yaml (head): Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | Fix the template on that side. A `(base)` failure is on the base branch, so fixing it there lets other pull requests compare again. Until then, that template's state machines are left out |
 | `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
