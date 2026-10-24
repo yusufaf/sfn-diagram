@@ -334,11 +334,15 @@ jobs:
   # Gitpod and Eclipse Theia.
   #
   # The Microsoft Marketplace is published by vscode-marketplace.yml, on the
-  # published release, with Entra workload identity federation instead of a PAT.
-  # It is a separate workflow file on purpose: npm and JSR trusted publishing are
-  # keyed on this file's name, so an `id-token: write` job here could mint a token
-  # good enough to publish sfn-diagram to npm. Open VSX uses its own token
-  # (OVSX_PAT) and is unaffected by the 2026-12-01 Azure DevOps global PAT cutoff.
+  # published vscode-sfn-diagram-v* release, with Entra workload identity
+  # federation instead of a PAT. That trigger fires only because the release-please
+  # step above runs with the GitHub App token: a release created with GITHUB_TOKEN
+  # starts no other workflow. It is a separate file on purpose: npm and JSR trusted
+  # publishing are keyed on this file's name, so any OIDC token minted here can
+  # publish sfn-diagram to both. Giving the Marketplace job, with its `pnpm install`
+  # and vsce, `id-token: write` here would hand that power to its dependencies too.
+  # Open VSX uses its own token (OVSX_PAT) and is unaffected by the 2026-12-01
+  # Azure DevOps global PAT cutoff.
   openvsx-publish:
     needs: release-please
     if: needs.release-please.outputs.vscode_release_created == 'true'
