@@ -169,13 +169,17 @@ const skipped = [...before.skipped, ...after.skipped];
 for (const { name, reason, side } of skipped) console.error(`Skipped ${name} (${side}): ${reason.split('\n')[0]}`);
 // A machine skipped on either side is left out on both, so it can't show up as "New file" or "File deleted".
 // A template that couldn't be parsed hides its machines on that side, so all of its machines are left out.
-const skippedNames = new Set(skipped.map(({ name }) => name));
-const failedLabels = skipped.filter(({ kind }) => kind === 'template').map(({ label }) => label);
-const isSkipped = (name) => skippedNames.has(name) || failedLabels.some((label) => name.startsWith(label));
+const skippedNames = new Set(skipped.filter(({ kind }) => kind !== 'template').map(({ name }) => name));
+const failedLabels = new Set(skipped.filter(({ kind }) => kind === 'template').map(({ label }) => label));
+// Logical IDs never contain '/', so a machine's template label is everything up to its last '/'.
+const templateLabel = (name) => name.slice(0, name.lastIndexOf('/') + 1);
+const isSkipped = (name) => skippedNames.has(name) || failedLabels.has(templateLabel(name));
 // Anything that failed to read is reported with the side it failed on, so the comment never claims that nothing changed.
 const sidesByName = new Map();
 for (const { kind, name, side } of skipped) {
-    if (kind !== 'external') sidesByName.set(name, new Set([...(sidesByName.get(name) ?? []), side]));
+    if (kind === 'external') continue;
+    if (!sidesByName.has(name)) sidesByName.set(name, new Set());
+    sidesByName.get(name).add(side);
 }
 const unreadable = [...sidesByName].map(([name, sides]) => `\`${name}\` (${[...sides].join(' and ')})`);
 const errorNote =
@@ -473,6 +477,6 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 |---|---|---|
 | `Context lookups have been disabled. … Missing context keys: …` | The stack uses a context lookup, such as `valueFromLookup` or `fromLookup`, with no cached value | Run `cdk synth` locally with AWS credentials and commit `cdk.context.json` |
 | The comment says `⚠️ Couldn't read` a state machine or a template file | The job log has a `Skipped <name> (<side>): <reason>` line for it. `base` means the base branch's copy failed, `head` the pull request's | Fix what the reason names. The rows below cover the common ones |
-| `Skipped template.yaml (head): Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | Fix the template on that side. A `(base)` failure is on the base branch, so fixing it there lets other pull requests compare again. Until then, that template's state machines are left out |
-| `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
+| `Skipped template.yaml (head): Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | For `(head)`, fix the template in the pull request. For `(base)`, the base branch's copy is broken, and editing the pull request won't help: merge a fix into the base branch. Until then, every pull request leaves that template's state machines out |
+| `Skipped … (base): its definition is in a separate file. Use the GitHub Action on that file.`, often with a matching `(head)` line | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
