@@ -1380,8 +1380,8 @@ async function loadSource(source: CliInputSource): Promise<string> {
                 arn: source.arn,
                 flag: '--from-aws',
             });
-        // Stripped here as well as in the parsers, because CloudFormation and
-        // Terraform detection run on this text before any parser sees it.
+        // Stripped here as well as in the parsers, because isCfnTemplate parses this
+        // text itself to decide whether it is a template at all.
         case 'file':
             return stripBom(readFileSync(resolve(source.path), 'utf-8'));
         case 'stdin':

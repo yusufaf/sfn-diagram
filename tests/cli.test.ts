@@ -1286,8 +1286,8 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('Done');
     });
 
-    // Windows editors and PowerShell's `Out-File -Encoding utf8` write a byte order
-    // mark, which would otherwise hide the template from auto-detection.
+    // Windows editors and Windows PowerShell's `Out-File -Encoding utf8` write a byte
+    // order mark, which would otherwise hide the template from auto-detection.
     it('auto-detects a template that starts with a byte order mark', async () => {
         const inputPath = writeTemplate('bom.json', `\uFEFF${cfnJson}`);
         const code = await run([inputPath, '--format', 'mermaid']);

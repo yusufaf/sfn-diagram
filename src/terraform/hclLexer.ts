@@ -1,3 +1,5 @@
+import { stripBom } from '../utils/bom';
+
 /** Deepest nesting of brackets and templates the lexer accepts, so hostile input fails cleanly. */
 export const HCL_MAX_DEPTH = 256;
 
@@ -362,8 +364,7 @@ class HclLexer {
  * ```
  */
 export function tokenizeHcl(params: TokenizeHclParams): HclToken[] {
-    const source = params.source.charCodeAt(0) === 0xfeff ? params.source.slice(1) : params.source;
-    return new HclLexer(source, 1, 0).lexDocument();
+    return new HclLexer(stripBom(params.source), 1, 0).lexDocument();
 }
 
 /**

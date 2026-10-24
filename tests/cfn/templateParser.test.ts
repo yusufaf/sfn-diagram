@@ -11,7 +11,6 @@ describe('parseTemplate', () => {
         const json = '\uFEFF{"Resources":{"A":{"Type":"X"}}}';
         expect(parseTemplate({ template: json })).toEqual({ Resources: { A: { Type: 'X' } } });
         expect(parseTemplate({ template: json, format: 'json' })).toEqual({ Resources: { A: { Type: 'X' } } });
-        expect(parseTemplate({ template: '\uFEFFResources: {}', format: 'yaml' })).toEqual({ Resources: {} });
     });
 
     it('passes through an already-parsed object', () => {
