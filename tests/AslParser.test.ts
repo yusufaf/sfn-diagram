@@ -6,6 +6,7 @@ import type { AslDefinition, RetryBlock } from '../src/types';
 import { applyCollapse } from '../src/graph';
 import { DagreLayout } from '../src/layout';
 import { getNodeSubLabel, getRetryDetail, getRetryLabel } from '../src/constants';
+import { lintAsl } from '../src/lint';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -411,6 +412,73 @@ describe('AslParser', () => {
             ).not.toContain('max delay');
         });
 
+        describe('a mistyped Retry or Catch field', () => {
+            const parseTask = (fields: Record<string, unknown>) =>
+                parseAsl({
+                    definition: {
+                        StartAt: 'Work',
+                        States: {
+                            Handler: { End: true, Type: 'Pass' },
+                            Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Type: 'Task', ...fields },
+                        },
+                    } as unknown as AslDefinition,
+                });
+
+            it('shows a bare-string ErrorEquals as written instead of throwing', () => {
+                const retry = parseTask({ Retry: [{ ErrorEquals: 'States.ALL' }] }).edges.find(
+                    (edge) => edge.type === 'retry',
+                );
+                expect(retry?.label).toBe('↻ States.ALL (3x)');
+                expect(retry?.detail).toBe('States.ALL: up to 3 retries, first after 1s, backoff 2x');
+
+                const error = parseTask({ Catch: [{ ErrorEquals: 'States.ALL', Next: 'Handler' }] }).edges.find(
+                    (edge) => edge.type === 'error',
+                );
+                expect(error?.label).toBe('Error: States.ALL');
+            });
+
+            it('skips ErrorEquals entries that are not names', () => {
+                const retry = parseTask({ Retry: [{ ErrorEquals: ['States.Timeout', 7, null, ''] }] }).edges.find(
+                    (edge) => edge.type === 'retry',
+                );
+                expect(retry?.label).toBe('↻ States.Timeout (3x)');
+
+                const error = parseTask({ Catch: [{ ErrorEquals: [7, null], Next: 'Handler' }] }).edges.find(
+                    (edge) => edge.type === 'error',
+                );
+                expect(error?.label).toBe('Error: Any');
+            });
+
+            it('reports a null Retry entry in validation and lint, but still renders an array one', () => {
+                const withEntry = (entry: unknown) => ({
+                    StartAt: 'Work',
+                    States: {
+                        Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Retry: [entry], Type: 'Task' },
+                    },
+                });
+
+                const nullEntry = withEntry(null);
+                expect(() => validateAsl({ definition: nullEntry })).toThrow('Retry[0] must be an object');
+                expect(lintAsl({ definition: nullEntry })).toContainEqual(
+                    expect.objectContaining({ code: 'invalid-field', path: '/States/Work/Retry/0' }),
+                );
+
+                // An array entry rendered before #468, so it must keep drawing its loop.
+                const retry = parseTask({ Retry: [['States.ALL']] }).edges.find((edge) => edge.type === 'retry');
+                expect(retry?.label).toBe('↻ All (3x)');
+            });
+
+            it('draws the same MaxAttempts the tooltip spells out', () => {
+                for (const maxAttempts of ['', { Ref: 'Attempts' }, null]) {
+                    const retry = parseTask({ Retry: [{ ErrorEquals: ['States.ALL'], MaxAttempts: maxAttempts }] }).edges.find(
+                        (edge) => edge.type === 'retry',
+                    );
+                    expect(retry?.label).toBe('↻ States.ALL (3x)');
+                    expect(retry?.detail).toContain('up to 3 retries');
+                }
+            });
+        });
+
         it('should default MaxAttempts to 3 when omitted', () => {
             const asl: AslDefinition = {
                 StartAt: 'Work',
@@ -690,7 +758,7 @@ describe('AslParser', () => {
             });
 
             it('should throw instead of crashing when an entry is not an object', () => {
-                for (const field of ['Choices', 'Catch']) {
+                for (const field of ['Choices', 'Catch', 'Retry']) {
                     const definition = {
                         StartAt: 'S',
                         States: { S: { [field]: [null], Default: 'S', End: true, Resource: 'arn:s', Type: 'Task' } },
