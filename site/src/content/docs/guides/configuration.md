@@ -514,8 +514,9 @@ cache.stats(); // { entries: 1, hits: 1, misses: 1 }
 
 - The key is the graph plus the options that can move a node — `layout`, node size and
   separation, `padding`, icons and their position, state-type labels, variables,
-  annotations, collapse controls — and the theme's font size. Colours are not in it, so switching between themes that share a
-  font size hits, while changing `layout` or `nodeWidth` misses and stores another entry.
+  annotations, collapse controls — and the theme's font size. Colours are not in it, so
+  switching between themes that share a font size hits, while changing `layout` or
+  `nodeWidth` misses and stores another entry.
 - `cache` is accepted by `generateSvg`, `generateDiagram`, `generateHtml`,
   `generateHtmlAsync`, `generateViewerUpdate`, `generateDiff`, `generateExecution`,
   `generateExecutionHtml`, `generateExecutionHtmlAsync`, `generateFromAwsResponse`,
@@ -531,8 +532,8 @@ cache.stats(); // { entries: 1, hits: 1, misses: 1 }
 - Without a cache nothing is memoised and the core stays stateless. The CLI passes one
   to every render in a run, and a `--watch` session keeps its cache across re-renders,
   so an edit that leaves the key alone, such as a theme colour, re-renders every input
-  without laying it out again. A pass that stores more layouts than the default 32
-  evicts each one before the next pass can reuse it.
+  without laying it out again. The CLI's cache holds 32 layouts, so a pass over more
+  inputs than that evicts each one before the next pass can reuse it.
 
 See [createLayoutCache](/reference/index/functions/createlayoutcache/) for the full API.
 

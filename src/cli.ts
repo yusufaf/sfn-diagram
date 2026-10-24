@@ -346,8 +346,9 @@ Notes:
   --collapse and --hide-catch apply to every format, and to the --diff and
   --execution overlays under --format svg and html. A Mermaid overlay (--diff or
   --execution with --format mermaid) reads only --theme and --layout and ignores
-  every other diagram flag, including --collapse, --hide-catch, --hide-comments,
-  --catch-label-style and --show-variables/--hide-variables.
+  every other diagram option, flag or config key, including --collapse,
+  --hide-catch, --hide-comments, --catch-label-style, --show-variables,
+  --hide-variables and customColors.
 
   --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
   given with another format they exit 2 (--check ignores them). Set in the config
