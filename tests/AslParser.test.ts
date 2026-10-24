@@ -463,8 +463,9 @@ describe('AslParser', () => {
                     expect.objectContaining({ code: 'invalid-field', path: '/States/Work/Retry/0' }),
                 );
 
-                // An array entry rendered before #468, so it must not start throwing now.
-                expect(() => parseTask({ Retry: [['States.ALL']] })).not.toThrow();
+                // An array entry rendered before #468, so it must keep drawing its loop.
+                const retry = parseTask({ Retry: [['States.ALL']] }).edges.find((edge) => edge.type === 'retry');
+                expect(retry?.label).toBe('↻ All (3x)');
             });
 
             it('draws the same MaxAttempts the tooltip spells out', () => {
