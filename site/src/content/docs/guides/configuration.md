@@ -486,9 +486,10 @@ Big, branchy state machines are hard to read as a static image. A few options he
   placeholder nodes so dagre lays out a smaller diagram. Pass specific state names
   (`--collapse=Name1,Name2`, or `collapse: ['Name1', 'Name2']`) to collapse only
   those containers; on the CLI, escape a comma that is part of a state name as
-  `\,`. It applies to the SVG, Mermaid and HTML outputs and to
-  `--diff` (except `--diff --format mermaid`), but not to `--execution` overlays,
-  which build their graph separately — the same limitation `--hide-catch` has there.
+  `\,`. It applies to every output format and to the `--diff` and `--execution`
+  overlays, except the Mermaid ones: `generateMermaidDiff()` and
+  `generateMermaidExecution()` take only `layout` and `theme`, so `--diff` or
+  `--execution` with `--format mermaid` ignores `collapse`, and `--hide-catch` with it.
   ```bash
   npx sfn-diagram state.asl.json --collapse --format svg -o diagram.svg
   ```

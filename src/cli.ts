@@ -343,12 +343,11 @@ Notes:
   cannot work, or a required flag left out). --check exits 1 when it finds an
   error-severity diagnostic and 0 when it finds nothing worse than a warning.
 
-  --collapse applies to --format svg, mermaid and html, and to --diff (except
-  --diff --format mermaid). It has no effect on --execution overlays, which build
-  their graph separately — the same limitation --hide-catch has there.
-
-  --diff --format mermaid also ignores --hide-comments and --catch-label-style: it
-  re-parses the merged definition without them. --theme and --layout do apply.
+  --collapse and --hide-catch apply to every format, and to the --diff and
+  --execution overlays under --format svg and html. A Mermaid overlay (--diff or
+  --execution with --format mermaid) reads only --theme and --layout: it ignores
+  --collapse, --hide-catch, --hide-comments, --catch-label-style and
+  --show-variables/--hide-variables.
 
   --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
   given with another format they exit 2 (--check ignores them). Set in the config
