@@ -21,7 +21,38 @@ updates:
       include: scope
     labels:
       - dependencies
+    # TypeScript 7's npm package has no classic compiler API (it exports only
+    # ./unstable/*), typescript-eslint caps its peer at <6.1.0 and
+    # @astrojs/check at ^6. Drop this once those tools support 7.
+    ignore:
+      - dependency-name: typescript
+        versions:
+          - ">=7.0.0"
+    # A dependency joins the first group it matches, so the version-locked
+    # families come first. They set no update-types, so a major moves the
+    # whole family in one PR instead of arriving half-bumped.
     groups:
+      # react-dom reads React internals; mixing majors breaks at runtime.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+      # @vitest/coverage-v8 peers an exact vitest version.
+      vitest:
+        patterns:
+          - vitest
+          - "@vitest/*"
+      # @eslint/js majors track eslint's.
+      eslint:
+        patterns:
+          - eslint
+          - "@eslint/js"
+      # The commitlint packages release in lockstep.
+      commitlint:
+        patterns:
+          - "@commitlint/*"
       prod-minor-patch:
         dependency-type: production
         update-types:
