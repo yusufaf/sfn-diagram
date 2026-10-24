@@ -333,11 +333,16 @@ jobs:
   # for it. Open VSX is the default registry for Cursor, Windsurf, VSCodium,
   # Gitpod and Eclipse Theia.
   #
-  # The Microsoft Marketplace is deliberately NOT automated here. `vsce publish`
-  # requires a *global* Azure DevOps PAT, and global PATs are retired on
-  # 2026-12-01; the supported replacement is Entra workload identity federation
-  # (`vsce publish --azure-credential`), which is tracked separately in #40.
-  # Open VSX uses its own token and is unaffected by that cutoff.
+  # The Microsoft Marketplace is published by vscode-marketplace.yml, on the
+  # published vscode-sfn-diagram-v* release, with Entra workload identity
+  # federation instead of a PAT. That trigger fires only because the release-please
+  # step above runs with the GitHub App token: a release created with GITHUB_TOKEN
+  # starts no other workflow. It is a separate file on purpose: npm and JSR trusted
+  # publishing are keyed on this file's name, so any OIDC token minted here can
+  # publish sfn-diagram to both. Giving the Marketplace job, with its `pnpm install`
+  # and vsce, `id-token: write` here would hand that power to its dependencies too.
+  # Open VSX uses its own token (OVSX_PAT) and is unaffected by the 2026-12-01
+  # Azure DevOps global PAT cutoff.
   openvsx-publish:
     needs: release-please
     if: needs.release-please.outputs.vscode_release_created == 'true'

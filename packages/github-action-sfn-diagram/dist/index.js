@@ -65757,9 +65757,20 @@ var DEFAULT_INTERVAL_SECONDS = 1;
 var DEFAULT_BACKOFF_RATE = 2;
 function getRetryLabel(retryBlocks) {
   const parts = retryBlocks.map((retry) => {
-    return `${retry.ErrorEquals?.join(", ") || "All"} (${retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS2}x)`;
+    return `${formatErrorEquals({
+      fallback: "All",
+      value: retry.ErrorEquals
+    })} (${formatRetryValue({
+      fallback: DEFAULT_MAX_ATTEMPTS2,
+      value: retry.MaxAttempts
+    })}x)`;
   });
   return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join("; ")}`;
+}
+function formatErrorEquals(params) {
+  const { fallback: fallback2, value } = params;
+  const names = (Array.isArray(value) ? value : [value]).filter(isNonEmptyString);
+  return names.length > 0 ? names.join(", ") : fallback2;
 }
 function formatRetryValue(params) {
   const { fallback: fallback2, value } = params;
@@ -65769,7 +65780,10 @@ function formatRetryValue(params) {
 }
 function getRetryDetail(retryBlocks) {
   return retryBlocks.map((retry) => {
-    const errors = retry.ErrorEquals?.join(", ") || "All";
+    const errors = formatErrorEquals({
+      fallback: "All",
+      value: retry.ErrorEquals
+    });
     const maxAttempts = formatRetryValue({
       fallback: DEFAULT_MAX_ATTEMPTS2,
       value: retry.MaxAttempts
@@ -65794,7 +65808,10 @@ function getRetryDetail(retryBlocks) {
   }).join("; ");
 }
 function getErrorLabel(errorTypes) {
-  const errors = errorTypes?.join(", ") || "Any";
+  const errors = formatErrorEquals({
+    fallback: "Any",
+    value: errorTypes
+  });
   return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
 }
 var MAX_SHOWN_NAMES = 3;
@@ -66640,6 +66657,9 @@ function validateState(params) {
     "Catch",
     "Retry"
   ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) report("invalid-field", `${pointer}/${arrayField}`, `State "${stateName}": ${arrayField} must be an array`);
+  if (Array.isArray(state2.Retry)) {
+    for (const [index, entry] of state2.Retry.entries()) if (!entry || typeof entry !== "object") report("invalid-field", `${pointer}/Retry/${index}`, `State "${stateName}": Retry[${index}] must be an object`);
+  }
   for (const field of ["Choices", "Catch"]) {
     const entries = state2[field];
     if (!Array.isArray(entries)) continue;
