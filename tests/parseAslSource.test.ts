@@ -13,6 +13,10 @@ describe('parseAslSource', () => {
         expect(parseAslSource({ source: JSON.stringify(asl) })).toEqual(asl);
     });
 
+    it('ignores a leading byte order mark', () => {
+        expect(parseAslSource({ source: `\uFEFF${JSON.stringify(asl)}` })).toEqual(asl);
+    });
+
     it('throws AslSyntaxError for a malformed string', () => {
         expect(() => parseAslSource({ source: '{not json' })).toThrow(AslSyntaxError);
         expect(() => parseAslSource({ source: '{not json' })).toThrow('ASL definition is not valid JSON');

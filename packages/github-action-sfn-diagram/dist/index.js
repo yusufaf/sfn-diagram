@@ -66185,6 +66185,10 @@ function detectServiceFromResource(params) {
     serviceName
   };
 }
+var BYTE_ORDER_MARK = 65279;
+function stripBom(text) {
+  return text.charCodeAt(0) === BYTE_ORDER_MARK ? text.slice(1) : text;
+}
 function isOpenContainer(node) {
   return node.isContainer === true && !node.collapsed;
 }
@@ -66502,7 +66506,7 @@ function parseAslSource(params) {
   const { source } = params;
   if (typeof source !== "string") return source;
   try {
-    return JSON.parse(source);
+    return JSON.parse(stripBom(source));
   } catch (error3) {
     throw new AslSyntaxError(`ASL definition is not valid JSON: ${error3 instanceof Error ? error3.message : String(error3)}`, { cause: error3 });
   }
@@ -68032,7 +68036,7 @@ function toMillis(timestamp) {
   }
 }
 function normalizeEvents(input) {
-  const value = typeof input === "string" ? JSON.parse(input) : input;
+  const value = typeof input === "string" ? JSON.parse(stripBom(input)) : input;
   return [...Array.isArray(value) ? value : value?.events ?? []].sort((a5, b5) => (a5.id ?? 0) - (b5.id ?? 0));
 }
 function enteredName(event) {
@@ -68793,7 +68797,7 @@ function isAslDefinition(obj) {
 }
 function parseAslJson(content) {
   try {
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(stripBom(content));
     return isAslDefinition(parsed) ? parsed : null;
   } catch {
     return null;

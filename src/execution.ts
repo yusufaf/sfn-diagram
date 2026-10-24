@@ -24,6 +24,7 @@ import type {
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
 import { redactPayloadText } from './redact';
+import { stripBom } from './utils/bom';
 import { replaceXmlForbiddenChars } from './utils/xmlChars';
 import {
     buildIdResolver,
@@ -172,7 +173,7 @@ function toMillis(timestamp: unknown): number | undefined {
 
 /** Normalize the accepted input forms into an ordered HistoryEvent[]. */
 function normalizeEvents(input: ExecutionHistoryInput): HistoryEvent[] {
-    const value = typeof input === 'string' ? JSON.parse(input) : input;
+    const value = typeof input === 'string' ? JSON.parse(stripBom(input)) : input;
     const events: HistoryEvent[] = Array.isArray(value)
         ? value
         : (value?.events ?? []);

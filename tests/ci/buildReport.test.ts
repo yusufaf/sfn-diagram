@@ -102,6 +102,10 @@ describe('parseAslJson', () => {
         expect(parseAslJson(JSON.stringify(beforeAsl))).toEqual(beforeAsl);
     });
 
+    it('ignores a leading byte order mark', () => {
+        expect(parseAslJson(`\uFEFF${JSON.stringify(beforeAsl)}`)).toEqual(beforeAsl);
+    });
+
     it('returns null for invalid JSON', () => {
         expect(parseAslJson('{not json')).toBeNull();
     });

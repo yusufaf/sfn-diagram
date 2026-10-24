@@ -1,5 +1,6 @@
 import type { AslDefinition, ExtractAslFromTerraformParams, ExtractAslResult } from '../types';
 import { parseAslSource } from '../AslParser';
+import { stripBom } from '../utils/bom';
 import {
     evaluateHclLiteral,
     isHclReference,
@@ -93,13 +94,6 @@ export function isTerraformConfig(params: IsTerraformConfigParams): boolean {
     } catch {
         return false;
     }
-}
-
-const BYTE_ORDER_MARK = 0xfeff;
-
-/** Drops a leading byte order mark so token offsets index the same text the extractor slices. */
-function stripBom(text: string): string {
-    return text.charCodeAt(0) === BYTE_ORDER_MARK ? text.slice(1) : text;
 }
 
 function quoteLabel(name: string): string {

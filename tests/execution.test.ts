@@ -393,6 +393,14 @@ describe('parseExecutionHistory', () => {
         expect(asObject.states.Process.status).toBe('succeeded');
         expect(fromString.metadata.executionStatus).toBe('succeeded');
     });
+
+    it('ignores a leading byte order mark on a JSON string history', () => {
+        const result = generateExecution({
+            aslDefinition: loadAsl('simple'),
+            history: `\uFEFF${loadHistoryJson('execution-success')}`,
+        });
+        expect(result.metadata.executionStatus).toBe('succeeded');
+    });
 });
 
 describe('buildExecutionTimeline', () => {
