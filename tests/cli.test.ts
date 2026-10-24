@@ -741,6 +741,16 @@ describe('diff, execution and icon flags', () => {
         'fixtures',
         'execution-success.json',
     );
+    const parallelCatchFixture = join(
+        __dirname,
+        'fixtures',
+        'parallel-catch.asl.json',
+    );
+    const parallelCaughtHistory = join(
+        __dirname,
+        'fixtures',
+        'execution-parallel-caught.json',
+    );
 
     const baseAsl = JSON.stringify({
         StartAt: 'StepA',
@@ -876,6 +886,52 @@ describe('diff, execution and icon flags', () => {
         expect(stdoutData).toContain('<svg');
         // succeeded states are green
         expect(stdoutData).toContain('#c8e6c9');
+    });
+
+    it('--execution honours --collapse and --hide-catch', async () => {
+        const args = [
+            parallelCatchFixture,
+            '--execution',
+            parallelCaughtHistory,
+        ];
+        expect(await run(args)).toBe(0);
+        expect(stdoutData).toContain('data-state-id="Branch1"');
+        expect(stdoutData).toContain('data-state-id="HandleError"');
+
+        stdoutData = '';
+        stderrData = '';
+        expect(await run([...args, '--collapse'])).toBe(0);
+        expect(stdoutData).not.toContain('data-state-id="Branch1"');
+        expect(stdoutData).toContain('data-state-id="ParallelExecution"');
+
+        stdoutData = '';
+        stderrData = '';
+        expect(await run([...args, '--hide-catch'])).toBe(0);
+        expect(stdoutData).not.toContain('data-state-id="HandleError"');
+    });
+
+    it('a Mermaid --execution overlay ignores --collapse and --hide-catch', async () => {
+        // Pins the limitation the --help note documents; lifting it must update the note.
+        const args = [
+            parallelCatchFixture,
+            '--execution',
+            parallelCaughtHistory,
+            '--format',
+            'mermaid',
+        ];
+        expect(await run(args)).toBe(0);
+        const plain = stdoutData;
+        expect(plain).toContain('Branch1');
+
+        stdoutData = '';
+        stderrData = '';
+        expect(await run([...args, '--collapse'])).toBe(0);
+        expect(stdoutData).toBe(plain);
+
+        stdoutData = '';
+        stderrData = '';
+        expect(await run([...args, '--hide-catch'])).toBe(0);
+        expect(stdoutData).toBe(plain);
     });
 
     it('--diff with --format html emits an interactive document', async () => {
