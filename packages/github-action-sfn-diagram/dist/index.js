@@ -66299,10 +66299,6 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
-var XML_FORBIDDEN_CHARS = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uFFFE\\uFFFF]|\\p{Cs}", "gu");
-function replaceXmlForbiddenChars(text) {
-  return text.replace(XML_FORBIDDEN_CHARS, "\uFFFD");
-}
 var DEFAULT_DIAGRAM_OPTIONS = {
   format: "svg",
   theme: "light",
@@ -66338,20 +66334,10 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   diagramTitle: void 0
 };
 function mergeOptions(options = {}) {
-  const merged = {
+  return {
     ...DEFAULT_DIAGRAM_OPTIONS,
     ...withoutUndefined(options)
   };
-  return {
-    ...merged,
-    edgeOverrides: withXmlSafeKeys(merged.edgeOverrides),
-    nodeAnnotations: withXmlSafeKeys(merged.nodeAnnotations),
-    nodeOverrides: withXmlSafeKeys(merged.nodeOverrides)
-  };
-}
-function withXmlSafeKeys(map3) {
-  if (map3 === void 0 || Object.keys(map3).every((key) => replaceXmlForbiddenChars(key) === key)) return map3;
-  return Object.fromEntries(Object.entries(map3).map(([key, value]) => [replaceXmlForbiddenChars(key), value]));
 }
 function assignEdgeIds(params) {
   const { edges } = params;
@@ -66366,6 +66352,10 @@ function assignEdgeIds(params) {
       id: `${pairKey}#${ordinal}`
     };
   });
+}
+var XML_FORBIDDEN_CHARS = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uFFFE\\uFFFF]|\\p{Cs}", "gu");
+function replaceXmlForbiddenChars(text) {
+  return text.replace(XML_FORBIDDEN_CHARS, "\uFFFD");
 }
 var SCOPE_SEPARATOR = "__";
 function assignmentKey(scope, name) {
@@ -68110,6 +68100,7 @@ function walkExecutionHistory(params) {
   let startState;
   const capturePayload = createPayloadCapture({ redact });
   const resolver = definition ? buildIdResolver({ definition }) : void 0;
+  const nodeIdFor = (scope, name) => resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name);
   const childScopes = definition && resolver ? buildChildScopes({
     definition,
     resolver
@@ -68256,6 +68247,7 @@ function walkExecutionHistory(params) {
       ensure2(name);
       const parent = openContainer();
       const scope = parent ? childScopes?.get(parent.nodeId)?.get(name) ?? "" : "";
+      const nodeId = nodeIdFor(scope, name);
       const frame = {
         childStarts: 0,
         enteredEventId: event.id,
@@ -68264,12 +68256,12 @@ function walkExecutionHistory(params) {
         failures: 0,
         lastEntryIndex: -1,
         name,
-        nodeId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name),
+        nodeId,
         parent,
         ...includePayloads ? { payloadInput: capturePayload({
           field: "input",
           raw: event.stateEnteredEventDetails?.input,
-          stateId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name)
+          stateId: nodeId
         }) } : {}
       };
       openStack.push(frame);
@@ -68284,7 +68276,7 @@ function walkExecutionHistory(params) {
           });
         }
       }
-      openEntry(frame, nowMs, 1, from === void 0 ? void 0 : resolver ? resolver.resolve(scope, from) : replaceXmlForbiddenChars(from));
+      openEntry(frame, nowMs, 1, from === void 0 ? void 0 : nodeIdFor(scope, from));
       if (parent && from === void 0) parent.childStarts += 1;
       if (type === "FailStateEntered") {
         const result = ensure2(name);

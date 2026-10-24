@@ -770,7 +770,7 @@ export interface DiagramOptions {
 
     /**
      * Per-node style overrides keyed by graph node id, which is the state name for
-     * every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name.
+     * every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name. A character XML 1.0 forbids in a name becomes U+FFFD in its id, so read those off `data-state-id` too.
      * Merged on top of the node's computed style — only specified fields are overridden.
      */
     nodeOverrides?: Record<string, Partial<NodeStyle>>;
@@ -800,7 +800,7 @@ export interface DiagramOptions {
 
     /**
      * Extra annotation text rendered below a node's label, keyed by graph node id -
-     * the state name for every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name.
+     * the state name for every state whose name is unique across the machine. For a nested state whose name repeats elsewhere in the machine the id is qualified by its scope, so read it off the rendered `data-state-id` rather than assuming the bare name. A character XML 1.0 forbids in a name becomes U+FFFD in its id, so read those off `data-state-id` too.
      * Used by the execution overlay to show per-state duration and retry counts.
      */
     nodeAnnotations?: Record<string, string>;
