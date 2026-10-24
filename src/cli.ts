@@ -56,6 +56,7 @@ import { createLayoutCache } from './layout';
 import type { LayoutCache } from './layout';
 import { lintAsl } from './lint';
 import { exportPng } from './png';
+import { stripBom } from './utils/bom';
 import type {
     AslDefinition,
     CatchHandling,
@@ -1379,10 +1380,12 @@ async function loadSource(source: CliInputSource): Promise<string> {
                 arn: source.arn,
                 flag: '--from-aws',
             });
+        // Stripped here as well as in the parsers, because CloudFormation and
+        // Terraform detection run on this text before any parser sees it.
         case 'file':
-            return readFileSync(resolve(source.path), 'utf-8');
+            return stripBom(readFileSync(resolve(source.path), 'utf-8'));
         case 'stdin':
-            return readStdin();
+            return stripBom(await readStdin());
     }
 }
 
@@ -3030,7 +3033,7 @@ async function renderResolvedBatch(
     if (!args.check && args.themeFile !== null) {
         try {
             const parsed: unknown = JSON.parse(
-                readFileSync(resolve(args.themeFile), 'utf-8'),
+                stripBom(readFileSync(resolve(args.themeFile), 'utf-8')),
             );
             if (
                 typeof parsed !== 'object' ||
@@ -3074,7 +3077,7 @@ async function renderResolvedBatch(
                       }),
                       flag: '--diff',
                   })
-                : readFileSync(resolve(args.diff), 'utf-8');
+                : stripBom(readFileSync(resolve(args.diff), 'utf-8'));
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);

@@ -710,6 +710,30 @@ describe('stdin handling', () => {
         expect(stdoutData).toContain('<svg');
     });
 
+    it('auto-detects a piped template that starts with a byte order mark', async () => {
+        const template = JSON.stringify({
+            Resources: {
+                M: {
+                    Type: 'AWS::StepFunctions::StateMachine',
+                    Properties: {
+                        Definition: JSON.parse(
+                            readFileSync(simpleFixture, 'utf-8'),
+                        ),
+                    },
+                },
+            },
+        });
+        Object.defineProperty(process, 'stdin', {
+            value: Readable.from([Buffer.from(`\uFEFF${template}`)]),
+            configurable: true,
+        });
+
+        const code = await run(['-', '--format', 'mermaid']);
+
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('stateDiagram');
+    });
+
     it('reads stdin for an explicit "-" even on a TTY', async () => {
         const asl = readFileSync(simpleFixture, 'utf-8');
         Object.defineProperty(process, 'stdin', {
@@ -1260,6 +1284,29 @@ describe('CFN template input', () => {
         expect(code).toBe(0);
         expect(stdoutData).toContain('Run');
         expect(stdoutData).toContain('Done');
+    });
+
+    // Windows editors and PowerShell's `Out-File -Encoding utf8` write a byte order
+    // mark, which would otherwise hide the template from auto-detection.
+    it('auto-detects a template that starts with a byte order mark', async () => {
+        const inputPath = writeTemplate('bom.json', `\uFEFF${cfnJson}`);
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Run');
+    });
+
+    it('auto-detects a --diff baseline template that starts with a byte order mark', async () => {
+        const inputPath = writeTemplate('head.json', cfnJson);
+        const baselinePath = writeTemplate('base.json', `\uFEFF${cfnJson}`);
+        const code = await run([
+            inputPath,
+            '--diff',
+            baselinePath,
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('No changes');
     });
 
     it('auto-detects a SAM JSON template', async () => {
@@ -2370,6 +2417,16 @@ describe('run: DiagramOptions flags', () => {
                 process.chdir(cwd);
             }
             expect(stdoutData).toContain('#654321');
+        });
+
+        it('accepts a file that starts with a byte order mark', async () => {
+            const themePath = join(tempDir, 'bom.json');
+            writeFileSync(
+                themePath,
+                `\uFEFF${JSON.stringify({ background: '#13579b' })}`,
+            );
+            expect(await run([simpleFixture, '--theme', themePath])).toBe(0);
+            expect(stdoutData).toContain('#13579b');
         });
 
         // An unreadable or unusable theme file is a runtime failure (1), matching an

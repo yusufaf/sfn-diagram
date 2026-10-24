@@ -31,6 +31,7 @@ import {
     getWaitDurationLabel,
 } from './constants';
 import { detectService, detectServiceFromResource } from './services';
+import { stripBom } from './utils/bom';
 import {
     assignEdgeIds,
     branchEndMarkerId,
@@ -90,7 +91,8 @@ interface ParseAslSourceParams {
  * Accept an ASL definition as either an object or a JSON string and return the object
  *
  * Every public entry point that takes `aslDefinition: AslDefinition | string` goes
- * through here so a malformed string fails the same way everywhere.
+ * through here so a malformed string fails the same way everywhere. A leading byte
+ * order mark is ignored, so a file read as-is from a Windows editor parses.
  *
  * @param params - Configuration object
  * @param params.source - ASL definition as an object or JSON string
@@ -108,7 +110,7 @@ export function parseAslSource(params: ParseAslSourceParams): AslDefinition {
     const { source } = params;
     if (typeof source !== 'string') return source;
     try {
-        return JSON.parse(source) as AslDefinition;
+        return JSON.parse(stripBom(source)) as AslDefinition;
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new AslSyntaxError(`ASL definition is not valid JSON: ${detail}`, { cause: error });

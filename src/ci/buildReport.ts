@@ -10,6 +10,7 @@ import { generateMermaid } from '../index';
 import { generateMermaidDiff } from '../diff';
 import { generateMermaidExecution } from '../execution';
 import { lintAsl } from '../lint';
+import { stripBom } from '../utils/bom';
 import type { AslDefinition, LintDiagnostic, CatchHandling, LayoutDirection, ThemeOption } from '../types';
 import type {
     ExecutionMode,
@@ -33,10 +34,13 @@ export function isAslDefinition(obj: unknown): obj is AslDefinition {
     );
 }
 
-/** Parses raw file content into an `AslDefinition`, or `null` if it isn't one. */
+/**
+ * Parses raw file content into an `AslDefinition`, or `null` if it isn't one. A leading
+ * byte order mark is ignored.
+ */
 export function parseAslJson(content: string): AslDefinition | null {
     try {
-        const parsed: unknown = JSON.parse(content);
+        const parsed: unknown = JSON.parse(stripBom(content));
         return isAslDefinition(parsed) ? parsed : null;
     } catch {
         return null;

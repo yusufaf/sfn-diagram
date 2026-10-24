@@ -7,6 +7,13 @@ describe('parseTemplate', () => {
         expect(result).toEqual({ Resources: { A: { Type: 'X' } } });
     });
 
+    it('ignores a leading byte order mark', () => {
+        const json = '\uFEFF{"Resources":{"A":{"Type":"X"}}}';
+        expect(parseTemplate({ template: json })).toEqual({ Resources: { A: { Type: 'X' } } });
+        expect(parseTemplate({ template: json, format: 'json' })).toEqual({ Resources: { A: { Type: 'X' } } });
+        expect(parseTemplate({ template: '\uFEFFResources: {}', format: 'yaml' })).toEqual({ Resources: {} });
+    });
+
     it('passes through an already-parsed object', () => {
         const obj = { Resources: {} };
         expect(parseTemplate({ template: obj })).toBe(obj);
