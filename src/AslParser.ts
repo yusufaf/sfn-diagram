@@ -476,6 +476,22 @@ function validateState(params: ValidateStateParams): void {
         }
     }
 
+    // A Retry entry is not a transition, but the retry label reads its fields, so a
+    // non-object entry is reported here like a non-object Catch entry below. A null
+    // entry used to crash the label code, so this only turns that crash into an error;
+    // an array entry rendered before and is left to lint rather than made to throw.
+    if (Array.isArray(state.Retry)) {
+        for (const [index, entry] of (state.Retry as unknown[]).entries()) {
+            if (!entry || typeof entry !== 'object') {
+                report(
+                    'invalid-field',
+                    `${pointer}/Retry/${index}`,
+                    `State "${stateName}": Retry[${index}] must be an object`
+                );
+            }
+        }
+    }
+
     // Every Choice rule and Catch entry is a transition, so each must name a target in scope.
     for (const field of ['Choices', 'Catch'] as const) {
         const entries = state[field];
