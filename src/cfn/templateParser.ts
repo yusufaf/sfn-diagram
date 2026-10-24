@@ -1,5 +1,6 @@
 import { parse as parseYaml } from 'yaml';
 import type { CollectionTag, ScalarTag } from 'yaml';
+import { stripBom } from '../utils/bom';
 
 /** Parameters for {@link parseTemplate}. */
 export interface ParseTemplateParams {
@@ -87,6 +88,7 @@ function looksLikeJson(text: string): boolean {
  * JSON is parsed with `JSON.parse`; YAML is parsed with CloudFormation
  * short-form intrinsic tags normalized to their JSON long form, so downstream
  * code only has to understand `{ Ref: ... }` / `{ 'Fn::Sub': ... }` shapes.
+ * A leading byte order mark is ignored in either format.
  *
  * @param params - Template source and optional explicit format.
  * @returns The parsed template object.
@@ -103,10 +105,11 @@ export function parseTemplate(params: ParseTemplateParams): Record<string, unkno
         return template;
     }
 
-    const useJson = format === 'json' || (format === 'auto' && looksLikeJson(template));
+    const source = stripBom(template);
+    const useJson = format === 'json' || (format === 'auto' && looksLikeJson(source));
     if (useJson) {
-        return JSON.parse(template) as Record<string, unknown>;
+        return JSON.parse(source) as Record<string, unknown>;
     }
 
-    return parseYaml(template, { customTags: CFN_TAGS }) as Record<string, unknown>;
+    return parseYaml(source, { customTags: CFN_TAGS }) as Record<string, unknown>;
 }
