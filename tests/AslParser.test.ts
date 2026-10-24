@@ -6,6 +6,7 @@ import type { AslDefinition, RetryBlock } from '../src/types';
 import { applyCollapse } from '../src/graph';
 import { DagreLayout } from '../src/layout';
 import { getNodeSubLabel, getRetryDetail, getRetryLabel } from '../src/constants';
+import { lintAsl } from '../src/lint';
 
 const loadFixture = (name: string): AslDefinition => {
     const path = join(__dirname, 'fixtures', `${name}.asl.json`);
@@ -441,6 +442,26 @@ describe('AslParser', () => {
                     (edge) => edge.type === 'retry',
                 );
                 expect(retry?.label).toBe('↻ States.Timeout (3x)');
+
+                const error = parseTask({ Catch: [{ ErrorEquals: [7, null], Next: 'Handler' }] }).edges.find(
+                    (edge) => edge.type === 'error',
+                );
+                expect(error?.label).toBe('Error: Any');
+            });
+
+            it('reports a non-object or array Retry entry in validation and lint', () => {
+                for (const entry of [null, ['States.ALL']]) {
+                    const definition = {
+                        StartAt: 'Work',
+                        States: {
+                            Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Retry: [entry], Type: 'Task' },
+                        },
+                    };
+                    expect(() => validateAsl({ definition })).toThrow('Retry[0] must be an object');
+                    expect(lintAsl({ definition })).toContainEqual(
+                        expect.objectContaining({ code: 'invalid-field', path: '/States/Work/Retry/0' }),
+                    );
+                }
             });
 
             it('draws the same MaxAttempts the tooltip spells out', () => {

@@ -66654,7 +66654,7 @@ function validateState(params) {
     "Retry"
   ]) if (state2[arrayField] !== void 0 && !Array.isArray(state2[arrayField])) report("invalid-field", `${pointer}/${arrayField}`, `State "${stateName}": ${arrayField} must be an array`);
   if (Array.isArray(state2.Retry)) {
-    for (const [index, entry] of state2.Retry.entries()) if (!entry || typeof entry !== "object") report("invalid-field", `${pointer}/Retry/${index}`, `State "${stateName}": Retry[${index}] must be an object`);
+    for (const [index, entry] of state2.Retry.entries()) if (!entry || typeof entry !== "object" || Array.isArray(entry)) report("invalid-field", `${pointer}/Retry/${index}`, `State "${stateName}": Retry[${index}] must be an object`);
   }
   for (const field of ["Choices", "Catch"]) {
     const entries = state2[field];
