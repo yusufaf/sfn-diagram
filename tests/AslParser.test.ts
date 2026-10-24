@@ -411,6 +411,49 @@ describe('AslParser', () => {
             ).not.toContain('max delay');
         });
 
+        describe('a mistyped Retry or Catch field', () => {
+            const parseTask = (fields: Record<string, unknown>) =>
+                parseAsl({
+                    definition: {
+                        StartAt: 'Work',
+                        States: {
+                            Handler: { End: true, Type: 'Pass' },
+                            Work: { End: true, Resource: 'arn:aws:lambda:::function:fn', Type: 'Task', ...fields },
+                        },
+                    } as unknown as AslDefinition,
+                });
+
+            it('shows a bare-string ErrorEquals as written instead of throwing', () => {
+                const retry = parseTask({ Retry: [{ ErrorEquals: 'States.ALL' }] }).edges.find(
+                    (edge) => edge.type === 'retry',
+                );
+                expect(retry?.label).toBe('↻ States.ALL (3x)');
+                expect(retry?.detail).toBe('States.ALL: up to 3 retries, first after 1s, backoff 2x');
+
+                const error = parseTask({ Catch: [{ ErrorEquals: 'States.ALL', Next: 'Handler' }] }).edges.find(
+                    (edge) => edge.type === 'error',
+                );
+                expect(error?.label).toBe('Error: States.ALL');
+            });
+
+            it('skips ErrorEquals entries that are not names', () => {
+                const retry = parseTask({ Retry: [{ ErrorEquals: ['States.Timeout', 7, null, ''] }] }).edges.find(
+                    (edge) => edge.type === 'retry',
+                );
+                expect(retry?.label).toBe('↻ States.Timeout (3x)');
+            });
+
+            it('draws the same MaxAttempts the tooltip spells out', () => {
+                for (const maxAttempts of ['', { Ref: 'Attempts' }, null]) {
+                    const retry = parseTask({ Retry: [{ ErrorEquals: ['States.ALL'], MaxAttempts: maxAttempts }] }).edges.find(
+                        (edge) => edge.type === 'retry',
+                    );
+                    expect(retry?.label).toBe('↻ States.ALL (3x)');
+                    expect(retry?.detail).toContain('up to 3 retries');
+                }
+            });
+        });
+
         it('should default MaxAttempts to 3 when omitted', () => {
             const asl: AslDefinition = {
                 StartAt: 'Work',
@@ -690,7 +733,7 @@ describe('AslParser', () => {
             });
 
             it('should throw instead of crashing when an entry is not an object', () => {
-                for (const field of ['Choices', 'Catch']) {
+                for (const field of ['Choices', 'Catch', 'Retry']) {
                     const definition = {
                         StartAt: 'S',
                         States: { S: { [field]: [null], Default: 'S', End: true, Resource: 'arn:s', Type: 'Task' } },

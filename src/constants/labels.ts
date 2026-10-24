@@ -39,12 +39,31 @@ const DEFAULT_BACKOFF_RATE = 2;
  */
 export function getRetryLabel(retryBlocks: RetryBlock[]): string {
     const parts = retryBlocks.map((retry) => {
-        const errors = retry.ErrorEquals?.join(', ') || 'All';
-        const maxAttempts = retry.MaxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+        const errors = formatErrorEquals({ fallback: 'All', value: retry.ErrorEquals });
+        const maxAttempts = formatRetryValue({ fallback: DEFAULT_MAX_ATTEMPTS, value: retry.MaxAttempts });
         return `${errors} (${maxAttempts}x)`;
     });
 
     return `${EDGE_LABELS.RETRY_SYMBOL} ${parts.join('; ')}`;
+}
+
+interface FormatErrorEqualsParams {
+    /** Shown when no error name is readable. */
+    fallback: string;
+    /** The `ErrorEquals` field as read, typed `unknown` because a hand-written definition can hold a bare string. */
+    value: unknown;
+}
+
+/**
+ * The error names of a Retry or Catch entry, comma-joined. A bare string
+ * (`"ErrorEquals": "States.ALL"`, a common slip) is shown as written, and entries
+ * that are not non-empty strings are skipped, so a mistyped field degrades the label
+ * instead of aborting the render.
+ */
+function formatErrorEquals(params: FormatErrorEqualsParams): string {
+    const { fallback, value } = params;
+    const names = (Array.isArray(value) ? value : [value]).filter(isNonEmptyString);
+    return names.length > 0 ? names.join(', ') : fallback;
 }
 
 interface FormatRetryValueParams {
@@ -55,7 +74,8 @@ interface FormatRetryValueParams {
 }
 
 /**
- * One retrier field for {@link getRetryDetail}: a number or a non-empty string as
+ * One retrier field for {@link getRetryLabel} and {@link getRetryDetail}, so the drawn
+ * count and the tooltip always agree: a number or a non-empty string as
  * written (a CloudFormation-substituted `"5"` reads the same as the drawn label),
  * anything else as the ASL default.
  */
@@ -90,7 +110,7 @@ function formatRetryValue(params: FormatRetryValueParams): string | undefined {
 export function getRetryDetail(retryBlocks: RetryBlock[]): string {
     return retryBlocks
         .map((retry) => {
-            const errors = retry.ErrorEquals?.join(', ') || 'All';
+            const errors = formatErrorEquals({ fallback: 'All', value: retry.ErrorEquals });
             const maxAttempts = formatRetryValue({ fallback: DEFAULT_MAX_ATTEMPTS, value: retry.MaxAttempts });
             if (maxAttempts === '0') {
                 return `${errors}: never retried`;
@@ -132,7 +152,7 @@ export function getBranchLabel(index: number): string {
  * Generates an error label with error types
  */
 export function getErrorLabel(errorTypes?: string[]): string {
-    const errors = errorTypes?.join(', ') || 'Any';
+    const errors = formatErrorEquals({ fallback: 'Any', value: errorTypes });
     return `${EDGE_LABELS.ERROR_PREFIX} ${errors}`;
 }
 
