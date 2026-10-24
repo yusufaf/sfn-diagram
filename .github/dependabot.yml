@@ -21,13 +21,17 @@ updates:
       include: scope
     labels:
       - dependencies
-    # TypeScript 7's npm package has no classic compiler API (it exports only
-    # ./unstable/*), and typescript-eslint and @astrojs/check don't accept it.
-    # Drop this once those tools support 7.
     ignore:
+      # TypeScript 7's npm package has no classic compiler API (it exports only
+      # ./unstable/*), and typescript-eslint and @astrojs/check don't accept it.
+      # Drop this once those tools support 7.
       - dependency-name: typescript
         versions:
           - ">=7.0.0"
+      # @types/vscode must not exceed the extension's engines.vscode floor:
+      # vsce refuses to package when it does, and even a patch update rewrites
+      # the specifier past the floor. Bump both by hand, in one commit.
+      - dependency-name: "@types/vscode"
     # A dependency joins the first group it matches, so the version-locked
     # families come first. They set no update-types, so a major moves the
     # whole family in one PR instead of arriving half-bumped.
