@@ -66353,6 +66353,10 @@ function assignEdgeIds(params) {
     };
   });
 }
+var XML_FORBIDDEN_CHARS = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uFFFE\\uFFFF]|\\p{Cs}", "gu");
+function replaceXmlForbiddenChars(text) {
+  return text.replace(XML_FORBIDDEN_CHARS, "\uFFFD");
+}
 var SCOPE_SEPARATOR = "__";
 function assignmentKey(scope, name) {
   return `${scope}\0${name}`;
@@ -66412,7 +66416,9 @@ function buildIdResolver(params) {
     const next = [];
     for (const frame of frontier) {
       const assign = (name) => {
-        const candidate = (scopesByName.get(name)?.size ?? 1) > 1 && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${name}` : name;
+        const collides = (scopesByName.get(name)?.size ?? 1) > 1;
+        const safeName = replaceXmlForbiddenChars(name);
+        const candidate = collides && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${safeName}` : safeName;
         let id = candidate;
         for (let suffix = 2; taken.has(id); suffix++) id = `${candidate}${SCOPE_SEPARATOR}${suffix}`;
         assigned.set(assignmentKey(frame.scope, name), id);
@@ -66454,7 +66460,7 @@ function buildIdResolver(params) {
     resolve: resolveIn
   };
   function resolveIn(scope, name) {
-    return assigned.get(assignmentKey(scope, name)) ?? name;
+    return assigned.get(assignmentKey(scope, name)) ?? replaceXmlForbiddenChars(name);
   }
 }
 var AslValidationError = class AslValidationError2 extends Error {

@@ -1,5 +1,6 @@
 import { getMapProcessor } from './containers';
 import type { AslDefinition } from '../types';
+import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 
 /**
  * Identifies one `States` block. Empty at the machine root; otherwise the resolved id
@@ -111,6 +112,10 @@ function reservedIdsFor(id: string, definition: AslDefinition, name: string): st
  *    characters in a state name, so no separator is collision-proof; uniqueness is
  *    enforced against the ids already taken rather than assumed from the scheme.
  *
+ * A character XML forbids becomes U+FFFD in the id, as the SVG escapers write it, so a
+ * rendered `data-state-id` always equals the id the viewer and overlays look up. Two
+ * names that differ only in such characters then fall to rule 3.
+ *
  * Scopes are indexed outermost-first, so a nested id is only ever built from an already
  * resolved container id, and every marker a level reserves is taken before the next
  * level's names are assigned.
@@ -178,8 +183,9 @@ export function buildIdResolver(params: BuildIdResolverParams): IdResolver {
         for (const frame of frontier) {
             const assign = (name: string): string => {
                 const collides = (scopesByName.get(name)?.size ?? 1) > 1;
+                const safeName = replaceXmlForbiddenChars(name);
                 const candidate =
-                    collides && frame.scope !== '' ? `${frame.scope}${SCOPE_SEPARATOR}${name}` : name;
+                    collides && frame.scope !== '' ? `${frame.scope}${SCOPE_SEPARATOR}${safeName}` : safeName;
 
                 let id = candidate;
                 for (let suffix = 2; taken.has(id); suffix++) {
@@ -252,6 +258,6 @@ export function buildIdResolver(params: BuildIdResolverParams): IdResolver {
      * the name keeps the resulting dangling edge readable.
      */
     function resolveIn(scope: ScopePath, name: string): string {
-        return assigned.get(assignmentKey(scope, name)) ?? name;
+        return assigned.get(assignmentKey(scope, name)) ?? replaceXmlForbiddenChars(name);
     }
 }

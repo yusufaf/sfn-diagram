@@ -53,6 +53,7 @@ const RELAYOUT_ALLOWED_PREFIXES = [
     'src/utils/jsonata.ts',
     'src/utils/pathSample.ts',
     'src/utils/textMeasure.ts',
+    'src/utils/xmlChars.ts',
 ];
 
 /**

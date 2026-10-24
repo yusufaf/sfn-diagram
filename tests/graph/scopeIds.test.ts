@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIdResolver } from '../../src/graph/scopeIds';
 import type { AslDefinition } from '../../src/types';
+import { replaceXmlForbiddenChars } from '../../src/utils/xmlChars';
 
 /** A Parallel named `Fanout` whose branches are the given `States` blocks. */
 function fanout(...branches: Array<Record<string, unknown>>): AslDefinition {
@@ -194,6 +195,31 @@ describe('buildIdResolver', () => {
         expect(ids).toHaveLength(2);
         expect(new Set(ids).size).toBe(2);
         expect(resolver.idsForName('Nowhere')).toEqual([]);
+    });
+
+    // An id is written into data-state-id, where the SVG escapers turn a character XML
+    // forbids into U+FFFD. The id has to match, or the viewer and overlays miss the node.
+    it('replaces characters XML forbids in an id the same way the SVG escapers do', () => {
+        const vertical = `Pro${String.fromCharCode(0x0b)}cess`;
+        const formFeed = `Pro${String.fromCharCode(0x0c)}cess`;
+        const definition: AslDefinition = {
+            StartAt: vertical,
+            States: {
+                [vertical]: { Type: 'Pass', Next: formFeed },
+                [formFeed]: { Type: 'Pass', End: true },
+            },
+        };
+
+        const resolver = buildIdResolver({ definition });
+        const ids = [resolver.resolve('', vertical), resolver.resolve('', formFeed)];
+
+        expect(ids[0]).toBe(`Pro${String.fromCharCode(0xfffd)}cess`);
+        expect(ids.map(replaceXmlForbiddenChars)).toEqual(ids);
+        // Both names sanitize to the same string, so the second takes a discriminator.
+        expect(new Set(ids).size).toBe(2);
+        expect(resolver.idsForName(formFeed)).toEqual([ids[1]]);
+        // A name that is not indexed (a dangling target) falls back to itself, sanitized too.
+        expect(resolver.resolve('', `Gone${String.fromCharCode(0x07)}`)).toBe(`Gone${String.fromCharCode(0xfffd)}`);
     });
 
     it('handles a state name containing the scope separator', () => {
