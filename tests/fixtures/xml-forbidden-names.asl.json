@@ -1,0 +1,29 @@
+{
+  "Comment": "State names, a Choice condition and a Fail cause holding characters XML 1.0 forbids (#463): U+000B, U+0007, U+FFFF and a lone surrogate\ud800",
+  "StartAt": "Route\u000bA",
+  "States": {
+    "Route\u000bA": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.method",
+          "StringEquals": "credit\fcard",
+          "Next": "Charge\uffffCard"
+        }
+      ],
+      "Default": "Fail\u0007"
+    },
+    "Charge\uffffCard": {
+      "Type": "Pass",
+      "Next": "Done"
+    },
+    "Fail\u0007": {
+      "Type": "Fail",
+      "Error": "Declined",
+      "Cause": "bad\u0001card"
+    },
+    "Done": {
+      "Type": "Succeed"
+    }
+  }
+}

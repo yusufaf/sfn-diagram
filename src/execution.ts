@@ -25,6 +25,7 @@ import type {
 import { parseAsl, parseAslSource } from './AslParser';
 import { redactPayloadText } from './redact';
 import { stripBom } from './utils/bom';
+import { replaceXmlForbiddenChars } from './utils/xmlChars';
 import {
     buildIdResolver,
     computeCollapsePlan,
@@ -423,11 +424,15 @@ function walkExecutionHistory(params: {
 
     // Node ids need the definition: a history names a state but not the branch or
     // iterator it ran in. Without one the state name stands in as the id, which is
-    // exactly what it is for any definition whose names do not repeat across scopes.
+    // exactly what it is for any definition whose names do not repeat across scopes,
+    // once characters XML forbids are replaced as the resolver replaces them (see
+    // nodeIdFor below).
     // One budget per walk, so a long run cannot outgrow the document it is embedded in.
     const capturePayload = createPayloadCapture({ redact });
 
     const resolver = definition ? buildIdResolver({ definition }) : undefined;
+    const nodeIdFor = (scope: ScopePath, name: string): string =>
+        resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name);
     const childScopes =
         definition && resolver ? buildChildScopes({ definition, resolver }) : undefined;
 
@@ -671,6 +676,7 @@ function walkExecutionHistory(params: {
             // repeats across branches maps to the node that actually ran.
             const parent = openContainer();
             const scope = parent ? (childScopes?.get(parent.nodeId)?.get(name) ?? '') : '';
+            const nodeId = nodeIdFor(scope, name);
             const frame: OpenFrame = {
                 childStarts: 0,
                 enteredEventId: event.id,
@@ -679,14 +685,14 @@ function walkExecutionHistory(params: {
                 failures: 0,
                 lastEntryIndex: -1,
                 name,
-                nodeId: resolver ? resolver.resolve(scope, name) : name,
+                nodeId,
                 parent,
                 ...(includePayloads
                     ? {
                           payloadInput: capturePayload({
                               field: 'input',
                               raw: event.stateEnteredEventDetails?.input,
-                              stateId: resolver ? resolver.resolve(scope, name) : name,
+                              stateId: nodeId,
                           }),
                       }
                     : {}),
@@ -710,7 +716,7 @@ function walkExecutionHistory(params: {
                 frame,
                 nowMs,
                 1,
-                from !== undefined && resolver ? resolver.resolve(scope, from) : from
+                from === undefined ? undefined : nodeIdFor(scope, from)
             );
             // No predecessor inside the container means this run began a branch or an
             // iteration — the only count of them the history offers, since neither

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIdResolver } from '../../src/graph/scopeIds';
 import type { AslDefinition } from '../../src/types';
+import { replaceXmlForbiddenChars } from '../../src/utils/xmlChars';
 
 /** A Parallel named `Fanout` whose branches are the given `States` blocks. */
 function fanout(...branches: Array<Record<string, unknown>>): AslDefinition {
@@ -194,6 +195,74 @@ describe('buildIdResolver', () => {
         expect(ids).toHaveLength(2);
         expect(new Set(ids).size).toBe(2);
         expect(resolver.idsForName('Nowhere')).toEqual([]);
+    });
+
+    // An id is written into data-state-id, where the SVG escapers turn a character XML
+    // forbids into U+FFFD. The id has to match, or the viewer and overlays miss the node.
+    it('replaces characters XML forbids in an id the same way the SVG escapers do', () => {
+        const vertical = `Pro${String.fromCharCode(0x0b)}cess`;
+        const formFeed = `Pro${String.fromCharCode(0x0c)}cess`;
+        const definition: AslDefinition = {
+            StartAt: vertical,
+            States: {
+                [vertical]: { Type: 'Pass', Next: formFeed },
+                [formFeed]: { Type: 'Pass', End: true },
+            },
+        };
+
+        const resolver = buildIdResolver({ definition });
+        const ids = [resolver.resolve('', vertical), resolver.resolve('', formFeed)];
+
+        expect(ids[0]).toBe(`Pro${String.fromCharCode(0xfffd)}cess`);
+        expect(ids.map(replaceXmlForbiddenChars)).toEqual(ids);
+        // Both names sanitize to the same string, so the second takes a discriminator.
+        expect(new Set(ids).size).toBe(2);
+        expect(resolver.idsForName(formFeed)).toEqual([ids[1]]);
+    });
+
+    it('lets a name that needed no sanitizing keep its id when a sanitized one lands on it', () => {
+        const replacement = String.fromCharCode(0xfffd);
+        const dirty = `A${String.fromCharCode(0x0b)}`;
+        const clean = `A${replacement}`;
+        // The dirty name comes first in key order, so order alone would give it the id.
+        const definition: AslDefinition = {
+            StartAt: dirty,
+            States: {
+                [dirty]: { Type: 'Pass', Next: clean },
+                [clean]: { Type: 'Pass', End: true },
+            },
+        };
+
+        const resolver = buildIdResolver({ definition });
+
+        expect(resolver.resolve('', clean)).toBe(clean);
+        expect(resolver.resolve('', dirty)).toBe(`${clean}__2`);
+    });
+
+    it('qualifies a nested name by scope when it only collides with a root name once sanitized', () => {
+        const nested = `X${String.fromCharCode(0x0b)}`;
+        const root = `X${String.fromCharCode(0x0c)}`;
+        const definition = fanout({ [nested]: { Type: 'Pass', End: true } });
+        definition.States[root] = { Type: 'Pass', End: true };
+
+        const resolver = buildIdResolver({ definition });
+        const replacement = String.fromCharCode(0xfffd);
+
+        expect(resolver.resolve('', root)).toBe(`X${replacement}`);
+        expect(resolver.resolve(resolver.branchScope('', 'Fanout', 0), nested)).toBe(
+            `Fanout__branch0__X${replacement}`
+        );
+    });
+
+    it('leaves a dangling name as written, so it cannot attach to a state it only resembles', () => {
+        const real = `Done${String.fromCharCode(0x0b)}`;
+        const typo = `Done${String.fromCharCode(0x0c)}`;
+        const definition: AslDefinition = { StartAt: real, States: { [real]: { Type: 'Succeed' } } };
+
+        const resolver = buildIdResolver({ definition });
+
+        expect(resolver.resolve('', typo)).toBe(typo);
+        expect(resolver.resolve('', typo)).not.toBe(resolver.resolve('', real));
     });
 
     it('handles a state name containing the scope separator', () => {

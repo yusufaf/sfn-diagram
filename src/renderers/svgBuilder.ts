@@ -9,12 +9,16 @@
  * d3-selection surface the renderer relied on, and {@link SvgElement.serialize} emits
  * markup that follows JSDOM's HTML serialization (`element.outerHTML`): every element is
  * closed (no self-closing tags), attributes are double-quoted in insertion order, and
- * text/attribute values are escaped. It deviates from that serialization in two
+ * text/attribute values are escaped. It deviates from that serialization in three
  * deliberate ways: attribute values also escape `<`/`>` (see {@link escapeAttribute}),
- * which real HTML serialization leaves untouched, and U+00A0 is written as the numeric
- * reference `&#160;`. SVG is XML, where the HTML named entity for no-break space is
- * undefined, so resvg and any XML-strict consumer would reject the output.
+ * which real HTML serialization leaves untouched, U+00A0 is written as the numeric
+ * reference `&#160;`, and characters XML forbids outright become U+FFFD. SVG is XML,
+ * where the HTML named entity for no-break space is undefined and those characters are
+ * not allowed even as references, so resvg and any XML-strict consumer would reject
+ * the output.
  */
+
+import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 
 /** A value assignable to an SVG attribute; numbers are stringified like the DOM does. */
 export type SvgAttrValue = number | string;
@@ -27,12 +31,13 @@ export type SvgAttrValue = number | string;
  * `>` would put a tag-looking character inside every edge's `data-edge-id` and break
  * the `<path[^>]*>` style scans callers run over the serialized SVG. The escaping is
  * transparent to any XML/DOM parser, which hands back the original string. U+00A0
- * becomes `&#160;`, as in {@link escapeText}, so the value stays valid XML.
+ * becomes `&#160;`, as in {@link escapeText}, so the value stays valid XML, and a
+ * character XML forbids becomes U+FFFD, the same replacement node ids get.
  */
 // Exported so tests locate elements by the attributes this wrote, instead of keeping a
 // second copy of these rules that drifts.
 export function escapeAttribute(value: string): string {
-    return value
+    return replaceXmlForbiddenChars(value)
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&#160;')
         .replace(/"/g, '&quot;')
@@ -45,11 +50,11 @@ export function escapeAttribute(value: string): string {
  *
  * `&`, `<`, and `>` are escaped as the HTML serialization algorithm does. U+00A0 is
  * written as `&#160;` rather than the HTML named entity, which XML does not define,
- * so the SVG stays well-formed; the numeric form is equally valid in HTML.
- * Shared with the viewer shell, which escapes the document `<title>` with it.
+ * so the SVG stays well-formed; the numeric form is equally valid in HTML. A character
+ * XML forbids becomes U+FFFD. Shared with the viewer shell, which escapes the document `<title>` with it.
  */
 export function escapeText(value: string): string {
-    return value
+    return replaceXmlForbiddenChars(value)
         .replace(/&/g, '&amp;')
         .replace(/\u00A0/g, '&#160;')
         .replace(/</g, '&lt;')

@@ -5,6 +5,7 @@ import { parseAsl } from '../../src/AslParser';
 import { collectStateData } from '../../src/renderers/viewer';
 import { generateExecution } from '../../src/execution';
 import type { AslDefinition } from '../../src/types';
+import { replaceXmlForbiddenChars } from '../../src/utils/xmlChars';
 
 /**
  * ASL only requires a state name to be unique within its own `States` block, so two
@@ -268,7 +269,9 @@ describe('duplicate nested state names', () => {
             // rendered wrong keeps the ids its callers already reference in
             // nodeOverrides / nodeAnnotations / edgeOverrides. `label` is no use here —
             // it carries the state's Comment when includeComments is on — so this
-            // compares against the names in the definition itself.
+            // compares against the names in the definition itself. The one exception is a
+            // character XML forbids, which becomes U+FFFD in the id as it does in the SVG;
+            // such a name never produced a parseable SVG, so no caller can rely on it.
             expect(fixtures.length).toBeGreaterThan(0);
 
             let checked = 0;
@@ -285,9 +288,10 @@ describe('duplicate nested state names', () => {
                     // the id - every wrongly-qualified id contains that separator, so a
                     // substring filter would skip exactly the failures this is for.
                     if (VIRTUAL_NODE_TYPES.has(node.type)) continue;
-                    expect(names, `${fixture}: "${node.id}" is not a bare state name`).toContain(
-                        node.id
-                    );
+                    expect(
+                        [...names].map(replaceXmlForbiddenChars),
+                        `${fixture}: "${node.id}" is not a bare state name`
+                    ).toContain(node.id);
                 }
             }
 

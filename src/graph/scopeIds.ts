@@ -1,5 +1,6 @@
 import { getMapProcessor } from './containers';
 import type { AslDefinition } from '../types';
+import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 
 /**
  * Identifies one `States` block. Empty at the machine root; otherwise the resolved id
@@ -111,6 +112,11 @@ function reservedIdsFor(id: string, definition: AslDefinition, name: string): st
  *    characters in a state name, so no separator is collision-proof; uniqueness is
  *    enforced against the ids already taken rather than assumed from the scheme.
  *
+ * A character XML forbids becomes U+FFFD in the id, as the SVG escapers write it, so a
+ * rendered `data-state-id` always equals the id the viewer and overlays look up. Two
+ * names that only match once sanitized count as a repeat for rules 2 and 3, and within
+ * one scope the name that needed no sanitizing keeps the plain id.
+ *
  * Scopes are indexed outermost-first, so a nested id is only ever built from an already
  * resolved container id, and every marker a level reserves is taken before the next
  * level's names are assigned.
@@ -137,15 +143,18 @@ export function buildIdResolver(params: BuildIdResolverParams): IdResolver {
     // a separator that is itself legal inside a name can conflate two genuinely
     // different scopes (a root state literally named `A__branch0__C` versus branch 0 of
     // a Parallel `A` containing `C`), which would undercount the collision and skip the
-    // qualification. JSON of the step array cannot collide.
+    // qualification. JSON of the step array cannot collide. Keyed by the sanitized
+    // name, the form the id is built from, so two names that only collide once
+    // sanitized are still qualified by scope rather than numbered.
     const scopesByName = new Map<string, Set<string>>();
     const walk = (current: AslDefinition, path: string[]): void => {
         const scopeKey = JSON.stringify(path);
 
         for (const [name, state] of Object.entries(current.States)) {
-            const scopes = scopesByName.get(name) ?? new Set<string>();
+            const safeName = replaceXmlForbiddenChars(name);
+            const scopes = scopesByName.get(safeName) ?? new Set<string>();
             scopes.add(scopeKey);
-            scopesByName.set(name, scopes);
+            scopesByName.set(safeName, scopes);
 
             if (state.Type === 'Parallel' && Array.isArray(state.Branches)) {
                 state.Branches.forEach((branch, index) =>
@@ -177,9 +186,10 @@ export function buildIdResolver(params: BuildIdResolverParams): IdResolver {
 
         for (const frame of frontier) {
             const assign = (name: string): string => {
-                const collides = (scopesByName.get(name)?.size ?? 1) > 1;
+                const safeName = replaceXmlForbiddenChars(name);
+                const collides = (scopesByName.get(safeName)?.size ?? 1) > 1;
                 const candidate =
-                    collides && frame.scope !== '' ? `${frame.scope}${SCOPE_SEPARATOR}${name}` : name;
+                    collides && frame.scope !== '' ? `${frame.scope}${SCOPE_SEPARATOR}${safeName}` : safeName;
 
                 let id = candidate;
                 for (let suffix = 2; taken.has(id); suffix++) {
@@ -197,7 +207,12 @@ export function buildIdResolver(params: BuildIdResolverParams): IdResolver {
             // as `${containerId}__branchN__end` unconditionally, with no chance to take
             // a discriminator, so it is the plain state that has to move aside - and it
             // only does that if the marker is already in `taken` when it is assigned.
-            const names = Object.keys(frame.definition.States);
+            //
+            // Within each group, names that need no sanitizing go first, so a name that
+            // was already valid keeps its id when a sanitized name lands on the same one.
+            const isClean = (name: string): boolean => replaceXmlForbiddenChars(name) === name;
+            const allNames = Object.keys(frame.definition.States);
+            const names = [...allNames.filter(isClean), ...allNames.filter((name) => !isClean(name))];
             const isContainer = (name: string): boolean => {
                 const type = frame.definition.States[name].Type;
                 return type === 'Parallel' || type === 'Map';
