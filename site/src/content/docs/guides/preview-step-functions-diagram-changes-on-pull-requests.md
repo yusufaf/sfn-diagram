@@ -79,7 +79,9 @@ npm install --prefix .github/sfn-diagram sfn-diagram@1 yaml@2
 This creates `.github/sfn-diagram/package.json` and `package-lock.json`. Commit both, so CI
 installs exactly the versions you tested. `sfn-diagram@1` takes the newest 1.x release and
 never crosses a major version. The `node_modules` folder it creates is already ignored by
-the `.gitignore` that `cdk init` writes.
+the `.gitignore` that `cdk init` writes. If your repository doesn't ignore `node_modules`,
+for example a SAM or CloudFormation project, add `.github/sfn-diagram/node_modules/` to its
+`.gitignore` so the folder isn't committed.
 
 Then save this as `.github/sfn-diagram/comment.mjs`:
 
@@ -175,9 +177,10 @@ const failedLabels = new Set(skipped.filter(({ kind }) => kind === 'template').m
 const templateLabel = (name) => name.slice(0, name.lastIndexOf('/') + 1);
 const isSkipped = (name) => skippedNames.has(name) || failedLabels.has(templateLabel(name));
 // Anything that failed to read is reported with the side it failed on, so the comment never claims that nothing changed.
+// A separate-file definition is only reported when the other side has the machine inline, e.g. a move to an inline Definition.
 const sidesByName = new Map();
 for (const { kind, name, side } of skipped) {
-    if (kind === 'external') continue;
+    if (kind === 'external' && !before.machines.has(name) && !after.machines.has(name)) continue;
     if (!sidesByName.has(name)) sidesByName.set(name, new Set());
     sidesByName.get(name).add(side);
 }
@@ -321,7 +324,9 @@ gets that path instead, such as `assembly-Prod/ProdOrdersStack2EDBF9CE/OrderWork
   which ones it holds. Other templates in `cdk.out` are still compared.
 - **Definition in a separate file** (`DefinitionUri`, `DefinitionS3Location` or CDK's
   `DefinitionBody.fromFile`): left out on both sides, with a `Skipped` line in the job log.
-  The GitHub Action covers those files.
+  The GitHub Action covers those files. If only one side keeps it in a separate file, for
+  example when the pull request moves the definition inline, the "Couldn't read" note names
+  it too, so the change isn't hidden.
 
 When a later push makes every definition match the base branch again, the comment is
 rewritten to say so instead of being left out of date. If no state machine changed and no
@@ -364,7 +369,8 @@ keyed on both lockfiles.
 
 - **Paths:** the paths assume the CDK app is at the repository root, with code in `bin/` and
   `lib/`. Change `paths`, the `cache-dependency-path` lines and the `cdk.out` arguments if
-  yours differs.
+  yours differs. A projen app keeps its code in `src/`, for example, so add `src/**`. If no
+  changed file matches `paths`, the workflow doesn't run at all, and nothing reports why.
 - **Other languages:** the script only reads `cdk.out`, so it works the same for CDK apps in
   Python, Java, C# and Go. The workflow's synth steps and `cache-dependency-path` assume a
   Node app, though, so replace them with your language's setup and install commands. Only
@@ -480,3 +486,4 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 | `Skipped template.yaml (head): Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | For `(head)`, fix the template in the pull request. For `(base)`, the base branch's copy is broken, and editing the pull request won't help: merge a fix into the base branch. Until then, every pull request leaves that template's state machines out |
 | `Skipped … (base): its definition is in a separate file. Use the GitHub Action on that file.`, often with a matching `(head)` line | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
+| The comment didn't update, and the run failed at a synth step | `cdk synth` failed on that side, so the job stopped before posting and the previous comment still shows the earlier diff | Read the failed step's log. If it is the base branch's synth, fix it on the base branch: until then no pull request against that base gets a preview |
