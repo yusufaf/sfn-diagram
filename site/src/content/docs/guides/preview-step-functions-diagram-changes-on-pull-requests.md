@@ -15,21 +15,6 @@ that shows each changed state machine as a diagram, with added states in green, 
 ones in yellow and removed ones in red, plus a table of what changed. It needs no deploy and
 no AWS credentials, and the comment updates itself on every push.
 
-:::note[Which version you need]
-This guide describes sfn-diagram 1.9.0 or later, which hadn't been released as of October
-2026. With 1.8.0, the current npm release:
-- **CDK and plain CloudFormation:** the workflows run.
-- **SAM:** an inline `AWS::Serverless::StateMachine` can't be read. The comment says so, and
-  other state machines in the same template are still compared (see
-  [Troubleshooting](#troubleshooting)).
-- **`DefinitionSubstitutions`:** they're filled in only in part, so a change to a
-  substitution value alone may not show in the comment.
-
-The [CDK and SAM guide](/guides/step-functions-diagrams-from-cdk-and-sam/) lists the
-differences. To check the version step 1 installed, run
-`npm ls --prefix .github/sfn-diagram sfn-diagram`.
-:::
-
 ## Pick your setup
 
 | Where the definition lives | What to use |
@@ -485,8 +470,6 @@ this page is written for GitHub Actions, and a GitLab version isn't covered here
 |---|---|---|
 | `Context lookups have been disabled. … Missing context keys: …` | The stack uses a context lookup, such as `valueFromLookup` or `fromLookup`, with no cached value | Run `cdk synth` locally with AWS credentials and commit `cdk.context.json` |
 | The comment says `⚠️ Couldn't read` a state machine | The job log has a `Skipped <name>: <reason>` line for it | Fix what the reason names. The rows below cover the common ones |
-| `Skipped OrderStateMachine: Template contains no AWS::StepFunctions::StateMachine resource.` | The template's only state machines are SAM `AWS::Serverless::StateMachine` resources, and step 1 installed sfn-diagram 1.8.0 | 1.8.0 doesn't read SAM resources. See the version note at the top of this page |
-| `Skipped OrderStateMachine: Resource 'OrderStateMachine' is not an AWS::StepFunctions::StateMachine. Found: PaymentStateMachine.` | The template has both SAM and plain CloudFormation state machines, on sfn-diagram 1.8.0. The plain ones are still compared | Same as above |
 | `Skipped template.yaml: Map keys must be unique at line 49, column 3:` or another YAML error | The template isn't valid YAML on that side | Fix the template. Until then the comment shows only the "Couldn't read" note |
 | `Skipped …: its definition is in a separate file. Use the GitHub Action on that file.` | The state machine uses `DefinitionUri`, `DefinitionS3Location` or CDK's `DefinitionBody.fromFile` | Use the [GitHub Action](#asl-files-the-github-action) on that ASL file |
 | The workflow didn't run after a push | No file under `paths` differs from the base branch any more | Expected. See [Adapting it](#adapting-it) |
