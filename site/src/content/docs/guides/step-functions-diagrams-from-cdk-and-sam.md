@@ -228,7 +228,9 @@ template is compared with the live definition (see
 For pull requests, the [GitHub Action](/ecosystem/github-action/) comments a diagram and
 diff for changed ASL files (`*.asl.json` and `*.asl` by default, set by its `asl-glob`
 input). It reads ASL files, not templates, so it fits SAM
-projects that use `DefinitionUri`.
+projects that use `DefinitionUri`. For a CDK app or a template with an inline definition,
+[Preview Step Functions diagram changes on pull requests](/guides/preview-step-functions-diagram-changes-on-pull-requests/)
+has a tested workflow that synthesizes both sides and comments the diff.
 
 ## Lint before you deploy
 
