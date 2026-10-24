@@ -104,6 +104,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * reaching `src/aws.ts` and its static SDK import. The helper and its JSDoc are now inlined
  * next to `fetchExecutionHistory`, which took aws.cjs past the old 2,100 / 1,000 budget to
  * 2,755 raw and 1,053 gzip.
+ *
+ * `ci.js`/`ci.cjs` were restated, to about 5% above their measurement, when the escapers and
+ * node ids began replacing characters XML forbids (#463), on top of the malformed Retry
+ * labels (#468) and byte order mark handling (#426) landing the same day. Each fit alone;
+ * together they took ci.js to 99,599 gzip against 99,500, and ci.cjs to 343,300 raw and
+ * 100,181 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1160, raw: 3050 },
@@ -111,8 +117,8 @@ export const BUNDLE_BUDGETS = {
     'bin.js': { gzip: 265000, raw: 908000 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
-    'ci.cjs': { gzip: 100500, raw: 345500 },
-    'ci.js': { gzip: 99500, raw: 343000 },
+    'ci.cjs': { gzip: 105200, raw: 360500 },
+    'ci.js': { gzip: 104600, raw: 358500 },
     'element-auto.cjs': { gzip: 132500, raw: 460500 },
     'element-auto.js': { gzip: 132000, raw: 459000 },
     'element.cjs': { gzip: 132500, raw: 460000 },
