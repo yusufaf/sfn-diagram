@@ -532,8 +532,8 @@ cache.stats(); // { entries: 1, hits: 1, misses: 1 }
 - Without a cache nothing is memoised and the core stays stateless. The CLI passes one
   to every render in a run, and a `--watch` session keeps its cache across re-renders,
   so an edit that leaves the key alone, such as a theme colour, re-renders every input
-  without laying it out again. The CLI's cache holds 32 layouts, so a pass over more
-  inputs than that evicts each one before the next pass can reuse it.
+  without laying it out again. That cache holds 32 layouts, so a `--watch` pass that
+  stores more than that evicts each one before the next pass can reuse it.
 
 See [createLayoutCache](/reference/index/functions/createlayoutcache/) for the full API.
 
