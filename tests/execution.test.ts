@@ -614,6 +614,26 @@ describe('buildExecutionTimeline', () => {
         ]);
     });
 
+    it('replaces characters XML forbids in node ids even without a definition', () => {
+        // The rendered data-state-id carries U+FFFD there, so a timeline built without
+        // the definition must too, or a lookup by entry.nodeId misses the node.
+        const renamed = `Pro${String.fromCharCode(0x0b)}cess`;
+        const history = loadHistoryJson('execution-success').split('"Process"').join(JSON.stringify(renamed));
+        const events = JSON.parse(history).events as HistoryEvent[];
+        const expected = `Pro${String.fromCharCode(0xfffd)}cess`;
+
+        const unscoped = buildExecutionTimeline({ events });
+        const scoped = buildExecutionTimeline({
+            definition: JSON.parse(
+                JSON.stringify(loadAsl('simple')).split('"Process"').join(JSON.stringify(renamed)),
+            ) as AslDefinition,
+            events,
+        });
+
+        expect(unscoped.entries.map((entry) => entry.nodeId)).toContain(expected);
+        expect(unscoped.entries.map((entry) => entry.nodeId)).toEqual(scoped.entries.map((entry) => entry.nodeId));
+    });
+
     it('does not mistake a concurrent iteration starting for a retry of the failed leaf', () => {
         // With MaxConcurrency > 1 the next iteration starts while the failed leaf's
         // frame is still open. Only a task-level scheduling event begins an attempt, so

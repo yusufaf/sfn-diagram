@@ -1,4 +1,5 @@
 import type { DiagramOptions } from '../types';
+import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 import { withoutUndefined } from './withoutUndefined';
 
 /**
@@ -95,10 +96,28 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
  * mergeOptions({ edgeStyle: undefined, padding: 0 }); // edgeStyle stays 'curved', padding is 0
  */
 export function mergeOptions(options: DiagramOptions = {}): typeof DEFAULT_DIAGRAM_OPTIONS {
-    return {
+    const merged = {
         ...DEFAULT_DIAGRAM_OPTIONS,
         ...withoutUndefined(options),
     };
+    return {
+        ...merged,
+        edgeOverrides: withXmlSafeKeys(merged.edgeOverrides),
+        nodeAnnotations: withXmlSafeKeys(merged.nodeAnnotations),
+        nodeOverrides: withXmlSafeKeys(merged.nodeOverrides),
+    };
+}
+
+/**
+ * Rekey an id-keyed option map the way node ids are built, replacing each character
+ * XML forbids with U+FFFD, so a key written as the raw ASL state name still finds its
+ * node. Returns the map itself when no key needs it, which is every ordinary map.
+ */
+function withXmlSafeKeys<Value>(map: Record<string, Value> | undefined): Record<string, Value> | undefined {
+    if (map === undefined || Object.keys(map).every((key) => replaceXmlForbiddenChars(key) === key)) {
+        return map;
+    }
+    return Object.fromEntries(Object.entries(map).map(([key, value]) => [replaceXmlForbiddenChars(key), value]));
 }
 
 /**

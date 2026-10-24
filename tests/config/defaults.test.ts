@@ -49,6 +49,29 @@ describe('mergeOptions', () => {
 
         expect(DEFAULT_DIAGRAM_OPTIONS).toEqual(before);
     });
+
+    // Node ids replace characters XML forbids with U+FFFD, so a map keyed by the raw
+    // ASL name has to be rekeyed the same way to keep finding its node.
+    it('rekeys id-keyed maps the way node ids are built', () => {
+        const raw = `Fail${String.fromCharCode(0x07)}`;
+        const id = `Fail${String.fromCharCode(0xfffd)}`;
+        const style = { fill: '#abcdef' };
+
+        const merged = mergeOptions({
+            edgeOverrides: { [`${raw}->Done`]: { stroke: '#123456' } },
+            nodeAnnotations: { [raw]: 'note' },
+            nodeOverrides: { [raw]: style },
+        });
+
+        expect(merged.nodeOverrides).toEqual({ [id]: style });
+        expect(merged.nodeAnnotations).toEqual({ [id]: 'note' });
+        expect(merged.edgeOverrides).toEqual({ [`${id}->Done`]: { stroke: '#123456' } });
+    });
+
+    it('returns an id-keyed map as given when no key needs rekeying', () => {
+        const nodeOverrides = { Validate: { fill: '#abcdef' } };
+        expect(mergeOptions({ nodeOverrides }).nodeOverrides).toBe(nodeOverrides);
+    });
 });
 
 describe('mergeRecordOptions', () => {

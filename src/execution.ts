@@ -24,6 +24,7 @@ import type {
 } from './types';
 import { parseAsl, parseAslSource } from './AslParser';
 import { redactPayloadText } from './redact';
+import { replaceXmlForbiddenChars } from './utils/xmlChars';
 import {
     buildIdResolver,
     computeCollapsePlan,
@@ -422,7 +423,8 @@ function walkExecutionHistory(params: {
 
     // Node ids need the definition: a history names a state but not the branch or
     // iterator it ran in. Without one the state name stands in as the id, which is
-    // exactly what it is for any definition whose names do not repeat across scopes.
+    // exactly what it is for any definition whose names do not repeat across scopes,
+    // once characters XML forbids are replaced as the resolver replaces them.
     // One budget per walk, so a long run cannot outgrow the document it is embedded in.
     const capturePayload = createPayloadCapture({ redact });
 
@@ -678,14 +680,14 @@ function walkExecutionHistory(params: {
                 failures: 0,
                 lastEntryIndex: -1,
                 name,
-                nodeId: resolver ? resolver.resolve(scope, name) : name,
+                nodeId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name),
                 parent,
                 ...(includePayloads
                     ? {
                           payloadInput: capturePayload({
                               field: 'input',
                               raw: event.stateEnteredEventDetails?.input,
-                              stateId: resolver ? resolver.resolve(scope, name) : name,
+                              stateId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name),
                           }),
                       }
                     : {}),
@@ -709,7 +711,11 @@ function walkExecutionHistory(params: {
                 frame,
                 nowMs,
                 1,
-                from !== undefined && resolver ? resolver.resolve(scope, from) : from
+                from === undefined
+                    ? undefined
+                    : resolver
+                      ? resolver.resolve(scope, from)
+                      : replaceXmlForbiddenChars(from)
             );
             // No predecessor inside the container means this run began a branch or an
             // iteration — the only count of them the history offers, since neither

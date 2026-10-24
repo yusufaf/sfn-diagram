@@ -218,8 +218,51 @@ describe('buildIdResolver', () => {
         // Both names sanitize to the same string, so the second takes a discriminator.
         expect(new Set(ids).size).toBe(2);
         expect(resolver.idsForName(formFeed)).toEqual([ids[1]]);
-        // A name that is not indexed (a dangling target) falls back to itself, sanitized too.
-        expect(resolver.resolve('', `Gone${String.fromCharCode(0x07)}`)).toBe(`Gone${String.fromCharCode(0xfffd)}`);
+    });
+
+    it('lets a name that needed no sanitizing keep its id when a sanitized one lands on it', () => {
+        const replacement = String.fromCharCode(0xfffd);
+        const dirty = `A${String.fromCharCode(0x0b)}`;
+        const clean = `A${replacement}`;
+        // The dirty name comes first in key order, so order alone would give it the id.
+        const definition: AslDefinition = {
+            StartAt: dirty,
+            States: {
+                [dirty]: { Type: 'Pass', Next: clean },
+                [clean]: { Type: 'Pass', End: true },
+            },
+        };
+
+        const resolver = buildIdResolver({ definition });
+
+        expect(resolver.resolve('', clean)).toBe(clean);
+        expect(resolver.resolve('', dirty)).toBe(`${clean}__2`);
+    });
+
+    it('qualifies a nested name by scope when it only collides with a root name once sanitized', () => {
+        const nested = `X${String.fromCharCode(0x0b)}`;
+        const root = `X${String.fromCharCode(0x0c)}`;
+        const definition = fanout({ [nested]: { Type: 'Pass', End: true } });
+        definition.States[root] = { Type: 'Pass', End: true };
+
+        const resolver = buildIdResolver({ definition });
+        const replacement = String.fromCharCode(0xfffd);
+
+        expect(resolver.resolve('', root)).toBe(`X${replacement}`);
+        expect(resolver.resolve(resolver.branchScope('', 'Fanout', 0), nested)).toBe(
+            `Fanout__branch0__X${replacement}`
+        );
+    });
+
+    it('leaves a dangling name as written, so it cannot attach to a state it only resembles', () => {
+        const real = `Done${String.fromCharCode(0x0b)}`;
+        const typo = `Done${String.fromCharCode(0x0c)}`;
+        const definition: AslDefinition = { StartAt: real, States: { [real]: { Type: 'Succeed' } } };
+
+        const resolver = buildIdResolver({ definition });
+
+        expect(resolver.resolve('', typo)).toBe(typo);
+        expect(resolver.resolve('', typo)).not.toBe(resolver.resolve('', real));
     });
 
     it('handles a state name containing the scope separator', () => {

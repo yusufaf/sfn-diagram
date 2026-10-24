@@ -66299,6 +66299,10 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+var XML_FORBIDDEN_CHARS = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uFFFE\\uFFFF]|\\p{Cs}", "gu");
+function replaceXmlForbiddenChars(text) {
+  return text.replace(XML_FORBIDDEN_CHARS, "\uFFFD");
+}
 var DEFAULT_DIAGRAM_OPTIONS = {
   format: "svg",
   theme: "light",
@@ -66334,10 +66338,20 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   diagramTitle: void 0
 };
 function mergeOptions(options = {}) {
-  return {
+  const merged = {
     ...DEFAULT_DIAGRAM_OPTIONS,
     ...withoutUndefined(options)
   };
+  return {
+    ...merged,
+    edgeOverrides: withXmlSafeKeys(merged.edgeOverrides),
+    nodeAnnotations: withXmlSafeKeys(merged.nodeAnnotations),
+    nodeOverrides: withXmlSafeKeys(merged.nodeOverrides)
+  };
+}
+function withXmlSafeKeys(map3) {
+  if (map3 === void 0 || Object.keys(map3).every((key) => replaceXmlForbiddenChars(key) === key)) return map3;
+  return Object.fromEntries(Object.entries(map3).map(([key, value]) => [replaceXmlForbiddenChars(key), value]));
 }
 function assignEdgeIds(params) {
   const { edges } = params;
@@ -66352,10 +66366,6 @@ function assignEdgeIds(params) {
       id: `${pairKey}#${ordinal}`
     };
   });
-}
-var XML_FORBIDDEN_CHARS = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\uFFFE\\uFFFF]|\\p{Cs}", "gu");
-function replaceXmlForbiddenChars(text) {
-  return text.replace(XML_FORBIDDEN_CHARS, "\uFFFD");
 }
 var SCOPE_SEPARATOR = "__";
 function assignmentKey(scope, name) {
@@ -66386,9 +66396,10 @@ function buildIdResolver(params) {
   const walk = (current, path2) => {
     const scopeKey = JSON.stringify(path2);
     for (const [name, state2] of Object.entries(current.States)) {
-      const scopes = scopesByName.get(name) ?? /* @__PURE__ */ new Set();
+      const safeName = replaceXmlForbiddenChars(name);
+      const scopes = scopesByName.get(safeName) ?? /* @__PURE__ */ new Set();
       scopes.add(scopeKey);
-      scopesByName.set(name, scopes);
+      scopesByName.set(safeName, scopes);
       if (state2.Type === "Parallel" && Array.isArray(state2.Branches)) state2.Branches.forEach((branch, index) => walk(branch, [
         ...path2,
         name,
@@ -66416,9 +66427,8 @@ function buildIdResolver(params) {
     const next = [];
     for (const frame of frontier) {
       const assign = (name) => {
-        const collides = (scopesByName.get(name)?.size ?? 1) > 1;
         const safeName = replaceXmlForbiddenChars(name);
-        const candidate = collides && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${safeName}` : safeName;
+        const candidate = (scopesByName.get(safeName)?.size ?? 1) > 1 && frame.scope !== "" ? `${frame.scope}${SCOPE_SEPARATOR}${safeName}` : safeName;
         let id = candidate;
         for (let suffix = 2; taken.has(id); suffix++) id = `${candidate}${SCOPE_SEPARATOR}${suffix}`;
         assigned.set(assignmentKey(frame.scope, name), id);
@@ -66426,7 +66436,9 @@ function buildIdResolver(params) {
         taken.add(id);
         return id;
       };
-      const names = Object.keys(frame.definition.States);
+      const isClean = (name) => replaceXmlForbiddenChars(name) === name;
+      const allNames = Object.keys(frame.definition.States);
+      const names = [...allNames.filter(isClean), ...allNames.filter((name) => !isClean(name))];
       const isContainer = (name) => {
         const type = frame.definition.States[name].Type;
         return type === "Parallel" || type === "Map";
@@ -66460,7 +66472,7 @@ function buildIdResolver(params) {
     resolve: resolveIn
   };
   function resolveIn(scope, name) {
-    return assigned.get(assignmentKey(scope, name)) ?? replaceXmlForbiddenChars(name);
+    return assigned.get(assignmentKey(scope, name)) ?? name;
   }
 }
 var AslValidationError = class AslValidationError2 extends Error {
@@ -68252,12 +68264,12 @@ function walkExecutionHistory(params) {
         failures: 0,
         lastEntryIndex: -1,
         name,
-        nodeId: resolver ? resolver.resolve(scope, name) : name,
+        nodeId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name),
         parent,
         ...includePayloads ? { payloadInput: capturePayload({
           field: "input",
           raw: event.stateEnteredEventDetails?.input,
-          stateId: resolver ? resolver.resolve(scope, name) : name
+          stateId: resolver ? resolver.resolve(scope, name) : replaceXmlForbiddenChars(name)
         }) } : {}
       };
       openStack.push(frame);
@@ -68272,7 +68284,7 @@ function walkExecutionHistory(params) {
           });
         }
       }
-      openEntry(frame, nowMs, 1, from !== void 0 && resolver ? resolver.resolve(scope, from) : from);
+      openEntry(frame, nowMs, 1, from === void 0 ? void 0 : resolver ? resolver.resolve(scope, from) : replaceXmlForbiddenChars(from));
       if (parent && from === void 0) parent.childStarts += 1;
       if (type === "FailStateEntered") {
         const result = ensure2(name);

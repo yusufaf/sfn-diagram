@@ -64,6 +64,15 @@ describe('characters XML forbids in a definition (#463)', () => {
         expect(result.buffer.length).toBeGreaterThan(0);
     });
 
+    it('still applies nodeOverrides keyed by the raw state name', () => {
+        const rawName = Object.keys(FORBIDDEN_DEFINITION.States)[1];
+        const { svg } = generateSvg({
+            aslDefinition: FORBIDDEN_DEFINITION,
+            nodeOverrides: { [rawName]: { fill: '#a1b2c3' } },
+        });
+        expect(svg).toContain('#a1b2c3');
+    });
+
     it('keys the viewer state data by the same ids the nodes carry', () => {
         const { html } = generateHtml({ aslDefinition: FORBIDDEN_DEFINITION });
         const start = html.indexOf('id="sfn-state-data">') + 'id="sfn-state-data">'.length;
