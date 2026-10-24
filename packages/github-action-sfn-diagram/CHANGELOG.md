@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.7.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.6.0...github-action-sfn-diagram-v1.7.0) (2026-10-24)
+
+
+### Features
+
+* **labels:** show ASL settings that are parsed but never drawn ([#466](https://github.com/yusufaf/sfn-diagram/issues/466)) ([baa355f](https://github.com/yusufaf/sfn-diagram/commit/baa355f6d1b399bc8d9b47de4d14c08a8fb6fa5c)), closes [#374](https://github.com/yusufaf/sfn-diagram/issues/374)
+* **viewer:** follow the system color scheme and support forced-colors ([#383](https://github.com/yusufaf/sfn-diagram/issues/383)) ([#453](https://github.com/yusufaf/sfn-diagram/issues/453)) ([53b9209](https://github.com/yusufaf/sfn-diagram/commit/53b9209dbb781cfae8a041aba7811dcf22e6cdf2))
+
+
+### Bug Fixes
+
+* **cfn:** bound Fn::Sub names so a template cannot be quadratic to parse ([#352](https://github.com/yusufaf/sfn-diagram/issues/352)) ([04f0c26](https://github.com/yusufaf/sfn-diagram/commit/04f0c26af8fb4f3e1fd82e8ba1dc2fdc5d760d86))
+* **cli:** accept input files that start with a byte order mark ([#500](https://github.com/yusufaf/sfn-diagram/issues/500)) ([0195868](https://github.com/yusufaf/sfn-diagram/commit/0195868a1fa4b6b9506929e17edcf539d49e6781))
+* **execution:** decode every failure event's error and cause, and resume redriven states ([#429](https://github.com/yusufaf/sfn-diagram/issues/429)) ([03309d0](https://github.com/yusufaf/sfn-diagram/commit/03309d0609922cb27514dc48dcbf2fc41145bccc))
+* **lint:** add the missing structural rules ([#372](https://github.com/yusufaf/sfn-diagram/issues/372)) ([#418](https://github.com/yusufaf/sfn-diagram/issues/418)) ([3593b4b](https://github.com/yusufaf/sfn-diagram/commit/3593b4bf14e3137ebf9f2412a199f53d755837ee))
+* **mermaid:** keep colour values from breaking classDef lines ([#476](https://github.com/yusufaf/sfn-diagram/issues/476)) ([9b119a1](https://github.com/yusufaf/sfn-diagram/commit/9b119a1ce23ecf1c2934b3e4a8522196fe1ef683)), closes [#472](https://github.com/yusufaf/sfn-diagram/issues/472)
+* **mermaid:** scope end transitions and nest Parallel/Map as composites ([#401](https://github.com/yusufaf/sfn-diagram/issues/401)) ([c5ecb87](https://github.com/yusufaf/sfn-diagram/commit/c5ecb8748d38207b0c13a031363e797ee57d6da1)), closes [#371](https://github.com/yusufaf/sfn-diagram/issues/371)
+* **options:** treat an explicit undefined option as omitted ([#403](https://github.com/yusufaf/sfn-diagram/issues/403)) ([514d079](https://github.com/yusufaf/sfn-diagram/commit/514d079d8ced7cb89da492484626d97815cd0300)), closes [#367](https://github.com/yusufaf/sfn-diagram/issues/367)
+* **parser:** do not connect a Fail in a Parallel branch or Map iterator to the container Next ([#400](https://github.com/yusufaf/sfn-diagram/issues/400)) ([1930738](https://github.com/yusufaf/sfn-diagram/commit/193073881fdda9cdef42248415d27bf3a9c6c9a7))
+* **parser:** report choice rules and catch entries missing next ([#399](https://github.com/yusufaf/sfn-diagram/issues/399)) ([8e2f1b6](https://github.com/yusufaf/sfn-diagram/commit/8e2f1b6ab3a0de6de51557b084e840e282744ba6)), closes [#365](https://github.com/yusufaf/sfn-diagram/issues/365)
+* **parser:** stop a mistyped Retry or Catch field from crashing the render ([#499](https://github.com/yusufaf/sfn-diagram/issues/499)) ([c9cc3d7](https://github.com/yusufaf/sfn-diagram/commit/c9cc3d7404d2e2daf8efe59b6408203bef20c697))
+* **svg:** replace characters XML forbids so the SVG stays parseable ([#501](https://github.com/yusufaf/sfn-diagram/issues/501)) ([442ce25](https://github.com/yusufaf/sfn-diagram/commit/442ce2593d3236e8676876a0e4b15371eebf2419))
+
+
+### Performance Improvements
+
+* **binaries:** drop the aws sdk from standalone binaries ([#478](https://github.com/yusufaf/sfn-diagram/issues/478)) ([224eeda](https://github.com/yusufaf/sfn-diagram/commit/224eeda12b212a66cf49716e68c10f424fc25856))
+
 ## [1.6.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.5.0...github-action-sfn-diagram-v1.6.0) (2026-10-02)
 
 
