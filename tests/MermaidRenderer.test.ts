@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateMermaid, generateMermaidDiff } from '../src';
+import { generateMermaid, generateMermaidDiff, generateMermaidExecution } from '../src';
 import { MermaidRenderer } from '../src/renderers';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
@@ -164,6 +164,66 @@ describe('MermaidRenderer', () => {
             expect(result.code).toContain('Check_X --> Check_X_2');
             expect(result.code).not.toContain('Check_X --> Check_X\n');
             expect(result.metadata.stateCount).toBe(3);
+        });
+    });
+
+    describe('Start state whose node id differs from its name (#506)', () => {
+        // StartAt holds a character XML forbids, so its node id carries U+FFFD instead.
+        const forbiddenAsl = loadFixture('xml-forbidden-names');
+
+        // A root state named like a Parallel's reserved end marker takes a discriminator.
+        const discriminatedAsl: AslDefinition = {
+            StartAt: 'Fan__branch0__end',
+            States: {
+                Fan__branch0__end: { Type: 'Pass', Next: 'Fan' },
+                Fan: {
+                    Type: 'Parallel',
+                    Branches: [{ StartAt: 'Work', States: { Work: { Type: 'Pass', End: true } } }],
+                    End: true,
+                },
+            },
+        };
+
+        /** The root `[*] -->` target, and every Mermaid id the diagram declares or connects. */
+        const startAndIds = (code: string) => {
+            const lines = code.split('\n');
+            const start = lines.map((line) => /^ {4}\[\*\] --> (\S+)$/.exec(line)?.[1]).find(Boolean);
+            const ids = new Set(
+                lines
+                    .filter((line) => !line.includes('[*]'))
+                    .flatMap((line) => /^\s*(\w+)(?::| --> (\w+))/.exec(line)?.slice(1) ?? [])
+                    .filter(Boolean),
+            );
+            return { ids, start };
+        };
+
+        it('starts at the StartAt state when its name holds a character XML forbids', () => {
+            const { code } = generateMermaid({ aslDefinition: forbiddenAsl });
+            const { ids, start } = startAndIds(code);
+
+            expect(start).toBe('Route_A');
+            expect(ids).toContain('Route_A');
+            expect(code).not.toContain('Route_A_2');
+        });
+
+        it('starts at the StartAt state when its id takes a discriminator', () => {
+            const { code } = generateMermaid({ aslDefinition: discriminatedAsl });
+            const { ids, start } = startAndIds(code);
+
+            expect(start).toBe('Fan__branch0__end__2');
+            expect(ids).toContain('Fan__branch0__end__2');
+        });
+
+        it('starts at the StartAt state in diff and execution output too', () => {
+            const diff = generateMermaidDiff({ after: forbiddenAsl, before: forbiddenAsl });
+            const execution = generateMermaidExecution({
+                aslDefinition: forbiddenAsl,
+                history: JSON.stringify({ events: [{ id: 1, previousEventId: 0, type: 'ExecutionStarted' }] }),
+            });
+
+            expect(startAndIds(diff.code).start).toBe('Route_A');
+            expect(startAndIds(execution.code).start).toBe('Route_A');
+            expect(execution.code).not.toContain('Route_A_2');
         });
     });
 

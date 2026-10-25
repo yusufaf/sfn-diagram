@@ -1,4 +1,7 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { describe, it, expect } from 'vitest';
+import { generateSvg } from '../../src';
 import { parseAsl } from '../../src/AslParser';
 import { applyCatchHandling } from '../../src/graph';
 import type { AslDefinition } from '../../src/types';
@@ -122,5 +125,48 @@ describe('applyCatchHandling', () => {
         expect(ids).toContain('Done');
         expect(ids).not.toContain('HandleA');
         expect(ids).not.toContain('HandleB');
+    });
+});
+
+describe("'hide' through the pipeline (#506)", () => {
+    const stateIds = (svg: string): string[] =>
+        [...svg.matchAll(/data-state-id="([^"]*)"/g)].map((match) => match[1]);
+
+    // Neither definition has a Catch, so hiding catch branches must remove nothing. The
+    // reachability walk has to start from the StartAt node's id, which differs from
+    // the StartAt name in both: a character XML forbids, and a discriminator.
+    const definitions: Record<string, AslDefinition> = {
+        'a StartAt name holding a character XML forbids': JSON.parse(
+            readFileSync(join(__dirname, '..', 'fixtures', 'xml-forbidden-names.asl.json'), 'utf-8'),
+        ),
+        'a StartAt id that takes a discriminator': {
+            StartAt: 'Fan__branch0__end',
+            States: {
+                Fan__branch0__end: { Type: 'Pass', Next: 'Fan' },
+                Fan: {
+                    Type: 'Parallel',
+                    Branches: [{ StartAt: 'Work', States: { Work: { Type: 'Pass', End: true } } }],
+                    End: true,
+                },
+            },
+        },
+    };
+
+    for (const [name, definition] of Object.entries(definitions)) {
+        it(`keeps every state for ${name}`, () => {
+            const shown = stateIds(generateSvg({ aslDefinition: definition, catchHandling: 'show' }).svg);
+            const hidden = stateIds(generateSvg({ aslDefinition: definition, catchHandling: 'hide' }).svg);
+
+            expect(shown.length).toBeGreaterThan(0);
+            expect(hidden).toEqual(shown);
+        });
+    }
+
+    it('parseAsl reports the StartAt node id, not the raw name', () => {
+        const definition = definitions['a StartAt id that takes a discriminator'];
+        const { nodes, startId } = parseAsl({ definition });
+
+        expect(startId).toBe('Fan__branch0__end__2');
+        expect(nodes.map((node) => node.id)).toContain(startId);
     });
 });

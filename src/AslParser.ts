@@ -125,6 +125,12 @@ export interface ParseResult {
     edges: GraphEdge[];
     /** All state nodes including start/end markers */
     nodes: StateNode[];
+    /**
+     * Node id of the machine's `StartAt` state. Not always the `StartAt` name: an id
+     * can be sanitized or take a discriminator (see {@link buildIdResolver}), so
+     * anything that looks up the start node must use this rather than the raw name.
+     */
+    startId: string;
 }
 
 /** Valid ASL state types */
@@ -635,7 +641,7 @@ export function parseAsl(params: ParseAslParams): ParseResult {
     // Extract edges from nested states (Parallel branches, Map iterators)
     extractNestedEdges({ definition, edges, machineQueryLanguage, options, resolver, scope: '' });
 
-    return { edges: assignEdgeIds({ edges }), nodes };
+    return { edges: assignEdgeIds({ edges }), nodes, startId: resolver.resolve('', definition.StartAt) };
 }
 
 /**
