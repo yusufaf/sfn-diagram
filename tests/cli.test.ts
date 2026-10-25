@@ -5175,6 +5175,47 @@ describe('--execution <arn> and --follow', () => {
         expect(nodeMarkup(html, 'Process')).toContain('#c8e6c9');
     });
 
+    it('prints the --diff summary once, and the execution summary every tick (#440)', async () => {
+        const simple = JSON.parse(readFileSync(simpleFixture, 'utf-8'));
+        const base = join(tempDir, 'base.json');
+        writeFileSync(
+            base,
+            JSON.stringify({
+                ...simple,
+                States: {
+                    ...simple.States,
+                    Legacy: { Type: 'Pass', End: true },
+                },
+            }),
+        );
+        sfnSendMock
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: events() });
+        expect(
+            await run([
+                simpleFixture,
+                '--diff',
+                base,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--poll-interval',
+                '1',
+                '--format',
+                'html',
+                '-o',
+                join(tempDir, 'run.html'),
+            ]),
+        ).toBe(0);
+
+        const stderr = errors.join('');
+        expect(sfnSendMock).toHaveBeenCalledTimes(3);
+        expect(stderr.split('Diff summary:').length - 1).toBe(1);
+        expect(stderr).toContain('Removed:   Legacy');
+        expect(stderr.split('Execution summary').length - 1).toBe(3);
+    });
+
     it('exits 1 when --follow-timeout elapses on a run that never ends', async () => {
         sfnSendMock.mockResolvedValue({ events: runningEvents() });
         const code = await run([

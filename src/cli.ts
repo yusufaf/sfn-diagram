@@ -1895,6 +1895,12 @@ interface RenderOneInputParams {
     options: ResolvedCliOptions;
     /** Where this input's output goes, or `null` for stdout. */
     outputPath: string | null;
+    /**
+     * Whether to print the `--diff` summary. `--follow` prints it on its first tick
+     * only: the definition and the baseline are fixed for the whole follow, so the
+     * summary never changes, and every tick would otherwise repeat it on stderr.
+     */
+    reportDiff: boolean;
     /** Where this render's definition comes from. */
     source: CliInputSource;
     /**
@@ -1930,6 +1936,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         labelInput,
         options,
         outputPath,
+        reportDiff,
         source,
         theme,
         writeAtomically,
@@ -2078,7 +2085,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ...(redact ? { redact } : {}),
                 ...svgOptions,
             });
-            if (result.metadata.diff) writeDiffSummary(result.metadata.diff);
+            if (result.metadata.diff && reportDiff) writeDiffSummary(result.metadata.diff);
             if (result.metadata.execution)
                 writeExecutionSummary(result.metadata.execution);
             emit(result.html);
@@ -2093,7 +2100,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                     layout: options.layout,
                     theme,
                 });
-                writeDiffSummary(result.metadata);
+                if (reportDiff) writeDiffSummary(result.metadata);
                 emit(result.code);
                 return 0;
             }
@@ -2103,7 +2110,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 before: baselineDefinition,
                 ...svgOptions,
             });
-            writeDiffSummary(result.metadata);
+            if (reportDiff) writeDiffSummary(result.metadata);
             emit(result.svg);
             return 0;
         }
@@ -3202,6 +3209,7 @@ async function renderResolvedBatch(
             labelInput,
             options,
             outputPath: item.outputPath,
+            reportDiff: true,
             source: item.source,
             theme,
             writeAtomically: false,
@@ -3316,6 +3324,8 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     labelInput: false,
                     options,
                     outputPath,
+                    // A failed render ends the follow, so the first tick always prints it.
+                    reportDiff: ticks === 1,
                     source,
                     theme,
                     writeAtomically: true,
