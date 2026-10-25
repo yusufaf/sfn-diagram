@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.7.0...github-action-sfn-diagram-v1.7.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **action:** diff a renamed ASL file against its old path ([#521](https://github.com/yusufaf/sfn-diagram/issues/521)) ([f80fc5a](https://github.com/yusufaf/sfn-diagram/commit/f80fc5acf05b9679d7fb50e2cc359e2e508b4148))
+* find the start state by its node id, not the StartAt name ([#515](https://github.com/yusufaf/sfn-diagram/issues/515)) ([2520b77](https://github.com/yusufaf/sfn-diagram/commit/2520b77c42d99f157fa566bad8802166cf01c567))
+* **mermaid:** escape colons in labels so older Mermaid can parse them ([#518](https://github.com/yusufaf/sfn-diagram/issues/518)) ([996a30b](https://github.com/yusufaf/sfn-diagram/commit/996a30b0b3e1a5c5f3d39bddce699eeec18a594b))
+
 ## [1.7.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.6.0...github-action-sfn-diagram-v1.7.0) (2026-10-24)
 
 
