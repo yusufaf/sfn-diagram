@@ -66735,7 +66735,8 @@ function parseAsl(params) {
   });
   return {
     edges: assignEdgeIds({ edges }),
-    nodes: nodes5
+    nodes: nodes5,
+    startId: resolver.resolve("", definition.StartAt)
   };
 }
 function hasNestedStates(state2) {
@@ -67709,10 +67710,13 @@ var MermaidRenderer = class {
   /**
   * Find the start state from the ASL definition's StartAt or, without one, the
   * first top-level state nothing else transitions to.
+  *
+  * StartAt is resolved to a node id the way the parser resolved it, because the id
+  * can differ from the name (a sanitized character, or a discriminator).
   */
   findStartState(params) {
     const { asl, root: root5 } = params;
-    if (asl?.StartAt) return asl.StartAt;
+    if (asl?.StartAt) return buildIdResolver({ definition: asl }).resolve("", asl.StartAt);
     const targetIds = new Set(root5.transitions.filter((edge) => edge.from !== edge.to).map((edge) => edge.to));
     return root5.memberIds.find((id) => !targetIds.has(id)) ?? root5.memberIds[0];
   }
@@ -67753,7 +67757,7 @@ function buildDiagramGraph(params) {
     edges: parsed.edges,
     mode: options.catchHandling,
     nodes: parsed.nodes,
-    startStateId: definition.StartAt
+    startStateId: parsed.startId
   });
   return {
     edges,

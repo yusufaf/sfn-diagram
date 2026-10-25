@@ -82,7 +82,7 @@ export function buildDiagramGraph(params: BuildDiagramGraphParams): DiagramGraph
         edges: parsed.edges,
         mode: options.catchHandling,
         nodes: parsed.nodes,
-        startStateId: definition.StartAt,
+        startStateId: parsed.startId,
     });
 
     return { edges, nodes, parsed };

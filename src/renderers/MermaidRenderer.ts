@@ -1,5 +1,6 @@
 import { getAssignedVariablesLabel, getNodeSubLabel } from '../constants/labels';
 import { getTheme } from '../config/themes';
+import { buildIdResolver } from '../graph/scopeIds';
 import { sanitizeMermaidNodeColors } from './mermaidColors';
 import { buildMermaidScopes } from './mermaidScopes';
 import type { MermaidRegion, MermaidScopes } from './mermaidScopes';
@@ -461,12 +462,15 @@ export class MermaidRenderer {
     /**
      * Find the start state from the ASL definition's StartAt or, without one, the
      * first top-level state nothing else transitions to.
+     *
+     * StartAt is resolved to a node id the way the parser resolved it, because the id
+     * can differ from the name (a sanitized character, or a discriminator).
      */
     private findStartState(params: FindStartStateParams): string | undefined {
         const { asl, root } = params;
 
         if (asl?.StartAt) {
-            return asl.StartAt;
+            return buildIdResolver({ definition: asl }).resolve('', asl.StartAt);
         }
 
         const targetIds = new Set(
