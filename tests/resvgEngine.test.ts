@@ -177,6 +177,28 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             );
         });
 
+        it('bounds a wide SVG whose rounded size reads slightly low', async () => {
+            // resvg reads 99.5 x 1000.4 as 100 x 1000. At width 100 the true image is
+            // 100 x 1006 pixels (402,400 bytes) where the rounded size says 100 x 1000
+            // (400,000 bytes), so a 401,000-byte limit separates the two.
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(401_000);
+
+            await expect(renderResvgPng({ svg: viewBoxSvg(99.5, 1000.4), width: 100 })).rejects.toThrow(
+                /the image would be 100 x 1006 pixels/
+            );
+        });
+
+        it('does not over-refuse a narrow SVG that fits', async () => {
+            // A 1 x 1 SVG at width 500 is 500 x 500 pixels (1,000,000 bytes). The rounding
+            // bound alone would allow a ratio of 3 (3,000,000 bytes) and refuse it.
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(1_100_000);
+
+            await expect(renderResvgPng({ svg: viewBoxSvg(1, 1), width: 500 })).resolves.toMatchObject({
+                height: 500,
+                width: 500,
+            });
+        });
+
         it('still checks an SVG less than half a pixel wide, whose width resvg rounds to 0', async () => {
             // 0.4 x 1000 rendered 20 wide is 20 x 50000 pixels (3.8 MiB).
             vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);

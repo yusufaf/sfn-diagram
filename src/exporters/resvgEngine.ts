@@ -8,6 +8,12 @@ const PIXMAP_BYTES_PER_PIXEL = 4;
 /** Bytes in a GiB, for error messages. */
 const GIB = 2 ** 30;
 
+/**
+ * Rounded intrinsic width below which {@link maxIntrinsicAspect} reads the exact size,
+ * keeping the rounding bound within about 1% where it is used.
+ */
+const EXACT_SIZE_BELOW_WIDTH = 100;
+
 /** Parameters for {@link maxIntrinsicAspect}. */
 interface MaxIntrinsicAspectParams {
     /** A parsed SVG, from resvg's `Resvg` constructor. */
@@ -20,12 +26,13 @@ interface MaxIntrinsicAspectParams {
  *
  * resvg's `width` and `height` getters round to whole pixels, so each true side lies
  * within 0.5 of its getter and `(height + 0.5) / (width - 0.5)` bounds the true ratio
- * from above. A width that rounds to 0 leaves no bound, so that rare case reads the
- * exact size from the serialized root element instead.
+ * from above. That bound is loose for a narrow SVG (3x at 1 x 1) and missing when the
+ * width rounds to 0, so below {@link EXACT_SIZE_BELOW_WIDTH} the exact size is read
+ * from the serialized root element instead. Every SVG this package generates is wider.
  */
 function maxIntrinsicAspect(params: MaxIntrinsicAspectParams): number {
     const { intrinsic } = params;
-    if (intrinsic.width >= 1) {
+    if (intrinsic.width >= EXACT_SIZE_BELOW_WIDTH) {
         return (intrinsic.height + 0.5) / (intrinsic.width - 0.5);
     }
 
