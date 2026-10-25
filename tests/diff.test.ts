@@ -277,9 +277,9 @@ describe('generateMermaidDiff', () => {
         const result = generateMermaidDiff({ after, before })
 
         expect(result.code).toContain('class FailLiteral diffRemoved')
-        expect(result.code).toContain('error: ValidationError')
+        expect(result.code).toContain('error#58; ValidationError')
         expect(result.code).toContain('class FailPath diffRemoved')
-        expect(result.code).toContain('error: $.error')
+        expect(result.code).toContain('error#58; $.error')
     })
 
     it('renders a removed state under the query language it was written in', () => {
@@ -301,7 +301,7 @@ describe('generateMermaidDiff', () => {
         const result = generateMermaidDiff({ after, before })
 
         expect(result.code).toContain('class Reject diffRemoved')
-        expect(result.code).toContain("error: 'Rejected'")
+        expect(result.code).toContain("error#58; 'Rejected'")
         expect(result.code).not.toContain('{%')
     })
 

@@ -2299,7 +2299,7 @@ describe('run: DiagramOptions flags', () => {
         expect(await run([errorHandlingFixture, '--format', 'mermaid'])).toBe(
             0,
         );
-        expect(stdoutData).toContain('Error: States.TaskFailed');
+        expect(stdoutData).toContain('Error#58; States.TaskFailed');
 
         stdoutData = '';
         expect(

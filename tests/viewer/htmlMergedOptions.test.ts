@@ -54,6 +54,8 @@ describe('HTML viewer edge data uses the same merged options as the rendered SVG
         expect(readEdgeBlob(html)[ERROR_EDGE_ID].label).toBe('Catch #1');
         expect(html).toContain('Catch #1');
         expect(html).not.toContain('Error: States.ALL');
+        // The embedded Mermaid source escapes the colon, so check that spelling too.
+        expect(html).not.toContain('Error#58; States.ALL');
         expect(soleParseOptions()).toEqual({
             ...DEFAULT_DIAGRAM_OPTIONS,
             catchLabelStyle: 'catch-number',

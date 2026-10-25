@@ -485,7 +485,7 @@ describe('Distributed Map', () => {
             // usual character-fitted form; the Mermaid label is never width-constrained.
             expect(generateSvg({ aslDefinition: definition }).svg).toMatch(/error: InvalidStat/);
             expect(generateMermaid({ aslDefinition: definition }).code).toContain(
-                'error: InvalidStatus · cause: Status was not success',
+                'error#58; InvalidStatus · cause#58; Status was not success',
             );
         });
 

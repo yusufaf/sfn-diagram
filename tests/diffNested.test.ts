@@ -406,7 +406,7 @@ describe('nested state diff (issue #206)', () => {
 
         expect(metadata.removed).toEqual(['Reject']);
         expect(code).toContain('class Reject diffRemoved');
-        expect(code).toContain("error: 'Rejected'");
+        expect(code).toContain("error#58; 'Rejected'");
         expect(code).not.toContain('{%');
     });
 });
