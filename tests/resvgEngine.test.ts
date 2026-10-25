@@ -133,21 +133,25 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             vi.restoreAllMocks();
         });
 
+        /** An SVG sized only by its viewBox, the way resvg reads a hand-rolled one. */
+        const viewBoxSvg = (width: number, height: number): string =>
+            `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect width="${width}" height="${height}" fill="#000"/></svg>`;
+
         it('rejects with a catchable error naming the scale and the image size', async () => {
-            // 200 x 100 at scale 10000 is 2,000,000 x 1,000,000 pixels: 7.3 TiB of RGBA.
+            // 200 x 100 at scale 10000 is 2,000,000 x about 1,000,000 pixels: 7.3 TiB of RGBA.
             await expect(renderResvgPng({ svg: textSvg(true), width: 200, scale: 10_000 })).rejects.toThrow(
-                /'scale' 10000 is too large: the 2000000 x 1000000 pixel image needs 7450\.6 GiB of memory/
+                /^PNG export is too large: at scale 10000 the image would be 2000000 x 100\d{4} pixels, which needs 7\d{3}\.\d GiB of memory, more than the [\d.]+ GiB available\. Use a smaller scale\.$/
             );
         });
 
         it("takes the height from the SVG's own aspect ratio", async () => {
-            // A 1 MiB limit leaves room for a 400 x 200 render (312.5 KiB) but not for
-            // 100 x 10000 (3.8 MiB), which only the SVG's aspect ratio reveals.
+            // A 1 MiB limit leaves room for a 400 x 200 render (312.5 KiB) but not for a
+            // 100 x 10000 one (3.8 MiB), which only the SVG's aspect ratio reveals.
             vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
 
             await expect(
                 renderResvgPng({ svg: sizedSvg(10, 1000), width: 10, scale: 10 })
-            ).rejects.toThrow(/the 100 x 10000 pixel image needs 0\.0 GiB of memory, more than the 0\.0 GiB available/);
+            ).rejects.toThrow(/the image would be 100 x 10\d{3} pixels/);
             await expect(renderResvgPng({ svg: sizedSvg(200, 100), width: 200, scale: 2 })).resolves.toMatchObject({
                 height: 200,
                 width: 400,
@@ -158,8 +162,38 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
 
             await expect(renderResvgPng({ svg: sizedSvg(200, 100), width: 200, scale: 4 })).rejects.toThrow(
-                /'scale' 4 is too large: the 800 x 400 pixel image/
+                /at scale 4 the image would be 800 x 40\d pixels/
             );
+        });
+
+        it('does not underestimate an SVG whose size resvg rounds to whole pixels', async () => {
+            // resvg reports a 0.5 x 2 viewBox as 1 x 2, half its true aspect ratio. At
+            // width 300 the true image is 300 x 1200 (1.4 MiB), over a 1 MiB limit, while
+            // the rounded size suggests 300 x 600 (0.7 MiB).
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
+
+            await expect(renderResvgPng({ svg: viewBoxSvg(0.5, 2), width: 300 })).rejects.toThrow(
+                /the image would be 300 x \d+ pixels/
+            );
+        });
+
+        it('still checks an SVG less than half a pixel wide, whose width resvg rounds to 0', async () => {
+            // 0.4 x 1000 rendered 20 wide is 20 x 50000 pixels (3.8 MiB).
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
+
+            await expect(renderResvgPng({ svg: viewBoxSvg(0.4, 1000), width: 20 })).rejects.toThrow(
+                /the image would be 20 x 50000 pixels/
+            );
+        });
+
+        it('suggests a smaller scale only when the scale is above 1', async () => {
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
+
+            const error = await renderResvgPng({ svg: sizedSvg(1000, 1000), width: 1000 }).catch(
+                (caught: unknown) => caught
+            );
+            expect(String(error)).toMatch(/at scale 1 the image would be 1000 x 100\d pixels/);
+            expect(String(error)).not.toContain('smaller scale');
         });
     });
 });

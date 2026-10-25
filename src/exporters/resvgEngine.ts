@@ -8,13 +8,44 @@ const PIXMAP_BYTES_PER_PIXEL = 4;
 /** Bytes in a GiB, for error messages. */
 const GIB = 2 ** 30;
 
+/** Parameters for {@link maxIntrinsicAspect}. */
+interface MaxIntrinsicAspectParams {
+    /** A parsed SVG, from resvg's `Resvg` constructor. */
+    intrinsic: { height: number; toString: () => string; width: number };
+}
+
+/**
+ * The largest height-to-width ratio the SVG's intrinsic size can have, or 0 when it has
+ * no width.
+ *
+ * resvg's `width` and `height` getters round to whole pixels, so each true side lies
+ * within 0.5 of its getter and `(height + 0.5) / (width - 0.5)` bounds the true ratio
+ * from above. A width that rounds to 0 leaves no bound, so that rare case reads the
+ * exact size from the serialized root element instead.
+ */
+function maxIntrinsicAspect(params: MaxIntrinsicAspectParams): number {
+    const { intrinsic } = params;
+    if (intrinsic.width >= 1) {
+        return (intrinsic.height + 0.5) / (intrinsic.width - 0.5);
+    }
+
+    const root = /<svg\b[^>]*>/.exec(intrinsic.toString())?.[0] ?? '';
+    const exactWidth = Number(/\swidth="([^"]*)"/.exec(root)?.[1]);
+    const exactHeight = Number(/\sheight="([^"]*)"/.exec(root)?.[1]);
+    return exactWidth > 0 && exactHeight > 0 ? exactHeight / exactWidth : 0;
+}
+
 /** Minimal signature of the `@resvg/resvg-js` module used here. */
 interface ResvgModule {
-    /** Parses the SVG; `width` and `height` are its intrinsic size. Renders nothing until asked. */
+    /**
+     * Parses the SVG and renders nothing until asked. `width` and `height` are its
+     * intrinsic size rounded to whole pixels; `toString()` serializes the parsed tree,
+     * whose root element carries the exact size.
+     */
     Resvg: new (
         svg: string,
         options?: { font?: { loadSystemFonts: boolean } }
-    ) => { height: number; width: number };
+    ) => { height: number; toString: () => string; width: number };
     renderAsync: (
         svg: string,
         options?: {
@@ -119,21 +150,21 @@ export async function renderResvgPng(
     //
     // The intrinsic size comes from resvg's own parser, which costs a fraction of the
     // render, rather than from a height a PngExporter caller may have passed
-    // inconsistently. Rounding up overestimates rather than predicting resvg's rounding.
-    const intrinsic = new Resvg(svg, { font: { loadSystemFonts: false } });
-    if (intrinsic.width > 0) {
-        const targetWidth = Math.round(width * scale);
-        const targetHeight = Math.ceil((targetWidth * intrinsic.height) / intrinsic.width);
-        const pixmapBytes = targetWidth * targetHeight * PIXMAP_BYTES_PER_PIXEL;
-        const constrained = process.constrainedMemory?.() ?? 0;
-        const memoryBytes = constrained > 0 ? Math.min(constrained, totalmem()) : totalmem();
-        if (pixmapBytes > memoryBytes) {
-            throw new Error(
-                `PNG export 'scale' ${scale} is too large: the ${targetWidth} x ${targetHeight} pixel image needs ` +
-                    `${(pixmapBytes / GIB).toFixed(1)} GiB of memory, more than the ` +
-                    `${(memoryBytes / GIB).toFixed(1)} GiB available. Use a smaller scale.`
-            );
-        }
+    // inconsistently. The estimate errs high rather than predicting resvg's rounding.
+    const aspect = maxIntrinsicAspect({ intrinsic: new Resvg(svg, { font: { loadSystemFonts: false } }) });
+    const targetWidth = Math.round(width * scale);
+    const targetHeight = Math.ceil(targetWidth * aspect);
+    const pixmapBytes = targetWidth * targetHeight * PIXMAP_BYTES_PER_PIXEL;
+    const constrained = process.constrainedMemory?.() ?? 0;
+    const memoryBytes = constrained > 0 ? Math.min(constrained, totalmem()) : totalmem();
+    if (pixmapBytes > memoryBytes) {
+        // At the default scale the size comes from the diagram, so only suggest a
+        // smaller scale when one was asked for.
+        throw new Error(
+            `PNG export is too large: at scale ${scale} the image would be ${targetWidth} x ${targetHeight} pixels, ` +
+                `which needs ${(pixmapBytes / GIB).toFixed(1)} GiB of memory, more than the ` +
+                `${(memoryBytes / GIB).toFixed(1)} GiB available.${scale > 1 ? ' Use a smaller scale.' : ''}`
+        );
     }
 
     const font = resolvePngFontOptions({
