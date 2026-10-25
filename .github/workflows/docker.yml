@@ -10,6 +10,14 @@ env:
   DOCKERHUB_IMAGE: docker.io/azulaf/sfn-diagram
   DOCKERHUB_USER: azulaf
 
+# One publish at a time, queued rather than cancelled. Each run reads the floating
+# tags' current targets and then moves them; two overlapping runs (a release landing
+# during a dispatch) could interleave between the read and the push and leave
+# `latest` on the older release - on ghcr.io and Docker Hub alike.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 on:
   release:
     types: [published]
@@ -320,14 +328,21 @@ jobs:
       contents: read
       issues: write
     steps:
+      # The tag through env, like the resolve steps: this job runs precisely when a
+      # dispatch tag failed validation, so it's the one place an unvalidated value
+      # would otherwise reach a shell - one holding an `issues: write` token.
       - name: File an issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+          DOCKERHUB_RESULT: ${{ needs.dockerhub.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh issue create \
-            --repo "${{ github.repository }}" \
-            --title "Docker publish failed for ${{ github.event.release.tag_name || inputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Docker publish failed for $TAG" \
             --label bug \
-            --body "A Docker publish job failed for \`${{ github.event.release.tag_name || inputs.tag }}\` (docker: ${{ needs.docker.result }}, dockerhub: ${{ needs.dockerhub.result }}). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set.
+            --body "A Docker publish job failed for \`$TAG\` (docker: $DOCKER_RESULT, dockerhub: $DOCKERHUB_RESULT). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set.
 
-          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          Run: $RUN_URL"
