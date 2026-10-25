@@ -5216,6 +5216,61 @@ describe('--execution <arn> and --follow', () => {
         expect(stderr.split('Execution summary').length - 1).toBe(3);
     });
 
+    it("prints a template's extraction warnings once, not every tick (#440)", async () => {
+        const simple = JSON.parse(readFileSync(simpleFixture, 'utf-8'));
+        // An intrinsic the extractor cannot resolve, in the head and in the baseline.
+        const template = (definition: unknown) =>
+            JSON.stringify({
+                Resources: {
+                    Machine: {
+                        Type: 'AWS::StepFunctions::StateMachine',
+                        Properties: { Definition: definition },
+                    },
+                },
+            });
+        const withSelect = {
+            ...simple,
+            States: {
+                ...simple.States,
+                Process: {
+                    ...simple.States.Process,
+                    Resource: { 'Fn::Select': [0, ['arn:a', 'arn:b']] },
+                },
+            },
+        };
+        const head = join(tempDir, 'head.template.json');
+        const base = join(tempDir, 'base.template.json');
+        writeFileSync(head, template(withSelect));
+        writeFileSync(base, template(withSelect));
+        sfnSendMock
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: runningEvents() })
+            .mockResolvedValueOnce({ events: events() });
+        expect(
+            await run([
+                head,
+                '--resolve-cfn',
+                '--diff',
+                base,
+                '--execution',
+                executionArn,
+                '--follow',
+                '--poll-interval',
+                '1',
+                '--format',
+                'html',
+                '-o',
+                join(tempDir, 'run.html'),
+            ]),
+        ).toBe(0);
+
+        const stderr = errors.join('');
+        expect(sfnSendMock).toHaveBeenCalledTimes(3);
+        // One warning from the head and one from the baseline, on the first tick only.
+        expect(stderr.split('warning: Unresolved intrinsic Fn::Select').length - 1).toBe(2);
+        expect(stderr.split('Execution summary').length - 1).toBe(3);
+    });
+
     it('exits 1 when --follow-timeout elapses on a run that never ends', async () => {
         sfnSendMock.mockResolvedValue({ events: runningEvents() });
         const code = await run([

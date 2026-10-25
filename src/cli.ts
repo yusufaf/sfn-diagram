@@ -1392,6 +1392,8 @@ async function loadSource(source: CliInputSource): Promise<string> {
 interface ResolveDefinitionSourceParams {
     /** The input file's path, or null for stdin and live sources. */
     path: string | null;
+    /** Whether to write extraction warnings to stderr. */
+    reportWarnings: boolean;
     resolveCfn: boolean;
     resource: string | null;
     source: string;
@@ -1437,13 +1439,13 @@ function isTerraformInput(params: IsTerraformInputParams): boolean {
 function resolveDefinitionSource(
     params: ResolveDefinitionSourceParams,
 ): AslDefinition | string {
-    const { path, resolveCfn, resource, source } = params;
+    const { path, reportWarnings, resolveCfn, resource, source } = params;
     if (isTerraformInput({ path, source })) {
         const { aslDefinition, warnings } = extractAslFromTerraform({
             config: source,
             resourceId: resource ?? undefined,
         });
-        writeExtractionWarnings({ warnings });
+        if (reportWarnings) writeExtractionWarnings({ warnings });
         return aslDefinition;
     }
     if (!resolveCfn && !isCfnTemplate(source)) {
@@ -1453,7 +1455,7 @@ function resolveDefinitionSource(
         resourceId: resource ?? undefined,
         template: source,
     });
-    writeExtractionWarnings({ warnings });
+    if (reportWarnings) writeExtractionWarnings({ warnings });
     return aslDefinition;
 }
 
@@ -1896,11 +1898,12 @@ interface RenderOneInputParams {
     /** Where this input's output goes, or `null` for stdout. */
     outputPath: string | null;
     /**
-     * Whether to print the `--diff` summary. `--follow` prints it on its first tick
-     * only: the definition and the baseline are fixed for the whole follow, so the
-     * summary never changes, and every tick would otherwise repeat it on stderr.
+     * Whether to print what depends only on the definition and the `--diff` baseline:
+     * template and Terraform extraction warnings, and the diff summary. `--follow`
+     * prints them on its first tick only. Both inputs are fixed for the whole follow,
+     * so the output never changes, and every tick would otherwise repeat it on stderr.
      */
-    reportDiff: boolean;
+    reportStatic: boolean;
     /** Where this render's definition comes from. */
     source: CliInputSource;
     /**
@@ -1936,7 +1939,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         labelInput,
         options,
         outputPath,
-        reportDiff,
+        reportStatic,
         source,
         theme,
         writeAtomically,
@@ -1969,6 +1972,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
     try {
         definitionSource = resolveDefinitionSource({
             path: source.kind === 'file' ? source.path : null,
+            reportWarnings: reportStatic,
             resolveCfn: args.resolveCfn,
             resource: args.resource,
             source: aslSource,
@@ -1976,6 +1980,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         if (baselineSource !== null) {
             baselineDefinition = resolveDefinitionSource({
                 path: baselineIsLive ? null : args.diff,
+                reportWarnings: reportStatic,
                 // A live baseline is already ASL; only the head can be a template.
                 resolveCfn: args.resolveCfn && !baselineIsLive,
                 resource: baselineIsLive ? null : args.resource,
@@ -2085,7 +2090,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ...(redact ? { redact } : {}),
                 ...svgOptions,
             });
-            if (result.metadata.diff && reportDiff) writeDiffSummary(result.metadata.diff);
+            if (result.metadata.diff && reportStatic) writeDiffSummary(result.metadata.diff);
             if (result.metadata.execution)
                 writeExecutionSummary(result.metadata.execution);
             emit(result.html);
@@ -2100,7 +2105,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                     layout: options.layout,
                     theme,
                 });
-                if (reportDiff) writeDiffSummary(result.metadata);
+                if (reportStatic) writeDiffSummary(result.metadata);
                 emit(result.code);
                 return 0;
             }
@@ -2110,7 +2115,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 before: baselineDefinition,
                 ...svgOptions,
             });
-            if (reportDiff) writeDiffSummary(result.metadata);
+            if (reportStatic) writeDiffSummary(result.metadata);
             emit(result.svg);
             return 0;
         }
@@ -3209,7 +3214,7 @@ async function renderResolvedBatch(
             labelInput,
             options,
             outputPath: item.outputPath,
-            reportDiff: true,
+            reportStatic: true,
             source: item.source,
             theme,
             writeAtomically: false,
@@ -3324,8 +3329,8 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     labelInput: false,
                     options,
                     outputPath,
-                    // A failed render ends the follow, so the first tick always prints it.
-                    reportDiff: ticks === 1,
+                    // A failed render ends the follow, so the first tick always prints them.
+                    reportStatic: ticks === 1,
                     source,
                     theme,
                     writeAtomically: true,
