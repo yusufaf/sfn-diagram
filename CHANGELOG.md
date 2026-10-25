@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.9.0...sfn-diagram-v1.9.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **cli:** print the --diff summary once under --follow, not every tick ([#520](https://github.com/yusufaf/sfn-diagram/issues/520)) ([600026f](https://github.com/yusufaf/sfn-diagram/commit/600026f3d6c8658dbc2a2f27f1eb084d46632eab))
+* find the start state by its node id, not the StartAt name ([#515](https://github.com/yusufaf/sfn-diagram/issues/515)) ([2520b77](https://github.com/yusufaf/sfn-diagram/commit/2520b77c42d99f157fa566bad8802166cf01c567))
+* **mermaid:** escape colons in labels so older Mermaid can parse them ([#518](https://github.com/yusufaf/sfn-diagram/issues/518)) ([996a30b](https://github.com/yusufaf/sfn-diagram/commit/996a30b0b3e1a5c5f3d39bddce699eeec18a594b))
+* **png:** refuse a scale too large for memory instead of crashing ([#519](https://github.com/yusufaf/sfn-diagram/issues/519)) ([c0b9ab3](https://github.com/yusufaf/sfn-diagram/commit/c0b9ab31db78a78c387cf44f0e983df10f63c74d))
+
 ## [1.9.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.8.0...sfn-diagram-v1.9.0) (2026-10-24)
 
 
