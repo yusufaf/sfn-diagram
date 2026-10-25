@@ -62,7 +62,9 @@ through this project's own code — report those upstream. Dependabot and a week
 - npm (`sfn-diagram`, `sfn-diagram-react`) publishes with
   [npm provenance](https://docs.npmjs.com/generating-provenance-statements) over
   OIDC; JSR publishes tokenlessly over OIDC.
-- The Docker image ships SLSA provenance (`mode=max`) and an SBOM.
+- The Docker image ships SLSA provenance (`mode=max`) and an SBOM. The Docker Hub
+  mirror (`azulaf/sfn-diagram`) is a copy of the ghcr.io image with the same digest,
+  so it carries the same attestations.
 - The standalone binaries carry
   [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
   **from v1.8.0 onward**, verifiable with

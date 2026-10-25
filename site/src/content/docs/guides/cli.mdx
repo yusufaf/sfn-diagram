@@ -1025,6 +1025,8 @@ docker run --rm -v "$PWD":/work ghcr.io/yusufaf/sfn-diagram:latest \
 
 Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
 
+The same image is mirrored to Docker Hub as `azulaf/sfn-diagram` from 1.9.0 on — same tags, same image digest. Prefer ghcr.io in CI: Docker Hub rate-limits anonymous pulls, which shared runners can hit.
+
 PNG text is rendered with Liberation Sans, which the image ships. To use your own fonts, mount them and point the renderer at them with `SFN_DIAGRAM_PNG_FONT_DIRS` (a `:`-separated list of directories) or `SFN_DIAGRAM_PNG_FONT_FAMILY`.
 
 When an exact font file is known — the built-in per-platform default, which is the Liberation Sans

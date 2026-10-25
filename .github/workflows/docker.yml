@@ -11,6 +11,10 @@ on:
       tag:
         description: 'Git tag to build (e.g. sfn-diagram-v0.5.0)'
         required: true
+      dockerhub_only:
+        description: 'Skip the build; only copy the existing ghcr.io image to Docker Hub'
+        type: boolean
+        default: false
 
 jobs:
   docker:
@@ -21,7 +25,11 @@ jobs:
     # hyphen before its own `-v`, which the legacy `v*` tags never do. See #127,
     # where vscode-sfn-diagram-v0.1.1 slipped past a startsWith(tag, 'v') check that
     # only excluded 'github-action'.
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-'))
+    #
+    # `dockerhub_only` skips straight to the `dockerhub` job, so re-running a failed
+    # Docker Hub copy doesn't rebuild and re-push a new digest over the ghcr.io
+    # version tag. `inputs` is empty on a release event, so this half is a no-op there.
+    if: (github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-'))) && !inputs.dockerhub_only
     permissions:
       contents: read
       packages: write
@@ -156,14 +164,111 @@ jobs:
           path: /tmp/published.png
           if-no-files-found: warn
 
-  # `docker` failing (or its verification step catching a broken image) has no
-  # human "actor" to notify - it's triggered by a release event, not a click.
+  # A copy of the image `docker` just pushed and verified, not a second build:
+  # `imagetools create` from a single source re-tags the existing index as-is, so
+  # the Docker Hub image has the same digest as ghcr.io - and since BuildKit stores
+  # the provenance and SBOM as attestation manifests *inside* that index, they come
+  # along with it. A separate job rather than a second `images:` entry on the build
+  # above, so an expired token or a Docker Hub outage can't fail or half-finish the
+  # ghcr.io publish. ghcr.io stays the registry the docs point at: Docker Hub
+  # rate-limits anonymous pulls, which shared CI runners hit.
+  #
+  # A personal Docker Hub namespace can't use OIDC (Docker only offers it to paid or
+  # DSOS organizations), hence the token. It expires; when it does, this job fails
+  # and report-failure below files the issue.
+  dockerhub:
+    runs-on: ubuntu-latest
+    needs: docker
+    # No tag guard of its own: on a release event this only runs once `docker` (which
+    # has the guard) succeeded, and on a dispatch resolve-docker-tag.mjs rejects
+    # anything but a core tag.
+    if: ${{ !cancelled() && (needs.docker.result == 'success' || (needs.docker.result == 'skipped' && inputs.dockerhub_only)) }}
+    permissions:
+      contents: read
+
+    steps:
+      # The tag, not main, so docker-smoke.sh and the font probes it reads match the
+      # image being checked.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      # Through env rather than `${{ }}` spliced into the script, so a dispatch
+      # input can't inject shell. `inputs.tag` is empty on a release event.
+      - name: Resolve version and derived tags
+        id: version
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: node scripts/resolve-docker-tag.mjs --tag "$TAG"
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Copy the ghcr.io image to Docker Hub
+        run: |
+          SRC="ghcr.io/yusufaf/sfn-diagram:${{ steps.version.outputs.version }}"
+          DEST="docker.io/azulaf/sfn-diagram"
+          docker buildx imagetools create \
+            --tag "$DEST:${{ steps.version.outputs.version }}" \
+            --tag "$DEST:${{ steps.version.outputs.major }}" \
+            --tag "$DEST:${{ steps.version.outputs.minor }}" \
+            --tag "$DEST:latest" \
+            "$SRC"
+
+      # The whole claim this job rests on. A matching index digest means every
+      # platform manifest and both attestation manifests are byte-identical to what
+      # `docker` verified; a buildx that ever rewrote the index on copy fails here
+      # instead of publishing a silently different image.
+      - name: Verify the Docker Hub digest matches ghcr.io
+        env:
+          GHCR_REF: ghcr.io/yusufaf/sfn-diagram:${{ steps.version.outputs.version }}
+          HUB_REF: docker.io/azulaf/sfn-diagram:${{ steps.version.outputs.version }}
+        run: |
+          # The default `run:` shell has no pipefail, so a failed inspect would only
+          # surface later as a confusing "digest '' does not match". Stop on the
+          # registry's own error instead.
+          set -euo pipefail
+          GHCR_DIGEST="$(docker buildx imagetools inspect "$GHCR_REF" --format '{{json .Manifest}}' | jq -r .digest)"
+          HUB_DIGEST="$(docker buildx imagetools inspect "$HUB_REF" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "ghcr.io:    $GHCR_DIGEST"
+          echo "Docker Hub: $HUB_DIGEST"
+          # The real guard: two empty strings, or two `null`s from a field jq can't
+          # find, would compare equal. Validating one side is enough - the other has
+          # to match it exactly.
+          if [[ ! "$GHCR_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::could not read the ghcr.io index digest (got '$GHCR_DIGEST')"
+            exit 1
+          fi
+          if [ "$GHCR_DIGEST" != "$HUB_DIGEST" ]; then
+            echo "::error::Docker Hub index digest $HUB_DIGEST does not match ghcr.io's $GHCR_DIGEST"
+            exit 1
+          fi
+
+      # Logged out first: a repo accidentally left private would still pass a
+      # logged-in pull, while every user pulls it anonymously. The digest check above
+      # already proves the bytes; this proves Docker Hub serves them.
+      - name: Verify an anonymous pull from Docker Hub
+        run: |
+          docker logout
+          bash scripts/docker-smoke.sh \
+            --image "docker.io/azulaf/sfn-diagram:${{ steps.version.outputs.version }}" \
+            --png-out /tmp/dockerhub.png \
+            --expect-version "${{ steps.version.outputs.version }}"
+
+  # `docker` or `dockerhub` failing (or a verification step catching a broken image)
+  # has no human "actor" to notify - it's triggered by a release event, not a click.
   # File an issue so a broken image can't silently sit unnoticed the way it did
   # for three releases in a row.
   report-failure:
     name: Report Docker publish failure
-    needs: docker
-    if: always() && needs.docker.result == 'failure'
+    needs: [docker, dockerhub]
+    if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -177,6 +282,6 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "Docker publish failed for ${{ github.event.release.tag_name || inputs.tag }}" \
             --label bug \
-            --body "The \`docker\` job (build, push, or the post-push verification) failed for \`${{ github.event.release.tag_name || inputs.tag }}\`.
+            --body "A Docker publish job failed for \`${{ github.event.release.tag_name || inputs.tag }}\` (docker: ${{ needs.docker.result }}, dockerhub: ${{ needs.dockerhub.result }}). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set.
 
           Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
