@@ -140,7 +140,7 @@ interface OctokitStubParams {
     contentByRef?: Record<string, AslDefinition>
     /** Existing PR comments returned by listComments. */
     existingComments?: { body: string; id: number }[]
-    /** ASL served for one path at one ref, keyed `${sha}:${path}`. Takes precedence over contentByRef. */
+    /** ASL served for one path at one ref, keyed `${sha}:${path}`. Checked before contentByRef. */
     contentByRefAndPath?: Record<string, AslDefinition>
     /** Files returned by pulls.listFiles. */
     files?: { filename: string; previous_filename?: string; status: string }[]
@@ -184,7 +184,7 @@ function makeOctokit(params: OctokitStubParams = {}) {
             },
             repos: {
                 getContent: vi.fn().mockImplementation(async ({ path, ref }: { path: string; ref: string }) => {
-                    const asl = contentByRefAndPath ? contentByRefAndPath[`${ref}:${path}`] : contentByRef[ref]
+                    const asl = contentByRefAndPath?.[`${ref}:${path}`] ?? contentByRef[ref]
                     if (!asl) throw new Error('404 not found')
                     return fileResponse(asl)
                 }),
@@ -392,6 +392,40 @@ describe('run', () => {
         expect(body).not.toContain('**New file**')
         expect(body).toContain('✅ No changes')
         expect(body).not.toContain('diffAdded')
+    })
+
+    it('reads the base of a modified file at its own path', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRefAndPath: {
+                [`${BASE_SHA}:flows/order.asl.json`]: beforeAsl,
+                [`${HEAD_SHA}:flows/order.asl.json`]: afterAsl,
+            },
+            files: [{ filename: 'flows/order.asl.json', status: 'modified' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        expect(createdBody(stub)).toContain('class FraudCheck diffAdded')
+    })
+
+    it('reports a copied file as new, not as a diff against its source', async () => {
+        setPullRequest()
+        const stub = makeOctokit({
+            contentByRefAndPath: {
+                [`${BASE_SHA}:flows/order.asl.json`]: afterAsl,
+                [`${HEAD_SHA}:flows/copy.asl.json`]: afterAsl,
+            },
+            files: [{ filename: 'flows/copy.asl.json', previous_filename: 'flows/order.asl.json', status: 'copied' }],
+        })
+        useOctokit(stub)
+
+        await run()
+
+        const body = createdBody(stub)
+        expect(body).toContain('✨ **New file**')
+        expect(body).not.toContain('No changes')
     })
 
     it('highlights added, modified, and removed states for a changed file', async () => {

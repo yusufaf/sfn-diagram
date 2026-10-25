@@ -185,7 +185,7 @@ interface FindCommentByMarkerParams {
 
 interface ChangedFile {
     filename: string
-    /** The path at the base ref, set only for a renamed file. */
+    /** The source path of a renamed or copied file. */
     previous_filename?: string
     status: string
 }
@@ -426,10 +426,12 @@ export async function run(): Promise<void> {
     const overlayCandidates: OverlayCandidate[] = []
 
     for (const file of aslFiles) {
-        const { filename, previous_filename: basePath = filename, status } = file
+        const { filename, status } = file
 
         // A renamed file only exists at its old path on the base ref; reading the
-        // new path there 404s and the edit would be reported as a new file.
+        // new path there 404s and the edit would be reported as a new file. A copy
+        // keeps its source, so it stays a new file and is not diffed against it.
+        const basePath = (status === 'renamed' && file.previous_filename) || filename
         const beforeContent =
             status === 'added'
                 ? null
