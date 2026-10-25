@@ -104,8 +104,8 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     [*] --> RiskyTask
     RiskyTask --> Success
-    RiskyTask --> HandleError: Error: States.TaskFailed
-    RiskyTask --> FallbackError: Error: States.ALL
+    RiskyTask --> HandleError: Error#58; States.TaskFailed
+    RiskyTask --> FallbackError: Error#58; States.ALL
     HandleError --> Success
     FallbackError --> Success
 
@@ -323,7 +323,7 @@ exports[`Integration Tests > Snapshot tests > Mermaid snapshots > should match M
 
     [*] --> WaitState
     WaitState: WaitState (5s)
-    FailState: FailState (error: InvalidStatus · cause: Status was not success)
+    FailState: FailState (error#58; InvalidStatus · cause#58; Status was not success)
 
     WaitState --> CheckCondition
     CheckCondition --> SuccessState: $.status == #quot;success#quot;

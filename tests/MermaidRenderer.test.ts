@@ -683,6 +683,43 @@ describe('MermaidRenderer', () => {
             expect(definitionLine).not.toContain('}');
         });
 
+        it('should escape every colon after the separator in state descriptions and edge labels (#507)', () => {
+            // Mermaid up to 11.4.1 rejects a second `:` on a description or label line.
+            const asl: AslDefinition = {
+                StartAt: 'Route',
+                States: {
+                    Route: {
+                        Type: 'Choice',
+                        Choices: [{ Variable: '$.kind', StringEquals: 'a:b', Next: 'Work' }],
+                        Default: 'Reject',
+                    },
+                    Work: {
+                        Type: 'Task',
+                        Resource: 'arn:aws:states:::lambda:invoke',
+                        Catch: [{ ErrorEquals: ['Custom:Error'], Next: 'Reject' }],
+                        End: true,
+                    },
+                    Reject: { Type: 'Fail', Error: 'Code:1', Cause: 'bad: input' },
+                },
+            };
+            const { code } = generateMermaid({ aslDefinition: asl });
+            const labelLines = code
+                .split('\n')
+                .filter((line) => /^\s*\w+(?: --> \w+)?: /.test(line))
+                .map((line) => line.slice(line.indexOf(': ') + 2));
+
+            expect(labelLines).toEqual(
+                expect.arrayContaining([
+                    '$.kind == #quot;a#58;b#quot;',
+                    'Error#58; Custom#58;Error',
+                    'Reject (error#58; Code#58;1 · cause#58; bad#58; input)',
+                ]),
+            );
+            for (const label of labelLines) {
+                expect(label).not.toContain(':');
+            }
+        });
+
         it('should still collapse newlines to spaces', () => {
             const asl: AslDefinition = {
                 StartAt: 'Multi\nLine',

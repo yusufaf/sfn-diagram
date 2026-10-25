@@ -67453,6 +67453,7 @@ function resolveViewerTheme(params) {
 var MERMAID_LABEL_ENTITIES = {
   "#": "#35;",
   '"': "#quot;",
+  ":": "#58;",
   ";": "#59;",
   "<": "#60;",
   ">": "#62;",
@@ -67634,7 +67635,7 @@ var MermaidRenderer = class {
   * a literal `-->` inside a label, so no separate arrow rule is needed.
   */
   escapeLabel(label) {
-    return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, " ");
+    return label.replace(/[#":;<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, " ");
   }
   /**
   * Build the lines of one scope: its `[*]` entry, state label lines, nested

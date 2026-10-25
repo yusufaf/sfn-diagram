@@ -21,11 +21,15 @@ import type {
  * Mermaid numeric-entity escapes for characters that are significant to
  * `stateDiagram-v2` syntax: `#` introduces an entity itself, `"` and `;` end a
  * label or statement early, `<`/`>` and `{`/`}` are HTML/composite-state
- * syntax, and a backtick can break Markdown-flavoured label rendering.
+ * syntax, and a backtick can break Markdown-flavoured label rendering. Mermaid
+ * up to at least 11.4.1 also rejects a `:` inside a state description or an
+ * edge label (`A: Rejected (error: X)`), and renderers that bundle an older
+ * Mermaid (a self-managed GitLab, an editor preview) are still in use.
  */
 const MERMAID_LABEL_ENTITIES: Record<string, string> = {
     '#': '#35;',
     '"': '#quot;',
+    ':': '#58;',
     ';': '#59;',
     '<': '#60;',
     '>': '#62;',
@@ -368,7 +372,7 @@ export class MermaidRenderer {
      * a literal `-->` inside a label, so no separate arrow rule is needed.
      */
     private escapeLabel(label: string): string {
-        return label.replace(/[#";<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, ' ');
+        return label.replace(/[#":;<>{}`]/g, (character) => MERMAID_LABEL_ENTITIES[character]).replace(/\n/g, ' ');
     }
 
     /**
