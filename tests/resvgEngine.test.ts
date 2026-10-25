@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { renderResvgPng } from '../src/exporters/resvgEngine';
 import { countOpaquePixels, decodePng } from './decodePng';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
@@ -122,5 +122,44 @@ describe('renderResvgPng', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             scale: 0.005,
         });
         expect({ height, width }).toEqual({ height: 1, width: 1 });
+    });
+
+    // resvg aborts the process, uncatchably, when it cannot allocate the pixmap (#445).
+    // These reject before it tries, so a failing check would kill the test runner
+    // rather than fail a test: keep every refused size far beyond any machine's memory,
+    // or bound the memory with a mocked container limit.
+    describe('refusing an image too large for memory (#445)', () => {
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        it('rejects with a catchable error naming the scale and the image size', async () => {
+            // 200 x 100 at scale 10000 is 2,000,000 x 1,000,000 pixels: 7.3 TiB of RGBA.
+            await expect(renderResvgPng({ svg: textSvg(true), width: 200, scale: 10_000 })).rejects.toThrow(
+                /'scale' 10000 is too large: the 2000000 x 1000000 pixel image needs 7450\.6 GiB of memory/
+            );
+        });
+
+        it("takes the height from the SVG's own aspect ratio", async () => {
+            // A 1 MiB limit leaves room for a 400 x 200 render (312.5 KiB) but not for
+            // 100 x 10000 (3.8 MiB), which only the SVG's aspect ratio reveals.
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
+
+            await expect(
+                renderResvgPng({ svg: sizedSvg(10, 1000), width: 10, scale: 10 })
+            ).rejects.toThrow(/the 100 x 10000 pixel image needs 0\.0 GiB of memory, more than the 0\.0 GiB available/);
+            await expect(renderResvgPng({ svg: sizedSvg(200, 100), width: 200, scale: 2 })).resolves.toMatchObject({
+                height: 200,
+                width: 400,
+            });
+        });
+
+        it("bounds the image by a container's memory limit, not the host's", async () => {
+            vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 20);
+
+            await expect(renderResvgPng({ svg: sizedSvg(200, 100), width: 200, scale: 4 })).rejects.toThrow(
+                /'scale' 4 is too large: the 800 x 400 pixel image/
+            );
+        });
     });
 });

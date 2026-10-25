@@ -1,8 +1,20 @@
+import { totalmem } from 'node:os';
 import { loadOptionalPeer } from './loadOptionalPeer';
 import { resolvePngFontOptions } from './pngFonts';
 
+/** Bytes per pixel in resvg's RGBA output pixmap. */
+const PIXMAP_BYTES_PER_PIXEL = 4;
+
+/** Bytes in a GiB, for error messages. */
+const GIB = 2 ** 30;
+
 /** Minimal signature of the `@resvg/resvg-js` module used here. */
 interface ResvgModule {
+    /** Parses the SVG; `width` and `height` are its intrinsic size. Renders nothing until asked. */
+    Resvg: new (
+        svg: string,
+        options?: { font?: { loadSystemFonts: boolean } }
+    ) => { height: number; width: number };
     renderAsync: (
         svg: string,
         options?: {
@@ -96,7 +108,33 @@ export async function renderResvgPng(
     if (!Number.isFinite(scale) || scale <= 0) {
         throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
-    const { renderAsync } = await loadResvg();
+    const { Resvg, renderAsync } = await loadResvg();
+
+    // resvg allocates the whole output pixmap at once and, when that fails, aborts the
+    // process natively with nothing a caller can catch. So refuse a pixmap that could
+    // never fit, one larger than the memory the process can have, before resvg tries.
+    // A fixed pixel limit would also refuse large renders that succeed today. In a
+    // container, totalmem() reports the host and constrainedMemory() the cgroup limit
+    // (0 when there is none, and absent on some runtimes).
+    //
+    // The intrinsic size comes from resvg's own parser, which costs a fraction of the
+    // render, rather than from a height a PngExporter caller may have passed
+    // inconsistently. Rounding up overestimates rather than predicting resvg's rounding.
+    const intrinsic = new Resvg(svg, { font: { loadSystemFonts: false } });
+    if (intrinsic.width > 0) {
+        const targetWidth = Math.round(width * scale);
+        const targetHeight = Math.ceil((targetWidth * intrinsic.height) / intrinsic.width);
+        const pixmapBytes = targetWidth * targetHeight * PIXMAP_BYTES_PER_PIXEL;
+        const constrained = process.constrainedMemory?.() ?? 0;
+        const memoryBytes = constrained > 0 ? Math.min(constrained, totalmem()) : totalmem();
+        if (pixmapBytes > memoryBytes) {
+            throw new Error(
+                `PNG export 'scale' ${scale} is too large: the ${targetWidth} x ${targetHeight} pixel image needs ` +
+                    `${(pixmapBytes / GIB).toFixed(1)} GiB of memory, more than the ` +
+                    `${(memoryBytes / GIB).toFixed(1)} GiB available. Use a smaller scale.`
+            );
+        }
+    }
 
     const font = resolvePngFontOptions({
         fontDirs,

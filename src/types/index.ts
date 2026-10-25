@@ -944,7 +944,9 @@ export interface PngExportOptions {
 
     /**
      * Multiplier applied to the diagram's rendered size. `resvg` only. Must be a
-     * positive finite number; anything else throws.
+     * positive finite number; anything else throws. Also throws when the resulting
+     * image would need more memory than the process can have (the machine's, or a
+     * container's limit), since resvg would otherwise abort the process.
      * @default 1
      */
     scale?: number;
