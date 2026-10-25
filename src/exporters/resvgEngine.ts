@@ -1,8 +1,58 @@
+import { totalmem } from 'node:os';
 import { loadOptionalPeer } from './loadOptionalPeer';
 import { resolvePngFontOptions } from './pngFonts';
 
+/** Bytes per pixel in resvg's RGBA output pixmap. */
+const PIXMAP_BYTES_PER_PIXEL = 4;
+
+/** Bytes in a GiB, for error messages. */
+const GIB = 2 ** 30;
+
+/**
+ * Rounded intrinsic width below which {@link maxIntrinsicAspect} reads the exact size,
+ * keeping the rounding bound within about 1% where it is used.
+ */
+const EXACT_SIZE_BELOW_WIDTH = 100;
+
+/** Parameters for {@link maxIntrinsicAspect}. */
+interface MaxIntrinsicAspectParams {
+    /** A parsed SVG, from resvg's `Resvg` constructor. */
+    intrinsic: { height: number; toString: () => string; width: number };
+}
+
+/**
+ * The largest height-to-width ratio the SVG's intrinsic size can have, or 0 when it has
+ * no width.
+ *
+ * resvg's `width` and `height` getters round to whole pixels, so each true side lies
+ * within 0.5 of its getter and `(height + 0.5) / (width - 0.5)` bounds the true ratio
+ * from above. That bound is loose for a narrow SVG (3x at 1 x 1) and missing when the
+ * width rounds to 0, so below {@link EXACT_SIZE_BELOW_WIDTH} the exact size is read
+ * from the serialized root element instead. Every SVG this package generates is wider.
+ */
+function maxIntrinsicAspect(params: MaxIntrinsicAspectParams): number {
+    const { intrinsic } = params;
+    if (intrinsic.width >= EXACT_SIZE_BELOW_WIDTH) {
+        return (intrinsic.height + 0.5) / (intrinsic.width - 0.5);
+    }
+
+    const root = /<svg\b[^>]*>/.exec(intrinsic.toString())?.[0] ?? '';
+    const exactWidth = Number(/\swidth="([^"]*)"/.exec(root)?.[1]);
+    const exactHeight = Number(/\sheight="([^"]*)"/.exec(root)?.[1]);
+    return exactWidth > 0 && exactHeight > 0 ? exactHeight / exactWidth : 0;
+}
+
 /** Minimal signature of the `@resvg/resvg-js` module used here. */
 interface ResvgModule {
+    /**
+     * Parses the SVG and renders nothing until asked. `width` and `height` are its
+     * intrinsic size rounded to whole pixels; `toString()` serializes the parsed tree,
+     * whose root element carries the exact size.
+     */
+    Resvg: new (
+        svg: string,
+        options?: { font?: { loadSystemFonts: boolean } }
+    ) => { height: number; toString: () => string; width: number };
     renderAsync: (
         svg: string,
         options?: {
@@ -96,7 +146,33 @@ export async function renderResvgPng(
     if (!Number.isFinite(scale) || scale <= 0) {
         throw new Error(`PNG export 'scale' must be a positive finite number, got ${scale}.`);
     }
-    const { renderAsync } = await loadResvg();
+    const { Resvg, renderAsync } = await loadResvg();
+
+    // resvg allocates the whole output pixmap at once and, when that fails, aborts the
+    // process natively with nothing a caller can catch. So refuse a pixmap that could
+    // never fit, one larger than the memory the process can have, before resvg tries.
+    // A fixed pixel limit would also refuse large renders that succeed today. In a
+    // container, totalmem() reports the host and constrainedMemory() the cgroup limit
+    // (0 when there is none, and absent on some runtimes).
+    //
+    // The intrinsic size comes from resvg's own parser, which costs a fraction of the
+    // render, rather than from a height a PngExporter caller may have passed
+    // inconsistently. The estimate errs high rather than predicting resvg's rounding.
+    const aspect = maxIntrinsicAspect({ intrinsic: new Resvg(svg, { font: { loadSystemFonts: false } }) });
+    const targetWidth = Math.round(width * scale);
+    const targetHeight = Math.ceil(targetWidth * aspect);
+    const pixmapBytes = targetWidth * targetHeight * PIXMAP_BYTES_PER_PIXEL;
+    const constrained = process.constrainedMemory?.() ?? 0;
+    const memoryBytes = constrained > 0 ? Math.min(constrained, totalmem()) : totalmem();
+    if (pixmapBytes > memoryBytes) {
+        // At the default scale the size comes from the diagram, so only suggest a
+        // smaller scale when one was asked for.
+        throw new Error(
+            `PNG export is too large: at scale ${scale} the image would be ${targetWidth} x ${targetHeight} pixels, ` +
+                `which needs ${(pixmapBytes / GIB).toFixed(1)} GiB of memory, more than the ` +
+                `${(memoryBytes / GIB).toFixed(1)} GiB available.${scale > 1 ? ' Use a smaller scale.' : ''}`
+        );
+    }
 
     const font = resolvePngFontOptions({
         fontDirs,

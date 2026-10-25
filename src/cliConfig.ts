@@ -616,10 +616,10 @@ function styleMapField(params: StyleMapFieldParams): ConfigField {
 /**
  * The largest PNG `scale` the CLI accepts, from the flag or the config file.
  *
- * resvg aborts the whole process, with no catchable error, when it cannot allocate the
- * target pixmap: `scale: 1000` on a three-state diagram asks for 200 GB. The cap catches
- * the likeliest way to get there, a DPI value typed as a scale (`--scale 300`), while 10x
- * still covers retina (2-3x) and 300 dpi print (about 3.1x).
+ * Catches a DPI value typed as a scale (`--scale 300`), while 10x still covers retina
+ * (2-3x) and 300 dpi print (about 3.1x). `scale: 1000` on a three-state diagram asks for
+ * a 200 GB image; the resvg engine refuses any image larger than the memory available
+ * with an error naming its size, so this cap is about the typo, not memory.
  */
 export const MAX_PNG_SCALE = 10;
 

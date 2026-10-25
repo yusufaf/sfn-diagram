@@ -12,6 +12,10 @@ const { resolvePngFontOptions } = vi.hoisted(() => ({
 }));
 vi.mock('../src/exporters/pngFonts', () => ({ resolvePngFontOptions }));
 vi.mock('@resvg/resvg-js', () => ({
+    Resvg: class {
+        height = 100;
+        width = 200;
+    },
     renderAsync: async () => ({ asPng: () => Buffer.from('fake-png'), height: 100, width: 200 }),
 }));
 

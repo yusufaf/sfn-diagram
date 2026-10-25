@@ -717,13 +717,13 @@ sfn-diagram state.asl.json --format png --theme ./transparent.theme.json \
 
 `--scale` multiplies the PNG's pixel width and height without changing the layout, so
 `--scale 2` gives a retina-sharp copy of the same diagram. Fractions work too (`0.5`
-halves it). It is capped at `10`: the rasterizer aborts the whole process, with no error
-message, when it cannot allocate the image, and a DPI value typed as a scale
-(`--scale 300`) would ask for hundreds of gigabytes. `10` already covers retina (2-3x)
-and 300 dpi print (about 3.1x). The cap only catches that typo: memory use grows with the
-diagram's area times the square of the scale, so a very large diagram can still run out
-at a scale well under `10`. A scale so small that the image would round to 0 pixels wide
-or tall is an error (exit `1`) naming the scale.
+halves it). It is capped at `10`, which catches a DPI value typed as a scale
+(`--scale 300`, which would ask for hundreds of gigabytes) and still covers retina (2-3x)
+and 300 dpi print (about 3.1x). Memory use grows with the diagram's area times the square
+of the scale, so a very large diagram can still be too big at a scale under `10`. An
+image that would need more memory than the machine, or the container, has is an error
+(exit `1`) naming the scale and the image size. So is a scale so small that the image
+would round to 0 pixels wide or tall.
 
 ```bash
 sfn-diagram state.asl.json --format png --scale 2 -o diagram@2x.png
