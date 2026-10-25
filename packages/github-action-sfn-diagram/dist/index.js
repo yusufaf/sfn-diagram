@@ -69318,7 +69318,8 @@ async function run() {
   const overlayCandidates = [];
   for (const file of aslFiles) {
     const { filename, status } = file;
-    const beforeContent = status === "added" ? null : await getFileAtRef({ octokit, owner, path: filename, ref: baseSha, repo });
+    const basePath = status === "renamed" && file.previous_filename || filename;
+    const beforeContent = status === "added" ? null : await getFileAtRef({ octokit, owner, path: basePath, ref: baseSha, repo });
     const afterContent = status === "removed" ? null : await getFileAtRef({ octokit, owner, path: filename, ref: headSha, repo });
     const beforeAsl = beforeContent ? parseAslJson(beforeContent) : null;
     const afterAsl = afterContent ? parseAslJson(afterContent) : null;
