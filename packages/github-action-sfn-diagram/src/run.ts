@@ -183,6 +183,13 @@ interface FindCommentByMarkerParams {
     repo: string
 }
 
+interface ChangedFile {
+    filename: string
+    /** The path at the base ref, set only for a renamed file. */
+    previous_filename?: string
+    status: string
+}
+
 interface ListChangedFilesParams {
     octokit: ReturnType<typeof github.getOctokit>
     owner: string
@@ -220,9 +227,9 @@ async function getFileAtRef(params: GetFileAtRefParams): Promise<string | null> 
  */
 async function listChangedFiles(
     params: ListChangedFilesParams,
-): Promise<{ filename: string; status: string }[]> {
+): Promise<ChangedFile[]> {
     const { octokit, owner, pullNumber, repo } = params
-    const collected: { filename: string; status: string }[] = []
+    const collected: ChangedFile[] = []
 
     for (let page = 1; page <= MAX_LIST_PAGES; page++) {
         const { data } = await octokit.rest.pulls.listFiles({
@@ -419,12 +426,14 @@ export async function run(): Promise<void> {
     const overlayCandidates: OverlayCandidate[] = []
 
     for (const file of aslFiles) {
-        const { filename, status } = file
+        const { filename, previous_filename: basePath = filename, status } = file
 
+        // A renamed file only exists at its old path on the base ref; reading the
+        // new path there 404s and the edit would be reported as a new file.
         const beforeContent =
             status === 'added'
                 ? null
-                : await getFileAtRef({ octokit, owner, path: filename, ref: baseSha, repo })
+                : await getFileAtRef({ octokit, owner, path: basePath, ref: baseSha, repo })
 
         const afterContent =
             status === 'removed'
