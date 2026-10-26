@@ -12,11 +12,11 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
   `TypeError: Promise.withResolvers is not a function`.
 
   That is a *toolchain* floor, higher than the package's own. The published package
-  declares **Node >= 20** in `package.json#engines` and means it: `tsdown` compiles
-  `dist/` to ES2022, set by an explicit `target` in `tsdown.config.ts` rather than
-  derived from `engines.node`, and the `node: '20'` leg of `unit-test.yml` proves it by
-  building under 22, switching back to 20, and running the suite and the packed CLI
-  there. Node >= 20 covers core, the CLI, and PNG export through the default
+  declares **Node >= 20** in `package.json#engines` and means it: the `node: '20'` leg
+  of `unit-test.yml` proves it by building under 22, switching back to 20, and running
+  the suite and the packed CLI there. The syntax level of `dist/` is separate: an
+  explicit `target` in `tsdown.config.ts` pins it to ES2022, so raising the Node floor
+  doesn't change it. Node >= 20 covers core, the CLI, and PNG export through the default
   `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine raises the
   runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6 requires it. See
   [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).

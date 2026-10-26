@@ -229,9 +229,10 @@ jobs:
       # rebuilds first, and the `element` project shells out to
       # scripts/build-test-element-bundle.mjs to bundle a page for Puppeteer. Both
       # are deliberately skipped on this leg and covered by the four others; the
-      # unit and perf projects run no bundler (tests/buildTarget.test.ts only imports
-      # the tsdown configs) and run here against the dist built under 22, as does the
-      # packed CLI in the step above.
+      # unit and perf projects run no build and run here against the dist built under
+      # 22, as does the packed CLI in the step above. tests/buildTarget.test.ts does
+      # import tsdown to read its configs; that loads fine on Node 20 today but sits
+      # outside tsdown's engines, so a tsdown bump can break it here first.
       - name: Test (unit + perf; element and the fan-out need a Node-22 bundler)
         if: matrix.node == '20'
         run: |

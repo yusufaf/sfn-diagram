@@ -33,8 +33,8 @@ all deprecation warnings).
 require **Node >= 20**. Only the opt-in, deprecated `html-to-image` engine raises that floor, to
 **Node >= 22.12.0**, set by `node-html-to-image` v6.
 
-**Syntax level:** the published JavaScript uses ES2022 syntax whatever the Node floor,
-so a browser or edge bundler that targets an older baseline has to transpile it.
+**Syntax level:** the library entry points use ES2022 syntax whatever the Node floor,
+so a browser or edge bundler that targets an older baseline has to transpile them.
 
 ```ts
 // Works in Node, browser, and edge:
