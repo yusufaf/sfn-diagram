@@ -1,5 +1,10 @@
 import { defineConfig } from 'tsdown';
 
+// A language level, not a Node version: core also runs in browsers, edge runtimes
+// and the custom element. Left unset, tsdown derives it from engines.node, so
+// raising the Node floor would silently raise the syntax level of dist/.
+const target = 'es2022';
+
 export default defineConfig([
     {
         clean: true,
@@ -11,6 +16,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -22,6 +28,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -33,6 +40,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -44,6 +52,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -55,6 +64,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -66,6 +76,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -77,6 +88,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -88,6 +100,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     {
         clean: false,
@@ -99,6 +112,7 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
     // A separate build step, not a second entry alongside `cli` above: sharing one
     // rolldown build would split the common code into a chunk that `bin.js` imports
@@ -118,5 +132,6 @@ export default defineConfig([
         hash: false,
         outDir: './dist',
         platform: 'neutral',
+        target,
     },
 ]);

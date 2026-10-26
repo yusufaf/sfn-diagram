@@ -13,7 +13,8 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
 
   That is a *toolchain* floor, higher than the package's own. The published package
   declares **Node >= 20** in `package.json#engines` and means it: `tsdown` compiles
-  `dist/` for `node20.0.0`, and the `node: '20'` leg of `unit-test.yml` proves it by
+  `dist/` to ES2022, set by an explicit `target` in `tsdown.config.ts` rather than
+  derived from `engines.node`, and the `node: '20'` leg of `unit-test.yml` proves it by
   building under 22, switching back to 20, and running the suite and the packed CLI
   there. Node >= 20 covers core, the CLI, and PNG export through the default
   `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine raises the
