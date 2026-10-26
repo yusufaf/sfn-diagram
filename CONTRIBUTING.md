@@ -15,8 +15,9 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
   declares **Node >= 20** in `package.json#engines` and means it: the `node: '20'` leg
   of `unit-test.yml` proves it by building under 22, switching back to 20, and running
   the suite and the packed CLI there. The syntax level is separate: an explicit `target`
-  in `tsdown.config.ts` pins every `sfn-diagram` import path to ES2022 syntax, so raising
-  the Node floor doesn't change it. Node >= 20 covers core, the CLI, and PNG export through the default
+  in `tsdown.config.ts` pins sfn-diagram's own code to ES2022 syntax (dependencies stay
+  external), so raising the Node floor doesn't change it. Node >= 20 covers core, the
+  CLI, and PNG export through the default
   `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine raises the
   runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6 requires it. See
   [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).
