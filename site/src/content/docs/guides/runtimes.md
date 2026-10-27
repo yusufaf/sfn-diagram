@@ -33,6 +33,11 @@ all deprecation warnings).
 require **Node >= 20**. Only the opt-in, deprecated `html-to-image` engine raises that floor, to
 **Node >= 22.12.0**, set by `node-html-to-image` v6.
 
+**Syntax level:** sfn-diagram's own code behind every import path uses ES2022 syntax
+whatever the Node floor; its dependencies (`@dagrejs/dagre`, `d3-shape` and the rest)
+ship as their authors publish them. A browser or edge bundler that targets an older
+baseline has to transpile both.
+
 ```ts
 // Works in Node, browser, and edge:
 import { generateSvg } from 'sfn-diagram';

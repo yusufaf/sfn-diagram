@@ -97,7 +97,7 @@ jobs:
       # declares engines.node ^22.18.0 || ^24.11.0 || >=26 and calls
       # Promise.withResolvers, added in Node 22.0, so `tsdown` dies on Node 20 with
       # "Promise.withResolvers is not a function". engines.node ">=20" is a promise
-      # about the published artifact - which tsdown compiles for node20.0.0 - so the
+      # about the published artifact - which tsdown compiles to ES2022 - so the
       # floor leg builds here under 22 and drops back to 20 for the tests.
       - name: Set node 22 to build on the node-20 leg
         if: matrix.node == '20'
@@ -229,8 +229,10 @@ jobs:
       # rebuilds first, and the `element` project shells out to
       # scripts/build-test-element-bundle.mjs to bundle a page for Puppeteer. Both
       # are deliberately skipped on this leg and covered by the four others; the
-      # unit and perf projects contain no bundler and run here against the dist
-      # built under 22, as does the packed CLI in the step above.
+      # unit and perf projects don't run tsdown and run here against the dist built
+      # under 22, as does the packed CLI in the step above. tests/buildTarget.test.ts
+      # does import tsdown to read its configs; that loads on Node 20 as of tsdown 0.23
+      # but sits outside tsdown's engines, so a tsdown bump can break it here first.
       - name: Test (unit + perf; element and the fan-out need a Node-22 bundler)
         if: matrix.node == '20'
         run: |

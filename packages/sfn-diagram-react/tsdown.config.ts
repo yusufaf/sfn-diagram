@@ -13,4 +13,6 @@ export default defineConfig({
     hash: false,
     outDir: './dist',
     platform: 'neutral',
+    // Same language-level target as the core build; see ../../tsdown.config.ts.
+    target: 'es2022',
 })
