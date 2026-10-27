@@ -18,7 +18,8 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
   in both `tsdown.config.ts` files (root and `packages/sfn-diagram-react`, checked by
   `tests/buildTarget.test.ts`) caps the emitted syntax at ES2022, so raising the Node
   floor doesn't change it. Two exceptions: dependencies stay external, and `dist/bin.js`
-  keeps the ES2023 hashbang line from `src/bin.ts`. Node >= 20 covers core, the CLI, and PNG export through the default
+  keeps the ES2023 hashbang line from `src/bin.ts`. Node >= 20 covers core, the CLI,
+  and PNG export through the default
   `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine
   raises the runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6
   requires it. See
