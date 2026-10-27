@@ -277,6 +277,8 @@ parseExecutionHistory({
 });
 
 const history: ExecutionHistoryInput = { events, nextToken: undefined };
+// @ts-expect-error A page without 'events' is not a page.
+export const notAPage: ExecutionHistoryInput = { nextToken: 't' };
 generateExecution({ aslDefinition, history });
 buildExecutionTimeline({ events });
 generateFromAwsResponse({ response: { definition: JSON.stringify(aslDefinition), name: 'Orders' } });

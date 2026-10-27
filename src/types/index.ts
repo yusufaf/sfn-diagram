@@ -1660,8 +1660,8 @@ export interface ExecutionHistoryEvent {
  */
 export interface ExecutionHistoryPage {
     $metadata?: unknown;
-    /** The page's events */
-    events?: ExecutionHistoryEvent[] | undefined;
+    /** The page's events. Required, as in the SDK, so an object without it is not taken for a page */
+    events: ExecutionHistoryEvent[] | undefined;
     /** Token for the next page, if any */
     nextToken?: string | undefined;
 }
