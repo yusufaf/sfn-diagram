@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -148,8 +148,10 @@ describe('Published export maps', () => {
     it('resolves sfn-diagram/package.json through the exports map', () => {
         const requireFromTests = createRequire(__filename);
 
-        expect(requireFromTests.resolve('sfn-diagram/package.json')).toBe(
-            join(repoRoot, 'package.json')
+        // The resolver returns a real path, which differs from `__dirname` when the
+        // checkout sits behind a symlink or junction, so compare real paths.
+        expect(realpathSync(requireFromTests.resolve('sfn-diagram/package.json'))).toBe(
+            realpathSync(join(repoRoot, 'package.json'))
         );
         expect((requireFromTests('sfn-diagram/package.json') as { version: string }).version).toBe(
             readManifest('package.json').version
@@ -159,8 +161,8 @@ describe('Published export maps', () => {
     it('resolves sfn-diagram/config.schema.json through the exports map', () => {
         const requireFromTests = createRequire(__filename);
 
-        expect(requireFromTests.resolve('sfn-diagram/config.schema.json')).toBe(
-            join(repoRoot, 'config.schema.json')
+        expect(realpathSync(requireFromTests.resolve('sfn-diagram/config.schema.json'))).toBe(
+            realpathSync(join(repoRoot, 'config.schema.json'))
         );
         expect(requireFromTests('sfn-diagram/config.schema.json')).toEqual(
             JSON.parse(readFileSync(join(repoRoot, 'config.schema.json'), 'utf8'))
