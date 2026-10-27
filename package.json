@@ -94,7 +94,9 @@
         "types": "./dist/element-auto.d.cts",
         "default": "./dist/element-auto.cjs"
       }
-    }
+    },
+    "./config.schema.json": "./config.schema.json",
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {

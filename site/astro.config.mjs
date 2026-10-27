@@ -120,7 +120,7 @@ export default defineConfig({
                         'Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL (Amazon States Language) definitions, CloudFormation/SAM/CDK templates, Terraform configs, or live AWS state machines. Runs in Node, the browser, and edge runtimes.',
                     details: [
                         'Core (`sfn-diagram`) is platform-agnostic. Only `sfn-diagram/png` and the CLI are Node-only.',
-                        'Entry points: `sfn-diagram` (SVG/Mermaid/HTML), `sfn-diagram/png`, `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`, `sfn-diagram/ci`, `sfn-diagram/element`, `sfn-diagram/element/auto`.',
+                        'Entry points: `sfn-diagram` (SVG/Mermaid/HTML), `sfn-diagram/png`, `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`, `sfn-diagram/ci`, `sfn-diagram/element`, `sfn-diagram/element/auto`. JSON files (npm only): `sfn-diagram/package.json`, `sfn-diagram/config.schema.json`.',
                     ].join('\n'),
                     demote: ['ecosystem/**'],
                     // `exclude` applies to llms-small.txt only — llms-full.txt is
