@@ -22,6 +22,7 @@
     "exclude": [
       "src/**/*.test.ts",
       "src/dom-globals.d.ts",
+      "src/types/awsSdkCompat.ts",
       "dist",
       "tests"
     ]
