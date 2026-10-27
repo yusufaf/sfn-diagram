@@ -1,8 +1,3 @@
-import type {
-    DescribeStateMachineCommandOutput,
-    GetExecutionHistoryCommandOutput,
-    HistoryEvent,
-} from '@aws-sdk/client-sfn';
 import type { LayoutCache } from '../layout/layoutCache';
 import type { ViewerEdge } from '../renderers/viewer/edgeData';
 import type { RelayoutModel } from '../renderers/viewer/relayout';
@@ -1276,8 +1271,34 @@ export interface GenerateFromAwsParams extends DiagramOptions {
      * for `mermaid` output. Omitted, nothing is cached.
      */
     cache?: LayoutCache;
-    /** AWS SDK DescribeStateMachine command output */
-    response: DescribeStateMachineCommandOutput;
+    /** A `DescribeStateMachine` response, e.g. the SDK's `DescribeStateMachineCommandOutput` */
+    response: StateMachineDescription;
+}
+
+/**
+ * A `DescribeStateMachine` response. Declared structurally rather than as the
+ * SDK's `DescribeStateMachineCommandOutput`, so the core declarations don't
+ * import the optional `@aws-sdk/client-sfn` peer; an SDK response is assignable
+ * as is. Every SDK field is declared so an object literal written against the
+ * SDK type still type-checks. Only `definition` is read.
+ */
+export interface StateMachineDescription {
+    $metadata?: unknown;
+    creationDate?: unknown;
+    /** The ASL definition as a JSON string; the only field read */
+    definition?: string | undefined;
+    description?: unknown;
+    encryptionConfiguration?: unknown;
+    label?: unknown;
+    loggingConfiguration?: unknown;
+    name?: unknown;
+    revisionId?: unknown;
+    roleArn?: unknown;
+    stateMachineArn?: unknown;
+    status?: unknown;
+    tracingConfiguration?: unknown;
+    type?: unknown;
+    variableReferences?: unknown;
 }
 
 /** Per-category state names of a diff, as every diff output reports them. */
@@ -1520,13 +1541,138 @@ export interface ExecutionOverlay {
 }
 
 /**
+ * The details every failure event carries. sfn-diagram reads only `error` and
+ * `cause`; the rest are declared so an SDK-shaped object literal passes the
+ * excess-property check.
+ */
+export interface ExecutionFailureDetails {
+    /** A more detailed explanation of the failure */
+    cause?: string | undefined;
+    /** The error code of the failure */
+    error?: string | undefined;
+    /** Carried by `EvaluationFailed` only */
+    location?: unknown;
+    /** Carried by the `Task*` failure events only */
+    resource?: unknown;
+    /** Carried by the `Task*` failure events only */
+    resourceType?: unknown;
+    /** Carried by `EvaluationFailed` only */
+    state?: unknown;
+}
+
+/**
+ * One event as `GetExecutionHistory` returns it. Declared structurally rather
+ * than as the SDK's `HistoryEvent`, so the core declarations don't import the
+ * optional `@aws-sdk/client-sfn` peer; an SDK `HistoryEvent` is assignable as
+ * is. Every SDK field is declared so an object literal written against the SDK
+ * type still type-checks. Only the fields sfn-diagram reads are typed
+ * precisely; the rest are `unknown`.
+ */
+export interface ExecutionHistoryEvent {
+    /** Failure details of an `ActivityFailed` event */
+    activityFailedEventDetails?: ExecutionFailureDetails | undefined;
+    activityScheduledEventDetails?: unknown;
+    /** Failure details of an `ActivityScheduleFailed` event */
+    activityScheduleFailedEventDetails?: ExecutionFailureDetails | undefined;
+    activityStartedEventDetails?: unknown;
+    activitySucceededEventDetails?: unknown;
+    /** Failure details of an `ActivityTimedOut` event */
+    activityTimedOutEventDetails?: ExecutionFailureDetails | undefined;
+    /** Failure details of an `EvaluationFailed` event */
+    evaluationFailedEventDetails?: ExecutionFailureDetails | undefined;
+    /** Failure details of an `ExecutionAborted` event */
+    executionAbortedEventDetails?: ExecutionFailureDetails | undefined;
+    /** Failure details of an `ExecutionFailed` event */
+    executionFailedEventDetails?: ExecutionFailureDetails | undefined;
+    executionRedrivenEventDetails?: unknown;
+    executionStartedEventDetails?: unknown;
+    executionSucceededEventDetails?: unknown;
+    /** Failure details of an `ExecutionTimedOut` event */
+    executionTimedOutEventDetails?: ExecutionFailureDetails | undefined;
+    /** The event's id, in the order events occurred */
+    id?: number | undefined;
+    /** Failure details of a `LambdaFunctionFailed` event */
+    lambdaFunctionFailedEventDetails?: ExecutionFailureDetails | undefined;
+    lambdaFunctionScheduledEventDetails?: unknown;
+    /** Failure details of a `LambdaFunctionScheduleFailed` event */
+    lambdaFunctionScheduleFailedEventDetails?:
+        | ExecutionFailureDetails
+        | undefined;
+    /** Failure details of a `LambdaFunctionStartFailed` event */
+    lambdaFunctionStartFailedEventDetails?: ExecutionFailureDetails | undefined;
+    lambdaFunctionSucceededEventDetails?: unknown;
+    /** Failure details of a `LambdaFunctionTimedOut` event */
+    lambdaFunctionTimedOutEventDetails?: ExecutionFailureDetails | undefined;
+    mapIterationAbortedEventDetails?: unknown;
+    mapIterationFailedEventDetails?: unknown;
+    mapIterationStartedEventDetails?: unknown;
+    mapIterationSucceededEventDetails?: unknown;
+    /** Failure details of a `MapRunFailed` event */
+    mapRunFailedEventDetails?: ExecutionFailureDetails | undefined;
+    mapRunRedrivenEventDetails?: unknown;
+    mapRunStartedEventDetails?: unknown;
+    mapStateStartedEventDetails?: unknown;
+    /** The id of the previous event */
+    previousEventId?: number | undefined;
+    /** Details of a `*StateEntered` event */
+    stateEnteredEventDetails?:
+        | {
+              /** The state's input, as a JSON string */
+              input?: string | undefined;
+              inputDetails?: unknown;
+              /** The state's name */
+              name?: string | undefined;
+          }
+        | undefined;
+    /** Details of a `*StateExited` event */
+    stateExitedEventDetails?:
+        | {
+              assignedVariables?: unknown;
+              assignedVariablesDetails?: unknown;
+              /** The state's name */
+              name?: string | undefined;
+              /** The state's output, as a JSON string */
+              output?: string | undefined;
+              outputDetails?: unknown;
+          }
+        | undefined;
+    /** Failure details of a `TaskFailed` event */
+    taskFailedEventDetails?: ExecutionFailureDetails | undefined;
+    taskScheduledEventDetails?: unknown;
+    taskStartedEventDetails?: unknown;
+    /** Failure details of a `TaskStartFailed` event */
+    taskStartFailedEventDetails?: ExecutionFailureDetails | undefined;
+    /** Failure details of a `TaskSubmitFailed` event */
+    taskSubmitFailedEventDetails?: ExecutionFailureDetails | undefined;
+    taskSubmittedEventDetails?: unknown;
+    taskSucceededEventDetails?: unknown;
+    /** Failure details of a `TaskTimedOut` event */
+    taskTimedOutEventDetails?: ExecutionFailureDetails | undefined;
+    /** When the event occurred; a JSON history carries an ISO string */
+    timestamp?: Date | number | string | undefined;
+    /** The event type, e.g. `TaskStateEntered` */
+    type?: string | undefined;
+}
+
+/**
+ * A `GetExecutionHistory` response, or one page of it. The SDK's
+ * `GetExecutionHistoryCommandOutput` is assignable as is.
+ */
+export interface ExecutionHistoryPage {
+    $metadata?: unknown;
+    /** The page's events */
+    events?: ExecutionHistoryEvent[] | undefined;
+    /** Token for the next page, if any */
+    nextToken?: string | undefined;
+}
+
+/**
  * Accepted forms of execution history input:
  * an events array, a raw GetExecutionHistory response, or a JSON string of either.
  */
 export type ExecutionHistoryInput =
-    | HistoryEvent[]
-    | GetExecutionHistoryCommandOutput
-    | { events: HistoryEvent[] }
+    | ExecutionHistoryEvent[]
+    | ExecutionHistoryPage
     | string;
 
 /** Parameters for `generateExecution`, overlaying an execution's outcome onto an SVG diagram. */

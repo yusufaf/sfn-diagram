@@ -1,7 +1,8 @@
-import type { HistoryEvent, HistoryEventType } from '@aws-sdk/client-sfn';
 import type {
     AslDefinition,
     EdgeStyleOverride,
+    ExecutionFailureDetails,
+    ExecutionHistoryEvent,
     ExecutionHistoryInput,
     ExecutionMetadataSummary,
     ExecutionOutput,
@@ -44,10 +45,44 @@ const TAKEN_EDGE_STYLE: EdgeStyleOverride = { stroke: '#2e7d32', strokeWidth: 3 
 /** Dimming applied to edges the execution did not follow. */
 const UNTAKEN_EDGE_STYLE: EdgeStyleOverride = { strokeOpacity: 0.2 };
 
-/** A {@link HistoryEvent} key whose details carry a failure's `error` and `cause`. */
+/** An {@link ExecutionHistoryEvent} key whose details carry a failure's `error` and `cause`. */
 type FailureDetailsKey = {
-    [Key in keyof HistoryEvent]-?: 'cause' | 'error' extends keyof NonNullable<HistoryEvent[Key]> ? Key : never;
-}[keyof HistoryEvent];
+    [Key in keyof ExecutionHistoryEvent]-?: 'cause' | 'error' extends keyof NonNullable<ExecutionHistoryEvent[Key]> ? Key : never;
+}[keyof ExecutionHistoryEvent];
+
+/**
+ * The event type names the lookup tables below are keyed by and `walkExecutionHistory`
+ * compares against. `src/types/awsSdkCompat.ts` checks them against the SDK's
+ * `HistoryEventType`, so a name AWS does not emit fails `pnpm run typecheck` without this
+ * module importing the optional SDK.
+ */
+export type KnownHistoryEventType =
+    | 'ActivityFailed'
+    | 'ActivityScheduleFailed'
+    | 'ActivityTimedOut'
+    | 'EvaluationFailed'
+    | 'ExecutionAborted'
+    | 'ExecutionFailed'
+    | 'ExecutionRedriven'
+    | 'ExecutionSucceeded'
+    | 'ExecutionTimedOut'
+    | 'FailStateEntered'
+    | 'LambdaFunctionFailed'
+    | 'LambdaFunctionScheduleFailed'
+    | 'LambdaFunctionStartFailed'
+    | 'LambdaFunctionTimedOut'
+    | 'MapRunFailed'
+    | 'MapRunStarted'
+    | 'MapStateEntered'
+    | 'MapStateFailed'
+    | 'MapStateStarted'
+    | 'ParallelStateEntered'
+    | 'ParallelStateFailed'
+    | 'ParallelStateStarted'
+    | 'TaskFailed'
+    | 'TaskStartFailed'
+    | 'TaskSubmitFailed'
+    | 'TaskTimedOut';
 
 /**
  * Task-level events that count as a failed attempt of the active state, each with the
@@ -56,7 +91,7 @@ type FailureDetailsKey = {
  * One table drives both the failure check and the decoding, so a type added here is
  * decoded without a second edit.
  */
-const TASK_FAILURE_DETAILS: ReadonlyMap<string, FailureDetailsKey> = new Map<HistoryEventType, FailureDetailsKey>([
+const TASK_FAILURE_DETAILS: ReadonlyMap<string, FailureDetailsKey> = new Map<KnownHistoryEventType, FailureDetailsKey>([
     ['ActivityFailed', 'activityFailedEventDetails'],
     ['ActivityScheduleFailed', 'activityScheduleFailedEventDetails'],
     ['ActivityTimedOut', 'activityTimedOutEventDetails'],
@@ -83,7 +118,7 @@ const FAILURE_DETAILS_KEYS: readonly FailureDetailsKey[] = [
 /** What a container-level failure event says about the frame it belongs to. */
 interface ContainerFailureEvent {
     /** The `*StateEntered` type of the frame this event's failure belongs to. */
-    enteredType: HistoryEventType;
+    enteredType: KnownHistoryEventType;
     /**
      * Whether this event ends the container's attempt. `MapRunFailed` does not — the
      * `MapStateFailed` that follows it does — so the two are not counted twice and a
@@ -98,8 +133,8 @@ interface ContainerFailureEvent {
  * but the leaf never emits a `StateExited` — so the container failure is the only event
  * that can close those leaves.
  *
- * Keyed by {@link HistoryEventType} rather than by bare strings so a name AWS does not
- * emit (there is no `ParallelFailed`; it is `ParallelStateFailed`) fails to compile
+ * Keyed by {@link KnownHistoryEventType} rather than by bare strings, so a name AWS does
+ * not emit (there is no `ParallelFailed`; it is `ParallelStateFailed`) fails to compile
  * instead of silently never matching.
  *
  * `MapIterationFailed` is deliberately absent: a Map with `MaxConcurrency > 1` runs
@@ -107,7 +142,7 @@ interface ContainerFailureEvent {
  * the iterations still in flight.
  */
 const CONTAINER_FAILURE_EVENT_TYPES: ReadonlyMap<string, ContainerFailureEvent> = new Map<
-    HistoryEventType,
+    KnownHistoryEventType,
     ContainerFailureEvent
 >([
     ['MapRunFailed', { enteredType: 'MapStateEntered', terminal: false }],
@@ -120,9 +155,9 @@ const CONTAINER_FAILURE_EVENT_TYPES: ReadonlyMap<string, ContainerFailureEvent> 
  * They clear the failure bookkeeping {@link CONTAINER_FAILURE_EVENT_TYPES} sets, so a
  * container with a `Retry` records each failed attempt rather than only the first.
  */
-const CONTAINER_START_EVENT_TYPES: ReadonlyMap<string, HistoryEventType> = new Map<
-    HistoryEventType,
-    HistoryEventType
+const CONTAINER_START_EVENT_TYPES: ReadonlyMap<string, KnownHistoryEventType> = new Map<
+    KnownHistoryEventType,
+    KnownHistoryEventType
 >([
     ['MapRunStarted', 'MapStateEntered'],
     ['MapStateStarted', 'MapStateEntered'],
@@ -171,10 +206,10 @@ function toMillis(timestamp: unknown): number | undefined {
     return undefined;
 }
 
-/** Normalize the accepted input forms into an ordered HistoryEvent[]. */
-function normalizeEvents(input: ExecutionHistoryInput): HistoryEvent[] {
+/** Normalize the accepted input forms into an ordered ExecutionHistoryEvent[]. */
+function normalizeEvents(input: ExecutionHistoryInput): ExecutionHistoryEvent[] {
     const value = typeof input === 'string' ? JSON.parse(stripBom(input)) : input;
-    const events: HistoryEvent[] = Array.isArray(value)
+    const events: ExecutionHistoryEvent[] = Array.isArray(value)
         ? value
         : (value?.events ?? []);
     // AWS returns events ordered, but sort by id defensively so causal walks are safe.
@@ -182,10 +217,10 @@ function normalizeEvents(input: ExecutionHistoryInput): HistoryEvent[] {
 }
 
 /** The state name carried by an entered/exited event, if any. */
-function enteredName(event: HistoryEvent): string | undefined {
+function enteredName(event: ExecutionHistoryEvent): string | undefined {
     return event.stateEnteredEventDetails?.name;
 }
-function exitedName(event: HistoryEvent): string | undefined {
+function exitedName(event: ExecutionHistoryEvent): string | undefined {
     return event.stateExitedEventDetails?.name;
 }
 
@@ -198,7 +233,7 @@ function exitedName(event: HistoryEvent): string | undefined {
  * is skipped, so an empty one never hides a populated one beside it. Both fields come
  * from the one object, so an error is never paired with another failure's cause.
  */
-function failureDetails(event: HistoryEvent): { cause?: string; error?: string } | undefined {
+function failureDetails(event: ExecutionHistoryEvent): ExecutionFailureDetails | undefined {
     for (const key of FAILURE_DETAILS_KEYS) {
         const details = event[key];
         if (details?.error !== undefined || details?.cause !== undefined) return details;
@@ -207,12 +242,12 @@ function failureDetails(event: HistoryEvent): { cause?: string; error?: string }
 }
 
 /** Extract an error name from any of the failure detail shapes on an event. */
-function extractError(event: HistoryEvent): string | undefined {
+function extractError(event: ExecutionHistoryEvent): string | undefined {
     return failureDetails(event)?.error;
 }
 
 /** Extract a failure's `cause` from any of the failure detail shapes on an event. */
-function extractCause(event: HistoryEvent): string | undefined {
+function extractCause(event: ExecutionHistoryEvent): string | undefined {
     return failureDetails(event)?.cause;
 }
 
@@ -404,12 +439,12 @@ interface ExecutionWalk {
  */
 function walkExecutionHistory(params: {
     definition?: AslDefinition;
-    events: HistoryEvent[];
+    events: ExecutionHistoryEvent[];
     includePayloads?: boolean;
     redact?: RedactCallback;
 }): ExecutionWalk {
     const { definition, events, includePayloads = false, redact } = params;
-    const eventById = new Map<number, HistoryEvent>();
+    const eventById = new Map<number, ExecutionHistoryEvent>();
     for (const event of events) {
         if (event.id !== undefined) eventById.set(event.id, event);
     }
@@ -436,12 +471,12 @@ function walkExecutionHistory(params: {
     const childScopes =
         definition && resolver ? buildChildScopes({ definition, resolver }) : undefined;
 
-    // Timestamps are optional on a HistoryEvent, so an entry with no timestamp of its
+    // Timestamps are optional on an ExecutionHistoryEvent, so an entry with no timestamp of its
     // own inherits the last one seen. The timeline then stays monotonic and a scrubber
     // never has to handle a gap.
     let lastKnownMs = 0;
     let startMs: number | undefined;
-    const eventMs = (event: HistoryEvent): number => {
+    const eventMs = (event: ExecutionHistoryEvent): number => {
         const millis = toMillis(event.timestamp);
         if (millis !== undefined) {
             lastKnownMs = millis;
@@ -454,7 +489,7 @@ function walkExecutionHistory(params: {
     };
 
     /** Walk previousEventId back to the nearest completed predecessor state. */
-    const findFromState = (event: HistoryEvent): string | undefined => {
+    const findFromState = (event: ExecutionHistoryEvent): string | undefined => {
         let cursorId = event.previousEventId;
         const seen = new Set<number>();
         while (cursorId !== undefined && !seen.has(cursorId)) {
@@ -547,7 +582,7 @@ function walkExecutionHistory(params: {
      * which state an event belongs to; the stack top is only a fallback for a history
      * that does not carry one.
      */
-    const frameForEvent = (event: HistoryEvent): OpenFrame | undefined => {
+    const frameForEvent = (event: ExecutionHistoryEvent): OpenFrame | undefined => {
         let cursorId = event.previousEventId;
         const seen = new Set<number>();
         while (cursorId !== undefined && !seen.has(cursorId)) {
@@ -724,7 +759,7 @@ function walkExecutionHistory(params: {
             if (parent && from === undefined) parent.childStarts += 1;
 
             // Fail states are terminal and never emit a StateExited.
-            if (type === 'FailStateEntered') {
+            if (type === ('FailStateEntered' satisfies KnownHistoryEventType)) {
                 const result = ensure(name);
                 contribute(name, 'failed');
                 result.attempts = Math.max(result.attempts, 1);
@@ -860,7 +895,7 @@ function walkExecutionHistory(params: {
         // A redrive picks up where the failed run stopped. It must be handled before the
         // task-level attribution below, or `frameForEvent` would follow this event's own
         // chain into a retired leaf and resume it.
-        if (type === 'ExecutionRedriven') {
+        if (type === ('ExecutionRedriven' satisfies KnownHistoryEventType)) {
             executionStatus = 'running';
             // Only frames whose every ancestor also failed are resumable. A leaf under a
             // container whose failure a Catch later handled stays as it ended.
@@ -933,13 +968,17 @@ function walkExecutionHistory(params: {
         }
 
         // --- Terminal execution events ---
-        if (type === 'ExecutionSucceeded') {
+        if (type === ('ExecutionSucceeded' satisfies KnownHistoryEventType)) {
             executionStatus = 'succeeded';
-        } else if (type === 'ExecutionFailed' || type === 'ExecutionAborted' || type === 'ExecutionTimedOut') {
+        } else if (
+            type === ('ExecutionFailed' satisfies KnownHistoryEventType) ||
+            type === ('ExecutionAborted' satisfies KnownHistoryEventType) ||
+            type === ('ExecutionTimedOut' satisfies KnownHistoryEventType)
+        ) {
             executionStatus =
-                type === 'ExecutionFailed'
+                type === ('ExecutionFailed' satisfies KnownHistoryEventType)
                     ? 'failed'
-                    : type === 'ExecutionAborted'
+                    : type === ('ExecutionAborted' satisfies KnownHistoryEventType)
                       ? 'aborted'
                       : 'timedOut';
             const execError = extractError(event);
@@ -1009,7 +1048,7 @@ function walkExecutionHistory(params: {
  * console.log(overlay.states['ProcessOrder'].status); // 'succeeded'
  * ```
  */
-export function parseExecutionHistory(params: { events: HistoryEvent[] }): ExecutionOverlay {
+export function parseExecutionHistory(params: { events: ExecutionHistoryEvent[] }): ExecutionOverlay {
     return walkExecutionHistory({ events: params.events }).overlay;
 }
 
@@ -1022,7 +1061,7 @@ export interface BuildExecutionTimelineParams {
      */
     definition?: AslDefinition;
     /** Ordered execution history events (from GetExecutionHistory). */
-    events: HistoryEvent[];
+    events: ExecutionHistoryEvent[];
     /**
      * Capture each run's input, output and failure cause onto its entry, each cut to
      * {@link EXECUTION_PAYLOAD_CAP}. Off by default: payloads are the most sensitive
