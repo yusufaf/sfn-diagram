@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AslDefinition } from '../src/types';
@@ -120,17 +122,16 @@ describe('Module Format Compatibility', () => {
 });
 
 describe('Published export maps', () => {
-    const readManifest = (name: string): { exports: Record<string, unknown> } =>
-        JSON.parse(readFileSync(join(__dirname, '..', name), 'utf8'));
+    const repoRoot = join(__dirname, '..');
+    const readManifest = (name: string): { exports: Record<string, unknown>; version: string } =>
+        JSON.parse(readFileSync(join(repoRoot, name), 'utf8'));
 
     /**
-     * npm entry points with no JSR analogue. JSR maps every export to a `.ts` module,
-     * so a subpath pointing at a non-module file cannot be expressed there — `publint`
-     * nudges packages toward `"./package.json"`, which is the case this exists for.
-     * Empty today; kept so adding one is a deliberate edit rather than a test failure
-     * with a misleading message.
+     * npm entry points with no JSR analogue. JSR maps every export to a `.ts` module and
+     * publishes neither of these files (`jsr.json` is its manifest, and the schema is not
+     * in `publish.include`), so both JSON subpaths are npm-only by design.
      */
-    const NPM_ONLY_EXPORTS: readonly string[] = [];
+    const NPM_ONLY_EXPORTS: readonly string[] = ['./config.schema.json', './package.json'];
 
     it('offers the same entry points on npm and on JSR', () => {
         // `./ci` shipped on npm for a release without ever reaching jsr.json, so JSR
@@ -143,4 +144,46 @@ describe('Published export maps', () => {
 
         expect(jsr).toEqual(npm);
     });
+
+    it('resolves sfn-diagram/package.json through the exports map', () => {
+        const requireFromTests = createRequire(__filename);
+
+        // The resolver returns a real path, which differs from `__dirname` when the
+        // checkout sits behind a symlink or junction, so compare real paths.
+        expect(realpathSync(requireFromTests.resolve('sfn-diagram/package.json'))).toBe(
+            realpathSync(join(repoRoot, 'package.json'))
+        );
+        expect((requireFromTests('sfn-diagram/package.json') as { version: string }).version).toBe(
+            readManifest('package.json').version
+        );
+    });
+
+    it('resolves sfn-diagram/config.schema.json through the exports map', () => {
+        const requireFromTests = createRequire(__filename);
+
+        expect(realpathSync(requireFromTests.resolve('sfn-diagram/config.schema.json'))).toBe(
+            realpathSync(join(repoRoot, 'config.schema.json'))
+        );
+        expect(requireFromTests('sfn-diagram/config.schema.json')).toEqual(
+            JSON.parse(readFileSync(join(repoRoot, 'config.schema.json'), 'utf8'))
+        );
+    });
+
+    it('imports both JSON subpaths from ESM with an import attribute', () => {
+        // A child process, so Node's own resolver handles the import rather than Vite's.
+        const script =
+            "import schema from 'sfn-diagram/config.schema.json' with { type: 'json' };" +
+            "import manifest from 'sfn-diagram/package.json' with { type: 'json' };" +
+            'process.stdout.write(JSON.stringify({ id: schema.$id, version: manifest.version }));';
+        const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+        });
+
+        expect(result.status, result.stderr).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual({
+            id: 'https://sfn.yusufaf.dev/config.schema.json',
+            version: readManifest('package.json').version,
+        });
+    }, 15000);
 });
