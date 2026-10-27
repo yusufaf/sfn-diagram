@@ -15,10 +15,10 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
   declares **Node >= 20** in `package.json#engines` and means it: the `node: '20'` leg
   of `unit-test.yml` proves it by building under 22, switching back to 20, and running
   the suite and the packed CLI there. The syntax level is separate: an explicit `target`
-  in both `tsdown.config.ts` files (root and `packages/sfn-diagram-react`, guarded by
-  `tests/buildTarget.test.ts`) pins the emitted code to ES2022, so raising the Node floor
-  doesn't change it. Dependencies stay external, and `dist/bin.js` adds a hashbang
-  line. Node >= 20 covers core, the CLI, and PNG export through the default
+  in both `tsdown.config.ts` files (root and `packages/sfn-diagram-react`, checked by
+  `tests/buildTarget.test.ts`) caps the emitted syntax at ES2022, so raising the Node
+  floor doesn't change it. Two exceptions: dependencies stay external, and `dist/bin.js`
+  keeps the ES2023 hashbang line from `src/bin.ts`. Node >= 20 covers core, the CLI, and PNG export through the default
   `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine
   raises the runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6
   requires it. See
