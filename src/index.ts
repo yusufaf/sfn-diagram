@@ -478,6 +478,7 @@ export type {
     DiffStatus,
     NodeShape,
     CatchHandling,
+    IconPosition,
 } from './types';
 
 export { buildViewerContent } from './renderers';

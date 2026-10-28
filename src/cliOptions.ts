@@ -5,6 +5,7 @@ import type {
     CustomTheme,
     DiagramFormat,
     EdgePathStyle,
+    IconPosition,
     LayoutDirection,
     StylePreset,
     ThemeOption,
@@ -30,7 +31,7 @@ export interface CliOptionSource {
     diagramTitle: string | null;
     edgeStyle: EdgePathStyle | null;
     format: DiagramFormat | null;
-    iconPosition: 'left' | 'right' | 'top' | null;
+    iconPosition: IconPosition | null;
     iconSize: number | null;
     includeComments: boolean | null;
     includeRawState: boolean | null;
@@ -69,7 +70,7 @@ export interface ResolvedCliOptions {
     edgeOverrides: CliConfig['edgeOverrides'] | null;
     edgeStyle: EdgePathStyle | null;
     format: DiagramFormat;
-    iconPosition: 'left' | 'right' | 'top' | null;
+    iconPosition: IconPosition | null;
     iconSize: number | null;
     includeComments: boolean | null;
     includeRawState: boolean;

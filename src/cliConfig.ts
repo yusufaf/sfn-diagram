@@ -9,6 +9,7 @@ import type {
     DiagramFormat,
     EdgePathStyle,
     EdgeStyleOverride,
+    IconPosition,
     LayoutDirection,
     NodeStyle,
     StateType,
@@ -183,7 +184,7 @@ export interface CliConfig {
     edgeOverrides?: Record<string, EdgeStyleOverride>;
     edgeStyle?: EdgePathStyle;
     format?: DiagramFormat;
-    iconPosition?: 'left' | 'right' | 'top';
+    iconPosition?: IconPosition;
     iconSize?: number;
     includeComments?: boolean;
     /** HTML only: `false` inlines no state's raw ASL. Other formats ignore it. */

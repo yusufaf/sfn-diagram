@@ -17,6 +17,7 @@ import type {
     ResolvedTheme,
     NodeStyle,
     StateType,
+    IconPosition,
 } from '../types';
 import { anchorCatchLaneEnds } from '../layout/catchLanes';
 import type { LayoutResult } from '../layout/DagreLayout';
@@ -187,7 +188,7 @@ interface EdgeLabelCenterParams {
 
 interface CalculateLabelPositionParams {
     hasIcon: boolean;
-    iconPosition: 'left' | 'top' | 'right';
+    iconPosition: IconPosition;
     iconSize: number;
     node: StateNode;
     /**
@@ -199,7 +200,7 @@ interface CalculateLabelPositionParams {
 
 interface RenderIconParams {
     group: SvgElement;
-    iconPosition: 'left' | 'top' | 'right';
+    iconPosition: IconPosition;
     iconSize: number;
     iconUrl: string;
     node: StateNode;
