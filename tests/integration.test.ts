@@ -521,6 +521,30 @@ describe('Integration Tests', () => {
 
             expect(lightResult.svg).not.toBe(darkResult.svg);
         });
+
+        it('should let a per-call format override the constructor format', () => {
+            const generator = new SfnDiagramGenerator({ format: 'mermaid' });
+            const aslDefinition = loadFixture('simple');
+            const result = generator.generate({ aslDefinition, format: 'svg' });
+
+            expect('svg' in result).toBe(true);
+        });
+
+        it('should fall back to the constructor format without a per-call format', () => {
+            const generator = new SfnDiagramGenerator({ format: 'mermaid' });
+            const aslDefinition = loadFixture('simple');
+
+            expect('code' in generator.generate({ aslDefinition })).toBe(true);
+            expect('code' in generator.generate({ aslDefinition, format: undefined })).toBe(true);
+        });
+
+        it('should not keep a per-call format for later calls', () => {
+            const generator = new SfnDiagramGenerator({ format: 'mermaid' });
+            const aslDefinition = loadFixture('simple');
+
+            expect('html' in generator.generate({ aslDefinition, format: 'html' })).toBe(true);
+            expect('code' in generator.generate({ aslDefinition })).toBe(true);
+        });
     });
 
     describe('Error handling', () => {

@@ -42,6 +42,7 @@ import type {
     MermaidOutput,
     HtmlOutput,
     AslDefinition,
+    DiagramFormat,
 } from './types';
 
 /**
@@ -189,8 +190,14 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
 /**
  * Generate a diagram from an ASL definition (auto-detects format from options)
  *
- * This is a convenience function that generates either an SVG or Mermaid diagram
- * based on the `format` option. If no format is specified, defaults to SVG.
+ * This is a convenience function that generates an SVG, Mermaid or interactive HTML
+ * diagram based on the `format` option. If no format is specified, defaults to SVG.
+ *
+ * Pass `format` as a literal (`'svg'`, `'mermaid'` or `'html'`) to get the matching
+ * output type. With `format` omitted the output is SVG at runtime, but the return type
+ * stays the union; pass `format: 'svg'` to get `SvgOutput`. A non-literal `format` also
+ * returns the union. `'png'` is not narrowed: it throws, use `exportPng` from
+ * `sfn-diagram/png`.
  *
  * @param params - Configuration object
  * @param params.aslDefinition - ASL definition as an object or JSON string
@@ -210,13 +217,56 @@ export function generateMermaid(params: GenerateMermaidParams): MermaidOutput {
  * ```typescript
  * import { generateDiagram } from 'sfn-diagram';
  *
- * // Generate SVG (default)
- * const svgResult = generateDiagram({ aslDefinition: myAsl });
+ * // Generate SVG
+ * const { svg } = generateDiagram({ aslDefinition: myAsl, format: 'svg' });
  *
  * // Generate Mermaid
  * const mermaidResult = generateDiagram({ aslDefinition: myAsl, format: 'mermaid' });
  * ```
  */
+export function generateDiagram(
+    params: GenerateDiagramParams & { format: 'svg' },
+): SvgOutput;
+/**
+ * Generate a Mermaid diagram from an ASL definition.
+ *
+ * @param params - Configuration object with `format: 'mermaid'`
+ * @returns Mermaid output
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
+ * @throws {Error} If the ASL definition structure is invalid
+ * @example
+ * const { code } = generateDiagram({ aslDefinition, format: 'mermaid' });
+ */
+export function generateDiagram(
+    params: GenerateDiagramParams & { format: 'mermaid' },
+): MermaidOutput;
+/**
+ * Generate an interactive HTML diagram from an ASL definition.
+ *
+ * @param params - Configuration object with `format: 'html'`
+ * @returns Interactive HTML output
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
+ * @throws {Error} If the ASL definition structure is invalid
+ * @example
+ * const { html } = generateDiagram({ aslDefinition, format: 'html' });
+ */
+export function generateDiagram(
+    params: GenerateDiagramParams & { format: 'html' },
+): HtmlOutput;
+/**
+ * Generate a diagram whose format is omitted or not known at compile time.
+ *
+ * @param params - Configuration object
+ * @returns The union; SVG at runtime when `format` is omitted
+ * @throws {AslSyntaxError} If params.aslDefinition is a string with invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
+ * @throws {Error} If the ASL definition structure is invalid, or if `format` is 'png'
+ * @example
+ * const result = generateDiagram({ aslDefinition });
+ * if ('svg' in result) { console.log(result.svg); }
+ */
+export function generateDiagram(
+    params: GenerateDiagramParams,
+): HtmlOutput | MermaidOutput | SvgOutput;
 export function generateDiagram(
     params: GenerateDiagramParams,
 ): HtmlOutput | MermaidOutput | SvgOutput {
@@ -247,12 +297,17 @@ export function generateDiagram(
  * This is a convenience function for integrating with the AWS SDK. It extracts
  * the ASL definition from the response and generates a diagram.
  *
+ * Pass `format` as a literal (`'svg'`, `'mermaid'` or `'html'`) to get the matching
+ * output type; omitted or non-literal, the return type is the union (SVG at runtime
+ * when omitted).
+ *
  * @param params - Configuration object
  * @param params.response - AWS SDK DescribeStateMachine response object
- * @param params.format - Output format: 'svg' (default) or 'mermaid'
- * @param ...params - Other options (see generateSvg or generateMermaid)
+ * @param params.format - Output format: 'svg' (default), 'mermaid' or 'html'
+ * @param ...params - Other options (see generateSvg, generateMermaid or generateHtml)
  *
- * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid'
+ * @returns SVG output if format is 'svg', Mermaid output if format is 'mermaid',
+ *   interactive HTML output if format is 'html'
  *
  * @throws {Error} If response.definition is missing
  * @throws {AslSyntaxError} If the definition contains invalid JSON (also an `instanceof SyntaxError` and `AslValidationError`)
@@ -272,11 +327,53 @@ export function generateDiagram(
  *
  * const { svg } = generateFromAwsResponse({
  *   response,
+ *   format: 'svg',
  *   theme: 'light',
  *   layout: 'TB'
  * });
  * ```
  */
+export function generateFromAwsResponse(
+    params: GenerateFromAwsParams & { format: 'svg' }
+): SvgOutput;
+/**
+ * Generate a Mermaid diagram from an AWS SDK DescribeStateMachine response.
+ *
+ * @param params - Configuration object with `format: 'mermaid'`
+ * @returns Mermaid output
+ * @throws {Error} If response.definition is missing, or the ASL definition is invalid
+ * @example
+ * const { code } = generateFromAwsResponse({ response, format: 'mermaid' });
+ */
+export function generateFromAwsResponse(
+    params: GenerateFromAwsParams & { format: 'mermaid' }
+): MermaidOutput;
+/**
+ * Generate an interactive HTML diagram from an AWS SDK DescribeStateMachine response.
+ *
+ * @param params - Configuration object with `format: 'html'`
+ * @returns Interactive HTML output
+ * @throws {Error} If response.definition is missing, or the ASL definition is invalid
+ * @example
+ * const { html } = generateFromAwsResponse({ response, format: 'html' });
+ */
+export function generateFromAwsResponse(
+    params: GenerateFromAwsParams & { format: 'html' }
+): HtmlOutput;
+/**
+ * Generate a diagram from an AWS SDK response whose format is omitted or not known
+ * at compile time.
+ *
+ * @param params - Configuration object
+ * @returns The union; SVG at runtime when `format` is omitted
+ * @throws {Error} If response.definition is missing, the ASL definition is invalid, or `format` is 'png'
+ * @example
+ * const result = generateFromAwsResponse({ response });
+ * if ('svg' in result) { console.log(result.svg); }
+ */
+export function generateFromAwsResponse(
+    params: GenerateFromAwsParams
+): HtmlOutput | MermaidOutput | SvgOutput;
 export function generateFromAwsResponse(
     params: GenerateFromAwsParams
 ): HtmlOutput | MermaidOutput | SvgOutput {
@@ -344,19 +441,73 @@ export class SfnDiagramGenerator {
     /**
      * Generate a diagram (auto-detects format from options)
      *
+     * Pass `format` as a literal (`'svg'`, `'mermaid'` or `'html'`) to get the matching
+     * output type for this call.
+     *
      * @param params - Generation parameters
      * @param params.aslDefinition - ASL definition as an object or JSON string
-     * @returns SVG or Mermaid output based on format option
+     * @param params.format - Output format for this call only; overrides the constructor's
+     *   `format`. Omitted, the generator's configured format is used (and the result type
+     *   is the union).
+     * @returns SVG output
      *
      * @example
      * ```typescript
-     * const result = generator.generate({ aslDefinition: myStateMachine });
+     * const { svg } = generator.generate({ aslDefinition: myStateMachine, format: 'svg' });
      * ```
+     */
+    generate(params: { aslDefinition: AslDefinition | string; format: 'svg' }): SvgOutput;
+    /**
+     * Generate a Mermaid diagram for this call, whatever the configured format.
+     *
+     * @param params - Generation parameters
+     * @param params.aslDefinition - ASL definition as an object or JSON string
+     * @param params.format - Output format for this call only; overrides the constructor's
+     *   `format`.
+     * @returns Mermaid output
+     * @example
+     * generator.generate({ aslDefinition, format: 'mermaid' }).code;
+     */
+    generate(params: { aslDefinition: AslDefinition | string; format: 'mermaid' }): MermaidOutput;
+    /**
+     * Generate an interactive HTML diagram for this call, whatever the configured format.
+     *
+     * @param params - Generation parameters
+     * @param params.aslDefinition - ASL definition as an object or JSON string
+     * @param params.format - Output format for this call only; overrides the constructor's
+     *   `format`.
+     * @returns Interactive HTML output
+     * @example
+     * generator.generate({ aslDefinition, format: 'html' }).html;
+     */
+    generate(params: { aslDefinition: AslDefinition | string; format: 'html' }): HtmlOutput;
+    /**
+     * Generate a diagram in the generator's configured format, or in a per-call format
+     * that is not known at compile time.
+     *
+     * @param params - Generation parameters
+     * @param params.aslDefinition - ASL definition as an object or JSON string
+     * @param params.format - Output format for this call only; overrides the constructor's
+     *   `format`. Omitted, the generator's configured format is used (and the result type
+     *   is the union).
+     * @returns SVG, Mermaid or HTML output, based on the per-call or configured format
+     * @example
+     * const result = generator.generate({ aslDefinition: myStateMachine });
      */
     generate(params: {
         aslDefinition: AslDefinition | string;
+        format?: DiagramFormat;
+    }): HtmlOutput | MermaidOutput | SvgOutput;
+    generate(params: {
+        aslDefinition: AslDefinition | string;
+        format?: DiagramFormat;
     }): HtmlOutput | MermaidOutput | SvgOutput {
-        return generateDiagram({ ...params, ...this.options, cache: this.cache });
+        return generateDiagram({
+            ...params,
+            ...this.options,
+            cache: this.cache,
+            format: params.format ?? this.options.format,
+        });
     }
 
     /**
@@ -478,6 +629,7 @@ export type {
     DiffStatus,
     NodeShape,
     CatchHandling,
+    IconPosition,
 } from './types';
 
 export { buildViewerContent } from './renderers';

@@ -554,6 +554,9 @@ export type CatchLabelStyle = 'error-type' | 'catch-number';
 /** How per-state Catch (error-handler) branches are treated in the diagram. */
 export type CatchHandling = 'hide' | 'show';
 
+/** Position of AWS service icons relative to the node label. */
+export type IconPosition = 'left' | 'right' | 'top';
+
 /** Visual style preset for node shapes */
 export type StylePreset = 'aws-standard' | 'enhanced';
 
@@ -657,7 +660,7 @@ export interface DiagramOptions {
      * Position of AWS service icons relative to node label
      * @default 'left'
      */
-    iconPosition?: 'left' | 'top' | 'right';
+    iconPosition?: IconPosition;
 
     /** Custom function to resolve icon URLs for services */
     iconResolver?: (service: string) => string | null;

@@ -67,14 +67,12 @@ import type {
     EdgePathStyle,
     ExecutionStateStatus,
     ExecutionSummary,
+    IconPosition,
     LayoutDirection,
     LintDiagnostic,
     StylePreset,
     ThemeOption,
 } from './types';
-
-/** Placement of AWS service icons relative to the node label. */
-export type IconPosition = 'left' | 'top' | 'right';
 
 export interface CliArgs {
     backgroundColor: string | null;
