@@ -297,7 +297,6 @@ export function generateDiagram(
  * This is a convenience function for integrating with the AWS SDK. It extracts
  * the ASL definition from the response and generates a diagram.
  *
- * @param params - Configuration object
  * Pass `format` as a literal (`'svg'`, `'mermaid'` or `'html'`) to get the matching
  * output type; omitted or non-literal, the return type is the union (SVG at runtime
  * when omitted).
