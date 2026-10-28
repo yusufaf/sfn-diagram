@@ -41,4 +41,21 @@ describe('output and option types', () => {
         },
         COMPILE_TIMEOUT_MS,
     );
+
+    // Proves the overloads did not loosen the params: the snippet is a bare call
+    // so the overload error is the only diagnostic it can produce.
+    it(
+        'a misspelled option is still rejected through the overloads',
+        () => {
+            expect(
+                typeErrorsIn({
+                    compilerOptions: NARROWING_COMPILER_OPTIONS,
+                    fileName: join(repoRoot, 'tests', '__formatNarrowing.snippet.ts'),
+                    sourceText:
+                        "import { generateDiagram } from '../src/index';\ngenerateDiagram({ aslDefinition: '{}', themee: 'dark' });",
+                }),
+            ).toEqual([expect.stringContaining('No overload matches this call')]);
+        },
+        COMPILE_TIMEOUT_MS,
+    );
 });
