@@ -45,10 +45,10 @@ export interface UseSfnDiagramParams
      * functions take no history) or with `format="html"` (core's `generateHtml`
      * accepts a diff since sfn-diagram 1.8, but this hook does not wire it up yet).
      *
-     * The Mermaid diff (`generateMermaidDiff`) ignores every option in this
-     * type's `Pick<DiagramOptions, ...>` list - `layout`, `theme`, and the rest -
-     * since core's diff-specific function accepts only the two definitions. The
-     * SVG diff honours them.
+     * The Mermaid diff ignores every option in this type's `Pick<DiagramOptions, ...>`
+     * list - `layout`, `theme`, and the rest: this hook doesn't forward them to
+     * `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram
+     * 1.10. The SVG diff honours them.
      */
     before?: object | string
     definition: object | string

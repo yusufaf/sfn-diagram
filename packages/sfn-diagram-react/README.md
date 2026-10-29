@@ -62,12 +62,12 @@ JSON string of either. In the browser, pass the JSON string.
 overlaying an execution onto a diff. Combining them calls `onError` and renders `null`,
 the same way any other invalid input is handled.
 
-**`format="mermaid"` combined with `history` ignores every other diagram option** —
-`catchHandling`, `collapse`, `edgeStyle`, `showVariables`, and the rest. Core's
-Mermaid execution-overlay function (`generateMermaidExecution`) accepts only the ASL
-definition, `history`, `layout`, and `theme`; unlike the plain Mermaid path
-(`generateMermaid`), which honours the full option set. The SVG execution overlay is
-unaffected — it honours every option.
+**`format="mermaid"` combined with `history` honours the same options as plain
+`format="mermaid"`** — `catchHandling`, `collapse`, `showVariables`, `layout` and
+`theme` — with sfn-diagram 1.10 or later. Earlier versions of core's Mermaid
+execution-overlay function (`generateMermaidExecution`) accept only the ASL definition,
+`history`, `layout`, and `theme`, and ignore the rest. The SVG execution overlay
+honours every option.
 
 ### Interactive viewer (`format="html"`)
 
@@ -109,9 +109,9 @@ coloured (green / yellow / red) instead of the machine's normal styling.
   for either combination. Combining them calls `onError` and renders `null`.
 - The **SVG diff** (`generateDiff`) honours every diagram option this package forwards
   (`collapse`, `catchHandling`, `showIcons`, and the rest).
-- The **Mermaid diff** (`generateMermaidDiff`) accepts only the two definitions — every
-  other prop (`layout`, `theme`, `collapse`, …) is silently ignored in `format="mermaid"`
-  diff mode.
+- The **Mermaid diff** ignores every prop except the two definitions (`layout`, `theme`,
+  `collapse`, …) in `format="mermaid"` diff mode: this package doesn't forward them to
+  `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram 1.10.
 
 ### `onStateClick`
 
@@ -199,8 +199,8 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid | Diagram theme. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
 
-¹ Ignored when `format="mermaid"` is combined with `history` — see
-[Execution overlay](#execution-overlay). Applies normally to plain `format="mermaid"`
+¹ Ignored when `format="mermaid"` is combined with `history` on sfn-diagram before 1.10 —
+see [Execution overlay](#execution-overlay). Applies normally to plain `format="mermaid"`
 (no `history`). `format="mermaid"` diff mode (the `before` prop) is a separate
 carve-out with its own rule — see [Diff mode](#diff-mode).
 

@@ -487,9 +487,8 @@ Big, branchy state machines are hard to read as a static image. A few options he
   (`--collapse=Name1,Name2`, or `collapse: ['Name1', 'Name2']`) to collapse only
   those containers; on the CLI, escape a comma that is part of a state name as
   `\,`. It applies to every output format and to the `--diff` and `--execution`
-  overlays, except the Mermaid ones: `generateMermaidDiff()` and
-  `generateMermaidExecution()` take only `layout` and `theme`, so `--diff` or
-  `--execution` with `--format mermaid` ignores `collapse`, and `--hide-catch` with it.
+  overlays, Mermaid included: a collapsed placeholder keeps the overlay's status colour
+  and says what it hides (`2 changed inside`, `3/4 succeeded`).
   ```bash
   npx sfn-diagram state.asl.json --collapse --format svg -o diagram.svg
   ```

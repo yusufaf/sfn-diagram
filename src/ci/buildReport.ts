@@ -235,10 +235,9 @@ export function buildAslFileSection(
         };
     }
 
-    // A diff renders a merged before/after graph with a per-state status map;
-    // dropping (catchHandling) or collapsing states would desynchronise that
-    // map, so only layout/theme reach a diff section — catchHandling/collapse
-    // have no effect here, only on the plain (added/deleted) branches above.
+    // Only layout/theme reach a diff section: catchHandling/collapse are not
+    // forwarded to the diff yet (#561), so they apply only to the plain
+    // (added/deleted) branches above.
     const diff = generateMermaidDiff({
         after: afterAsl as AslDefinition,
         before: beforeAsl as AslDefinition,

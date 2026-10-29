@@ -10,12 +10,13 @@ import type {
     NodeStyle,
     QueryLanguage,
 } from './types';
-import { parseAsl, parseAslSource } from './AslParser';
+import { parseAslSource } from './AslParser';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { resolveQueryLanguage } from './utils/jsonata';
 import { mergeOptions, mergeRecordOptions } from './config';
 import type { CollapsePlan } from './graph';
 import {
+    applyCollapse,
     buildIdResolver,
     computeCollapsePlan,
     computeContainerChangeAnnotations,
@@ -509,28 +510,55 @@ export function generateDiff(params: GenerateDiffParams): DiffOutput {
  * Produces `stateDiagram-v2` syntax where added states are green, modified states
  * yellow, and removed states red (via Mermaid `classDef`s) — rendered natively by
  * GitHub, GitLab, and docs tooling with no image hosting required. Removed states
- * are kept as orphan nodes so they stay visible.
+ * are kept as orphan nodes so they stay visible, unless `catchHandling: 'hide'` is
+ * set, which drops them like any other state unreachable from `StartAt` (as
+ * `generateDiff` does).
  *
  * @param params.before - The original (base) ASL definition
  * @param params.after  - The new (head) ASL definition
+ * @param params        - The diagram options plain `generateMermaid` honours:
+ *   `catchHandling`, `catchLabelStyle`, `collapse`, `customColors`, `includeComments`,
+ *   `layout`, `showVariables` and `theme`
+ *
+ * @remarks
+ * A state the diff marks keeps its diff class, so `customColors` shows only on
+ * unchanged states. With `collapse` set, a changed state inside a collapsed
+ * container's placeholder is flagged on the placeholder instead, as in
+ * `generateDiff`: the amber (modified) class plus a `"<n> changed inside"` annotation,
+ * unless the container itself is added or removed.
+ *
+ * @example
+ * ```ts
+ * const { code } = generateMermaidDiff({ after: headAsl, before: baseAsl, collapse: true });
+ * ```
  *
  * @returns {@link MermaidDiffOutput} with Mermaid code and a per-category state summary
  */
 export function generateMermaidDiff(params: GenerateMermaidDiffParams): MermaidDiffOutput {
-    const { after: afterArg, before: beforeArg, layout, theme } = params;
+    const { after: afterArg, before: beforeArg, ...options } = params;
 
     const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
     const { added, mergedAsl, modified, removed, unchanged } = diff;
 
-    const { edges, nodes } = parseAsl({ definition: mergedAsl });
+    const mergedOptions = mergeOptions(options);
+    const { edges, nodes } = buildDiagramGraph({ definition: mergedAsl, options: mergedOptions });
+    const plan = mergedOptions.collapse
+        ? computeCollapsePlan({ collapse: mergedOptions.collapse, edges, nodes })
+        : undefined;
+    const { nodeAnnotations, statusByNodeId } = computeDiffStyling({ diff, plan });
+    const collapsedGraph = applyCollapse({ collapse: mergedOptions.collapse, edges, nodes });
+
     const renderer = new MermaidRenderer();
     const { code, metadata } = renderer.render({
         asl: mergedAsl,
-        edges,
-        layout,
-        nodes,
-        stateClasses: buildStatusMap(diff),
-        theme,
+        customColors: mergedOptions.customColors,
+        edges: collapsedGraph.edges,
+        layout: mergedOptions.layout,
+        nodeAnnotations,
+        nodes: collapsedGraph.nodes,
+        showVariables: mergedOptions.showVariables,
+        stateClasses: statusByNodeId,
+        theme: mergedOptions.theme,
     });
 
     return {

@@ -110,6 +110,16 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * labels (#468) and byte order mark handling (#426) landing the same day. Each fit alone;
  * together they took ci.js to 99,599 gzip against 99,500, and ci.cjs to 343,300 raw and
  * 100,181 gzip.
+ *
+ * `index` and `ci` were restated, to about 10% above their measurement, when the Mermaid
+ * diff and execution overlays began honouring the diagram options plain `generateMermaid`
+ * does (#535): both now build through `buildDiagramGraph` with catch handling and collapse,
+ * and the execution overlay through the full `computeExecutionStyling`. That took index.js
+ * from 597,520 to 600,834 raw and from 175,825 to 176,596 gzip, 0.5% under its budget. ci.js
+ * grew more, from 341,780 to 354,122 raw and from 99,830 to 103,194 gzip, because
+ * `src/ci/buildReport.ts` calls both overlays even though it does not forward the new
+ * options yet. `element` and `element-auto` grew by about 1.9 KB raw and kept 3.9-4.8%
+ * headroom, and `png` does not include the overlays, so all three were left alone.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1160, raw: 3050 },
@@ -117,14 +127,14 @@ export const BUNDLE_BUDGETS = {
     'bin.js': { gzip: 265000, raw: 908000 },
     'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
-    'ci.cjs': { gzip: 105200, raw: 360500 },
-    'ci.js': { gzip: 104600, raw: 358500 },
+    'ci.cjs': { gzip: 114500, raw: 392000 },
+    'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.cjs': { gzip: 132500, raw: 460500 },
     'element-auto.js': { gzip: 132000, raw: 459000 },
     'element.cjs': { gzip: 132500, raw: 460000 },
     'element.js': { gzip: 132000, raw: 458500 },
-    'index.cjs': { gzip: 178500, raw: 609000 },
-    'index.js': { gzip: 177500, raw: 607000 },
+    'index.cjs': { gzip: 195000, raw: 663500 },
+    'index.js': { gzip: 194500, raw: 661000 },
     'png.cjs': { gzip: 80000, raw: 273000 },
     'png.js': { gzip: 79500, raw: 271500 },
     'terraform.cjs': { gzip: 11200, raw: 39600 },

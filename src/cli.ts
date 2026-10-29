@@ -342,13 +342,12 @@ Notes:
   cannot work, or a required flag left out). --check exits 1 when it finds an
   error-severity diagnostic and 0 when it finds nothing worse than a warning.
 
-  --collapse and --hide-catch apply to every format, and to the --diff and
-  --execution overlays under --format svg and html. A Mermaid overlay (--diff or
-  --execution with --format mermaid) reads only the theme and layout, from a flag
-  or the config file, and ignores every other diagram option: --collapse,
+  --collapse and --hide-catch apply to every format, including the --diff and
+  --execution overlays. A Mermaid overlay (--diff or --execution with --format
+  mermaid) honours the same options as plain --format mermaid: --collapse,
   --hide-catch, --hide-comments, --catch-label-style, --show-variables and
-  --hide-variables, and the customColors, nodeOverrides and edgeOverrides config
-  keys among them.
+  --hide-variables, and the customColors config key. Mermaid output draws neither
+  nodeOverrides nor edgeOverrides.
 
   --scale, --load-system-fonts and --no-load-system-fonts apply to --format png only;
   given with another format they exit 2 (--check ignores them). Set in the config
@@ -2100,6 +2099,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 const result = generateMermaidDiff({
                     after: definitionSource,
                     before: baselineDefinition,
+                    ...sharedOptions,
                     layout: options.layout,
                     theme,
                 });
@@ -2123,6 +2123,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 const result = generateMermaidExecution({
                     aslDefinition: definitionSource,
                     history: historySource,
+                    ...sharedOptions,
                     layout: options.layout,
                     theme,
                 });

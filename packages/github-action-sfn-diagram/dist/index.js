@@ -66320,6 +66320,98 @@ function applyCatchHandling(params) {
     nodes: survivingNodes
   };
 }
+var DIFF_COLORS = {
+  added: {
+    fill: "#c8e6c9",
+    stroke: "#2e7d32",
+    strokeWidth: 2
+  },
+  modified: {
+    fill: "#fff9c4",
+    stroke: "#f57f17",
+    strokeWidth: 2
+  },
+  removed: {
+    fill: "#ffcdd2",
+    stroke: "#c62828",
+    strokeWidth: 2
+  }
+};
+function computeContainerChangeAnnotations(params) {
+  const { changedNames, effectiveTargets, existingOverrides, hiddenIdsByTarget } = params;
+  const nodeAnnotations = {};
+  const nodeOverrides = {};
+  for (const containerId of effectiveTargets) {
+    const hiddenChangeCount = [...hiddenIdsByTarget.get(containerId) ?? /* @__PURE__ */ new Set()].filter((id) => changedNames.has(id)).length;
+    if (hiddenChangeCount === 0) continue;
+    if (!(containerId in existingOverrides)) nodeOverrides[containerId] = DIFF_COLORS.modified;
+    nodeAnnotations[containerId] = `${hiddenChangeCount} changed inside`;
+  }
+  return {
+    nodeAnnotations,
+    nodeOverrides
+  };
+}
+var EXECUTION_COLORS = {
+  caught: {
+    fill: "#ffe0b2",
+    stroke: "#e65100",
+    strokeWidth: 2
+  },
+  failed: {
+    fill: "#ffcdd2",
+    stroke: "#c62828",
+    strokeWidth: 3
+  },
+  notReached: {
+    fill: "#f5f5f5",
+    stroke: "#bdbdbd",
+    strokeWidth: 1
+  },
+  running: {
+    fill: "#bbdefb",
+    stroke: "#1565c0",
+    strokeWidth: 2
+  },
+  succeeded: {
+    fill: "#c8e6c9",
+    stroke: "#2e7d32",
+    strokeWidth: 2
+  }
+};
+function rollUpExecutionStatuses(params) {
+  const { nodes: nodes5, plan, statusByNodeId } = params;
+  const nodesById = new Map(nodes5.map((node) => [node.id, node]));
+  const rollUps = {};
+  for (const containerId of plan.effectiveTargets) {
+    const counts = {
+      caught: 0,
+      failed: 0,
+      notReached: 0,
+      running: 0,
+      succeeded: 0,
+      total: 0
+    };
+    for (const hiddenId of plan.hiddenIdsByTarget.get(containerId) ?? []) {
+      const hidden = nodesById.get(hiddenId);
+      if (!hidden || isMarkerNode(hidden)) continue;
+      counts.total += 1;
+      counts[statusByNodeId[hiddenId] ?? "notReached"] += 1;
+    }
+    const own = statusByNodeId[containerId] ?? "notReached";
+    const ownFinished = own === "succeeded" || own === "caught" || own === "failed";
+    const reachedInside = counts.total - counts.notReached;
+    const status = own === "failed" || counts.failed > 0 ? "failed" : own === "running" || !ownFinished && counts.running > 0 ? "running" : own !== "notReached" ? own : reachedInside > 0 ? "succeeded" : "notReached";
+    const shown = status === "caught" ? "succeeded" : status;
+    const annotation = status === "notReached" ? `0/${counts.total} ran` : reachedInside === 0 ? void 0 : `${counts[shown]}/${counts.total} ${shown}`;
+    rollUps[containerId] = {
+      ...annotation === void 0 ? {} : { annotation },
+      counts,
+      status
+    };
+  }
+  return rollUps;
+}
 var DEFAULT_DIAGRAM_OPTIONS = {
   format: "svg",
   theme: "light",
@@ -66359,6 +66451,59 @@ function mergeOptions(options = {}) {
     ...DEFAULT_DIAGRAM_OPTIONS,
     ...withoutUndefined(options)
   };
+}
+function mergeRecordOptions(base, override) {
+  if (!base && !override) return void 0;
+  return {
+    ...base,
+    ...override
+  };
+}
+function styleCollapsedView(params) {
+  const { callerOverrides, diffChangedIds, executionStatusByNodeId, expanded, nodes: nodes5, plan } = params;
+  const nodeOverrides = { ...expanded.nodeOverrides };
+  const nodeAnnotations = { ...expanded.nodeAnnotations };
+  const insideByTarget = {};
+  const summaryByTarget = {};
+  if (diffChangedIds !== void 0) {
+    const existingOverrides = {};
+    for (const [id, style] of Object.entries(nodeOverrides)) if (!isNotReachedColour(style)) existingOverrides[id] = style;
+    const changed = computeContainerChangeAnnotations({
+      changedNames: new Set(diffChangedIds),
+      effectiveTargets: plan.effectiveTargets,
+      existingOverrides,
+      hiddenIdsByTarget: plan.hiddenIdsByTarget
+    });
+    Object.assign(nodeOverrides, changed.nodeOverrides);
+    Object.assign(insideByTarget, changed.nodeAnnotations);
+  }
+  if (executionStatusByNodeId !== void 0) {
+    const rollUps = rollUpExecutionStatuses({
+      nodes: nodes5,
+      plan,
+      statusByNodeId: executionStatusByNodeId
+    });
+    for (const [id, rollUp] of Object.entries(rollUps)) {
+      if (rollUp.status !== "notReached") nodeOverrides[id] = EXECUTION_COLORS[rollUp.status];
+      if (rollUp.annotation !== void 0) summaryByTarget[id] = rollUp.annotation;
+    }
+  }
+  for (const id of plan.effectiveTargets) {
+    const parts = [
+      nodeAnnotations[id],
+      insideByTarget[id],
+      summaryByTarget[id]
+    ].filter((part) => part !== void 0);
+    if (parts.length > 0) nodeAnnotations[id] = parts.join(" \xB7 ");
+  }
+  return {
+    nodeAnnotations: mergeRecordOptions(nodeAnnotations, callerOverrides?.nodeAnnotations) ?? {},
+    nodeOverrides: mergeRecordOptions(nodeOverrides, callerOverrides?.nodeOverrides) ?? {}
+  };
+}
+function isNotReachedColour(style) {
+  const grey = EXECUTION_COLORS.notReached;
+  return style.fill === grey.fill && style.stroke === grey.stroke && style.strokeWidth === grey.strokeWidth;
 }
 function assignEdgeIds(params) {
   const { edges } = params;
@@ -67940,25 +68085,75 @@ function computeStateDiff(beforeAsl, afterAsl) {
     unchanged
   };
 }
-function buildStatusMap(diff) {
-  const statusByState = {};
-  for (const name of diff.added) statusByState[name] = "added";
-  for (const name of diff.modified) statusByState[name] = "modified";
-  for (const name of diff.removed) statusByState[name] = "removed";
-  return statusByState;
+function computeDiffStyling(params) {
+  const { diff, plan } = params;
+  const { added, modified, ownChanges, removed } = diff;
+  const nodeOverrides = {};
+  const statusByNodeId = {};
+  for (const name of added) {
+    nodeOverrides[name] = DIFF_COLORS.added;
+    statusByNodeId[name] = "added";
+  }
+  for (const name of modified) {
+    nodeOverrides[name] = DIFF_COLORS.modified;
+    statusByNodeId[name] = "modified";
+  }
+  for (const name of removed) {
+    nodeOverrides[name] = DIFF_COLORS.removed;
+    statusByNodeId[name] = "removed";
+  }
+  let nodeAnnotations = {};
+  if (plan) {
+    const changed = computeContainerChangeAnnotations({
+      changedNames: new Set(ownChanges),
+      effectiveTargets: plan.effectiveTargets,
+      existingOverrides: nodeOverrides,
+      hiddenIdsByTarget: plan.hiddenIdsByTarget
+    });
+    nodeAnnotations = changed.nodeAnnotations;
+    for (const id of Object.keys(changed.nodeOverrides)) {
+      nodeOverrides[id] = changed.nodeOverrides[id];
+      statusByNodeId[id] = "modified";
+    }
+  }
+  return {
+    nodeAnnotations,
+    nodeOverrides,
+    statusByNodeId
+  };
 }
 function generateMermaidDiff(params) {
-  const { after: afterArg, before: beforeArg, layout, theme } = params;
+  const { after: afterArg, before: beforeArg, ...options } = params;
   const diff = computeStateDiff(parseAslSource({ source: beforeArg }), parseAslSource({ source: afterArg }));
   const { added, mergedAsl, modified, removed, unchanged } = diff;
-  const { edges, nodes: nodes5 } = parseAsl({ definition: mergedAsl });
+  const mergedOptions = mergeOptions(options);
+  const { edges, nodes: nodes5 } = buildDiagramGraph({
+    definition: mergedAsl,
+    options: mergedOptions
+  });
+  const { nodeAnnotations, statusByNodeId } = computeDiffStyling({
+    diff,
+    plan: mergedOptions.collapse ? computeCollapsePlan({
+      collapse: mergedOptions.collapse,
+      edges,
+      nodes: nodes5
+    }) : void 0
+  });
+  const collapsedGraph = applyCollapse({
+    collapse: mergedOptions.collapse,
+    edges,
+    nodes: nodes5
+  });
   const { code, metadata } = new MermaidRenderer().render({
     asl: mergedAsl,
-    edges,
-    layout,
-    nodes: nodes5,
-    stateClasses: buildStatusMap(diff),
-    theme
+    customColors: mergedOptions.customColors,
+    edges: collapsedGraph.edges,
+    layout: mergedOptions.layout,
+    nodeAnnotations,
+    nodes: collapsedGraph.nodes,
+    showVariables: mergedOptions.showVariables,
+    stateClasses: statusByNodeId,
+    theme: mergedOptions.theme
   });
   return {
     code,
@@ -67972,6 +68167,11 @@ function generateMermaidDiff(params) {
     }
   };
 }
+var TAKEN_EDGE_STYLE = {
+  stroke: "#2e7d32",
+  strokeWidth: 3
+};
+var UNTAKEN_EDGE_STYLE = { strokeOpacity: 0.2 };
 var TASK_FAILURE_DETAILS = /* @__PURE__ */ new Map([
   ["ActivityFailed", "activityFailedEventDetails"],
   ["ActivityScheduleFailed", "activityScheduleFailedEventDetails"],
@@ -68485,39 +68685,116 @@ function byNodeId(byStateName, idsForName) {
   for (const [name, value] of Object.entries(byStateName)) for (const id of idsForName(name)) result[id] = value;
   return result;
 }
-function generateMermaidExecution(params) {
-  const { aslDefinition, history, layout, theme } = params;
-  const aslObj = parseAslSource({ source: aslDefinition });
-  const walk = computeExecutionWalk(aslObj, history);
+function computeExecutionStyling(params) {
+  const { callerEdgeOverrides, definition, edges, history, includeExecutionPayloads, nodes: nodes5, redact, summaryStateNames = Object.keys(definition.States) } = params;
+  const walk = computeExecutionWalk(definition, history, includeExecutionPayloads, redact);
   const { overlay, timeline } = walk;
-  const { nodes: nodes5, edges } = parseAsl({ definition: aslObj });
-  const resolver = walk.resolver ?? buildIdResolver({ definition: aslObj });
+  const resolver = walk.resolver ?? buildIdResolver({ definition });
   const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
-  const executionClasses = {};
+  const nodeOverrides = {};
   const nodeAnnotations = {};
+  const statusByNodeId = {};
   for (const node of nodes5) {
     const result = statesByNodeId[node.id];
-    executionClasses[node.id] = result?.status ?? "notReached";
+    const status = result?.status ?? "notReached";
+    nodeOverrides[node.id] = EXECUTION_COLORS[status];
+    statusByNodeId[node.id] = status;
     if (result) {
       const annotation = buildAnnotation(result);
       if (annotation) nodeAnnotations[node.id] = annotation;
     }
   }
+  const pairKeys = new Set(edges.map((edge) => `${edge.from}->${edge.to}`));
+  const callerBarePairs = new Set(Object.keys(callerEdgeOverrides ?? {}).filter((key) => pairKeys.has(key)));
+  const takenKeys = new Set(overlay.takenEdges.flatMap((edge) => resolver.idsForName(edge.from).flatMap((from) => resolver.idsForName(edge.to).map((to) => `${from}->${to}`))).filter((key) => pairKeys.has(key)));
+  const edgeOverrides = {};
+  for (const edge of edges) {
+    const pairKey = `${edge.from}->${edge.to}`;
+    if (callerBarePairs.has(pairKey)) continue;
+    const isTaken = edge.type !== "retry" && takenKeys.has(pairKey);
+    edgeOverrides[edge.id] = isTaken ? TAKEN_EDGE_STYLE : UNTAKEN_EDGE_STYLE;
+  }
+  return {
+    edgeOverrides,
+    nodeAnnotations,
+    nodeOverrides,
+    statusByNodeId,
+    summary: {
+      ...summarize(overlay, summaryStateNames),
+      executionStatus: overlay.executionStatus,
+      timeline
+    }
+  };
+}
+function collapsedExecutionClasses(params) {
+  const { nodes: nodes5, plan, styling } = params;
+  const executionClasses = { ...styling.statusByNodeId };
+  const rollUps = rollUpExecutionStatuses({
+    nodes: nodes5,
+    plan,
+    statusByNodeId: styling.statusByNodeId
+  });
+  for (const [id, rollUp] of Object.entries(rollUps)) executionClasses[id] = rollUp.status;
+  const { nodeAnnotations } = styleCollapsedView({
+    executionStatusByNodeId: styling.statusByNodeId,
+    expanded: { nodeAnnotations: styling.nodeAnnotations },
+    nodes: nodes5,
+    plan
+  });
+  return {
+    executionClasses,
+    nodeAnnotations
+  };
+}
+function generateMermaidExecution(params) {
+  const { aslDefinition, history, ...options } = params;
+  const aslObj = parseAslSource({ source: aslDefinition });
+  const mergedOptions = mergeOptions(options);
+  const { edges, nodes: nodes5 } = buildDiagramGraph({
+    definition: aslObj,
+    options: mergedOptions
+  });
+  const styling = computeExecutionStyling({
+    definition: aslObj,
+    edges,
+    history,
+    nodes: nodes5
+  });
+  const { executionClasses, nodeAnnotations } = mergedOptions.collapse ? collapsedExecutionClasses({
+    nodes: nodes5,
+    plan: computeCollapsePlan({
+      collapse: mergedOptions.collapse,
+      edges,
+      nodes: nodes5
+    }),
+    styling
+  }) : {
+    executionClasses: styling.statusByNodeId,
+    nodeAnnotations: styling.nodeAnnotations
+  };
+  const collapsedGraph = applyCollapse({
+    collapse: mergedOptions.collapse,
+    edges,
+    nodes: nodes5
+  });
   const { code, metadata } = new MermaidRenderer().render({
     asl: aslObj,
-    edges,
+    customColors: mergedOptions.customColors,
+    edges: collapsedGraph.edges,
     executionClasses,
-    layout,
+    layout: mergedOptions.layout,
     nodeAnnotations,
-    nodes: nodes5,
-    theme
+    nodes: collapsedGraph.nodes,
+    showVariables: mergedOptions.showVariables,
+    theme: mergedOptions.theme
   });
+  const { executionStatus, timeline, ...statusCounts } = styling.summary;
   return {
     code,
     metadata: {
-      ...summarize(overlay, Object.keys(aslObj.States)),
+      ...statusCounts,
       edgeCount: metadata.edgeCount,
-      executionStatus: overlay.executionStatus,
+      executionStatus,
       stateCount: metadata.stateCount,
       timeline
     }

@@ -222,12 +222,7 @@ describe('SfnDiagram', () => {
             expect(pre?.textContent).toContain('class HelloWorld execSucceeded')
         })
 
-        it('ignores every forwarded diagram option in the Mermaid execution overlay', () => {
-            // generateMermaidExecution's params are aslDefinition, history, layout,
-            // and theme only - unlike the plain Mermaid path (generateMermaid),
-            // it silently drops showVariables (and catchHandling, collapse,
-            // edgeStyle, ...). Asserting that here turns the gap into a documented,
-            // enforced contract instead of a silent one.
+        it('forwards diagram options to the Mermaid execution overlay', () => {
             const { container } = render(
                 <SfnDiagram
                     definition={WITH_ASSIGN}
@@ -236,7 +231,7 @@ describe('SfnDiagram', () => {
                     showVariables={false}
                 />
             )
-            expect(container.querySelector('pre')?.textContent).toContain('$total')
+            expect(container.querySelector('pre')?.textContent).not.toContain('$total')
         })
     })
 
