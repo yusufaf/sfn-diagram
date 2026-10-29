@@ -23,18 +23,20 @@ import type {
     TimelineEntryStatus,
     TimelinePayload,
 } from './types';
-import { parseAsl, parseAslSource } from './AslParser';
+import { parseAslSource } from './AslParser';
 import { redactPayloadText } from './redact';
 import { stripBom } from './utils/bom';
 import { replaceXmlForbiddenChars } from './utils/xmlChars';
 import {
+    applyCollapse,
     buildIdResolver,
     computeCollapsePlan,
     EXECUTION_COLORS,
     getMapProcessor,
+    rollUpExecutionStatuses,
     styleCollapsedView,
 } from './graph';
-import type { IdResolver, ScopePath } from './graph';
+import type { CollapsePlan, IdResolver, ScopePath } from './graph';
 import { buildDiagramGraph, renderSvgGraph } from './pipeline';
 import { MermaidRenderer } from './renderers';
 import { mergeOptions, mergeRecordOptions } from './config';
@@ -1465,6 +1467,39 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
     };
 }
 
+/** Parameters for {@link collapsedExecutionClasses}. */
+interface CollapsedExecutionClassesParams {
+    /** The graph's nodes, before collapse. */
+    nodes: StateNode[];
+    /** Which containers collapse and what each one hides. */
+    plan: CollapsePlan;
+    /** The expanded view's execution styling. */
+    styling: ExecutionStyling;
+}
+
+/**
+ * The Mermaid classes and annotations for a collapsed execution view: each placeholder
+ * takes the status rolled up from the states it hides, and the same annotation the SVG
+ * overlay gives it (its own duration beside a `3/4 succeeded`-style summary).
+ */
+function collapsedExecutionClasses(params: CollapsedExecutionClassesParams): {
+    executionClasses: Record<string, ExecutionStateStatus>;
+    nodeAnnotations: Record<string, string>;
+} {
+    const { nodes, plan, styling } = params;
+    const executionClasses = { ...styling.statusByNodeId };
+    const rollUps = rollUpExecutionStatuses({ nodes, plan, statusByNodeId: styling.statusByNodeId });
+    for (const [id, rollUp] of Object.entries(rollUps)) executionClasses[id] = rollUp.status;
+
+    const { nodeAnnotations } = styleCollapsedView({
+        executionStatusByNodeId: styling.statusByNodeId,
+        expanded: { nodeAnnotations: styling.nodeAnnotations },
+        nodes,
+        plan,
+    });
+    return { executionClasses, nodeAnnotations };
+}
+
 /**
  * Generate a Mermaid execution overlay. Colours each state by its outcome and appends
  * duration / retry annotations to state labels.
@@ -1475,47 +1510,63 @@ export function generateExecution(params: GenerateExecutionParams): ExecutionOut
  *
  * @param params.aslDefinition - ASL definition as an object or JSON string
  * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
+ * @param params - The diagram options plain `generateMermaid` honours:
+ *   `catchHandling`, `catchLabelStyle`, `collapse`, `customColors`, `includeComments`,
+ *   `layout`, `showVariables` and `theme`
  * @returns {@link MermaidExecutionOutput} with Mermaid code and a per-status summary
+ *
+ * @remarks
+ * Every state takes its run-status class, so `customColors` changes the emitted
+ * state-type `classDef`s but colours no state, as in the SVG overlay.
+ *
+ * With `collapse`, each collapsed container's placeholder takes the status rolled up
+ * from the states it hides, as in {@link generateExecution}, and a `3/4 succeeded`-style
+ * summary beside its own duration. The status summary in `metadata` still covers every
+ * state in the definition.
+ *
+ * @example
+ * ```typescript
+ * import { generateMermaidExecution } from 'sfn-diagram';
+ * const { code } = generateMermaidExecution({ aslDefinition: asl, collapse: true, history: events });
+ * ```
  */
 export function generateMermaidExecution(
     params: GenerateMermaidExecutionParams,
 ): MermaidExecutionOutput {
-    const { aslDefinition, history, layout, theme } = params;
+    const { aslDefinition, history, ...options } = params;
     const aslObj = parseAslSource({ source: aslDefinition });
-    const walk = computeExecutionWalk(aslObj, history);
-    const { overlay, timeline } = walk;
+    const mergedOptions = mergeOptions(options);
 
-    const { nodes, edges } = parseAsl({ definition: aslObj });
-    const resolver = walk.resolver ?? buildIdResolver({ definition: aslObj });
-    const statesByNodeId = byNodeId(overlay.states, resolver.idsForName);
-
-    const executionClasses: Record<string, ExecutionStateStatus> = {};
-    const nodeAnnotations: Record<string, string> = {};
-    for (const node of nodes) {
-        const result = statesByNodeId[node.id];
-        executionClasses[node.id] = result?.status ?? 'notReached';
-        if (result) {
-            const annotation = buildAnnotation(result);
-            if (annotation) nodeAnnotations[node.id] = annotation;
-        }
-    }
+    const { edges, nodes } = buildDiagramGraph({ definition: aslObj, options: mergedOptions });
+    const styling = computeExecutionStyling({ definition: aslObj, edges, history, nodes });
+    const { executionClasses, nodeAnnotations } = mergedOptions.collapse
+        ? collapsedExecutionClasses({
+              nodes,
+              plan: computeCollapsePlan({ collapse: mergedOptions.collapse, edges, nodes }),
+              styling,
+          })
+        : { executionClasses: styling.statusByNodeId, nodeAnnotations: styling.nodeAnnotations };
+    const collapsedGraph = applyCollapse({ collapse: mergedOptions.collapse, edges, nodes });
 
     const { code, metadata } = new MermaidRenderer().render({
         asl: aslObj,
-        edges,
+        customColors: mergedOptions.customColors,
+        edges: collapsedGraph.edges,
         executionClasses,
-        layout,
+        layout: mergedOptions.layout,
         nodeAnnotations,
-        nodes,
-        theme,
+        nodes: collapsedGraph.nodes,
+        showVariables: mergedOptions.showVariables,
+        theme: mergedOptions.theme,
     });
 
+    const { executionStatus, timeline, ...statusCounts } = styling.summary;
     return {
         code,
         metadata: {
-            ...summarize(overlay, Object.keys(aslObj.States)),
+            ...statusCounts,
             edgeCount: metadata.edgeCount,
-            executionStatus: overlay.executionStatus,
+            executionStatus,
             stateCount: metadata.stateCount,
             timeline,
         },

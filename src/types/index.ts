@@ -1396,19 +1396,31 @@ export interface MermaidDiffOutput {
     };
 }
 
-/** Parameters for `generateMermaidDiff`, comparing two ASL definitions into a Mermaid diff. */
-export interface GenerateMermaidDiffParams {
+/**
+ * Parameters for `generateMermaidDiff`, comparing two ASL definitions into a Mermaid diff.
+ *
+ * Takes the diagram options plain `generateMermaid` honours: `catchHandling`,
+ * `catchLabelStyle`, `collapse`, `customColors`, `includeComments`, `layout`,
+ * `showVariables` and `theme`. The rest of `DiagramOptions` has no meaning in Mermaid
+ * output. A state the diff marks added, modified or removed keeps its diff class, so
+ * `customColors` shows only on unchanged states.
+ */
+export interface GenerateMermaidDiffParams extends Pick<
+    DiagramOptions,
+    | 'catchHandling'
+    | 'catchLabelStyle'
+    | 'collapse'
+    | 'customColors'
+    | 'includeComments'
+    | 'layout'
+    | 'showVariables'
+    | 'theme'
+> {
     /** The new (head) ASL definition */
     after: AslDefinition | string;
 
     /** The old (base) ASL definition */
     before: AslDefinition | string;
-
-    /** Graph layout direction */
-    layout?: LayoutDirection;
-
-    /** Color theme */
-    theme?: ThemeOption;
 }
 
 // Execution Overlay Types
@@ -1697,16 +1709,30 @@ export interface GenerateExecutionParams extends DiagramOptions {
     history: ExecutionHistoryInput;
 }
 
-/** Parameters for `generateMermaidExecution`, overlaying an execution's outcome onto a Mermaid diagram. */
-export interface GenerateMermaidExecutionParams {
+/**
+ * Parameters for `generateMermaidExecution`, overlaying an execution's outcome onto a Mermaid diagram.
+ *
+ * Takes the diagram options plain `generateMermaid` honours: `catchHandling`,
+ * `catchLabelStyle`, `collapse`, `customColors`, `includeComments`, `layout`,
+ * `showVariables` and `theme`. The rest of `DiagramOptions` has no meaning in Mermaid
+ * output. Every state takes its run-status class, so `customColors` changes the emitted
+ * state-type `classDef`s but colours no state, as in the SVG overlay.
+ */
+export interface GenerateMermaidExecutionParams extends Pick<
+    DiagramOptions,
+    | 'catchHandling'
+    | 'catchLabelStyle'
+    | 'collapse'
+    | 'customColors'
+    | 'includeComments'
+    | 'layout'
+    | 'showVariables'
+    | 'theme'
+> {
     /** ASL definition as object or JSON string */
     aslDefinition: AslDefinition | string;
     /** Execution history (events array, GetExecutionHistory response, or JSON string) */
     history: ExecutionHistoryInput;
-    /** Graph layout direction, emitted as a Mermaid `direction` statement. @default 'TB' */
-    layout?: LayoutDirection;
-    /** Diagram theme - drives the emitted `classDef` colours. @default 'light' */
-    theme?: ThemeOption;
 }
 
 /** Status summary shared by execution overlay outputs. */
