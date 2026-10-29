@@ -1,0 +1,430 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Mermaid overlays with no new options > keeps the diff output for a change inside a container 1`] = `
+{
+  "code": "stateDiagram-v2
+    direction TB
+
+    [*] --> ParallelExecution
+    state ParallelExecution {
+        [*] --> Branch1
+        Branch1 --> [*]
+        --
+        [*] --> Branch2
+        Branch2 --> [*]
+    }
+
+    ParallelExecution --> HandleError: Error#58; States.ALL
+    HandleError --> FinalState
+    ParallelExecution --> FinalState
+
+    FinalState --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px
+
+    class ParallelExecution diffModified
+    class Branch1 diffModified
+    class Branch2 taskState
+    class HandleError passState
+    class FinalState successState",
+  "metadata": {
+    "added": [],
+    "edgeCount": 3,
+    "modified": [
+      "ParallelExecution",
+      "Branch1",
+    ],
+    "removed": [],
+    "stateCount": 5,
+    "unchanged": [
+      "Branch2",
+      "HandleError",
+      "FinalState",
+    ],
+  },
+}
+`;
+
+exports[`Mermaid overlays with no new options > keeps the execution output for map with execution-map-mixed 1`] = `
+{
+  "code": "stateDiagram-v2
+    direction TB
+
+    [*] --> SplitInput
+    SplitInput: SplitInput (10ms)
+    ProcessItems: ProcessItems (max 4 · items $.items)
+
+    state ProcessItems {
+        [*] --> ProcessItem
+        ProcessItem: ProcessItem (150ms ×2)
+        ValidateItem: ValidateItem (10ms)
+        ProcessItem --> ValidateItem
+        ValidateItem --> [*]
+    }
+
+    SplitInput --> ProcessItems
+    ProcessItems --> Done
+
+    Done --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+    classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
+    classDef execRunning fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+    classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    class SplitInput execSucceeded
+    class ProcessItems execFailed
+    class ProcessItem execFailed
+    class ValidateItem execSucceeded
+    class Done execNotReached",
+  "metadata": {
+    "caught": [],
+    "edgeCount": 3,
+    "executionStatus": "failed",
+    "failed": [
+      "ProcessItems",
+      "ProcessItem",
+    ],
+    "notReached": [
+      "Done",
+    ],
+    "running": [],
+    "stateCount": 5,
+    "succeeded": [
+      "SplitInput",
+      "ValidateItem",
+    ],
+    "takenEdgeCount": 2,
+    "timeline": {
+      "endMs": 1704067200430,
+      "entries": [
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200010,
+          "exitedMs": 1704067200020,
+          "nodeId": "SplitInput",
+          "stateName": "SplitInput",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200030,
+          "error": "States.TaskFailed",
+          "exitedMs": 1704067200420,
+          "fromNodeId": "SplitInput",
+          "iterationCount": 2,
+          "nodeId": "ProcessItems",
+          "stateName": "ProcessItems",
+          "status": "failed",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200060,
+          "exitedMs": 1704067200210,
+          "nodeId": "ProcessItem",
+          "stateName": "ProcessItem",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200220,
+          "exitedMs": 1704067200230,
+          "fromNodeId": "ProcessItem",
+          "nodeId": "ValidateItem",
+          "stateName": "ValidateItem",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200260,
+          "error": "States.TaskFailed",
+          "exitedMs": 1704067200400,
+          "nodeId": "ProcessItem",
+          "stateName": "ProcessItem",
+          "status": "failed",
+        },
+      ],
+      "startMs": 1704067200000,
+      "status": "failed",
+    },
+  },
+}
+`;
+
+exports[`Mermaid overlays with no new options > keeps the execution output for parallel-catch with execution-parallel-caught 1`] = `
+{
+  "code": "stateDiagram-v2
+    direction TB
+
+    [*] --> ParallelExecution
+    ParallelExecution: ParallelExecution (820ms)
+    HandleError: HandleError (10ms)
+    FinalState: FinalState (10ms)
+
+    state ParallelExecution {
+        [*] --> Branch1
+        Branch1: Branch1 (500ms)
+        Branch1 --> [*]
+        --
+        [*] --> Branch2
+        Branch2 --> [*]
+    }
+
+    ParallelExecution --> HandleError: Error#58; States.ALL
+    HandleError --> FinalState
+    ParallelExecution --> FinalState
+
+    FinalState --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+    classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
+    classDef execRunning fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+    classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    class ParallelExecution execCaught
+    class Branch1 execSucceeded
+    class Branch2 execFailed
+    class HandleError execSucceeded
+    class FinalState execSucceeded",
+  "metadata": {
+    "caught": [
+      "ParallelExecution",
+    ],
+    "edgeCount": 3,
+    "executionStatus": "succeeded",
+    "failed": [
+      "Branch2",
+    ],
+    "notReached": [],
+    "running": [],
+    "stateCount": 5,
+    "succeeded": [
+      "Branch1",
+      "HandleError",
+      "FinalState",
+    ],
+    "takenEdgeCount": 2,
+    "timeline": {
+      "endMs": 1704067200970,
+      "entries": [
+        {
+          "attempt": 1,
+          "branchCount": 2,
+          "enteredMs": 1704067200100,
+          "error": "Lambda.Unknown",
+          "exitedMs": 1704067200910,
+          "nodeId": "ParallelExecution",
+          "stateName": "ParallelExecution",
+          "status": "caught",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200120,
+          "exitedMs": 1704067200620,
+          "nodeId": "Branch1",
+          "stateName": "Branch1",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200125,
+          "error": "Lambda.Unknown",
+          "exitedMs": 1704067200900,
+          "nodeId": "Branch2",
+          "stateName": "Branch2",
+          "status": "failed",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200930,
+          "exitedMs": 1704067200940,
+          "fromNodeId": "ParallelExecution",
+          "nodeId": "HandleError",
+          "stateName": "HandleError",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200950,
+          "exitedMs": 1704067200960,
+          "fromNodeId": "HandleError",
+          "nodeId": "FinalState",
+          "stateName": "FinalState",
+          "status": "succeeded",
+        },
+      ],
+      "startMs": 1704067200000,
+      "status": "succeeded",
+    },
+  },
+}
+`;
+
+exports[`Mermaid overlays with no new options > keeps the execution output for retry with execution-retry-success 1`] = `
+{
+  "code": "stateDiagram-v2
+    direction TB
+
+    [*] --> Submit
+    Submit: Submit (7.0s ×3)
+    Done: Done (10ms)
+
+    Submit --> Done
+    Submit --> Submit: ↻ States.Timeout (4x)#59; States.ALL (2x)
+    Submit --> Failed: Error#58; States.ALL
+
+    Done --> [*]
+    Failed --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
+    classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
+    classDef execRunning fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+    classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+
+    class Submit execSucceeded
+    class Done execSucceeded
+    class Failed execNotReached",
+  "metadata": {
+    "caught": [],
+    "edgeCount": 3,
+    "executionStatus": "succeeded",
+    "failed": [],
+    "notReached": [
+      "Failed",
+    ],
+    "running": [],
+    "stateCount": 3,
+    "succeeded": [
+      "Submit",
+      "Done",
+    ],
+    "takenEdgeCount": 1,
+    "timeline": {
+      "endMs": 1704067207120,
+      "entries": [
+        {
+          "attempt": 1,
+          "enteredMs": 1704067200100,
+          "error": "States.Timeout",
+          "exitedMs": 1704067200300,
+          "nodeId": "Submit",
+          "stateName": "Submit",
+          "status": "failed",
+        },
+        {
+          "attempt": 2,
+          "enteredMs": 1704067202300,
+          "error": "States.Timeout",
+          "exitedMs": 1704067202500,
+          "nodeId": "Submit",
+          "stateName": "Submit",
+          "status": "failed",
+        },
+        {
+          "attempt": 3,
+          "enteredMs": 1704067206500,
+          "exitedMs": 1704067207050,
+          "nodeId": "Submit",
+          "stateName": "Submit",
+          "status": "succeeded",
+        },
+        {
+          "attempt": 1,
+          "enteredMs": 1704067207100,
+          "exitedMs": 1704067207110,
+          "fromNodeId": "Submit",
+          "nodeId": "Done",
+          "stateName": "Done",
+          "status": "succeeded",
+        },
+      ],
+      "startMs": 1704067200000,
+      "status": "succeeded",
+    },
+  },
+}
+`;
+
+exports[`Mermaid overlays with no new options > keeps the top-level diff output 1`] = `
+{
+  "code": "stateDiagram-v2
+    direction TB
+
+    [*] --> StepA
+    StepA --> StepB
+    StepB --> NewStep
+
+    NewStep --> [*]
+    StepC --> [*]
+
+    classDef successState fill:#e8f5e8,stroke:#2e7d32,stroke-width:3px
+    classDef failState fill:#ffebee,stroke:#c62828,stroke-width:3px
+    classDef choiceState fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef taskState fill:#fff3e0,stroke:#d84315,stroke-width:2px
+    classDef passState fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef diffAdded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    classDef diffModified fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    classDef diffRemoved fill:#ffcdd2,stroke:#c62828,stroke-width:2px
+
+    class StepA passState
+    class StepB diffModified
+    class NewStep diffAdded
+    class StepC diffRemoved",
+  "metadata": {
+    "added": [
+      "NewStep",
+    ],
+    "edgeCount": 2,
+    "modified": [
+      "StepB",
+    ],
+    "removed": [
+      "StepC",
+    ],
+    "stateCount": 4,
+    "unchanged": [
+      "StepA",
+    ],
+  },
+}
+`;
