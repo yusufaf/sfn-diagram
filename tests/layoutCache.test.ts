@@ -181,6 +181,10 @@ describe('layout cache key covers every layout-affecting option', () => {
         expect(keyFor({ [field]: 4000 })).toBe(keyFor({}));
     });
 
+    test('idPrefix does not change the cache key', () => {
+        expect(keyFor({ idPrefix: 'p-' })).toBe(keyFor({}));
+    });
+
     // The guard that survives future edits to DagreLayout: if someone adds a
     // `this.options.<field>` read without adding the field to LAYOUT_OPTION_KEYS, the
     // cache silently goes stale for it. Reading the source is the only way to notice.

@@ -94,18 +94,21 @@ function nonceAttribute(nonce?: string): string {
  * its own `<svg>`, so the second view would silently borrow the first's markers.
  * Prefixing one view's copies keeps them distinct without touching the shared
  * renderer, whose fixed ids are relied on elsewhere (e.g. single-diagram SVG export).
+ * A caller's `idPrefix` sits before `arrowhead-` and this view's suffix goes after it
+ * (`p-arrowhead-collapsed-normal`), so the two views stay distinct under one too.
  *
  * `src/element/SfnDiagramElement.ts` solves the same collision per element instance;
  * that copy stays separate rather than shared, to avoid a `renderers` -> `element`
- * dependency in either direction.
+ * dependency in either direction. It only matches bare `arrowhead-` ids, which is
+ * enough there: the element renders with a fixed option set, so no `idPrefix` reaches it.
  */
 function namespaceMarkerIds(svg: string, prefix: string): string {
-    // Anchored on `<marker id="` specifically, not a bare `id="` - a state literally
-    // named e.g. "arrowhead-check" would otherwise also match inside its own
-    // `data-state-id="arrowhead-check"` attribute and get silently corrupted.
-    return svg.replace(/<marker id="arrowhead-|url\(#arrowhead-/g, (match) =>
-        match.replace('arrowhead-', `arrowhead-${prefix}-`),
-    );
+    // Both branches are anchored on the attribute that carries the id - `<marker id="`
+    // and `marker-end="url(#` - not a bare `id="` or `url(#`. A state literally named
+    // e.g. "arrowhead-check" or "url(#xarrowhead-check" would otherwise also match
+    // inside its own `data-state-id` attribute and get silently corrupted; escaped
+    // content never contains a literal `"`, so it cannot match either anchor.
+    return svg.replace(/(<marker id="|marker-end="url\(#)([^"\s()<>]*?)arrowhead-/g, `$1$2arrowhead-${prefix}-`);
 }
 
 /** Parameters for {@link buildViewerContent}. */

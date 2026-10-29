@@ -53,6 +53,17 @@ describe('buildViewerContent', () => {
         expect(contentHtml).toContain('url(#arrowhead-collapsed-normal)');
     });
 
+    it('namespaces the collapsed view after a caller idPrefix', () => {
+        const contentHtml = buildViewerContent({
+            collapsedSvg:
+                '<marker id="p-arrowhead-normal"></marker><path marker-end="url(#p-arrowhead-normal)"></path>',
+            minimapCollapsed: true,
+            svg: '<marker id="p-arrowhead-normal"></marker>',
+        });
+        expect(contentHtml).toContain('id="p-arrowhead-collapsed-normal"');
+        expect(contentHtml).toContain('url(#p-arrowhead-collapsed-normal)');
+    });
+
     it('matches the contentInner buildViewerBody embeds for two views', () => {
         const params = {
             collapsedMinimapCollapsed: true,

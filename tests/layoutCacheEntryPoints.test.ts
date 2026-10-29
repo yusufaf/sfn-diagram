@@ -90,6 +90,17 @@ describe('every keyed option is a miss through the entry points', () => {
         expect(cache.stats()).toMatchObject({ entries: 2, hits: 0, misses: 2 });
         expect(changed.svg).toBe(generateSvg({ aslDefinition: DEFINITION, ...options }).svg);
     });
+
+    test('a warm hit still applies the new idPrefix', () => {
+        const cache = createLayoutCache();
+
+        generateSvg({ aslDefinition: DEFINITION, cache, idPrefix: 'a-' });
+        const warm = generateSvg({ aslDefinition: DEFINITION, cache, idPrefix: 'b-' });
+
+        expect(cache.stats().hits).toBe(1);
+        expect(warm.svg).toContain('id="b-arrowhead-normal"');
+        expect(warm.svg).not.toContain('a-arrowhead');
+    });
 });
 
 describe('generateDiagram', () => {

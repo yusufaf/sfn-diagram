@@ -46,6 +46,7 @@ import {
     type ThemeColorChannel,
 } from '../config/autoTheme';
 import { getTheme } from '../config/themes';
+import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 import { SvgElement } from './svgBuilder';
 
 /**
@@ -206,6 +207,33 @@ interface RenderIconParams {
     node: StateNode;
 }
 
+interface ResolveIdPrefixParams {
+    idPrefix: unknown;
+}
+
+/**
+ * Validate `DiagramOptions.idPrefix` and default it to `''`.
+ *
+ * The prefix lands in an `id` and in an unquoted `url(#...)`, so whitespace, quotes,
+ * brackets, `\`, `#` and `%` would break the reference; they throw rather than being
+ * escaped, which would change the default output. Non-ASCII is allowed (React's
+ * `useId()` emits `«r0»`) unless it is whitespace, which the viewer's marker-id
+ * namespacing will not cross, or a character XML forbids.
+ */
+function resolveIdPrefix(params: ResolveIdPrefixParams): string {
+    const { idPrefix } = params;
+    if (idPrefix === undefined) return '';
+    const message = 'idPrefix must contain only letters, digits, "_", "-", ".", ":", or non-whitespace non-ASCII characters';
+    if (typeof idPrefix !== 'string') throw new Error(message);
+    for (const char of idPrefix) {
+        const allowed =
+            /[\w.:-]/.test(char) ||
+            (char.codePointAt(0)! > 0x7f && !/\s/.test(char) && replaceXmlForbiddenChars(char) === char);
+        if (!allowed) throw new Error(message);
+    }
+    return idPrefix;
+}
+
 /**
  * SvgRenderer - Generates SVG diagrams from positioned nodes and edges
  */
@@ -215,6 +243,9 @@ export class SvgRenderer {
     // `'auto'` draws the light palette inline and tags every themed colour with a
     // class that AUTO_THEME_DARK_CSS repaints under prefers-color-scheme: dark.
     private readonly autoTheme: boolean;
+    // Prepended to every emitted marker id and `url(#...)` reference; the ids stored
+    // in arrowMarkerIds stay bare.
+    private readonly idPrefix: string;
     private pathGenerator: (
         points: Array<{ x: number; y: number }>,
     ) => string | null;
@@ -238,6 +269,7 @@ export class SvgRenderer {
         this.options = options;
         this.theme = getTheme(options.theme, options.customColors);
         this.autoTheme = options.theme === 'auto';
+        this.idPrefix = resolveIdPrefix({ idPrefix: options.idPrefix });
 
         // Build the edge path generator once - it's stateless and reused for every
         // edge, so there's no need to recreate it inside the per-edge render loop.
@@ -1324,7 +1356,7 @@ export class SvgRenderer {
             .attr('stroke-width', strokeWidth)
             .attr(
                 'marker-end',
-                `url(#${this.arrowMarkerId({ defs, fill: strokeColor, themed: edgeThemed, type: markerType })})`,
+                `url(#${this.idPrefix}${this.arrowMarkerId({ defs, fill: strokeColor, themed: edgeThemed, type: markerType })})`,
             );
 
         pathElement.append('title').text(edgeTitle);
@@ -1400,13 +1432,14 @@ export class SvgRenderer {
     }
 
     /**
-     * Append one arrowhead `<marker>` to `<defs>`. The `id` attribute must stay first:
-     * the viewer prefixes marker ids with a regex that expects `<marker id="arrowhead-`.
+     * Append one arrowhead `<marker>` to `<defs>`, its id behind the `idPrefix`. The `id`
+     * attribute must stay first: the viewer namespaces marker ids with a regex anchored
+     * on `<marker id="`, which allows an `idPrefix` before `arrowhead-`.
      */
     private appendArrowMarker(params: AppendArrowMarkerParams): void {
         const { className, defs, fill, id } = params;
         defs.append('marker')
-            .attr('id', id)
+            .attr('id', `${this.idPrefix}${id}`)
             .attr('markerWidth', 10)
             .attr('markerHeight', 10)
             .attr('refX', 9)
@@ -1425,8 +1458,9 @@ export class SvgRenderer {
      * that references it - so an edge restyled through `edgeOverrides` needs a marker
      * in its own colour. The type's shared marker is reused when the colour already
      * matches it; otherwise one variant per distinct colour is added to `<defs>` and
-     * shared by every edge in that colour. Variants keep the `arrowhead-` prefix so the
-     * viewer's marker-id namespacing covers them.
+     * shared by every edge in that colour. Variants keep the `arrowhead-` stem so the
+     * viewer's marker-id namespacing covers them. The returned id is bare; callers add
+     * the `idPrefix` where they emit it.
      *
      * Under `'auto'` the shared marker is themed and repaints in dark mode, so an
      * override that happens to equal the light type colour still gets its own fixed

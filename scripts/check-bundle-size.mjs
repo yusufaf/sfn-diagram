@@ -120,6 +120,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `src/ci/buildReport.ts` calls both overlays even though it does not forward the new
  * options yet. `element` and `element-auto` grew by about 1.9 KB raw and kept 3.9-4.8%
  * headroom, and `png` does not include the overlays, so all three were left alone.
+ *
+ * `png.js`/`png.cjs` were restated, to about 10% above their measurement, when `SvgRenderer`
+ * gained the `idPrefix` option and its validation (#536). png.js measured 270,365 raw and
+ * 79,479 gzip on `main`, 0.0% under its gzip budget, and the change took it to 271,595 raw
+ * and 79,958 gzip (png.cjs: 272,866 raw, 80,437 gzip). Every other entry kept at least 3.4%
+ * headroom and was left alone.
  */
 export const BUNDLE_BUDGETS = {
     'aws.cjs': { gzip: 1160, raw: 3050 },
@@ -135,8 +141,8 @@ export const BUNDLE_BUDGETS = {
     'element.js': { gzip: 132000, raw: 458500 },
     'index.cjs': { gzip: 195000, raw: 663500 },
     'index.js': { gzip: 194500, raw: 661000 },
-    'png.cjs': { gzip: 80000, raw: 273000 },
-    'png.js': { gzip: 79500, raw: 271500 },
+    'png.cjs': { gzip: 88500, raw: 300500 },
+    'png.js': { gzip: 88000, raw: 299000 },
     'terraform.cjs': { gzip: 11200, raw: 39600 },
     'terraform.js': { gzip: 11200, raw: 39600 },
 };

@@ -17,6 +17,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
         | 'nodeAnnotations'
         | 'diagramDescription'
         | 'diagramTitle'
+        | 'idPrefix'
     >
 > & {
     width: number | undefined;
@@ -29,6 +30,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     nodeAnnotations: DiagramOptions['nodeAnnotations'];
     diagramDescription: DiagramOptions['diagramDescription'];
     diagramTitle: DiagramOptions['diagramTitle'];
+    idPrefix: DiagramOptions['idPrefix'];
 } = {
     // Output format
     format: 'svg',
@@ -80,6 +82,9 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     // Accessibility
     diagramDescription: undefined,
     diagramTitle: undefined,
+
+    // SVG ids
+    idPrefix: undefined,
 };
 
 /**
