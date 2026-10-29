@@ -914,8 +914,11 @@ interface EditDistanceParams {
  */
 function editDistance(params: EditDistanceParams): number {
     const { from, to } = params;
+    // Row 0 and column 0 hold the cost of building a prefix from nothing.
     const distances = Array.from({ length: from.length + 1 }, (_, row) =>
-        Array.from({ length: to.length + 1 }, (_, column) => (row === 0 ? column : column === 0 ? row : 0)),
+        Array.from({ length: to.length + 1 }, (_, column) =>
+            row === 0 ? column : column === 0 ? row : 0,
+        ),
     );
     for (let row = 1; row <= from.length; row++) {
         for (let column = 1; column <= to.length; column++) {
@@ -925,16 +928,28 @@ function editDistance(params: EditDistanceParams): number {
                 distances[row][column - 1] + 1,
                 distances[row - 1][column - 1] + cost,
             );
-            if (row > 1 && column > 1 && from[row - 1] === to[column - 2] && from[row - 2] === to[column - 1]) {
-                distances[row][column] = Math.min(distances[row][column], distances[row - 2][column - 2] + 1);
+            const swapped =
+                row > 1 &&
+                column > 1 &&
+                from[row - 1] === to[column - 2] &&
+                from[row - 2] === to[column - 1];
+            if (swapped) {
+                distances[row][column] = Math.min(
+                    distances[row][column],
+                    distances[row - 2][column - 2] + 1,
+                );
             }
         }
     }
     return distances[from.length][to.length];
 }
 
-/** Lowercase and keep only letters and digits, so case, spacing and punctuation never count as a typo. */
-const normaliseKey = (key: string): string => key.toLowerCase().replace(/[^a-z0-9]/g, '');
+/**
+ * Lowercase and keep only letters and digits, so case, spacing and punctuation never
+ * count as a typo.
+ */
+const normaliseKey = (key: string): string =>
+    key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** The known key closest to `key`, or `null` when none is close enough to suggest. */
 function closestConfigKey(key: string): string | null {
@@ -942,10 +957,14 @@ function closestConfigKey(key: string): string | null {
     let best: { distance: number; key: string } | null = null;
     for (const known of TOP_LEVEL_CONFIG_KEYS) {
         const normalisedKnown = normaliseKey(known);
-        const distance = editDistance({ from: normalised, to: normalisedKnown });
+        const distance = editDistance({
+            from: normalised,
+            to: normalisedKnown,
+        });
         // Longer keys tolerate more typos; a short one only a single edit.
         const threshold = Math.max(1, Math.floor(normalisedKnown.length / 3));
-        if (distance <= threshold && (best === null || distance < best.distance)) {
+        const closer = best === null || distance < best.distance;
+        if (distance <= threshold && closer) {
             best = { distance, key: known };
         }
     }
@@ -981,7 +1000,9 @@ export interface DescribeUnknownConfigKeysParams {
  * // ['Ignoring unknown key "layuot" in sfn-diagram.config.json: did you mean layout?']
  * ```
  */
-export function describeUnknownConfigKeys(params: DescribeUnknownConfigKeysParams): string[] {
+export function describeUnknownConfigKeys(
+    params: DescribeUnknownConfigKeysParams,
+): string[] {
     const { path, raw } = params;
     return Object.keys(raw)
         .filter((key) => !TOP_LEVEL_CONFIG_KEYS.includes(key))
@@ -989,7 +1010,9 @@ export function describeUnknownConfigKeys(params: DescribeUnknownConfigKeysParam
         .map((key) => {
             const message = `Ignoring unknown key ${JSON.stringify(key)} in ${path}`;
             const suggestion = closestConfigKey(key);
-            return suggestion === null ? message : `${message}: did you mean ${suggestion}?`;
+            return suggestion === null
+                ? message
+                : `${message}: did you mean ${suggestion}?`;
         });
 }
 
@@ -1049,7 +1072,10 @@ export function validateCliConfig(params: ValidateCliConfigParams): CliConfig {
 }
 
 /** Parameters for {@link readConfigFile}. */
-type ReadConfigFileParams = Pick<LoadCliConfigParams, 'explicitPath' | 'startDir'>;
+type ReadConfigFileParams = Pick<
+    LoadCliConfigParams,
+    'explicitPath' | 'startDir'
+>;
 
 /**
  * Find, read and parse the config file, without validating any field.
@@ -1137,9 +1163,8 @@ export function loadCliConfig(
     const file = readConfigFile(params);
     if (file === null) return null;
     // Before validation, so a run that then fails on an invalid field still shows a typo.
-    for (const message of describeUnknownConfigKeys({ path: file.path, raw: file.raw })) {
-        params.onWarning?.({ message });
-    }
+    const warnings = describeUnknownConfigKeys({ path: file.path, raw: file.raw });
+    for (const message of warnings) params.onWarning?.({ message });
     return {
         config: validateCliConfig({ path: file.path, raw: file.raw }),
         path: file.path,
@@ -1161,7 +1186,10 @@ export type CommentGitlabConfig = Pick<
 >;
 
 /** Parameters for {@link loadCommentGitlabConfig}. */
-export type LoadCommentGitlabConfigParams = Pick<LoadCliConfigParams, 'explicitPath' | 'startDir'>;
+export type LoadCommentGitlabConfigParams = Pick<
+    LoadCliConfigParams,
+    'explicitPath' | 'startDir'
+>;
 
 /**
  * Load the `commentGitlab` block of the config file, for `sfn-diagram comment gitlab`.
@@ -1205,7 +1233,10 @@ export function loadCommentGitlabConfig(
     // `commentGitLab`, `comment_gitlab` or `comment gitlab` would otherwise leave the
     // block unread here. Quoted, since a stray space is one way to miss.
     const nearMisses = Object.keys(raw)
-        .filter((key) => key !== 'commentGitlab' && normaliseKey(key) === 'commentgitlab')
+        .filter(
+            (key) =>
+                key !== 'commentGitlab' && normaliseKey(key) === 'commentgitlab',
+        )
         .sort();
     if (nearMisses.length > 0) {
         const named = nearMisses.map((key) => JSON.stringify(key)).join(', ');
