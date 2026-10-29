@@ -147,6 +147,22 @@ const { svg } = generateSvg({ aslDefinition: await response.text() });
 document.querySelector('#diagram').innerHTML = svg;
 ```
 
+**Several diagrams on one page**
+
+SVG ids are global to the whole HTML document, so two inlined diagrams share their
+arrowhead markers and the second one's edges draw with the first one's arrowheads. Give
+each diagram its own `idPrefix`:
+
+```ts
+const { svg } = generateSvg({ aslDefinition: definition, idPrefix: 'orders-' });
+```
+
+In a React component that calls `generateSvg` itself, a `useId()` value works as-is
+(the `sfn-diagram-react` wrapper does not take `idPrefix` yet). A host that embeds
+several `generateViewerUpdate` fragments in one page should give each its own
+`idPrefix` too. `<sfn-diagram>` elements and standalone `generateHtml` documents already
+keep their ids apart.
+
 > **On the "unsafe HTML" APIs.** Every snippet above uses its framework's raw-HTML escape
 > hatch (`{@html}`, `v-html`, `innerHTML`, `dangerouslySetInnerHTML`, `raw()`). The SVG builder
 > HTML-escapes every attribute and text value it emits, following the HTML serialization

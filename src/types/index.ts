@@ -672,6 +672,23 @@ export interface DiagramOptions {
     iconSize?: number;
 
     /**
+     * String prepended to every id the SVG emits (the arrowhead `<marker>` ids) and to
+     * every `url(#...)` reference to one. Set a distinct prefix per diagram when inlining
+     * several SVGs in one HTML page: ids are document-global, so without one the second
+     * diagram's edges resolve to the first diagram's markers.
+     *
+     * Letters, digits, `_`, `-`, `.`, `:` and non-whitespace non-ASCII characters only,
+     * so React's `useId()` values work as-is; anything else throws. The prefix is
+     * prepended verbatim, so end it with a separator (`'orders-'`). Has no effect on
+     * Mermaid output or on layout.
+     *
+     * @default '' (bare ids such as `arrowhead-normal`)
+     * @example
+     * generateSvg({ aslDefinition, idPrefix: 'orders-' }); // id="orders-arrowhead-normal"
+     */
+    idPrefix?: string;
+
+    /**
      * Whether to use state comments as node labels. In SVG and PNG output a label wider
      * than its node is cut short with `…`; the full text stays in the node's `<title>`
      * tooltip.

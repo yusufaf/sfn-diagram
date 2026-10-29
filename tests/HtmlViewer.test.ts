@@ -475,6 +475,30 @@ describe('collapse toggle', () => {
         expect(collapsed.svg).not.toContain('data-state-id="Branch1"');
     });
 
+    const relayoutModelOf = (html: string): RelayoutModel => {
+        const match = html.match(/<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/);
+        expect(match).not.toBeNull();
+        return JSON.parse(match![1]) as RelayoutModel;
+    };
+
+    it('renders the browser-relayout collapsed view with the idPrefix', () => {
+        const model = relayoutModelOf(generateHtml({ aslDefinition: parallelAsl, idPrefix: 'p-' }).html);
+        expect(model.options.idPrefix).toBe('p-');
+
+        const collapsed = renderCollapsedView({ collapsedIds: ['FanOut'], model });
+        expect(collapsed.svg).toContain('id="p-arrowhead-normal"');
+        expect(collapsed.svg).not.toMatch(/id="arrowhead-/);
+    });
+
+    it('carries an empty idPrefix into the relayout model and leaves an unset one out', () => {
+        expect(relayoutModelOf(generateHtml({ aslDefinition: parallelAsl }).html).options).not.toHaveProperty(
+            'idPrefix',
+        );
+        expect(relayoutModelOf(generateHtml({ aslDefinition: parallelAsl, idPrefix: '' }).html).options.idPrefix).toBe(
+            '',
+        );
+    });
+
     it('embeds only one view and no toggle when the diagram has no container', () => {
         const result = generateHtml({ aslDefinition: asl }); // top-level `asl` fixture: no Parallel/Map
         // Not a plain `.not.toContain('data-sfn-view')`: the compiled viewer controller
@@ -528,10 +552,14 @@ describe('collapse toggle', () => {
     it('does not corrupt a state literally named like a marker id', () => {
         // The state must survive collapse (stay outside the container) so it appears
         // in the namespaced collapsed view too, where the corruption would show up.
+        // `(` and `#` reach the markup unescaped, so the two `url(#` names check that the
+        // namespacing regex only rewrites a `marker-end` reference, never a state name.
         const trickyAsl: AslDefinition = {
             StartAt: 'arrowhead-check',
             States: {
-                'arrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'FanOut' },
+                'arrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'url(#xarrowhead-check' },
+                'url(#xarrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'url(#arrowhead-check2' },
+                'url(#arrowhead-check2': { Type: 'Task', Resource: 'arn:x', Next: 'FanOut' },
                 FanOut: {
                     Type: 'Parallel',
                     Branches: [
@@ -545,6 +573,20 @@ describe('collapse toggle', () => {
         const result = { html: generateViewerUpdate({ aslDefinition: trickyAsl }).contentHtml };
         expect(result.html).toContain('data-state-id="arrowhead-check"');
         expect(result.html).not.toContain('data-state-id="arrowhead-collapsed-check"');
+        expect(result.html).toContain('data-state-id="url(#xarrowhead-check"');
+        expect(result.html).toContain('data-state-id="url(#arrowhead-check2"');
+        expect(result.html).not.toContain('xarrowhead-collapsed-check');
+        expect(result.html).not.toContain('url(#arrowhead-collapsed-check2');
+    });
+
+    it('keeps the two views\' marker ids distinct under an idPrefix', () => {
+        const html = generateViewerUpdate({ aslDefinition: parallelAsl, idPrefix: 'p-' }).contentHtml;
+
+        expect(html).toContain('id="p-arrowhead-normal"');
+        expect(html).toContain('id="p-arrowhead-collapsed-normal"');
+        expect(html).toContain('url(#p-arrowhead-collapsed-normal)');
+        const ids = Array.from(html.matchAll(/\sid="([^"]*)"/g), (match) => match[1]);
+        expect(new Set(ids).size).toBe(ids.length);
     });
 
     it('embeds only one view and no toggle when the caller\'s collapse selection is a no-op', () => {

@@ -1807,3 +1807,89 @@ describe('Theme-driven node colors', () => {
     });
 
 });
+
+describe('idPrefix', () => {
+    // Every edge type the renderer draws a marker for: choice, default, normal, error
+    // and retry.
+    const EVERY_EDGE_TYPE: AslDefinition = {
+        StartAt: 'Check',
+        States: {
+            Check: {
+                Type: 'Choice',
+                Choices: [{ Variable: '$.amount', NumericGreaterThan: 1, Next: 'Work' }],
+                Default: 'Done',
+            },
+            Work: {
+                Type: 'Task',
+                Resource: 'arn:aws:states:::lambda:invoke',
+                Retry: [{ ErrorEquals: ['States.ALL'], MaxAttempts: 2 }],
+                Catch: [{ ErrorEquals: ['States.ALL'], Next: 'Failed' }],
+                Next: 'Done',
+            },
+            Failed: { Type: 'Fail' },
+            Done: { Type: 'Succeed' },
+        },
+    };
+
+    // The leading `\s` skips `data-state-id` and `data-edge-id`.
+    const emittedIds = (svg: string): string[] => Array.from(svg.matchAll(/\sid="([^"]*)"/g), (match) => match[1]);
+    const urlTargets = (svg: string): string[] => Array.from(svg.matchAll(/url\(#([^)]*)\)/g), (match) => match[1]);
+
+    it('prefixes every marker id and every url(#...) reference', () => {
+        const { svg } = generateSvg({
+            aslDefinition: EVERY_EDGE_TYPE,
+            collapseControls: true,
+            edgeHitAreas: true,
+            edgeOverrides: { 'Work->Done': { stroke: '#ff0000' } },
+            idPrefix: 'p-',
+            theme: 'auto',
+        });
+        const ids = emittedIds(svg);
+        const targets = urlTargets(svg);
+
+        expect(ids).toContain('p-arrowhead-override-0');
+        expect(ids).toContain('p-arrowhead-retry');
+        expect(targets.length).toBeGreaterThan(0);
+        for (const id of ids) expect(id).toMatch(/^p-/);
+        for (const target of targets) expect(ids).toContain(target);
+    });
+
+    it('leaves ids bare when idPrefix is unset or empty', () => {
+        const bare = generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg;
+
+        expect(generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix: '' }).svg).toBe(bare);
+        expect(bare).toContain('id="arrowhead-normal"');
+    });
+
+    it('keeps two prefixed renders free of shared ids', () => {
+        const first = emittedIds(generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix: 'a-' }).svg);
+        const second = emittedIds(generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix: 'b-' }).svg);
+
+        expect(first.length).toBeGreaterThan(0);
+        expect(first.filter((id) => second.includes(id))).toEqual([]);
+    });
+
+    it.each([
+        ' ',
+        'a b',
+        'a)',
+        'a(',
+        'a"',
+        "a'",
+        'a\\b',
+        'a#',
+        'a%',
+        `a${String.fromCharCode(0x3000)}b`,
+        `a${String.fromCharCode(0xa0)}b`,
+        `a${String.fromCharCode(0x2028)}b`,
+        `a${String.fromCharCode(0xd800)}b`,
+    ])('rejects idPrefix %j', (idPrefix) => {
+        expect(() => generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix })).toThrow(/idPrefix/);
+    });
+
+    it.each([':r0:', '«r0»', '_r_0_', 'diagram-1.', 'x'])('accepts idPrefix %j', (idPrefix) => {
+        expect(generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix }).svg).toContain(
+            `id="${idPrefix}arrowhead-normal"`,
+        );
+    });
+});

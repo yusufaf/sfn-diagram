@@ -1411,6 +1411,19 @@ describe('retry self-loops in the overlay', () => {
         expect(retryPath).not.toContain('stroke-width="3"');
     });
 
+    it('applies idPrefix to the overlay markers, including the taken-colour variants', () => {
+        const { svg } = generateExecution({
+            aslDefinition: loadAsl('choice'),
+            history: loadHistoryJson('execution-choice-highvalue'),
+            idPrefix: 'p-',
+        });
+
+        expect(svg).toContain('id="p-arrowhead-normal"');
+        expect(svg).toContain('id="p-arrowhead-override-0"');
+        expect(svg).not.toContain('id="arrowhead-');
+        expect(svg).not.toContain('url(#arrowhead-');
+    });
+
     describe('arrowheads and labels follow their edge', () => {
         const { svg } = generateExecution({
             aslDefinition: loadAsl('choice'),
