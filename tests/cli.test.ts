@@ -935,9 +935,8 @@ describe('diff, execution and icon flags', () => {
         expect(stdoutData).toContain('data-state-id="ParallelExecution"');
     });
 
-    it('a Mermaid --execution overlay ignores --collapse and --hide-catch', async () => {
-        // Pins the limitation the --help note documents; lifting it must update that note
-        // and its copies in the configuration and CLI guides.
+    it('a Mermaid --execution overlay honours --collapse and --hide-catch', async () => {
+        // Only stdout: the stderr summary lists every state in the definition.
         const args = [
             parallelCatchFixture,
             '--execution',
@@ -946,18 +945,38 @@ describe('diff, execution and icon flags', () => {
             'mermaid',
         ];
         expect(await run(args)).toBe(0);
-        const plain = stdoutData;
-        expect(plain).toContain('Branch1');
+        expect(stdoutData).toContain('Branch1');
+        expect(stdoutData).toContain('HandleError');
 
         stdoutData = '';
         stderrData = '';
         expect(await run([...args, '--collapse'])).toBe(0);
-        expect(stdoutData).toBe(plain);
+        expect(stdoutData).not.toContain('Branch1');
+        expect(stdoutData).toContain('class ParallelExecution exec');
 
         stdoutData = '';
         stderrData = '';
         expect(await run([...args, '--hide-catch'])).toBe(0);
-        expect(stdoutData).toBe(plain);
+        expect(stdoutData).not.toContain('HandleError');
+    });
+
+    it('a Mermaid --diff overlay draws customColors from the config file', async () => {
+        const config = write(
+            'c.json',
+            JSON.stringify({ customColors: { Pass: { fill: '#abcdef' } } }),
+        );
+        expect(
+            await run([
+                write('head.json', headAsl),
+                '--diff',
+                write('base.json', baseAsl),
+                '--config',
+                config,
+                '--format',
+                'mermaid',
+            ]),
+        ).toBe(0);
+        expect(stdoutData).toContain('classDef passState fill:#abcdef');
     });
 
     it('--diff with --format html emits an interactive document', async () => {
