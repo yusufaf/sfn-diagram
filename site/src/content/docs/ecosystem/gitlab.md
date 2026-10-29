@@ -38,7 +38,7 @@ The block takes `theme`, `layout`, `catchHandling` and `collapse`; a flag in the
 
 ## The Mermaid size limit
 
-GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--out-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `--hide-catch` and `--collapse` can shrink a plain added/deleted file's diagram back under the limit; neither affects a diff diagram, which the underlying library renders without size-affecting options (`--layout` does apply to diffs).
+GitLab renders Mermaid natively in merge request notes, but caps it at roughly **2000 characters shared across the whole page** — every Mermaid block on it, not just this one. A moderately sized state machine can use most of that budget by itself. Once the combined diagrams in a report cross it, this command drops the inline Mermaid and instead writes an SVG per changed file to `--out-dir`; the `artifacts: expose_as` line above surfaces those as a labelled link on the merge request widget, no comment needed. `--hide-catch` and `--collapse` can shrink a plain added/deleted file's diagram back under the limit; neither affects a diff diagram yet, because the report doesn't forward them to the diff (#561) (`--layout` does apply to diffs).
 
 ## Posting the comment
 

@@ -182,8 +182,9 @@ the closing brace and the file fails to parse at all.
   and is replaced along with it.
 - With `theme: auto`, these colours stay fixed when the diagram switches to its dark
   palette, while text and background change. Pick colours that read against both.
-- Mermaid output draws `customColors` but not the two override maps, and Mermaid
-  `--diff`/`--execution` output draws none of them. Mermaid separates style properties
+- Mermaid output, `--diff` and `--execution` overlays included, draws `customColors` but
+  not the two override maps. An execution overlay colours every state by its run status,
+  so `customColors` shows on none of them, in Mermaid and SVG alike. Mermaid separates style properties
   with commas, so Mermaid output rewrites `rgb()`, `rgba()`, `hsl()` and `hsla()` written
   with commas to the comma-free form (`rgb(255, 153, 0)` becomes `rgb(255 153 0)`). A
   colour that still needs a comma, such as `color-mix(…)`, is left out of Mermaid output,
@@ -849,11 +850,13 @@ Diff summary:
   Unchanged: 1
 ```
 
-Under `--format svg` and `--format html`, both overlays honour `--collapse` and
-`--hide-catch`. A collapsed container's placeholder takes the status rolled up from the
-states it hides on an execution overlay, and counts the changes inside it on a diff (see
-[Large diagrams](/guides/configuration/#large-diagrams)). A Mermaid overlay reads only
-`--theme` and `--layout` and ignores every other diagram flag.
+Both overlays honour `--collapse` and `--hide-catch` in every format. A collapsed
+container's placeholder takes the status rolled up from the states it hides on an
+execution overlay, and counts the changes inside it on a diff (see
+[Large diagrams](/guides/configuration/#large-diagrams)). In Mermaid output the
+placeholder carries the same status class and annotation. A Mermaid overlay also honours
+`--hide-comments`, `--catch-label-style` and the variables flags, like plain
+`--format mermaid`.
 
 `--execution` accepts either a full `GetExecutionHistory` response (`{"events": [...]}`)
 or a bare events array. See [generateDiff](/reference/index/functions/generatediff/)
