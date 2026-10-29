@@ -933,7 +933,7 @@ function editDistance(params: EditDistanceParams): number {
     return distances[from.length][to.length];
 }
 
-/** Lowercase and keep only letters and digits, as the `commentGitlab` near-miss check does. */
+/** Lowercase and keep only letters and digits, so case, spacing and punctuation never count as a typo. */
 const normaliseKey = (key: string): string => key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 /** The known key closest to `key`, or `null` when none is close enough to suggest. */
@@ -1205,11 +1205,7 @@ export function loadCommentGitlabConfig(
     // `commentGitLab`, `comment_gitlab` or `comment gitlab` would otherwise leave the
     // block unread here. Quoted, since a stray space is one way to miss.
     const nearMisses = Object.keys(raw)
-        .filter(
-            (key) =>
-                key !== 'commentGitlab' &&
-                key.toLowerCase().replace(/[^a-z0-9]/g, '') === 'commentgitlab',
-        )
+        .filter((key) => key !== 'commentGitlab' && normaliseKey(key) === 'commentgitlab')
         .sort();
     if (nearMisses.length > 0) {
         const named = nearMisses.map((key) => JSON.stringify(key)).join(', ');
