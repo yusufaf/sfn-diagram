@@ -6,6 +6,7 @@ import Ajv from 'ajv';
 import {
     CONFIG_FIELDS,
     loadCommentGitlabConfig,
+    TOP_LEVEL_CONFIG_KEYS,
     validateCliConfig,
 } from '../../src/cliConfig';
 import { buildCliConfigSchema } from '../../src/cliConfigSchema';
@@ -108,9 +109,8 @@ describe('config JSON Schema', () => {
 
     it('declares every config field, each with a description', () => {
         const properties = schema.properties ?? {};
-        expect(Object.keys(properties).sort()).toEqual(
-            ['$schema', 'commentGitlab', ...Object.keys(CONFIG_FIELDS)].sort(),
-        );
+        // The same list the CLI warns against, so the schema and the warning cannot drift.
+        expect(Object.keys(properties).sort()).toEqual([...TOP_LEVEL_CONFIG_KEYS]);
         for (const [name, property] of Object.entries(properties)) {
             expect(
                 typeof property === 'object' && property.description,

@@ -3,13 +3,64 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+    CONFIG_FIELDS,
     CONFIG_FILENAMES,
     CliConfigError,
+    describeUnknownConfigKeys,
     discoverConfigPath,
     loadCliConfig,
     loadCommentGitlabConfig,
     validateCliConfig,
 } from '../../src/cliConfig';
+
+describe('describeUnknownConfigKeys', () => {
+    const PATH = '/x/c.json';
+    const suggestionFor = (key: string): string | null => {
+        const [message] = describeUnknownConfigKeys({ path: PATH, raw: { [key]: 1 } });
+        return message.match(/did you mean (.+)\?$/)?.[1] ?? null;
+    };
+
+    it.each([
+        ['layuot', 'layout'],
+        ['Layout', 'layout'],
+        ['nodeWidht', 'nodeWidth'],
+        ['backgroundColour', 'backgroundColor'],
+        ['commentGitLab', 'commentGitlab'],
+        ['schema', '$schema'],
+        ['them', 'theme'],
+        // Distance 2 on a long key: the threshold grows with the key's length.
+        ['backgrondColour', 'backgroundColor'],
+        ['nodeSeprtion', 'nodeSeparation'],
+        // Distance 2 on a short key stays below the threshold.
+        ['thm', null],
+        ['hideCatch', null],
+        ['foo', null],
+    ])('suggests for %j: %j', (key, expected) => {
+        expect(suggestionFor(key)).toBe(expected);
+    });
+
+    it('names the key and the file, with and without a suggestion', () => {
+        expect(describeUnknownConfigKeys({ path: PATH, raw: { foo: 1, layuot: 'LR' } })).toEqual([
+            `Ignoring unknown key "foo" in ${PATH}`,
+            `Ignoring unknown key "layuot" in ${PATH}: did you mean layout?`,
+        ]);
+    });
+
+    it('describes one key per message, sorted by key', () => {
+        const messages = describeUnknownConfigKeys({ path: PATH, raw: { zeta: 1, alpha: 2 } });
+        expect(messages).toHaveLength(2);
+        expect(messages[0]).toContain('"alpha"');
+        expect(messages[1]).toContain('"zeta"');
+    });
+
+    it('never describes $schema, commentGitlab or a config field', () => {
+        const raw = Object.fromEntries(
+            ['$schema', 'commentGitlab', ...Object.keys(CONFIG_FIELDS)].map((key) => [key, 1]),
+        );
+        expect(describeUnknownConfigKeys({ path: PATH, raw })).toEqual([]);
+        expect(describeUnknownConfigKeys({ path: PATH, raw: {} })).toEqual([]);
+    });
+});
 
 describe('discoverConfigPath', () => {
     let root: string;
@@ -414,9 +465,9 @@ describe('loadCliConfig', () => {
         ).toThrowError(/diagramTitle/);
     });
 
-    it('ignores keys it does not know, including $schema', () => {
-        // A typo'd key doing nothing is unfortunate, but rejecting unknown keys would
-        // break `$schema` and any future additive field, so unknown keys are dropped.
+    it('ignores keys it does not know, warning about each except $schema', () => {
+        // Rejecting unknown keys would break `$schema` and any future additive field, so
+        // unknown keys are dropped; a warning keeps a typo from doing nothing silently.
         const path = write(
             'sfn-diagram.config.json',
             JSON.stringify({
@@ -425,10 +476,36 @@ describe('loadCliConfig', () => {
                 widht: 100,
             }),
         );
-        expect(loadCliConfig({ explicitPath: null, startDir: root })).toEqual({
+        const messages: string[] = [];
+        expect(
+            loadCliConfig({
+                explicitPath: null,
+                onWarning: ({ message }) => messages.push(message),
+                startDir: root,
+            }),
+        ).toEqual({
             config: { theme: 'dark' },
             path,
         });
+        expect(messages).toEqual([`Ignoring unknown key "widht" in ${path}`]);
+    });
+
+    it('warns about an unknown key before rejecting an invalid field', () => {
+        const path = write(
+            'sfn-diagram.config.json',
+            JSON.stringify({ layuot: 'LR', theme: 'neon' }),
+        );
+        const messages: string[] = [];
+        expect(() =>
+            loadCliConfig({
+                explicitPath: null,
+                onWarning: ({ message }) => messages.push(message),
+                startDir: root,
+            }),
+        ).toThrowError(/Invalid theme/);
+        expect(messages).toEqual([
+            `Ignoring unknown key "layuot" in ${path}: did you mean layout?`,
+        ]);
     });
 
     it('accepts collapse as true', () => {

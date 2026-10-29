@@ -27,8 +27,8 @@ function describedSchema(params: DescribedSchemaParams): JsonSchema {
  * `pnpm run build:config-schema` regenerates it and `pnpm test` checks it is current.
  *
  * The schema is stricter than the CLI in one place on purpose: it rejects unknown
- * top-level keys so an editor flags a typo, while the CLI drops them so a field added by
- * a later release does not fail an older CLI.
+ * top-level keys so an editor flags a typo, while the CLI drops them with a warning so a
+ * field added by a later release does not fail an older CLI.
  *
  * @returns The schema, as a plain JSON-serialisable object.
  *

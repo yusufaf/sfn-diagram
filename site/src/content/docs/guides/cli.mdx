@@ -147,9 +147,12 @@ the file and the API read the same way: `catchHandling: "hide"`, not `hideCatch:
 | `stylePreset` | `"aws-standard"` \| `"enhanced"` |
 | `theme` | `"light"` \| `"dark"` \| `"auto"`, or a [custom theme object](#custom-theme-files) |
 
-Keys it doesn't recognise are ignored, so a `$schema` key for
-[editor completion](#editor-completion) is harmless and a field added by a later release
-won't break an older CLI reading the same file. `iconResolver` and `redact` take a
+Keys it doesn't recognise are ignored with a `warning:` on stderr that names the file
+and, when a known key is a close match, suggests it (`layuot`: did you mean `layout`?).
+The exit code is unchanged, so a field added by a later release won't break an older CLI
+reading the same file. `$schema` (for [editor completion](#editor-completion)) and
+`commentGitlab` (read by [`comment gitlab`](#comment-gitlab-reads-its-own-block)) never
+warn. `iconResolver` and `redact` take a
 function, and `nodeAnnotations` is meant for computed text, so those three stay
 [API-only](/guides/configuration/). `redactFields` and `includeRawState` cover the
 common cases of `redact` (see [Redacting the HTML document](#redacting-the-html-document)).
