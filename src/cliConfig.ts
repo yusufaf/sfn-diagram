@@ -214,6 +214,11 @@ export interface CliConfig {
 export interface LoadCliConfigParams {
     /** Path from `--config`, or `null` to search for one. */
     explicitPath: string | null;
+    /**
+     * Called once per unknown top-level key, before any field is validated, with a
+     * message naming the key and the file. `$schema` and `commentGitlab` never warn.
+     */
+    onWarning?: (params: { message: string }) => void;
     /** Directory the search starts from when `explicitPath` is `null`. */
     startDir: string;
 }
@@ -886,6 +891,131 @@ export const CONFIG_FIELDS: {
     },
 };
 
+/**
+ * Every top-level key a config file may hold without a warning: the
+ * {@link CONFIG_FIELDS}, `$schema` for editor completion, and the `commentGitlab` block
+ * `comment gitlab` reads. Sorted.
+ */
+export const TOP_LEVEL_CONFIG_KEYS: readonly string[] = [
+    '$schema',
+    'commentGitlab',
+    ...Object.keys(CONFIG_FIELDS),
+].sort();
+
+interface EditDistanceParams {
+    from: string;
+    to: string;
+}
+
+/**
+ * Optimal string alignment distance: insertions, deletions, substitutions and swaps of
+ * two adjacent characters each cost 1, so the common `layuot` typo is 1 from `layout`
+ * rather than Levenshtein's 2.
+ */
+function editDistance(params: EditDistanceParams): number {
+    const { from, to } = params;
+    // Row 0 and column 0 hold the cost of building a prefix from nothing.
+    const distances = Array.from({ length: from.length + 1 }, (_, row) =>
+        Array.from({ length: to.length + 1 }, (_, column) =>
+            row === 0 ? column : column === 0 ? row : 0,
+        ),
+    );
+    for (let row = 1; row <= from.length; row++) {
+        for (let column = 1; column <= to.length; column++) {
+            const cost = from[row - 1] === to[column - 1] ? 0 : 1;
+            distances[row][column] = Math.min(
+                distances[row - 1][column] + 1,
+                distances[row][column - 1] + 1,
+                distances[row - 1][column - 1] + cost,
+            );
+            const swapped =
+                row > 1 &&
+                column > 1 &&
+                from[row - 1] === to[column - 2] &&
+                from[row - 2] === to[column - 1];
+            if (swapped) {
+                distances[row][column] = Math.min(
+                    distances[row][column],
+                    distances[row - 2][column - 2] + 1,
+                );
+            }
+        }
+    }
+    return distances[from.length][to.length];
+}
+
+/**
+ * Lowercase and keep only letters and digits, so case, spacing and punctuation never
+ * count as a typo.
+ */
+const normaliseKey = (key: string): string =>
+    key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** The known key closest to `key`, or `null` when none is close enough to suggest. */
+function closestConfigKey(key: string): string | null {
+    const normalised = normaliseKey(key);
+    let best: { distance: number; key: string } | null = null;
+    for (const known of TOP_LEVEL_CONFIG_KEYS) {
+        const normalisedKnown = normaliseKey(known);
+        const distance = editDistance({
+            from: normalised,
+            to: normalisedKnown,
+        });
+        // Longer keys tolerate more typos; a short one only a single edit.
+        const threshold = Math.max(1, Math.floor(normalisedKnown.length / 3));
+        const closer = best === null || distance < best.distance;
+        if (distance <= threshold && closer) {
+            best = { distance, key: known };
+        }
+    }
+    return best?.key ?? null;
+}
+
+/** Parameters for {@link describeUnknownConfigKeys}. */
+export interface DescribeUnknownConfigKeysParams {
+    /** The file the object came from, named in every message. */
+    path: string;
+    /** The parsed top-level config object. */
+    raw: Record<string, unknown>;
+}
+
+/**
+ * Describe each top-level key of a config file that the CLI does not know, for the
+ * warning it prints before dropping the key.
+ *
+ * A key is known when it is in {@link TOP_LEVEL_CONFIG_KEYS}. When a known key is a
+ * close match, ignoring case and punctuation and allowing about one typo per three
+ * characters, the message suggests it.
+ *
+ * @param params - Description parameters
+ * @param params.path - The file the object came from, named in every message
+ * @param params.raw - The parsed top-level config object
+ *
+ * @returns One message per unknown key, sorted by key, without a `warning:` prefix.
+ *   Empty when every key is known.
+ *
+ * @example
+ * ```typescript
+ * describeUnknownConfigKeys({ path: 'sfn-diagram.config.json', raw: { layuot: 'LR' } });
+ * // ['Ignoring unknown key "layuot" in sfn-diagram.config.json: did you mean layout?']
+ * ```
+ */
+export function describeUnknownConfigKeys(
+    params: DescribeUnknownConfigKeysParams,
+): string[] {
+    const { path, raw } = params;
+    return Object.keys(raw)
+        .filter((key) => !TOP_LEVEL_CONFIG_KEYS.includes(key))
+        .sort()
+        .map((key) => {
+            const message = `Ignoring unknown key ${JSON.stringify(key)} in ${path}`;
+            const suggestion = closestConfigKey(key);
+            return suggestion === null
+                ? message
+                : `${message}: did you mean ${suggestion}?`;
+        });
+}
+
 /** Parameters for {@link validateCliConfig}. */
 export interface ValidateCliConfigParams {
     /** Prepended to a field's name in errors, such as `commentGitlab.` for a nested block. */
@@ -898,7 +1028,7 @@ export interface ValidateCliConfigParams {
 
 /**
  * Validate one parsed config object against {@link CONFIG_FIELDS}, dropping keys the CLI
- * does not know.
+ * does not know. It drops them silently; {@link loadCliConfig} is where the CLI warns.
  *
  * Fields are checked in alphabetical order, so with several bad fields the error names
  * the alphabetically first.
@@ -942,7 +1072,10 @@ export function validateCliConfig(params: ValidateCliConfigParams): CliConfig {
 }
 
 /** Parameters for {@link readConfigFile}. */
-type ReadConfigFileParams = LoadCliConfigParams;
+type ReadConfigFileParams = Pick<
+    LoadCliConfigParams,
+    'explicitPath' | 'startDir'
+>;
 
 /**
  * Find, read and parse the config file, without validating any field.
@@ -1000,14 +1133,17 @@ function readConfigFile(
 /**
  * Load the config file, either the one `--config` names or the nearest discovered one.
  *
- * Unknown keys are dropped rather than rejected, so a `$schema` key for editor
- * completion is harmless and a field added by a later release does not make an older
- * CLI fail on the same file. The `commentGitlab` block is one such key here: it
- * belongs to `comment gitlab` ({@link loadCommentGitlabConfig}), and a mistake in it
- * does not fail a local render.
+ * Unknown keys are dropped rather than rejected, so a field added by a later release
+ * does not make an older CLI fail on the same file; each one is reported through
+ * `onWarning` first, with a did-you-mean when a known key is close, so a typo does not
+ * go unnoticed. `$schema` (for editor completion) and the `commentGitlab` block never
+ * warn. That block belongs to `comment gitlab` ({@link loadCommentGitlabConfig}), and a
+ * mistake in it does not fail a local render.
  *
  * @param params - Load parameters
  * @param params.explicitPath - Path from `--config`, or `null` to search
+ * @param params.onWarning - Called once per unknown top-level key, before any field is
+ *   validated
  * @param params.startDir - Directory the search starts from
  *
  * @returns The config and the file it came from, or `null` when there is no config.
@@ -1026,6 +1162,9 @@ export function loadCliConfig(
 ): { config: CliConfig; path: string } | null {
     const file = readConfigFile(params);
     if (file === null) return null;
+    // Before validation, so a run that then fails on an invalid field still shows a typo.
+    const warnings = describeUnknownConfigKeys({ path: file.path, raw: file.raw });
+    for (const message of warnings) params.onWarning?.({ message });
     return {
         config: validateCliConfig({ path: file.path, raw: file.raw }),
         path: file.path,
@@ -1047,7 +1186,10 @@ export type CommentGitlabConfig = Pick<
 >;
 
 /** Parameters for {@link loadCommentGitlabConfig}. */
-export type LoadCommentGitlabConfigParams = LoadCliConfigParams;
+export type LoadCommentGitlabConfigParams = Pick<
+    LoadCliConfigParams,
+    'explicitPath' | 'startDir'
+>;
 
 /**
  * Load the `commentGitlab` block of the config file, for `sfn-diagram comment gitlab`.
@@ -1087,14 +1229,13 @@ export function loadCommentGitlabConfig(
     if (file === null) return null;
     const { path, raw } = file;
 
-    // The main CLI drops unknown top-level keys, so a near miss such as `commentGitLab`,
-    // `comment_gitlab` or `comment gitlab` would otherwise leave the block silently
-    // unread. Quoted, since a stray space is one way to miss.
+    // The main CLI only warns about unknown top-level keys, so a near miss such as
+    // `commentGitLab`, `comment_gitlab` or `comment gitlab` would otherwise leave the
+    // block unread here. Quoted, since a stray space is one way to miss.
     const nearMisses = Object.keys(raw)
         .filter(
             (key) =>
-                key !== 'commentGitlab' &&
-                key.toLowerCase().replace(/[^a-z0-9]/g, '') === 'commentgitlab',
+                key !== 'commentGitlab' && normaliseKey(key) === 'commentgitlab',
         )
         .sort();
     if (nearMisses.length > 0) {

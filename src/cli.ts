@@ -2736,6 +2736,9 @@ async function renderResolvedBatch(
     try {
         const loaded = loadCliConfig({
             explicitPath: args.config,
+            onWarning: ({ message }) => {
+                process.stderr.write(`warning: ${message}\n`);
+            },
             startDir: process.cwd(),
         });
         configFile = loaded?.config ?? null;

@@ -3277,6 +3277,38 @@ describe('run: config file', () => {
         expect(stderrData).toContain(config);
     });
 
+    it('warns about an unknown config key, suggesting the close one', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write('c.json', JSON.stringify({ layuot: 'LR', theme: 'dark' }));
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stderrData).toBe(
+            `warning: Ignoring unknown key "layuot" in ${config}: did you mean layout?\n`,
+        );
+        expect(stdoutData).toContain('<svg');
+    });
+
+    it('never warns about $schema or commentGitlab', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        const config = write(
+            'c.json',
+            JSON.stringify({ $schema: 'x', commentGitlab: { layout: 'LR' }, theme: 'dark' }),
+        );
+        expect(await run([input, '--config', config])).toBe(0);
+        expect(stderrData).toBe('');
+    });
+
+    it('warns once per unknown key in a discovered config', async () => {
+        const input = write('m.asl.json', simpleAsl);
+        write('sfn-diagram.config.json', JSON.stringify({ alpha: 1, layuot: 'LR' }));
+        process.chdir(tempDir);
+
+        expect(await run([input])).toBe(0);
+        const warnings = stderrData.split('\n').filter((line) => line.startsWith('warning:'));
+        expect(warnings).toHaveLength(2);
+        // Not the full path: on macOS cwd() resolves the temp dir through /private.
+        for (const warning of warnings) expect(warning).toContain('sfn-diagram.config.json');
+    });
+
     it('exits 1 on an invalid config value, naming the field', async () => {
         const input = write('m.asl.json', simpleAsl);
         const config = write('c.json', JSON.stringify({ theme: 'neon' }));
