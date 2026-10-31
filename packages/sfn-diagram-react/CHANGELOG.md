@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.6.0...sfn-diagram-react-v0.7.0) (2026-10-31)
+
+
+### Features
+
+* **mermaid:** honour diagram options in diff and execution output ([#563](https://github.com/yusufaf/sfn-diagram/issues/563)) ([27ad93d](https://github.com/yusufaf/sfn-diagram/commit/27ad93d965605b60b5ea5511798039e7d4828d28))
+
 ## [0.6.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.5.0...sfn-diagram-react-v0.6.0) (2026-10-02)
 
 
