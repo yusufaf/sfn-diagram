@@ -11,7 +11,9 @@ following semver as it has. For what 2.0 changes, see
 :::
 
 sfn-diagram follows [semantic versioning](https://semver.org/). A breaking change to
-anything covered below ships only in a major release.
+anything covered below ships only in a major release, with the exceptions listed under
+[Output unions](#output-unions-may-grow-in-a-minor) and
+[Runtime support](#runtime-support).
 
 ## Covered by semver
 
@@ -67,7 +69,8 @@ function label(status: ExecutionStateStatus): string {
 
 ## Runtime support
 
-An end-of-life Node line may be dropped in a minor release. When that happens,
+An end-of-life Node line may be dropped in a minor release, as an exception to the
+promise above. When that happens,
 `engines.node` rises and the changelog says so. See [Runtime support](/guides/runtimes/)
 for what each entry point needs today.
 

@@ -60,7 +60,9 @@ function extractRemovedIn2Declarations(
                 .split(/\r?\n/)
                 .find((candidate) => candidate.trim() !== '') ?? '';
         const exported =
-            /^export (?:declare )?(?:function|const|class) (\w+)/.exec(line);
+            /^export (?:(?:abstract|async|declare|default) )*(?:function|const|class) (\w+)/.exec(
+                line,
+            );
         if (exported) {
             names.push(exported[1]);
             continue;
@@ -69,7 +71,9 @@ function extractRemovedIn2Declarations(
         const containers = [
             ...source
                 .slice(0, match.index)
-                .matchAll(/^export (?:interface|class|type) (\w+)/gm),
+                .matchAll(
+                    /^export (?:(?:abstract|declare|default) )*(?:interface|class|type) (\w+)/gm,
+                ),
         ];
         const container = containers.at(-1)?.[1];
         if (member && container) {
@@ -144,13 +148,20 @@ describe('versioning docs', () => {
             '     */',
             '    legacy: string;',
             '}',
+            '',
+            'export abstract class Shape {',
+            '    /** @deprecated removed in 2.0 */',
+            '    area(): number {',
+            '        return 0;',
+            '    }',
+            '}',
         ].join('\n');
         expect(
             extractRemovedIn2Declarations({
                 fileName: 'fixture.ts',
                 source: fixture,
             }),
-        ).toEqual(['oldFn', 'Box.size']);
+        ).toEqual(['oldFn', 'Box.size', 'Shape.area']);
         expect(() =>
             extractRemovedIn2Declarations({
                 fileName: 'enum-fixture.ts',

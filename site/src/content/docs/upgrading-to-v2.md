@@ -17,15 +17,15 @@ change until 2.0 ships. What semver will cover from 2.0 on is drafted in the
 
 ## Deprecated in 1.x, removed in 2.0
 
-| Deprecated | Since | Use instead | Issue |
-| --- | --- | --- | --- |
-| `DiagramOptions.width`, `DiagramOptions.height` | 1.9.0 | Size the SVG with CSS (its `viewBox` scales freely); use `PngExportOptions.scale` for PNG resolution. | [#408](https://github.com/yusufaf/sfn-diagram/issues/408) |
-| `DiagramOptions.pngQuality` | 1.10.0 | `PngExportOptions.scale`. The option has no effect on either PNG engine. | [#321](https://github.com/yusufaf/sfn-diagram/issues/321) |
-| The `html-to-image` PNG engine (`engine: 'html-to-image'`) and its `node-html-to-image` peer | 1.9.0 | The default `resvg` engine: drop the `engine` option and uninstall the peer. `PngExporter.convert` also stops taking `height` in 2.0, since only that engine used it; the PNG's aspect ratio comes from the SVG. | [#525](https://github.com/yusufaf/sfn-diagram/issues/525) |
-| `LayoutCache.get`, `LayoutCache.set`, `LayoutCache.keyFor` | 1.10.0 | Pass the cache as `cache` to a render function such as `generateSvg` and let it do the lookup. `clear()` and `stats()` stay. | [#526](https://github.com/yusufaf/sfn-diagram/issues/526) |
-| `buildViewerContent` | 1.10.0 | `generateViewerUpdate`, whose `contentHtml` is the same markup for a rendered diagram. | [#528](https://github.com/yusufaf/sfn-diagram/issues/528) |
-| `resolveViewerTheme` | 1.10.0 | No public replacement: `'light'`, `'dark'` and `'auto'` map to themselves; classify a custom theme by its `background` colour. | [#528](https://github.com/yusufaf/sfn-diagram/issues/528) |
-| The fields of `ViewerUpdate.relayoutModel` (type `RelayoutModel`, which no entry point exports): `RelayoutModel.callerOverrides`, `RelayoutModel.collapseTargets`, `RelayoutModel.diffChangedIds`, `RelayoutModel.edges`, `RelayoutModel.executionStatusByNodeId`, `RelayoutModel.nodes`, `RelayoutModel.options` | 1.10.0 | Pass `ViewerUpdate.relayoutModel` through unchanged together with `contentHtml`. The field stays in 2.0, typed opaquely. | [#528](https://github.com/yusufaf/sfn-diagram/issues/528) |
+| Deprecated | Since | Use instead |
+| --- | --- | --- |
+| `DiagramOptions.width`, `DiagramOptions.height` | 1.9.0 | Size the SVG with CSS (its `viewBox` scales freely); use `PngExportOptions.scale` for PNG resolution. ([#408](https://github.com/yusufaf/sfn-diagram/issues/408)) |
+| `DiagramOptions.pngQuality` | 1.10.0 | `PngExportOptions.scale`. The option has no effect on either PNG engine. ([#321](https://github.com/yusufaf/sfn-diagram/issues/321)) |
+| The `html-to-image` PNG engine (`engine: 'html-to-image'`) and its `node-html-to-image` peer | 1.9.0 | The default `resvg` engine: drop the `engine` option and uninstall the peer. `PngExporter.convert` also stops taking `height` in 2.0, since only that engine used it; the PNG's aspect ratio comes from the SVG. ([#525](https://github.com/yusufaf/sfn-diagram/issues/525)) |
+| `LayoutCache.get`, `LayoutCache.set`, `LayoutCache.keyFor` | 1.10.0 | Pass the cache as `cache` to a render function such as `generateSvg` and let it do the lookup. `clear()` and `stats()` stay. ([#526](https://github.com/yusufaf/sfn-diagram/issues/526)) |
+| `buildViewerContent` | 1.10.0 | `generateViewerUpdate`, whose `contentHtml` is the same markup for a rendered diagram. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
+| `resolveViewerTheme` | 1.10.0 | No public replacement: `'light'`, `'dark'` and `'auto'` map to themselves; classify a custom theme by its `background` colour. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
+| The fields of `ViewerUpdate.relayoutModel` (type `RelayoutModel`, which no entry point exports): `RelayoutModel.callerOverrides`, `RelayoutModel.collapseTargets`, `RelayoutModel.diffChangedIds`, `RelayoutModel.edges`, `RelayoutModel.executionStatusByNodeId`, `RelayoutModel.nodes`, `RelayoutModel.options` | 1.10.0 | Pass `ViewerUpdate.relayoutModel` through unchanged together with `contentHtml`. The field stays in 2.0, typed opaquely. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 
 ## Breaking changes with no 1.x warning
 
@@ -45,7 +45,8 @@ release (see [Runtime support](/compatibility/#runtime-support)).
 `typesVersions`.
 
 **What to do:** `import` is unchanged, and CommonJS `require('sfn-diagram')` keeps
-working on Node 22.12+.
+working on Node 22.12+, which can `require` ES modules. Tooling that ignores the
+`exports` map and reads `main` needs an update.
 
 - **Jest:** exempt `sfn-diagram` (and `sfn-diagram-react`) from
   `transformIgnorePatterns` so Jest transforms them. Extend the exemption you already
@@ -62,7 +63,8 @@ working on Node 22.12+.
 `ExecutionMetadataSummary` gains an `aborted` list.
 
 **What to do:** add a case, or a `default:` branch, to exhaustive switches over the
-status.
+status. From 2.0 on, the [compatibility policy](/compatibility/#output-unions-may-grow-in-a-minor)
+lets this union grow in a minor release, so a `default:` branch keeps working.
 
 ### Marker ids prefixed by default ([#527](https://github.com/yusufaf/sfn-diagram/issues/527))
 
