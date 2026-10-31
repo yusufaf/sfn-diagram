@@ -14,6 +14,11 @@ export interface ConvertParams {
      * requested `width`, so the returned {@link PngOutput.height} can differ
      * from this value if the two disagree - pass a `height` consistent with the
      * SVG's intrinsic aspect ratio when it matters.
+     *
+     * @deprecated Only the deprecated `html-to-image` engine uses it;
+     * removed in 2.0. The default `resvg` engine takes the aspect ratio from
+     * the SVG, so delete it when you upgrade to 2.0. It stays required through
+     * 1.x, so keep passing the SVG's height until then.
      */
     height: number;
     /** SVG markup string */
