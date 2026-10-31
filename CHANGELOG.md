@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.9.1...sfn-diagram-v1.10.0) (2026-10-31)
+
+
+### Features
+
+* **cli:** warn about unknown config keys ([#567](https://github.com/yusufaf/sfn-diagram/issues/567)) ([e9da831](https://github.com/yusufaf/sfn-diagram/commit/e9da831b15a8b5c0b98a95c400b0423e62fa1d4b))
+* export package.json and the config schema ([#559](https://github.com/yusufaf/sfn-diagram/issues/559)) ([d5baa1f](https://github.com/yusufaf/sfn-diagram/commit/d5baa1f81bdacdd44569d3a87a9b5b3920df8c2a))
+* **mermaid:** honour diagram options in diff and execution output ([#563](https://github.com/yusufaf/sfn-diagram/issues/563)) ([27ad93d](https://github.com/yusufaf/sfn-diagram/commit/27ad93d965605b60b5ea5511798039e7d4828d28))
+* narrow generateDiagram's return type by format ([#560](https://github.com/yusufaf/sfn-diagram/issues/560)) ([5ae35f3](https://github.com/yusufaf/sfn-diagram/commit/5ae35f34fdc7a903fe30d71770de4f51fdf0f342))
+* **svg:** add an idPrefix option for marker ids ([#565](https://github.com/yusufaf/sfn-diagram/issues/565)) ([6d4c6b7](https://github.com/yusufaf/sfn-diagram/commit/6d4c6b72ef80a2f87eeb87816a32b03388cd15e3))
+
+
+### Bug Fixes
+
+* **docker:** drop npm from the image, rebuild it weekly and scan it ([#587](https://github.com/yusufaf/sfn-diagram/issues/587)) ([5240952](https://github.com/yusufaf/sfn-diagram/commit/5240952946026e431aafe7c27d2cbfff1876913b))
+* **types:** keep the core type declarations free of the optional AWS SDK ([#557](https://github.com/yusufaf/sfn-diagram/issues/557)) ([7c04f2d](https://github.com/yusufaf/sfn-diagram/commit/7c04f2d9d8bbc627119c1c40c37b543a42d1955a))
+
 ## [1.9.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.9.0...sfn-diagram-v1.9.1) (2026-10-25)
 
 
