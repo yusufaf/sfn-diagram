@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.7.1...github-action-sfn-diagram-v1.8.0) (2026-10-31)
+
+
+### Features
+
+* **mermaid:** honour diagram options in diff and execution output ([#563](https://github.com/yusufaf/sfn-diagram/issues/563)) ([27ad93d](https://github.com/yusufaf/sfn-diagram/commit/27ad93d965605b60b5ea5511798039e7d4828d28))
+* **svg:** add an idPrefix option for marker ids ([#565](https://github.com/yusufaf/sfn-diagram/issues/565)) ([6d4c6b7](https://github.com/yusufaf/sfn-diagram/commit/6d4c6b72ef80a2f87eeb87816a32b03388cd15e3))
+
 ## [1.7.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.7.0...github-action-sfn-diagram-v1.7.1) (2026-10-25)
 
 
