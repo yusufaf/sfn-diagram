@@ -5,7 +5,7 @@ const repoRoot = resolve(__dirname, '../..');
 
 // tsconfig only includes `src`, and vitest does not type-check, so an
 // `expectTypeOf` assertion here could never fail. Run the compiler instead.
-const baseCompilerOptions: ts.CompilerOptions = {
+export const baseCompilerOptions: ts.CompilerOptions = {
     ...ts.parseJsonConfigFileContent(
         ts.readConfigFile(join(repoRoot, 'tsconfig.json'), ts.sys.readFile)
             .config,

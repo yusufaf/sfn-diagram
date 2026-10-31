@@ -114,7 +114,7 @@ writeFileSync('diagram.mmd', code);
 // Generate PNG (Node-only)
 const { buffer } = await exportPng({
   aslDefinition: asl,
-  pngQuality: 90,
+  scale: 2,
   backgroundColor: 'transparent'
 });
 writeFileSync('diagram.png', buffer);

@@ -729,10 +729,9 @@ export interface DiagramOptions {
      *
      * Has no effect on the default `resvg` engine (PNG is lossless, and resvg
      * exposes no compression knob) or on the deprecated `html-to-image`
-     * fallback engine (its `quality` option is JPEG-only). Retained for
-     * backward compatibility. Use {@link PngExportOptions.scale} to control
-     * output resolution instead.
+     * fallback engine (its `quality` option is JPEG-only).
      * @default 90
+     * @deprecated No effect; removed in 2.0. Use {@link PngExportOptions.scale} to control PNG resolution instead.
      */
     pngQuality?: number;
 
@@ -1204,7 +1203,9 @@ export interface ViewerUpdate {
     /**
      * The model for per-container collapse, present when rendered with
      * `relayout: true` and the diagram has something to collapse. Pass it to
-     * `ViewerHandle.setContent` alongside `contentHtml`.
+     * `ViewerHandle.setContent` alongside `contentHtml`. Treat it as opaque and
+     * pass it through unchanged: its fields are viewer internals, and 2.0 types
+     * this field opaquely.
      */
     relayoutModel?: RelayoutModel;
 

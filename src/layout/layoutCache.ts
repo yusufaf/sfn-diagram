@@ -60,15 +60,26 @@ export interface LayoutCacheStats {
  *
  * Created with {@link createLayoutCache} and passed to a render function. The core is
  * stateless without one, so omitting it preserves existing behaviour exactly.
+ * Callers need only {@link LayoutCache.clear} and {@link LayoutCache.stats}; render
+ * functions call the rest.
  */
 export interface LayoutCache {
     /** Drop every entry. A long-lived host should call this when a document closes. */
     clear(): void;
-    /** The cached layout for `key`, or `undefined`. Refreshes the entry's recency. */
+    /**
+     * The cached layout for `key`, or `undefined`. Refreshes the entry's recency.
+     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
+     */
     get(key: string): LayoutResult | undefined;
-    /** Build the cache key for a graph and the options it will be laid out with. */
+    /**
+     * Build the cache key for a graph and the options it will be laid out with.
+     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
+     */
     keyFor(params: LayoutCacheKeyForParams): string;
-    /** Store `value` under `key`, evicting the least recently used entry if full. */
+    /**
+     * Store `value` under `key`, evicting the least recently used entry if full.
+     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
+     */
     set(key: string, value: LayoutResult): void;
     /** Current counters. */
     stats(): LayoutCacheStats;

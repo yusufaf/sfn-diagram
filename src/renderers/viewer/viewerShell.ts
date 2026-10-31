@@ -148,6 +148,7 @@ export interface BuildViewerContentParams {
  * ```typescript
  * const contentHtml = buildViewerContent({ minimapCollapsed: true, svg });
  * ```
+ * @deprecated Viewer internal; removed in 2.0. Use `generateViewerUpdate`, whose `contentHtml` is this markup for a rendered diagram.
  */
 export function buildViewerContent(params: BuildViewerContentParams): string {
     const { collapsedMinimapCollapsed = params.minimapCollapsed, collapsedSvg, minimapCollapsed, svg } = params;
