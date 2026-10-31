@@ -1,26 +1,76 @@
 name: Deploy Docs
+run-name: Deploy Docs (${{ inputs.ref || github.event.release.tag_name || 'latest core release' }})
 
+# The site deploys from the core release tag, so the guides, the playground (which
+# imports the workspace `sfn-diagram`) and the TypeDoc reference (built from src/)
+# match what npm serves. Deploying every push to main published unreleased
+# behaviour (#479). Docs-only fixes wait for the next release, by choice; dispatch
+# with an explicit `ref` to redeploy. Release events start this workflow because
+# release-please publishes with the GitHub App token, not GITHUB_TOKEN.
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag, branch or full commit SHA to deploy. Empty deploys the latest core release.'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# Runs that deploy share `pages`. Non-core release runs get a group of their own,
+# so they can't replace a pending core run (a newer pending run cancels the older
+# one). Same condition as the build job's `if:`; keep the two in sync.
 concurrency:
-  group: pages
+  group: >-
+    ${{ (github.event_name == 'workflow_dispatch' ||
+         (startsWith(github.event.release.tag_name, 'sfn-diagram-v') &&
+          !github.event.release.prerelease))
+        && 'pages' || format('pages-skip-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   build:
     name: Build
+    # release-please publishes up to four releases per run; only the core one
+    # redeploys the site. Prereleases skip because npm `latest` doesn't move.
+    # deploy and indexnow skip with it through `needs`.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (startsWith(github.event.release.tag_name, 'sfn-diagram-v') &&
+       !github.event.release.prerelease)
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve the ref to deploy
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_REF: ${{ inputs.ref }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          REF="${RELEASE_TAG:-$INPUT_REF}"
+          if [ -z "$REF" ]; then
+            REF=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName \
+              --jq '[.[] | select(.tagName | test("^sfn-diagram-v[0-9]"))][0].tagName')
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::No core release found to deploy."
+            exit 1
+          fi
+          echo "Deploying $REF"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Ref to deploy: \`$REF\`" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
