@@ -12,6 +12,12 @@
  * Isolated from the core entry so importing `sfn-diagram` never pulls in
  * `@aws-sdk/client-sfn` or shells out to `git`.
  *
+ * Experimental: this subpath may change in a minor release. Its supported
+ * consumers are the bundled GitHub Action and the `sfn-diagram comment gitlab`
+ * CLI subcommand; pin an exact version if you build on it directly.
+ *
+ * @experimental
+ *
  * @example
  * ```ts
  * import { runGitlabComment } from 'sfn-diagram/ci';

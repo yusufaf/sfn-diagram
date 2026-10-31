@@ -60,6 +60,7 @@ function hexLuminance(color: string): number | null {
  * resolveViewerTheme({ theme: 'dark' });                        // => 'dark'
  * resolveViewerTheme({ theme: { background: '#101820', ... } }); // => 'dark'
  * ```
+ * @deprecated Viewer internal; removed in 2.0, with no public replacement. `'light'`, `'dark'` and `'auto'` map to themselves; classify a custom theme by its `background` colour yourself.
  */
 export function resolveViewerTheme(params: ResolveViewerThemeParams): ViewerTheme {
     const { theme } = params;
