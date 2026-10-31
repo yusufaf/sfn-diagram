@@ -27,11 +27,13 @@ and Docker image always use `@resvg/resvg-js` and have no engine flag.
 with the `node-html-to-image` peer. Use the default `resvg` engine. To silence the
 warning in the meantime, run Node with
 `--disable-warning=SFN_DIAGRAM_DEP_HTML_TO_IMAGE` (or `--no-deprecation` to silence
-all deprecation warnings).
+all deprecation warnings). See [Upcoming in 2.0](/upgrading-to-v2/) for everything
+else 2.0 removes.
 
 **Node versions:** core, the CLI, and PNG export via the default `resvg` engine all
 require **Node >= 20**. Only the opt-in, deprecated `html-to-image` engine raises that floor, to
-**Node >= 22.12.0**, set by `node-html-to-image` v6.
+**Node >= 22.12.0**, set by `node-html-to-image` v6. 2.0 raises the floor to
+Node >= 22.12.0 for everything; see [Upcoming in 2.0](/upgrading-to-v2/).
 
 **Syntax level:** sfn-diagram's own code behind every import path uses ES2022 syntax
 whatever the Node floor; its dependencies (`@dagrejs/dagre`, `d3-shape` and the rest)

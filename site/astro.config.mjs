@@ -163,6 +163,13 @@ export default defineConfig({
                     items: [{ autogenerate: { directory: 'ecosystem' } }],
                     label: 'Ecosystem',
                 },
+                {
+                    items: [
+                        { label: 'Compatibility policy', slug: 'compatibility' },
+                        { label: 'Upcoming in 2.0', slug: 'upgrading-to-v2' },
+                    ],
+                    label: 'Versioning',
+                },
             ],
             social: [
                 {

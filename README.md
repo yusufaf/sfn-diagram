@@ -157,6 +157,8 @@ Full documentation lives at **[sfn.yusufaf.dev](https://sfn.yusufaf.dev)**.
 - [Examples](https://sfn.yusufaf.dev/guides/examples/) — complete worked examples
 - [Use with your framework](https://sfn.yusufaf.dev/guides/frameworks/) — Next.js, Remix, SvelteKit, Astro
 - [API reference](https://sfn.yusufaf.dev/reference/) — generated from source, always current
+- [Compatibility policy](https://sfn.yusufaf.dev/compatibility/) — what semver covers from 2.0 on
+- [Upcoming in 2.0](https://sfn.yusufaf.dev/upgrading-to-v2/) — every deprecation and planned breaking change, with what to use instead
 
 Working with an AI coding agent? The docs are published as [llms.txt](https://sfn.yusufaf.dev/llms.txt), and every page is available as raw Markdown by appending `.md` to its URL.
 
