@@ -9,23 +9,38 @@ env:
   GHCR_IMAGE: ghcr.io/yusufaf/sfn-diagram
   DOCKERHUB_IMAGE: docker.io/azulaf/sfn-diagram
   DOCKERHUB_USER: azulaf
+  # One tracking issue for every failed scan, across tags and weeks: report-failure
+  # files or comments on it, and the scan job closes it on the next green scan.
+  SCAN_ISSUE_TITLE: Docker image scan is failing
 
 # One publish at a time, queued rather than cancelled. Each run reads the floating
 # tags' current targets and then moves them; two overlapping runs (a release landing
 # during a dispatch) could interleave between the read and the push and leave
 # `latest` on the older release - on ghcr.io and Docker Hub alike.
+#
+# `queue: max` because the default (`single`) cancels a pending run when another
+# one queues: a weekly or dispatch run - or a sibling component's release run, which
+# shares this group even though its jobs skip - could cancel a pending core release
+# run. actionlint 1.7.12 flags `queue` as an unknown key (rhysd/actionlint#657);
+# GitHub accepts it.
 concurrency:
   group: docker-publish
   cancel-in-progress: false
+  queue: max
 
 on:
   release:
     types: [published]
+  # Rebuilds the newest core release every week, so base-image and Debian security
+  # fixes reach the image without waiting for a release. Its tags move to a new
+  # digest each time; pin `@sha256:` to freeze an image.
+  schedule:
+    - cron: '0 9 * * 3'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Git tag to build (e.g. sfn-diagram-v0.5.0)'
-        required: true
+        description: 'Core tag to build (e.g. sfn-diagram-v1.9.1); empty builds the newest core release, as the weekly run does. Required with dockerhub_only'
+        required: false
       dockerhub_only:
         description: 'Skip the build; only copy the existing ghcr.io image to Docker Hub'
         type: boolean
@@ -44,15 +59,45 @@ jobs:
     # `dockerhub_only` skips straight to the `dockerhub` job, so re-running a failed
     # Docker Hub copy doesn't rebuild and re-push a new digest over the ghcr.io
     # version tag. `inputs` is empty on a release event, so this half is a no-op there.
-    if: (github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-'))) && !inputs.dockerhub_only
+    if: (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'sfn-diagram-v') || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '-'))) && !inputs.dockerhub_only
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tag: ${{ steps.tag.outputs.tag }}
 
     steps:
+      # Resolved inside the run, after the concurrency lock, so a weekly run queued
+      # behind a release builds that release instead of dragging `latest` back: this
+      # job moves the floating tags unconditionally. The highest semver core tag, not
+      # `releases/latest`, which can point at another component's release. The
+      # `|| true` lets an empty result reach the error below instead of pipefail
+      # stopping the step first. The shape check runs before the tag reaches
+      # $GITHUB_OUTPUT or checkout: a dispatch input with a newline could otherwise
+      # write extra outputs. It is a coarse superset of what resolve-docker-tag.mjs
+      # accepts (that script still rejects anything but a core tag), and the error
+      # never echoes the input, which could carry workflow commands.
+      - name: Pick the tag to build
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts \
+              --exclude-pre-releases --limit 100 --json tagName --jq '.[].tagName' \
+              | { grep -E '^sfn-diagram-v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n 1)"
+          fi
+          [ -n "$TAG" ] || { echo "::error::found no core release to build"; exit 1; }
+          shape='^(sfn-diagram-)?v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.]+)?$'
+          [[ "$TAG" =~ $shape ]] || { echo "::error::the tag is not a core release tag (sfn-diagram-v<semver>)"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ steps.tag.outputs.tag }}
 
       # Resolves the exact version plus its major and major.minor prefixes from
       # the tag, for both trigger types — so `docker/metadata-action` below can
@@ -68,7 +113,7 @@ jobs:
       - name: Resolve version and derived tags
         id: version
         env:
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
       # QEMU for the linux/arm64 leg, buildx because the default docker driver
@@ -119,6 +164,7 @@ jobs:
       # 10 GB quota - which ~14 other jobs share for their pnpm caches. A few
       # uncached minutes a handful of times a year is the cheaper side of that trade.
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -201,17 +247,29 @@ jobs:
       contents: read
 
     steps:
+      # The newest-release lookup lives in `docker`, which `dockerhub_only` skips, so
+      # without this an empty tag would check out main and fail inside
+      # resolve-docker-tag.mjs with a misleading issue.
+      - name: Check a tag was given
+        env:
+          TAG: ${{ needs.docker.outputs.tag || inputs.tag }}
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "::error::dockerhub_only copies an existing image, so it needs a tag (e.g. sfn-diagram-v1.9.1)"
+            exit 1
+          fi
+
       # The tag, not main, so docker-smoke.sh and the font probes it reads match the
       # image being checked.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ needs.docker.outputs.tag || inputs.tag }}
 
       # Same as the `docker` job's step (see the comment there).
       - name: Resolve version and derived tags
         id: version
         env:
-          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          TAG: ${{ needs.docker.outputs.tag || inputs.tag }}
         run: node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
       - name: Set up Buildx
@@ -315,13 +373,64 @@ jobs:
             --expect-version "$VERSION"
           docker pull --platform linux/arm64 "$DOCKERHUB_IMAGE:$VERSION"
 
+  # Notify-only by design: it scans what `docker` already pushed and does not gate
+  # `dockerhub`, so an advisory filed the day of a release can't hold back that
+  # release's image. A failure reaches report-failure. Scans the pushed digest on
+  # both platforms. `--ignore-unfixed` because Debian's will_not_fix/fix_deferred
+  # residue has no fix to take (that is #555). Trivy is pinned by digest because
+  # trivy-action and trivy v0.69.4 were compromised in March 2026, and pulled from
+  # ghcr.io rather than Docker Hub for its anonymous-pull limit.
+  scan:
+    name: Scan the published image
+    runs-on: ubuntu-latest
+    needs: docker
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Scan both platforms for fixable high and critical vulnerabilities
+        env:
+          IMAGE: ${{ env.GHCR_IMAGE }}@${{ needs.docker.outputs.digest }}
+          TRIVY: ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+        run: |
+          set -euo pipefail
+          status=0
+          for platform in linux/amd64 linux/arm64; do
+            echo "== $platform"
+            docker run --rm -v trivy-cache:/root/.cache "$TRIVY" image \
+              --image-src remote --platform "$platform" --scanners vuln \
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGE" || status=1
+          done
+          exit "$status"
+
+      # Runs only after a green scan. The token lives on this step alone, so the
+      # Trivy container never sees one. Skipped for a dispatch with an explicit tag:
+      # that may be an older release, and its green scan says nothing about the
+      # newest one, which the tracking issue is about.
+      - name: Close the scan tracking issue
+        if: ${{ !inputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.docker.outputs.tag }}
+          TITLE: ${{ env.SCAN_ISSUE_TITLE }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label docker-publish \
+            --search "$TITLE in:title" --json number,title \
+            --jq 'map(select(.title == env.TITLE)) | .[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$GITHUB_REPOSITORY" \
+              --comment "The scan of \`$TAG\` passed on both platforms: $RUN_URL"
+          fi
+
   # `docker` or `dockerhub` failing (or a verification step catching a broken image)
-  # has no human "actor" to notify - it's triggered by a release event, not a click.
-  # File an issue so a broken image can't silently sit unnoticed the way it did
-  # for three releases in a row.
+  # has no human "actor" to notify - it's triggered by a release event or the weekly
+  # schedule, not a click. File an issue so a broken image can't silently sit
+  # unnoticed the way it did for three releases in a row.
   report-failure:
     name: Report Docker publish failure
-    needs: [docker, dockerhub]
+    needs: [docker, dockerhub, scan]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
@@ -331,18 +440,41 @@ jobs:
       # The tag through env, like the resolve steps: this job runs precisely when a
       # dispatch tag failed validation, so it's the one place an unvalidated value
       # would otherwise reach a shell - one holding an `issues: write` token.
-      - name: File an issue
+      #
+      # An open issue with the same title gets a comment instead of a new issue, or
+      # the weekly run would file 52 a year. The title is matched exactly: GitHub
+      # search tokenizes, so `sfn-diagram-v1.10.1` and `sfn-diagram-v1.1.10` collide.
+      - name: File or update an issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG: ${{ needs.docker.outputs.tag || github.event.release.tag_name || inputs.tag || 'the newest core release' }}
+          EVENT: ${{ github.event_name }}
           DOCKER_RESULT: ${{ needs.docker.result }}
           DOCKERHUB_RESULT: ${{ needs.dockerhub.result }}
+          SCAN_RESULT: ${{ needs.scan.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          gh issue create \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Docker publish failed for $TAG" \
-            --label bug \
-            --body "A Docker publish job failed for \`$TAG\` (docker: $DOCKER_RESULT, dockerhub: $DOCKERHUB_RESULT). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set.
+          set -euo pipefail
+          if [ "$DOCKER_RESULT" = failure ] || [ "$DOCKERHUB_RESULT" = failure ]; then
+            TITLE="Docker publish failed for $TAG"
+            BODY="A Docker publish job failed for \`$TAG\` ($EVENT; docker: $DOCKER_RESULT, dockerhub: $DOCKERHUB_RESULT, scan: $SCAN_RESULT). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set and the same tag.
 
           Run: $RUN_URL"
+          else
+            TITLE="$SCAN_ISSUE_TITLE"
+            BODY="The scan of \`$TAG\` ($EVENT) failed. The image was published to both registries; the scan found fixable HIGH or CRITICAL vulnerabilities, or Trivy itself failed - check the log. Base-image fixes usually land with the next weekly rebuild; a fix in a package the image installs needs a release. This issue closes itself on the next green scan.
+
+          Run: $RUN_URL"
+          fi
+          export TITLE
+          gh label create docker-publish --repo "$GITHUB_REPOSITORY" --force --color ededed \
+            --description "Raised by docker.yml"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --label docker-publish \
+            --search "$TITLE in:title" --json number,title \
+            --jq 'map(select(.title == env.TITLE)) | .[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label bug \
+              --label docker-publish --body "$BODY"
+          fi

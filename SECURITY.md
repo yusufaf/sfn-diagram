@@ -65,6 +65,9 @@ through this project's own code — report those upstream. Dependabot and a week
 - The Docker image ships SLSA provenance (`mode=max`) and an SBOM. The Docker Hub
   mirror (`azulaf/sfn-diagram`) is a copy of the ghcr.io image with the same digest,
   so it carries the same attestations.
+- The newest release's Docker image is rebuilt weekly to pick up base-image security
+  fixes, and every published image is scanned with Trivy for fixable high and critical
+  vulnerabilities. A failed scan files an issue.
 - The standalone binaries carry
   [build provenance attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
   **from v1.8.0 onward**, verifiable with
