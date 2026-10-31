@@ -224,7 +224,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^2.0.0",
     "d3-shape": "^3.2.0",
-    "minimatch": "^10.0.1",
+    "minimatch": "^11.0.1",
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
