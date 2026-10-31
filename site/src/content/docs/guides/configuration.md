@@ -115,7 +115,7 @@ API-only.
 | `Route->Work#choice#1` | Exactly one edge — the qualified `GraphEdge.id`. Prefer this. |
 | `Route->Work` | Every edge from `Route` to `Work`, whatever its type. Legacy. |
 
-The bare `${from}->${to}` form is supported throughout 1.x; removal is deferred to 2.0.
+The bare `${from}->${to}` form stays supported in 2.0.
 It cannot distinguish edges that share a state pair — two `Choice` rules with the same
 `Next`, or a `Retry` self-loop beside a genuine self-transition — so it restyles all of
 them together.

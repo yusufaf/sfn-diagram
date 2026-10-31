@@ -798,7 +798,7 @@ export interface DiagramOptions {
      * - `GraphEdge.id` — `${from}->${to}#${type}#${ordinal}`, e.g. `Route->Work#choice#1`.
      *   Targets exactly one edge. Prefer this.
      * - `${from}->${to}` — legacy, broad-matches *every* edge between that pair. Kept
-     *   for backwards compatibility through 1.x; removal is deferred to 2.0.
+     *   for backwards compatibility; 2.0 keeps it too.
      *
      * When both match an edge, the qualified key is merged on top of the bare one.
      * `from` and `to` are node ids, so a state name holding a character XML 1.0 forbids
