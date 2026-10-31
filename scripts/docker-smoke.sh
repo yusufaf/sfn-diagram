@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Smoke-test a sfn-diagram container image: that it runs, renders an SVG from
-# stdin, ships the font the PNG engine actually probes for, and produces real PNG
-# bytes. Optionally that it reports an expected --version.
+# stdin, ships the font the PNG engine actually probes for, ships no package
+# manager, and produces real PNG bytes. Optionally that it reports an expected
+# --version.
 #
 # One copy of this used to live in .github/workflows/docker.yml (against the pushed
 # ghcr.io image) and another in .github/workflows/unit-test.yml (against the image
@@ -106,6 +107,17 @@ fi
 [ -n "$font_path" ] || fail "scripts/font-probes.mjs printed no font path for linux"
 "$docker" run --rm --entrypoint sh "$image" -c "test -f '$font_path'" ||
     fail "image is missing $font_path - resvg would render text-free diagrams"
+
+# #554: node:24-slim bundles npm, corepack and yarn. The runtime never runs them,
+# and npm's own node_modules carried every node-pkg finding the image scans reported.
+echo "== no package manager ships in the image"
+if ! leftovers="$("$docker" run --rm --entrypoint sh "$image" -c \
+    'for tool in npm npx corepack yarn yarnpkg; do command -v "$tool"; done
+     ls -d /usr/local/lib/node_modules/* /opt/yarn-* 2>/dev/null; true')"; then
+    fail "could not list package managers in the image"
+fi
+[ -z "$leftovers" ] ||
+    fail "image still ships a package manager: $(printf '%s' "$leftovers" | tr '\n' ' ')"
 
 # #153: the image advertised --format png for three releases while the PNG engine
 # was absent from node_modules. Assert real PNG bytes, not just an exit code.

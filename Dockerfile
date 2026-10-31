@@ -55,12 +55,22 @@ RUN pnpm install --prod --frozen-lockfile --ignore-scripts \
 FROM node:24-slim
 ENV NODE_ENV=production
 
+# `upgrade`: the base's Debian packages lag security fixes between base rebuilds
+# (#554 found a fixed openssl CVE still in the published image). The rm drops the
+# npm, corepack and yarn that node:24-slim bundles: the runtime never runs them,
+# and npm's own node_modules carried every node-pkg finding the scans reported.
+# Deleting in a later layer clears those findings but does not shrink the image;
+# a smaller base is #555.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
         fonts-liberation \
         ca-certificates \
         dumb-init \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+        /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+        /opt/yarn-v* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
