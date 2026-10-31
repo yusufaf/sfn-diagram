@@ -75,8 +75,9 @@ jobs:
       # `|| true` lets an empty result reach the error below instead of pipefail
       # stopping the step first. The shape check runs before the tag reaches
       # $GITHUB_OUTPUT or checkout: a dispatch input with a newline could otherwise
-      # write extra outputs. It is the same shape resolve-docker-tag.mjs accepts, and
-      # the error never echoes the input, which could carry workflow commands.
+      # write extra outputs. It is a coarse superset of what resolve-docker-tag.mjs
+      # accepts (that script still rejects anything but a core tag), and the error
+      # never echoes the input, which could carry workflow commands.
       - name: Pick the tag to build
         id: tag
         env:
