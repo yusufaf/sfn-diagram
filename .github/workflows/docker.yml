@@ -73,7 +73,9 @@ jobs:
       # job moves the floating tags unconditionally. The highest semver core tag, not
       # `releases/latest`, which can point at another component's release. The
       # `|| true` lets an empty result reach the error below instead of pipefail
-      # stopping the step first.
+      # stopping the step first. The character check runs before the tag reaches
+      # $GITHUB_OUTPUT or checkout: a dispatch input with a newline could otherwise
+      # write extra outputs. resolve-docker-tag.mjs still validates the shape later.
       - name: Pick the tag to build
         id: tag
         env:
@@ -87,6 +89,7 @@ jobs:
               | { grep -E '^sfn-diagram-v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n 1)"
           fi
           [ -n "$TAG" ] || { echo "::error::found no core release to build"; exit 1; }
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
@@ -398,8 +401,11 @@ jobs:
           exit "$status"
 
       # Runs only after a green scan. The token lives on this step alone, so the
-      # Trivy container never sees one.
+      # Trivy container never sees one. Skipped for a dispatch with an explicit tag:
+      # that may be an older release, and its green scan says nothing about the
+      # newest one, which the tracking issue is about.
       - name: Close the scan tracking issue
+        if: ${{ !inputs.tag }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.docker.outputs.tag }}
