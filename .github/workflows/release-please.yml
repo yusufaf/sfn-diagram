@@ -44,6 +44,27 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      # GitHub marks whichever release was published last as "Latest", and
+      # release-please publishes the components one after another, so the Action
+      # or an extension release otherwise takes the badge (and /releases/latest)
+      # from core. Runs for component-only releases too, re-marking the newest
+      # core release.
+      - name: Keep the core release marked Latest
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          CORE_TAG: ${{ steps.release.outputs.tag_name }}
+        run: |
+          if [ -z "$CORE_TAG" ]; then
+            CORE_TAG=$(gh release list --exclude-drafts --exclude-pre-releases --limit 100 --json tagName \
+              --jq '[.[] | select(.tagName | startswith("sfn-diagram-v"))][0].tagName')
+          fi
+          if [ -z "$CORE_TAG" ]; then
+            echo "::warning::No core release found to mark as Latest."
+            exit 0
+          fi
+          gh release edit "$CORE_TAG" --latest
 
   # Publish to npm when merging the release PR cut a release, or when manually
   # dispatched for a specific tag. Uses npm Trusted Publisher (OIDC) —
