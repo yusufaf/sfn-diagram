@@ -66,6 +66,12 @@ const containerlessAsl = (comment: string) =>
         States: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } },
     })
 
+const namedStateAsl = (stateName: string) =>
+    JSON.stringify({
+        StartAt: stateName,
+        States: { [stateName]: { Type: 'Pass', Next: 'Done' }, Done: { Type: 'Succeed' } },
+    })
+
 let fake: FakePanel
 
 function open(aslContent: string): void {
@@ -75,6 +81,10 @@ function open(aslContent: string): void {
 function edit(aslContent: string): void {
     DiagramPanel.currentPanel!.scheduleRefresh(aslContent)
     vi.runOnlyPendingTimers()
+}
+
+function typeWithoutWaiting(aslContent: string): void {
+    DiagramPanel.currentPanel!.scheduleRefresh(aslContent)
 }
 
 describe('DiagramPanel edits', () => {
@@ -116,6 +126,46 @@ describe('DiagramPanel edits', () => {
         edit(parallelAsl('v2'))
 
         expect(fake.htmls).toHaveLength(2)
+        expect(fake.posts).toHaveLength(0)
+    })
+})
+
+describe('DiagramPanel settings changes', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+        fake = createFakePanel()
+        mocked.panel = fake.panel
+    })
+
+    afterEach(() => {
+        DiagramPanel.currentPanel?.dispose()
+        vi.useRealTimers()
+    })
+
+    it('renders the edit in progress when a setting changes before the debounce fires', () => {
+        open(namedStateAsl('BeforeTyping'))
+        typeWithoutWaiting(namedStateAsl('TypedState'))
+        DiagramPanel.currentPanel!.applySettings({
+            colorScheme: 'dark',
+            settings: { ...DEFAULT_SETTINGS, showIcons: true },
+        })
+        vi.runOnlyPendingTimers()
+
+        expect(fake.htmls).toHaveLength(2)
+        expect(fake.htmls[fake.htmls.length - 1]).toContain('TypedState')
+        expect(fake.htmls[fake.htmls.length - 1]).not.toContain('BeforeTyping')
+        expect(fake.posts).toHaveLength(0)
+    })
+
+    it('renders the edit in progress when the color theme changes before the debounce fires', () => {
+        open(namedStateAsl('BeforeTyping'))
+        typeWithoutWaiting(namedStateAsl('TypedState'))
+        DiagramPanel.currentPanel!.applySettings({ colorScheme: 'light', settings: DEFAULT_SETTINGS })
+        vi.runOnlyPendingTimers()
+
+        expect(fake.htmls).toHaveLength(2)
+        expect(fake.htmls[fake.htmls.length - 1]).toContain('TypedState')
+        expect(fake.htmls[fake.htmls.length - 1]).not.toContain('BeforeTyping')
         expect(fake.posts).toHaveLength(0)
     })
 })
