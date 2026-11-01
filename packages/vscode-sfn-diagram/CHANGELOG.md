@@ -4,6 +4,14 @@ All notable changes to the Step Functions Diagram VS Code extension are document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.2](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.3.1...vscode-sfn-diagram-v0.3.2) (2026-11-01)
+
+
+### Bug Fixes
+
+* **vscode:** keep per-container collapse after editing the diagram ([#592](https://github.com/yusufaf/sfn-diagram/issues/592)) ([98acba8](https://github.com/yusufaf/sfn-diagram/commit/98acba885e8f3d32a88244d359d4f1470ce145a2))
+* **vscode:** keep the edit in progress when a setting or theme changes ([#594](https://github.com/yusufaf/sfn-diagram/issues/594)) ([383e3b6](https://github.com/yusufaf/sfn-diagram/commit/383e3b6a225f8b78f5ae9f113c19df6c01b7f9d6))
+
 ## [0.3.1](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.3.0...vscode-sfn-diagram-v0.3.1) (2026-10-24)
 
 
