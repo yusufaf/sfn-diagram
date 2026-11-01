@@ -74,7 +74,7 @@ function open(aslContent: string): void {
 
 function edit(aslContent: string): void {
     DiagramPanel.currentPanel!.scheduleRefresh(aslContent)
-    vi.advanceTimersByTime(200)
+    vi.runOnlyPendingTimers()
 }
 
 describe('DiagramPanel edits', () => {

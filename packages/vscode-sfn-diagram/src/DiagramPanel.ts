@@ -228,6 +228,7 @@ export class DiagramPanel {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             this._panel.webview.html = buildErrorDocument({ cspSource, message, nonce })
+            this._hasCollapsedView = false
             this._showingError = true
         }
     }
