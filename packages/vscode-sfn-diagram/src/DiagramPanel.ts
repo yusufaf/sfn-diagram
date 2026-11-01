@@ -54,7 +54,7 @@ export class DiagramPanel {
      * pending. `_lastContent` only advances once that debounce actually fires (or a
      * full `update()` runs), so anything reading "the current truth" between a
      * keystroke and its debounced refresh - the toolbar message handler below,
-     * `setHistory` - must prefer this over `_lastContent` or it renders stale,
+     * `setHistory`, `applySettings` - must prefer this over `_lastContent` or it renders stale,
      * pre-keystroke content and (via `update`'s `cancel()`) drops the pending edit
      * entirely rather than just deferring it.
      */
@@ -164,7 +164,7 @@ export class DiagramPanel {
         if (!this._themeOverridden) {
             this._theme = diagramOptions.theme
         }
-        this.update(this._lastContent)
+        this.update(this.currentContent())
     }
 
     /**
