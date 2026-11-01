@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateExecution } from 'sfn-diagram'
-import { hasCollapseToggle, renderPreview, renderPreviewUpdate } from './render'
+import { hasCollapseToggle, needsFullRender, renderPreview, renderPreviewUpdate } from './render'
 
 const simpleAsl = JSON.stringify({
     StartAt: 'A',
@@ -134,17 +134,81 @@ describe('renderPreviewUpdate', () => {
             theme: 'light',
         })
         expect(update.hasCollapsedView).toBe(false)
+        expect(update.relayoutModel).toBeUndefined()
     })
 
-    it('reports hasCollapsedView parity with renderPreview', () => {
-        const preview = renderPreview({ aslContent: parallelAsl, layout: 'TB', nonce: 'n1', theme: 'dark' })
+    it('renders a container diagram for per-container collapse, not the two-view toggle', () => {
         const update = renderPreviewUpdate({ aslContent: parallelAsl, layout: 'TB', theme: 'dark' })
-        expect(update.hasCollapsedView).toBe(preview.hasCollapsedView)
+        expect(update.relayoutModel).toBeDefined()
+        expect(update.contentHtml).toContain('data-sfn-collapse-target="FanOut"')
+        expect(update.contentHtml).not.toContain('data-sfn-view="collapsed"')
+        expect(update.hasCollapsedView).toBe(false)
+    })
+
+    it('carries no relayout model for a diagram with nothing to collapse', () => {
+        const update = renderPreviewUpdate({ aslContent: simpleAsl, layout: 'TB', theme: 'dark' })
+        expect(update.relayoutModel).toBeUndefined()
+    })
+
+    it('ships a relayout model exactly when the full render has a collapse toggle', () => {
+        const cases = [
+            { aslContent: parallelAsl },
+            { aslContent: simpleAsl },
+            { aslContent: parallelAsl, collapse: false },
+        ]
+        for (const options of cases) {
+            const preview = renderPreview({ ...options, layout: 'TB', nonce: 'n1', theme: 'dark' })
+            const update = renderPreviewUpdate({ ...options, layout: 'TB', theme: 'dark' })
+            expect(update.relayoutModel !== undefined).toBe(preview.hasCollapsedView)
+        }
     })
 
     it('throws on malformed JSON input', () => {
         expect(() =>
             renderPreviewUpdate({ aslContent: '{not valid json', layout: 'TB', theme: 'dark' }),
         ).toThrow()
+    })
+})
+
+describe('needsFullRender', () => {
+    const documentHasCollapseToggle = (aslContent: string): boolean =>
+        renderPreview({ aslContent, layout: 'TB', nonce: 'n1', theme: 'dark' }).hasCollapsedView
+    const update = (aslContent: string) => renderPreviewUpdate({ aslContent, layout: 'TB', theme: 'dark' })
+    const editedParallelAsl = parallelAsl.replace(/"Done"/g, '"Finished"')
+
+    it('is true when an edit gives the first container to a document rendered without one', () => {
+        expect(
+            needsFullRender({
+                documentHasCollapseToggle: documentHasCollapseToggle(simpleAsl),
+                update: update(parallelAsl),
+            }),
+        ).toBe(true)
+    })
+
+    it('is false for an edit to a container diagram whose document has the toggle', () => {
+        expect(
+            needsFullRender({
+                documentHasCollapseToggle: documentHasCollapseToggle(parallelAsl),
+                update: update(editedParallelAsl),
+            }),
+        ).toBe(false)
+    })
+
+    it('is false when an edit removes the containers from a document that has the toggle', () => {
+        expect(
+            needsFullRender({
+                documentHasCollapseToggle: documentHasCollapseToggle(parallelAsl),
+                update: update(simpleAsl),
+            }),
+        ).toBe(false)
+    })
+
+    it('is false for an edit to a diagram that never had a container', () => {
+        expect(
+            needsFullRender({
+                documentHasCollapseToggle: documentHasCollapseToggle(simpleAsl),
+                update: update(simpleAsl),
+            }),
+        ).toBe(false)
     })
 })

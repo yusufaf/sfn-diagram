@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { ViewerUpdate } from 'sfn-diagram'
 import { buildRenderErrorMessage, buildUpdateContentMessage } from './messages'
+import { renderPreviewUpdate } from './render'
+
+const parallelAsl = JSON.stringify({
+    StartAt: 'FanOut',
+    States: {
+        FanOut: {
+            Type: 'Parallel',
+            Branches: [
+                { StartAt: 'Branch1', States: { Branch1: { Type: 'Pass', End: true } } },
+                { StartAt: 'Branch2', States: { Branch2: { Type: 'Pass', End: true } } },
+            ],
+            End: true,
+        },
+    },
+})
 
 const update: ViewerUpdate = {
     contentHtml: '<svg>diagram</svg>',
@@ -26,6 +41,14 @@ describe('buildUpdateContentMessage', () => {
         const message = buildUpdateContentMessage({ update })
         expect(message).not.toHaveProperty('metadata')
         expect(message).not.toHaveProperty('hasCollapsedView')
+        expect(message).not.toHaveProperty('relayoutModel')
+    })
+
+    it('carries the relayout model when the update has one', () => {
+        const parallelUpdate = renderPreviewUpdate({ aslContent: parallelAsl, layout: 'TB', theme: 'dark' })
+        const message = buildUpdateContentMessage({ update: parallelUpdate })
+        expect(message.relayoutModel).toBeDefined()
+        expect(message.relayoutModel).toBe(parallelUpdate.relayoutModel)
     })
 })
 

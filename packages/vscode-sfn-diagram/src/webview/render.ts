@@ -10,10 +10,11 @@ export interface HasCollapseToggleParams {
 
 /**
  * Whether a rendered viewer document embeds a collapse toggle - i.e. the diagram has a
- * Parallel/Map container worth collapsing. Used to detect when a debounced refresh must
- * fall back to a full document replace: the toggle button lives in the toolbar chrome,
- * outside the `data-sfn="content"` node `ViewerHandle.setContent` patches, so gaining or
- * losing one mid-edit can't be handled by an incremental update alone.
+ * Parallel/Map container worth collapsing. In a full render the toggle is present
+ * exactly when the document also ships the relayout bundle that per-container collapse
+ * runs on. Both live in the document chrome, outside the `data-sfn="content"` node
+ * `ViewerHandle.setContent` patches, so a document opened without them can't gain
+ * per-container collapse from an incremental update. See {@link needsFullRender}.
  *
  * @param params - Detection parameters
  * @returns Whether `html` contains the collapse-toggle hook
@@ -31,11 +32,7 @@ export function hasCollapseToggle(params: HasCollapseToggleParams): boolean {
 export interface RenderPreviewParams {
     /** ASL definition, as a JSON string (matches what the editor buffer holds). */
     aslContent: string
-    /**
-     * Collapse selection forwarded to the underlying renderer. Omit for its default.
-     * Has no effect when `history` is set - `generateExecutionHtml` does not yet
-     * support `collapse` (see its JSDoc `@remarks`).
-     */
+    /** Collapse selection forwarded to the underlying renderer, execution overlay included. Omit for its default. */
     collapse?: boolean
     /**
      * Raw execution-history JSON. When present, renders the execution overlay via
@@ -128,6 +125,11 @@ export interface RenderPreviewUpdateParams {
  * and no `history`: the execution-overlay path stays on the full-document render via
  * {@link renderPreview}.
  *
+ * The content is rendered for per-container collapse, like the full document: a
+ * diagram with a Parallel/Map container gets one view with header controls plus a
+ * `relayoutModel`, not the older expanded/collapsed view pair. That only works in a
+ * document that shipped the relayout bundle; see {@link needsFullRender}.
+ *
  * @param params - Render parameters
  * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it
  * @throws {SyntaxError} If `aslContent` is not valid JSON
@@ -146,8 +148,49 @@ export function renderPreviewUpdate(params: RenderPreviewUpdateParams): ViewerUp
     return generateViewerUpdate({
         aslDefinition: aslContent,
         layout,
+        relayout: true,
         theme,
         ...collapseOption,
         ...showIconsOption,
     })
+}
+
+/** Parameters for {@link needsFullRender}. */
+export interface NeedsFullRenderParams {
+    /** Whether the open document embeds a collapse toggle, from its last full render. See {@link hasCollapseToggle}. */
+    documentHasCollapseToggle: boolean
+    /** The debounced edit's freshly-rendered content, from {@link renderPreviewUpdate}. */
+    update: ViewerUpdate
+}
+
+/**
+ * Whether a debounced edit must replace the whole preview document instead of patching
+ * its diagram in place.
+ *
+ * Per-container collapse runs on a relayout bundle that only a full render ships. An
+ * edit that gives a diagram its first container produces an update with a
+ * `relayoutModel`, but a document opened without a container has no bundle or toggle to
+ * use it with, so the viewer would strip the header controls. Only that case needs a
+ * full render. A document that has the bundle keeps it across any number of patches, so
+ * an edit that removes every container and a later one that restores them both patch.
+ *
+ * @param params - The open document's state and the edit's update
+ * @returns `true` when the update carries a relayout model the open document can't use
+ *
+ * @example
+ * ```typescript
+ * const update = renderPreviewUpdate({ aslContent, layout: 'TB', theme: 'dark' })
+ * if (needsFullRender({ documentHasCollapseToggle, update })) {
+ *     // re-render with renderPreview
+ * } else {
+ *     webview.postMessage(buildUpdateContentMessage({ update }))
+ * }
+ * ```
+ *
+ * @remarks `documentHasCollapseToggle` must come from the last full render only. A patch
+ * never adds or removes the bundle, so updating the flag from a patch would make the next
+ * edit to a container diagram fall back to a full render for no reason.
+ */
+export function needsFullRender(params: NeedsFullRenderParams): boolean {
+    return params.update.relayoutModel !== undefined && !params.documentHasCollapseToggle
 }

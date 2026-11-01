@@ -7,6 +7,8 @@ export interface UpdateContentMessage {
     edgeData: ViewerUpdate['edgeData']
     /** Mermaid for the new diagram, so the viewer's copy button does not go stale. */
     mermaid: ViewerUpdate['mermaid']
+    /** The per-container collapse model, present when the diagram has a container. Pass it through unchanged. */
+    relayoutModel?: ViewerUpdate['relayoutModel']
     stateData: ViewerUpdate['stateData']
 }
 
@@ -45,6 +47,7 @@ export function buildUpdateContentMessage(params: BuildUpdateContentMessageParam
         contentHtml: update.contentHtml,
         edgeData: update.edgeData,
         mermaid: update.mermaid,
+        ...(update.relayoutModel ? { relayoutModel: update.relayoutModel } : {}),
         stateData: update.stateData,
     }
 }

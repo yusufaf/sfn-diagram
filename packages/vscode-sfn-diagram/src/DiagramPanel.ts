@@ -5,7 +5,7 @@ import { buildErrorDocument } from './webview/errorDocument'
 import { buildRenderErrorMessage, buildUpdateContentMessage } from './webview/messages'
 import { createNonce } from './webview/nonce'
 import { buildPreviewDocument } from './webview/previewDocument'
-import { renderPreview, renderPreviewUpdate } from './webview/render'
+import { needsFullRender, renderPreview, renderPreviewUpdate } from './webview/render'
 import { toDiagramOptions } from './settings'
 import type { ResolvedTheme, SfnDiagramSettings } from './settings'
 
@@ -38,7 +38,11 @@ export class DiagramPanel {
     private _lastContent = ''
     /** Raw execution-history JSON (kept as a string per the ExecutionHistoryInput type gotcha). */
     private _history: string | undefined
-    /** Whether the last successfully rendered document embeds a collapse toggle. */
+    /**
+     * Whether the document from the last full render embeds a collapse toggle, and so the
+     * relayout bundle. Set only by `update()`: a patch replaces the diagram, not the
+     * document chrome that ships the bundle.
+     */
     private _hasCollapsedView = false
     /** Whether the webview is currently showing the error document, not a diagram. */
     private _showingError = false
@@ -224,6 +228,7 @@ export class DiagramPanel {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             this._panel.webview.html = buildErrorDocument({ cspSource, message, nonce })
+            this._hasCollapsedView = false
             this._showingError = true
         }
     }
@@ -266,10 +271,10 @@ export class DiagramPanel {
     /**
      * Render a debounced keystroke's content and patch it into the live viewer.
      * Falls back to a full {@link update} when the diagram is showing an execution
-     * overlay or the error document, when rendering fails, or when the diagram just
-     * gained a collapse toggle it didn't have a moment ago (the toolbar's toggle
-     * button lives outside the `data-sfn="content"` node an incremental update
-     * patches, so a genuinely new button can't be added that way - see webview/render.ts).
+     * overlay or the error document, when rendering fails, or when the edit gives a
+     * diagram its first container but the open document was rendered without one, so
+     * it has no relayout bundle or toggle for a patch to use (see `needsFullRender` in
+     * webview/render.ts).
      */
     private _performRefresh(aslContent: string) {
         if (this._history !== undefined || this._showingError) {
@@ -285,11 +290,10 @@ export class DiagramPanel {
                 showIcons: this._showIcons,
                 theme: this._theme,
             })
-            if (update.hasCollapsedView && !this._hasCollapsedView) {
+            if (needsFullRender({ documentHasCollapseToggle: this._hasCollapsedView, update })) {
                 this.update(aslContent)
                 return
             }
-            this._hasCollapsedView = update.hasCollapsedView
             void this._panel.webview.postMessage(buildUpdateContentMessage({ update }))
         } catch (err) {
             void this._panel.webview.postMessage(buildRenderErrorMessage({ error: err }))
