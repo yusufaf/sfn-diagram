@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     buildSquashMessage,
@@ -57,6 +59,71 @@ describe('checkReleaseMessage', () => {
         const result = checkReleaseMessage({ message: 'Update stuff' });
         expect(result.ok).toBe(false);
     });
+
+    it('fails a breaking marker that only sits in a commit bullet', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it',
+        });
+        expect(result).toMatchObject({ breakingDropped: true, ok: false });
+    });
+
+    it('passes a dropped bullet marker when the PR body carries a BEGIN_COMMIT_OVERRIDE block', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it',
+            prBody: 'Notes.\n\nBEGIN_COMMIT_OVERRIDE\nfeat(parser): t\nEND_COMMIT_OVERRIDE',
+        });
+        expect(result).toMatchObject({ breakingDropped: false, ok: true });
+    });
+
+    it('passes a bullet whose BREAKING CHANGE footer release-please reads', () => {
+        const result = checkReleaseMessage({
+            message: 'feat: t (#600)\n\n* feat!: y\n\nBREAKING CHANGE: z\n\n* test: b',
+        });
+        expect(result).toMatchObject({ breakingDropped: false, ok: true });
+    });
+
+    it('passes a docs commit that quotes an indented footer example', () => {
+        const result = checkReleaseMessage({
+            message:
+                'docs: explain footers (#601)\n\nWrite it as:\n\n    BREAKING CHANGE: <migration>\n\nin the body.',
+        });
+        expect(result.ok).toBe(true);
+    });
+
+    it('passes a breaking PR title over plain bullets', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser)!: remove x (#600)\n\n* refactor: a\n\n* test: b',
+        });
+        expect(result.ok).toBe(true);
+    });
+
+    it('passes a single breaking commit with a footer', () => {
+        const result = checkReleaseMessage({ message: 'feat!: x\n\nBREAKING CHANGE: y' });
+        expect(result.ok).toBe(true);
+    });
+
+    it('exits 1 with the breaking-change hint when run as a script', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'release-message-'));
+        try {
+            const file = join(dir, 'message.txt');
+            writeFileSync(file, 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it');
+            const script = resolve(__dirname, '../../scripts/check-release-message.mjs');
+            const run = spawnSync(process.execPath, [script, '--message-file', file], {
+                encoding: 'utf8',
+                timeout: 30_000,
+            });
+            // Asserted together so a crash or spawn failure shows its stderr and error.
+            expect({ error: run.error, status: run.status, stderr: run.stderr }).toMatchObject({
+                error: undefined,
+                status: 1,
+                stderr: expect.stringContaining('release-please would drop this breaking change'),
+            });
+            expect(run.stderr).toContain('Put `!` in the PR title');
+            expect(run.stderr).not.toContain('cannot parse');
+        } finally {
+            rmSync(dir, { force: true, recursive: true });
+        }
+    }, 30_000);
 });
 
 describe('buildSquashMessage', () => {

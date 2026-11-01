@@ -16,7 +16,8 @@
     },
     "packages/github-action-sfn-diagram": {
       "component": "github-action-sfn-diagram",
-      "release-type": "node"
+      "release-type": "node",
+      "versioning": "always-bump-minor"
     },
     "packages/sfn-diagram-react": {
       "component": "sfn-diagram-react",

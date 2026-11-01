@@ -353,7 +353,9 @@ describe('generateSvg', () => {
    - `chore:` - Maintenance tasks
 
    Append `!` (or a `BREAKING CHANGE:` footer) for a breaking change, which release-please
-   turns into a MAJOR bump.
+   turns into a MAJOR bump. PRs are squash-merged, so the `!` must be on the squash subject:
+   the PR title when the PR has several commits, or the commit itself when it has one. A `!`
+   on one commit of a multi-commit PR is dropped.
 
 5. **Create Pull Request**:
    - Provide clear description of changes
