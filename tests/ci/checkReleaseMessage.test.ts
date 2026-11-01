@@ -110,15 +110,20 @@ describe('checkReleaseMessage', () => {
             const script = resolve(__dirname, '../../scripts/check-release-message.mjs');
             const run = spawnSync(process.execPath, [script, '--message-file', file], {
                 encoding: 'utf8',
+                timeout: 30_000,
             });
-            expect(run.status).toBe(1);
-            expect(run.stderr).toContain('release-please would drop this breaking change');
+            // Asserted together so a crash or spawn failure shows its stderr and error.
+            expect({ error: run.error, status: run.status, stderr: run.stderr }).toMatchObject({
+                error: undefined,
+                status: 1,
+                stderr: expect.stringContaining('release-please would drop this breaking change'),
+            });
             expect(run.stderr).toContain('Put `!` in the PR title');
             expect(run.stderr).not.toContain('cannot parse');
         } finally {
             rmSync(dir, { force: true, recursive: true });
         }
-    });
+    }, 30_000);
 });
 
 describe('buildSquashMessage', () => {
