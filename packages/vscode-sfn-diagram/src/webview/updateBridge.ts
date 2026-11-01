@@ -5,6 +5,7 @@
  *
  * `updateContent` is re-dispatched as an `sfn-set-content` `CustomEvent` on `document`,
  * which the inlined viewer controller (`viewerScript.ts`, in `sfn-diagram`) listens for.
+ * Its `relayoutModel` goes along unchanged, so per-container collapse survives the patch.
  * `renderError` toggles a `[data-host="status"]` element's text and visibility; a later
  * `updateContent` clears it, since a successful refresh means whatever was wrong got fixed.
  *
@@ -34,6 +35,7 @@ export function buildUpdateBridgeScript(): string {
           contentHtml: message.contentHtml,
           edgeData: message.edgeData,
           mermaid: message.mermaid,
+          relayoutModel: message.relayoutModel,
           stateData: message.stateData,
         },
       }));
