@@ -57,6 +57,48 @@ describe('checkReleaseMessage', () => {
         const result = checkReleaseMessage({ message: 'Update stuff' });
         expect(result.ok).toBe(false);
     });
+
+    it('fails a breaking marker that only sits in a commit bullet', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it',
+        });
+        expect(result).toMatchObject({ breakingDropped: true, ok: false });
+    });
+
+    it('passes a dropped bullet marker when the PR body carries a BEGIN_COMMIT_OVERRIDE block', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it',
+            prBody: 'Notes.\n\nBEGIN_COMMIT_OVERRIDE\nfeat(parser): t\nEND_COMMIT_OVERRIDE',
+        });
+        expect(result).toMatchObject({ breakingDropped: false, ok: true });
+    });
+
+    it('passes a bullet whose BREAKING CHANGE footer release-please reads', () => {
+        const result = checkReleaseMessage({
+            message: 'feat: t (#600)\n\n* feat!: y\n\nBREAKING CHANGE: z\n\n* test: b',
+        });
+        expect(result).toMatchObject({ breakingDropped: false, ok: true });
+    });
+
+    it('passes a docs commit that quotes an indented footer example', () => {
+        const result = checkReleaseMessage({
+            message:
+                'docs: explain footers (#601)\n\nWrite it as:\n\n    BREAKING CHANGE: <migration>\n\nin the body.',
+        });
+        expect(result.ok).toBe(true);
+    });
+
+    it('passes a breaking PR title over plain bullets', () => {
+        const result = checkReleaseMessage({
+            message: 'feat(parser)!: remove x (#600)\n\n* refactor: a\n\n* test: b',
+        });
+        expect(result.ok).toBe(true);
+    });
+
+    it('passes a single breaking commit with a footer', () => {
+        const result = checkReleaseMessage({ message: 'feat!: x\n\nBREAKING CHANGE: y' });
+        expect(result.ok).toBe(true);
+    });
 });
 
 describe('buildSquashMessage', () => {

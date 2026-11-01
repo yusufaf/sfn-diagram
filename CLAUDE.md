@@ -194,13 +194,54 @@ The root `.` component would otherwise claim every commit in the repo, so it dec
 **every** file it touches falls under an excluded path — a commit spanning both a
 subpackage and root files still bumps core.
 
-That makes **PR titles load-bearing**: a merge commit inherits its PR title as its
-conventional-commit subject, and that merge commit touches every file in the PR. A PR
-that changes a subpackage *and* root files (workflows, root README, release config)
-must be titled `ci:`, `chore:`, or `docs:` — never `feat:` — or it silently
-minor-bumps `sfn-diagram` with a changelog entry describing subpackage work. Splitting
-the work into per-path commits is not enough on its own; the merge commit still spans
-both.
+PRs are squash-merged, so each PR lands as one commit that touches every file in it, and
+that commit's subject is the conventional commit release-please reads. Under the repo's
+squash settings the subject is:
+
+- the **PR title** for a PR with two or more commits. Each commit message becomes a `* `
+  bullet in the body. release-please ignores a bullet's `type:` / `type!:` header, but
+  still reads a `BREAKING CHANGE:` footer anywhere in the body, so a stray footer in an
+  intermediate commit makes the whole PR a MAJOR bump.
+- the **commit's own message** for a single-commit PR. The PR title is ignored.
+
+A PR that changes a subpackage *and* root files (workflows, root README, release config)
+must therefore land with a `ci:`, `chore:`, or `docs:` subject, never `feat:`. Otherwise it
+silently minor-bumps `sfn-diagram` with a changelog entry that describes subpackage work.
+Splitting the work into per-path commits doesn't help, because the squash merges them back
+into one commit. Split it into separate PRs instead.
+
+### Breaking changes
+
+- Put the `!` on the squash subject (see above): in the PR title for a multi-commit PR, or
+  in the commit for a single-commit PR. A `!` on one commit of a multi-commit PR lands in a
+  body bullet and is dropped, so there is no MAJOR bump and no changelog note. The
+  `Release Message` check fails a PR like that. To keep it non-breaking on purpose, add a
+  `BEGIN_COMMIT_OVERRIDE` block to the PR body.
+- Merge with an explicit footer that carries the one-line migration:
+  `gh pr merge <n> --squash --subject "<type>(<scope>)!: <subject> (#<n>)" --body "BREAKING CHANGE: <migration>"`.
+  An explicit `--subject` drops GitHub's automatic ` (#<n>)`, so type it yourself. The
+  `Release Message` check only sees GitHub's default message. Check the one you will pass
+  with `pnpm run check:release-message --message-file <file> --body-file <pr-body>`, where
+  the message file holds the subject, a blank line, then the body. If the PR body has a
+  `BEGIN_COMMIT_OVERRIDE` block, release-please reads that block instead of the merge
+  message, so the `!` and the `BREAKING CHANGE:` footer must go inside the block.
+- Work that spans core and a subpackage is split: the core PR first, then
+  `feat(react)` / `feat(vscode)` PRs that touch only their own paths.
+- After the first breaking merge, run
+  `pnpm exec release-please release-pr --dry-run --repo-url yusufaf/sfn-diagram --token "$(gh auth token)"`
+  and confirm the change is listed under "⚠ BREAKING CHANGES".
+- Once a `!` commit is on `main`, the combined release PR proposes the next core major, and
+  merging it to ship *any* component ships that major too. Ship pending subpackage
+  releases first.
+- **Action held on 1.x (2.0 window, #529):** the Action package has
+  `"versioning": "always-bump-minor"` in `release-please-config.json`. Every core PR that
+  changes code the Action bundles commits the rebuilt bundle, so the Action inherits core
+  `!` commits. Without the override it would release as 2.0.0, and `sync-action-mirror.sh`
+  would cut and move a `v2` tag, leaving `@v1` users on old code. Its inputs don't change.
+  The Action's CHANGELOG still lists the core breaking notes under "⚠ BREAKING CHANGES".
+  Don't force a core version with a `Release-As:` footer on a commit that touches the
+  Action's `dist/`: the footer beats the override and applies to the Action too. Remove
+  the override after `sfn-diagram` 2.0.0 ships.
 
 ### Milestones
 
