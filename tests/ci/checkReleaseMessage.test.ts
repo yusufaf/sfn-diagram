@@ -1,5 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     buildSquashMessage,
@@ -98,6 +100,24 @@ describe('checkReleaseMessage', () => {
     it('passes a single breaking commit with a footer', () => {
         const result = checkReleaseMessage({ message: 'feat!: x\n\nBREAKING CHANGE: y' });
         expect(result.ok).toBe(true);
+    });
+
+    it('exits 1 with the breaking-change hint when run as a script', () => {
+        const dir = mkdtempSync(join(tmpdir(), 'release-message-'));
+        try {
+            const file = join(dir, 'message.txt');
+            writeFileSync(file, 'feat(parser): t (#600)\n\n* feat(parser)!: remove x\n\n* test: cover it');
+            const script = resolve(__dirname, '../../scripts/check-release-message.mjs');
+            const run = spawnSync(process.execPath, [script, '--message-file', file], {
+                encoding: 'utf8',
+            });
+            expect(run.status).toBe(1);
+            expect(run.stderr).toContain('release-please would drop this breaking change');
+            expect(run.stderr).toContain('Put `!` in the PR title');
+            expect(run.stderr).not.toContain('cannot parse');
+        } finally {
+            rmSync(dir, { force: true, recursive: true });
+        }
     });
 });
 
