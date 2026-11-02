@@ -15,6 +15,7 @@ const REFRESH_DEBOUNCE_MS = 200
 export interface CreateOrShowParams {
     aslContent: string
     colorScheme: ResolvedTheme
+    documentUri: string
     preserveFocus?: boolean
     settings: SfnDiagramSettings
 }
@@ -22,6 +23,11 @@ export interface CreateOrShowParams {
 export interface ApplySettingsParams {
     colorScheme: ResolvedTheme
     settings: SfnDiagramSettings
+}
+
+export interface SyncActiveEditorParams {
+    aslContent: string
+    documentUri: string
 }
 
 export class DiagramPanel {
@@ -36,6 +42,7 @@ export class DiagramPanel {
     private _layoutOverridden = false
     private _themeOverridden = false
     private _lastContent = ''
+    private _documentUri: string
     /** Raw execution-history JSON (kept as a string per the ExecutionHistoryInput type gotcha). */
     private _history: string | undefined
     /**
@@ -61,7 +68,7 @@ export class DiagramPanel {
     private _scheduledContent: string | undefined
 
     static createOrShow(params: CreateOrShowParams) {
-        const { aslContent, colorScheme, preserveFocus, settings } = params
+        const { aslContent, colorScheme, documentUri, preserveFocus, settings } = params
         const column = vscode.window.activeTextEditor
             ? vscode.window.activeTextEditor.viewColumn! + 1
             : vscode.ViewColumn.Two
@@ -74,6 +81,7 @@ export class DiagramPanel {
             // separate onDidChangeConfiguration listener last synced it, same as if the
             // panel had been closed and reopened. applySettings respects layout/theme
             // toolbar overrides exactly as it does when called from that listener.
+            DiagramPanel.currentPanel._documentUri = documentUri
             DiagramPanel.currentPanel.applySettings({ colorScheme, settings })
             DiagramPanel.currentPanel.update(aslContent)
             return
@@ -86,11 +94,18 @@ export class DiagramPanel {
             { enableScripts: true, retainContextWhenHidden: true }
         )
 
-        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent, colorScheme, settings)
+        DiagramPanel.currentPanel = new DiagramPanel(panel, aslContent, documentUri, colorScheme, settings)
     }
 
-    private constructor(panel: vscode.WebviewPanel, aslContent: string, colorScheme: ResolvedTheme, settings: SfnDiagramSettings) {
+    private constructor(
+        panel: vscode.WebviewPanel,
+        aslContent: string,
+        documentUri: string,
+        colorScheme: ResolvedTheme,
+        settings: SfnDiagramSettings
+    ) {
         this._panel = panel
+        this._documentUri = documentUri
         this._refreshDebouncer = createDebouncer({
             delayMs: REFRESH_DEBOUNCE_MS,
             run: (content) => this._refresh(content),
@@ -182,15 +197,36 @@ export class DiagramPanel {
         return this._history !== undefined
     }
 
+    /** The URI string of the document this preview renders and follows edits to. */
+    get documentUri(): string {
+        return this._documentUri
+    }
+
     /**
-     * Re-render for a newly-activated editor. If the definition actually changed
-     * (a different file), any overlay is dropped since it was tied to the prior
-     * definition; simply re-focusing the same document keeps the overlay.
+     * Brings the preview in line with a newly focused editor.
+     *
+     * Refocusing the previewed document re-renders only if its text differs from
+     * `currentContent()`, which includes an edit still waiting on the debounce, so
+     * pan/zoom and the execution overlay survive a round trip to another tab. A
+     * different document takes over the preview and drops the overlay, since that
+     * was tied to the old definition.
+     *
+     * @param params - Parameters object.
+     * @param params.aslContent - The focused document's text.
+     * @param params.documentUri - The focused document's URI string.
+     * @example
+     * panel.syncActiveEditor({ aslContent: editor.document.getText(), documentUri: editor.document.uri.toString() })
      */
-    syncActiveEditor(aslContent: string) {
-        if (aslContent !== this._lastContent) {
-            this._history = undefined
+    syncActiveEditor(params: SyncActiveEditorParams): void {
+        const { aslContent, documentUri } = params
+        if (documentUri === this._documentUri) {
+            if (aslContent !== this.currentContent()) {
+                this.update(aslContent)
+            }
+            return
         }
+        this._documentUri = documentUri
+        this._history = undefined
         this.update(aslContent)
     }
 
