@@ -1,5 +1,5 @@
 import { generateExecutionHtml, generateHtml, generateViewerUpdate } from 'sfn-diagram'
-import type { LayoutDirection, ThemeOption, ViewerUpdate } from 'sfn-diagram'
+import type { LayoutCache, LayoutDirection, ThemeOption, ViewerUpdate } from 'sfn-diagram'
 import type { ExecutionMetadata } from './hostToolbar'
 
 /** Parameters for {@link hasCollapseToggle}. */
@@ -32,6 +32,8 @@ export function hasCollapseToggle(params: HasCollapseToggleParams): boolean {
 export interface RenderPreviewParams {
     /** ASL definition, as a JSON string (matches what the editor buffer holds). */
     aslContent: string
+    /** Layout cache from `createLayoutCache`, reused across renders of the same graph. Omit to cache nothing. */
+    cache?: LayoutCache
     /** Collapse selection forwarded to the underlying renderer, execution overlay included. Omit for its default. */
     collapse?: boolean
     /**
@@ -77,13 +79,14 @@ export interface RenderedPreview {
  * ```
  */
 export function renderPreview(params: RenderPreviewParams): RenderedPreview {
-    const { aslContent, collapse, history, layout, nonce, showIcons, theme } = params
+    const { aslContent, cache, collapse, history, layout, nonce, showIcons, theme } = params
     const collapseOption = collapse !== undefined ? { collapse } : {}
     const showIconsOption = showIcons !== undefined ? { showIcons } : {}
 
     if (history !== undefined) {
         const { html, metadata } = generateExecutionHtml({
             aslDefinition: aslContent,
+            cache,
             history,
             layout,
             nonce,
@@ -96,6 +99,7 @@ export function renderPreview(params: RenderPreviewParams): RenderedPreview {
 
     const { html } = generateHtml({
         aslDefinition: aslContent,
+        cache,
         layout,
         nonce,
         theme,
@@ -109,6 +113,8 @@ export function renderPreview(params: RenderPreviewParams): RenderedPreview {
 export interface RenderPreviewUpdateParams {
     /** ASL definition, as a JSON string (matches what the editor buffer holds). */
     aslContent: string
+    /** Layout cache from `createLayoutCache`, reused across renders of the same graph. Omit to cache nothing. */
+    cache?: LayoutCache
     /** Collapse selection forwarded to the underlying renderer. Omit for its default. */
     collapse?: boolean
     /** Graph layout direction. */
@@ -141,12 +147,13 @@ export interface RenderPreviewUpdateParams {
  * ```
  */
 export function renderPreviewUpdate(params: RenderPreviewUpdateParams): ViewerUpdate {
-    const { aslContent, collapse, layout, showIcons, theme } = params
+    const { aslContent, cache, collapse, layout, showIcons, theme } = params
     const collapseOption = collapse !== undefined ? { collapse } : {}
     const showIconsOption = showIcons !== undefined ? { showIcons } : {}
 
     return generateViewerUpdate({
         aslDefinition: aslContent,
+        cache,
         layout,
         relayout: true,
         theme,
