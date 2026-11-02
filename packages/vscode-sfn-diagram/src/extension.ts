@@ -18,6 +18,15 @@ const ASL_CONTEXT_UPDATE_DEBOUNCE_MS = 300
 
 let lastAslContextValue: boolean | undefined
 
+/** Whether the editor's document is ASL, by filename or, failing that, by content. */
+function isAslEditor(editor: vscode.TextEditor): boolean {
+    const filename = editor.document.uri.path.split('/').pop() ?? ''
+    // The filename check is cheap; only materialize the document's full text (this
+    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
+    // when the filename alone doesn't already answer the question.
+    return isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
+}
+
 /**
  * Recomputes whether the given editor's document looks like an ASL definition and, if
  * the result changed, updates the `sfnDiagram.isAslDocument` context key used by the
@@ -31,11 +40,7 @@ function updateAslContext(editor: vscode.TextEditor | undefined): void {
         return
     }
 
-    const filename = editor.document.uri.path.split('/').pop() ?? ''
-    // The filename check is cheap; only materialize the document's full text (this
-    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
-    // when the filename alone doesn't already answer the question.
-    const value = isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
+    const value = isAslEditor(editor)
 
     if (value === lastAslContextValue) {
         return
@@ -146,12 +151,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.workspace.onDidChangeTextDocument((event) => {
             scheduleAslContextUpdate(event.document)
 
-            if (!DiagramPanel.currentPanel) {
-                return
-            }
-            const editor = vscode.window.activeTextEditor
-            if (editor && event.document === editor.document) {
-                DiagramPanel.currentPanel.scheduleRefresh(editor.document.getText())
+            const panel = DiagramPanel.currentPanel
+            if (panel && event.document.uri.toString() === panel.documentUri) {
+                panel.scheduleRefresh(event.document.getText())
             }
         })
     )
@@ -160,12 +162,17 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             updateAslContext(editor)
 
-            if (editor && DiagramPanel.currentPanel) {
-                DiagramPanel.currentPanel.syncActiveEditor({
-                    aslContent: editor.document.getText(),
-                    documentUri: editor.document.uri.toString(),
-                })
+            const panel = DiagramPanel.currentPanel
+            if (!editor || !panel) {
+                return
             }
+            // Only the previewed file or another ASL file may take over the preview, so
+            // focusing a README or a settings file leaves the diagram as it is.
+            const documentUri = editor.document.uri.toString()
+            if (documentUri !== panel.documentUri && !isAslEditor(editor)) {
+                return
+            }
+            panel.syncActiveEditor({ aslContent: editor.document.getText(), documentUri })
         })
     )
 
