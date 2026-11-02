@@ -18,6 +18,15 @@ const ASL_CONTEXT_UPDATE_DEBOUNCE_MS = 300
 
 let lastAslContextValue: boolean | undefined
 
+/** Whether the editor's document is ASL, by filename or, failing that, by content. */
+function isAslEditor(editor: vscode.TextEditor): boolean {
+    const filename = editor.document.uri.path.split('/').pop() ?? ''
+    // The filename check is cheap; only materialize the document's full text (this
+    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
+    // when the filename alone doesn't already answer the question.
+    return isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
+}
+
 /**
  * Recomputes whether the given editor's document looks like an ASL definition and, if
  * the result changed, updates the `sfnDiagram.isAslDocument` context key used by the
@@ -31,11 +40,7 @@ function updateAslContext(editor: vscode.TextEditor | undefined): void {
         return
     }
 
-    const filename = editor.document.uri.path.split('/').pop() ?? ''
-    // The filename check is cheap; only materialize the document's full text (this
-    // runs on every keystroke via scheduleAslContextUpdate) for the content sniff
-    // when the filename alone doesn't already answer the question.
-    const value = isAslFilename({ filename }) || looksLikeAslContent({ text: editor.document.getText() })
+    const value = isAslEditor(editor)
 
     if (value === lastAslContextValue) {
         return
@@ -45,11 +50,11 @@ function updateAslContext(editor: vscode.TextEditor | undefined): void {
     void vscode.commands.executeCommand('setContext', ASL_CONTEXT_KEY, value)
 }
 
-/** Reads a text document's content, preferring the active editor for the ASL definition. */
-async function resolveAslContent(): Promise<string | undefined> {
+/** Resolves the text document to preview, preferring the active editor's. */
+async function resolveAslDocument(): Promise<vscode.TextDocument | undefined> {
     const editor = vscode.window.activeTextEditor
     if (editor) {
-        return editor.document.getText()
+        return editor.document
     }
     const uris = await vscode.window.showOpenDialog({
         canSelectMany: false,
@@ -62,7 +67,7 @@ async function resolveAslContent(): Promise<string | undefined> {
     }
     const doc = await vscode.workspace.openTextDocument(uris[0])
     await vscode.window.showTextDocument(doc)
-    return doc.getText()
+    return doc
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -95,18 +100,23 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('sfn-diagram.preview', async () => {
-            const aslContent = await resolveAslContent()
-            if (aslContent === undefined) {
+            const document = await resolveAslDocument()
+            if (document === undefined) {
                 return
             }
-            DiagramPanel.createOrShow({ aslContent, colorScheme: readColorScheme(), settings: readSettings() })
+            DiagramPanel.createOrShow({
+                aslContent: document.getText(),
+                colorScheme: readColorScheme(),
+                documentUri: document.uri.toString(),
+                settings: readSettings(),
+            })
         })
     )
 
     context.subscriptions.push(
         vscode.commands.registerCommand('sfn-diagram.previewExecution', async () => {
-            const aslContent = await resolveAslContent()
-            if (aslContent === undefined) {
+            const document = await resolveAslDocument()
+            if (document === undefined) {
                 return
             }
             const uris = await vscode.window.showOpenDialog({
@@ -121,7 +131,12 @@ export function activate(context: vscode.ExtensionContext) {
             const bytes = await vscode.workspace.fs.readFile(uris[0])
             const history = new TextDecoder().decode(bytes)
 
-            DiagramPanel.createOrShow({ aslContent, colorScheme: readColorScheme(), settings: readSettings() })
+            DiagramPanel.createOrShow({
+                aslContent: document.getText(),
+                colorScheme: readColorScheme(),
+                documentUri: document.uri.toString(),
+                settings: readSettings(),
+            })
             DiagramPanel.currentPanel?.setHistory(history)
         })
     )
@@ -136,12 +151,9 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.workspace.onDidChangeTextDocument((event) => {
             scheduleAslContextUpdate(event.document)
 
-            if (!DiagramPanel.currentPanel) {
-                return
-            }
-            const editor = vscode.window.activeTextEditor
-            if (editor && event.document === editor.document) {
-                DiagramPanel.currentPanel.scheduleRefresh(editor.document.getText())
+            const panel = DiagramPanel.currentPanel
+            if (panel && event.document.uri.toString() === panel.documentUri) {
+                panel.scheduleRefresh(event.document.getText())
             }
         })
     )
@@ -150,9 +162,17 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             updateAslContext(editor)
 
-            if (editor && DiagramPanel.currentPanel) {
-                DiagramPanel.currentPanel.syncActiveEditor(editor.document.getText())
+            const panel = DiagramPanel.currentPanel
+            if (!editor || !panel) {
+                return
             }
+            // Only the previewed file or another ASL file may take over the preview, so
+            // focusing a README or a settings file leaves the diagram as it is.
+            const documentUri = editor.document.uri.toString()
+            if (documentUri !== panel.documentUri && !isAslEditor(editor)) {
+                return
+            }
+            panel.syncActiveEditor({ aslContent: editor.document.getText(), documentUri })
         })
     )
 
@@ -173,6 +193,7 @@ export function activate(context: vscode.ExtensionContext) {
             DiagramPanel.createOrShow({
                 aslContent: document.getText(),
                 colorScheme: readColorScheme(),
+                documentUri: document.uri.toString(),
                 preserveFocus: true,
                 settings,
             })

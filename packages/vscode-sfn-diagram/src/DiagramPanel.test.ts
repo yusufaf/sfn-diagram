@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DiagramPanel } from './DiagramPanel'
 import { DEFAULT_SETTINGS } from './settings'
+import { createFakePanel, type FakePanel } from './testing/fakeWebviewPanel'
 
 const mocked = vi.hoisted(() => ({ panel: undefined as unknown }))
 
@@ -8,39 +9,6 @@ vi.mock('vscode', () => ({
     ViewColumn: { Two: 2 },
     window: { activeTextEditor: undefined, createWebviewPanel: () => mocked.panel },
 }))
-
-interface FakePanel {
-    /** Every document assigned to `webview.html`, i.e. one per full render. */
-    htmls: string[]
-    panel: unknown
-    /** Every message posted to the webview, i.e. one per patch. */
-    posts: Array<{ command: string; relayoutModel?: unknown }>
-}
-
-function createFakePanel(): FakePanel {
-    const htmls: string[] = []
-    const posts: FakePanel['posts'] = []
-    const registration = () => ({ dispose() {} })
-    const panel = {
-        dispose() {},
-        onDidChangeViewState: registration,
-        onDidDispose: registration,
-        reveal() {},
-        visible: true,
-        webview: {
-            cspSource: 'vscode-resource:',
-            set html(value: string) {
-                htmls.push(value)
-            },
-            onDidReceiveMessage: registration,
-            postMessage: (message: FakePanel['posts'][number]) => {
-                posts.push(message)
-                return Promise.resolve(true)
-            },
-        },
-    }
-    return { htmls, panel, posts }
-}
 
 const parallelAsl = (comment: string) =>
     JSON.stringify({
@@ -72,10 +40,12 @@ const namedStateAsl = (stateName: string) =>
         States: { [stateName]: { Type: 'Pass', Next: 'Done' }, Done: { Type: 'Succeed' } },
     })
 
+const DOCUMENT_URI = 'file:///w/flow.asl.json'
+
 let fake: FakePanel
 
 function open(aslContent: string): void {
-    DiagramPanel.createOrShow({ aslContent, colorScheme: 'dark', settings: DEFAULT_SETTINGS })
+    DiagramPanel.createOrShow({ aslContent, colorScheme: 'dark', documentUri: DOCUMENT_URI, settings: DEFAULT_SETTINGS })
 }
 
 function edit(aslContent: string): void {
@@ -167,5 +137,67 @@ describe('DiagramPanel settings changes', () => {
         expect(fake.htmls[fake.htmls.length - 1]).toContain('TypedState')
         expect(fake.htmls[fake.htmls.length - 1]).not.toContain('BeforeTyping')
         expect(fake.posts).toHaveLength(0)
+    })
+})
+
+describe('DiagramPanel active editor sync', () => {
+    beforeEach(() => {
+        vi.useFakeTimers()
+        fake = createFakePanel()
+        mocked.panel = fake.panel
+    })
+
+    afterEach(() => {
+        DiagramPanel.currentPanel?.dispose()
+        vi.useRealTimers()
+    })
+
+    it('keeps the execution overlay when the previewed file regains focus mid-edit', () => {
+        open(namedStateAsl('BeforeTyping'))
+        DiagramPanel.currentPanel!.setHistory('{"events":[]}')
+        typeWithoutWaiting(namedStateAsl('TypedState'))
+        DiagramPanel.currentPanel!.syncActiveEditor({ aslContent: namedStateAsl('TypedState'), documentUri: DOCUMENT_URI })
+
+        expect(DiagramPanel.currentPanel!.hasHistory()).toBe(true)
+        expect(fake.htmls).toHaveLength(2)
+
+        vi.runOnlyPendingTimers()
+
+        expect(fake.htmls[fake.htmls.length - 1]).toContain('TypedState')
+    })
+
+    it('patches a pending edit in place when the previewed file regains focus mid-edit', () => {
+        open(namedStateAsl('BeforeTyping'))
+        typeWithoutWaiting(namedStateAsl('TypedState'))
+        DiagramPanel.currentPanel!.syncActiveEditor({ aslContent: namedStateAsl('TypedState'), documentUri: DOCUMENT_URI })
+
+        expect(fake.htmls).toHaveLength(1)
+
+        vi.runOnlyPendingTimers()
+
+        expect(fake.htmls).toHaveLength(1)
+        expect(fake.posts).toHaveLength(1)
+        expect(fake.posts[0].command).toBe('updateContent')
+    })
+
+    it('does not re-render when the previewed file regains focus unchanged', () => {
+        open(namedStateAsl('Same'))
+        DiagramPanel.currentPanel!.syncActiveEditor({ aslContent: namedStateAsl('Same'), documentUri: DOCUMENT_URI })
+
+        expect(fake.htmls).toHaveLength(1)
+        expect(fake.posts).toHaveLength(0)
+    })
+
+    it('drops the execution overlay when another file takes over the preview', () => {
+        open(namedStateAsl('BeforeTyping'))
+        DiagramPanel.currentPanel!.setHistory('{"events":[]}')
+        DiagramPanel.currentPanel!.syncActiveEditor({
+            aslContent: namedStateAsl('OtherState'),
+            documentUri: 'file:///w/other.asl.json',
+        })
+
+        expect(DiagramPanel.currentPanel!.hasHistory()).toBe(false)
+        expect(DiagramPanel.currentPanel!.documentUri).toBe('file:///w/other.asl.json')
+        expect(fake.htmls[fake.htmls.length - 1]).toContain('OtherState')
     })
 })
