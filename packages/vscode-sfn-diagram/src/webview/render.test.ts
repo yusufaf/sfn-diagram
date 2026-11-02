@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateExecution } from 'sfn-diagram'
+import { createLayoutCache, generateExecution } from 'sfn-diagram'
 import { hasCollapseToggle, needsFullRender, renderPreview, renderPreviewUpdate } from './render'
 
 const simpleAsl = JSON.stringify({
@@ -210,5 +210,31 @@ describe('needsFullRender', () => {
                 update: update(simpleAsl),
             }),
         ).toBe(false)
+    })
+})
+
+describe('layout cache', () => {
+    it('reuses the layout when only the theme changes', () => {
+        const cache = createLayoutCache()
+        renderPreview({ aslContent: parallelAsl, cache, layout: 'TB', nonce: 'n1', theme: 'dark' })
+        renderPreview({ aslContent: parallelAsl, cache, layout: 'TB', nonce: 'n1', theme: 'light' })
+
+        expect(cache.stats()).toEqual({ entries: 1, hits: 1, misses: 1 })
+    })
+
+    it('passes the cache to the execution overlay', () => {
+        const cache = createLayoutCache()
+        renderPreview({ aslContent: simpleAsl, cache, history: historyEvents, layout: 'TB', nonce: 'n1', theme: 'dark' })
+        renderPreview({ aslContent: simpleAsl, cache, history: historyEvents, layout: 'TB', nonce: 'n1', theme: 'light' })
+
+        expect(cache.stats().hits).toBe(1)
+    })
+
+    it('reuses the layout across content updates', () => {
+        const cache = createLayoutCache()
+        renderPreviewUpdate({ aslContent: parallelAsl, cache, layout: 'TB', theme: 'dark' })
+        renderPreviewUpdate({ aslContent: parallelAsl, cache, layout: 'TB', theme: 'light' })
+
+        expect(cache.stats()).toEqual({ entries: 1, hits: 1, misses: 1 })
     })
 })
