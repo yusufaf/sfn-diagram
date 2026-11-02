@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import type { LayoutDirection } from 'sfn-diagram'
+import { createLayoutCache, type LayoutCache, type LayoutDirection } from 'sfn-diagram'
 import { createDebouncer, type Debouncer } from './debounce'
 import { buildErrorDocument } from './webview/errorDocument'
 import { buildRenderErrorMessage, buildUpdateContentMessage } from './webview/messages'
@@ -11,6 +11,12 @@ import type { ResolvedTheme, SfnDiagramSettings } from './settings'
 
 /** Milliseconds to wait after the last keystroke before refreshing the preview. */
 const REFRESH_DEBOUNCE_MS = 200
+
+/**
+ * Layouts kept per panel. Each holds about 0.5 MB for a 500-state definition, and the
+ * reuse that matters is the current definition under a few option combinations.
+ */
+const LAYOUT_CACHE_MAX_ENTRIES = 8
 
 export interface CreateOrShowParams {
     aslContent: string
@@ -54,6 +60,8 @@ export class DiagramPanel {
     /** Whether the webview is currently showing the error document, not a diagram. */
     private _showingError = false
     private readonly _refreshDebouncer: Debouncer<string>
+    /** Reused across this panel's renders so a re-render that keeps the graph skips dagre. */
+    private readonly _layoutCache: LayoutCache = createLayoutCache({ maxEntries: LAYOUT_CACHE_MAX_ENTRIES })
     /** A debounced refresh's content, held back while the panel is hidden. */
     private _pendingContent: string | undefined
     /**
@@ -244,6 +252,7 @@ export class DiagramPanel {
         try {
             const rendered = renderPreview({
                 aslContent,
+                cache: this._layoutCache,
                 collapse: this._collapse,
                 history: this._history,
                 layout: this._layout,
@@ -321,6 +330,7 @@ export class DiagramPanel {
         try {
             const update = renderPreviewUpdate({
                 aslContent,
+                cache: this._layoutCache,
                 collapse: this._collapse,
                 layout: this._layout,
                 showIcons: this._showIcons,
@@ -339,6 +349,7 @@ export class DiagramPanel {
     dispose() {
         DiagramPanel.currentPanel = undefined
         this._refreshDebouncer.cancel()
+        this._layoutCache.clear()
         this._panel.dispose()
         this._disposables.forEach((disposable) => disposable.dispose())
         this._disposables = []

@@ -1,14 +1,27 @@
+import type { CreateLayoutCacheParams, LayoutCache } from 'sfn-diagram'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DiagramPanel } from './DiagramPanel'
 import { DEFAULT_SETTINGS } from './settings'
 import { createFakePanel, type FakePanel } from './testing/fakeWebviewPanel'
 
-const mocked = vi.hoisted(() => ({ panel: undefined as unknown }))
+const mocked = vi.hoisted(() => ({ caches: [] as LayoutCache[], panel: undefined as unknown }))
 
 vi.mock('vscode', () => ({
     ViewColumn: { Two: 2 },
     window: { activeTextEditor: undefined, createWebviewPanel: () => mocked.panel },
 }))
+
+vi.mock('sfn-diagram', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('sfn-diagram')>()
+    return {
+        ...actual,
+        createLayoutCache: (params?: CreateLayoutCacheParams) => {
+            const cache = actual.createLayoutCache(params)
+            mocked.caches.push(cache)
+            return cache
+        },
+    }
+})
 
 const parallelAsl = (comment: string) =>
     JSON.stringify({
@@ -199,5 +212,74 @@ describe('DiagramPanel active editor sync', () => {
         expect(DiagramPanel.currentPanel!.hasHistory()).toBe(false)
         expect(DiagramPanel.currentPanel!.documentUri).toBe('file:///w/other.asl.json')
         expect(fake.htmls[fake.htmls.length - 1]).toContain('OtherState')
+    })
+})
+
+describe('DiagramPanel layout cache', () => {
+    const panelCache = () => mocked.caches[0]
+
+    beforeEach(() => {
+        vi.useFakeTimers()
+        fake = createFakePanel()
+        mocked.panel = fake.panel
+        mocked.caches.length = 0
+    })
+
+    afterEach(() => {
+        DiagramPanel.currentPanel?.dispose()
+        vi.useRealTimers()
+    })
+
+    it('reuses the layout when the color theme changes on an unchanged definition', () => {
+        open(parallelAsl('v1'))
+        DiagramPanel.currentPanel!.applySettings({ colorScheme: 'light', settings: DEFAULT_SETTINGS })
+
+        expect(fake.htmls).toHaveLength(2)
+        expect(panelCache().stats()).toEqual({ entries: 1, hits: 1, misses: 1 })
+    })
+
+    it('reuses the layout for an edit that leaves the graph unchanged', () => {
+        open(parallelAsl('v1'))
+        edit(parallelAsl('v2'))
+
+        expect(fake.posts).toHaveLength(1)
+        expect(panelCache().stats()).toEqual({ entries: 1, hits: 1, misses: 1 })
+    })
+
+    it('lays out a full-render fallback only once', () => {
+        open(containerlessAsl('v1'))
+        edit(parallelAsl('v2'))
+
+        expect(fake.htmls).toHaveLength(2)
+        expect(panelCache().stats()).toEqual({ entries: 2, hits: 1, misses: 2 })
+    })
+
+    it('reuses the plain layout when an execution overlay is cleared', () => {
+        open(namedStateAsl('A'))
+        DiagramPanel.currentPanel!.setHistory('{"events":[]}')
+        const before = panelCache().stats()
+        DiagramPanel.currentPanel!.setHistory(undefined)
+
+        expect(panelCache().stats().hits).toBe(before.hits + 1)
+        expect(panelCache().stats().misses).toBe(before.misses)
+    })
+
+    it('keeps one cache for the life of the panel', () => {
+        open(parallelAsl('v1'))
+        open(parallelAsl('v1'))
+
+        expect(mocked.caches).toHaveLength(1)
+        expect(panelCache().stats()).toEqual({ entries: 1, hits: 2, misses: 1 })
+    })
+
+    it('clears the cache when the panel is disposed', () => {
+        open(parallelAsl('v1'))
+        DiagramPanel.currentPanel!.dispose()
+
+        expect(mocked.caches[0].stats().entries).toBe(0)
+
+        open(parallelAsl('v1'))
+
+        expect(mocked.caches).toHaveLength(2)
     })
 })
