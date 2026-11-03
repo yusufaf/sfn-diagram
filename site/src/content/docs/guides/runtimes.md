@@ -30,10 +30,11 @@ warning in the meantime, run Node with
 all deprecation warnings). See [Upcoming in 2.0](/upgrading-to-v2/) for everything
 else 2.0 removes.
 
-**Node versions:** core, the CLI, and PNG export via the default `resvg` engine all
-require **Node >= 20**. Only the opt-in, deprecated `html-to-image` engine raises that floor, to
-**Node >= 22.12.0**, set by `node-html-to-image` v6. 2.0 raises the floor to
-Node >= 22.12.0 for everything; see [Upcoming in 2.0](/upgrading-to-v2/).
+**Node versions:** on Node, every entry point (core, the CLI, and PNG export with either
+engine) requires **Node >= 22.12.0**. Node 20 reached end of life on 2026-04-30 and
+sfn-diagram 1.x was the last line to support it; see [Upcoming in 2.0](/upgrading-to-v2/).
+An end-of-life Node line may be dropped in a minor release
+(see [Runtime support](/compatibility/#runtime-support)).
 
 **Syntax level:** sfn-diagram's own code behind every import path uses ES2022 syntax
 whatever the Node floor; its dependencies (`@dagrejs/dagre`, `d3-shape` and the rest)

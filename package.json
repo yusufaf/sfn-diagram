@@ -133,7 +133,7 @@
     "config.schema.json"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "build": "pnpm run build:viewer-script && pnpm run build:manifest && tsdown",
