@@ -20,8 +20,8 @@ raw Markdown by appending `.md` to its URL.
 
 The package also exports two JSON files: `sfn-diagram/package.json` and
 `sfn-diagram/config.schema.json` (the JSON Schema for `sfn-diagram.config.*`). `require`
-them on any supported Node, or import them from ESM with `with { type: 'json' }`
-(Node 20.10+). They are npm only, not on JSR.
+them on any supported Node, or import them from ESM with `with { type: 'json' }`.
+They are npm only, not on JSR.
 
 The core is platform-agnostic and has no browser-engine dependency.
 `sfn-diagram/png` (via the optional `@resvg/resvg-js` peer, a native rasterizer),

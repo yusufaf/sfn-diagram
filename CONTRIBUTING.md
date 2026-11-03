@@ -6,23 +6,18 @@ Thank you for considering contributing to sfn-diagram! This document provides gu
 
 ### Prerequisites
 
-- **Node.js >= 22 to develop the repo.** `pnpm run build` runs `tsdown`, which declares
-  `engines.node: ^22.18.0 || ^24.11.0 || >=26` and calls `Promise.withResolvers`
-  (Node 22.0+), so on Node 20 the build fails outright with
-  `TypeError: Promise.withResolvers is not a function`.
+- **Node.js 22.18+, 24.11+ or 26+ to develop the repo.** `pnpm run build` runs `tsdown`,
+  which declares `engines.node: ^22.18.0 || ^24.11.0 || >=26`.
 
   That is a *toolchain* floor, higher than the package's own. The published package
-  declares **Node >= 20** in `package.json#engines` and means it: the `node: '20'` leg
-  of `unit-test.yml` proves it by building under 22, switching back to 20, and running
-  the suite and the packed CLI there. The syntax level is separate: an explicit `target`
-  in both `tsdown.config.ts` files (root and `packages/sfn-diagram-react`, checked by
-  `tests/buildTarget.test.ts`) caps the emitted syntax at ES2022, so raising the Node
-  floor doesn't change it. Two exceptions: dependencies stay external, and `dist/bin.js`
-  keeps the ES2023 hashbang line from `src/bin.ts`. Node >= 20 covers core, the CLI,
-  and PNG export through the default
-  `@resvg/resvg-js` rasterizer; only the opt-in (deprecated) `html-to-image` PNG engine
-  raises the runtime floor, to Node >= 22.12.0, because `node-html-to-image` v6
-  requires it. See
+  declares **Node >= 22.12.0** in `package.json#engines`, the first 22.x where `require()`
+  of an ES module works without a flag. The `node: '22'` leg of `unit-test.yml` tests that
+  line: it builds, runs the suite and runs the packed CLI on a recent 22.x. The syntax
+  level is separate: an explicit `target` in both `tsdown.config.ts` files (root and
+  `packages/sfn-diagram-react`, checked by `tests/buildTarget.test.ts`) caps the emitted
+  syntax at ES2022, so raising the Node floor doesn't change it. Two exceptions:
+  dependencies stay external, and `dist/bin.js` keeps the ES2023 hashbang line from
+  `src/bin.ts`. See
   [`site/src/content/docs/guides/runtimes.md`](site/src/content/docs/guides/runtimes.md).
 - **pnpm** — this is a pnpm workspace whose packages depend on each other through the
   `workspace:*` protocol, so `npm install` at the root fails. The version is pinned in

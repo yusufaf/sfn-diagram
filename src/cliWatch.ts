@@ -76,8 +76,8 @@ export function isIgnoredPath(path: string): boolean {
  * target it was given, and reports `null` for it on some platforms, so the path handed
  * to `onEvent` is rebuilt from the target rather than trusted as absolute.
  *
- * `recursive` is supported on Windows and macOS everywhere, and on Linux from Node 20
- * — which is this package's floor, so no fallback is needed.
+ * `recursive` is supported on Windows and macOS everywhere, and on Linux from Node 20,
+ * below this package's floor, so no fallback is needed.
  *
  * An `error` event is swallowed: a watcher whose directory is removed mid-run should
  * stop reporting, not end the process.

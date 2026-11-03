@@ -31,16 +31,9 @@ jobs:
           - os: ubuntu-latest
             node: lts/*
             primary: true
-          # engines.node says >=20 and nothing ever tested that floor. It is a
-          # claim about the *published* artifact, not about building the repo:
-          # tsdown@0.23.0 calls Promise.withResolvers (Node 22.0+), so
-          # `pnpm run build` cannot run on 20 at all. This leg therefore builds
-          # under Node 22 and switches back to 20 to run everything against the
-          # result - see the two `matrix.node == '20'` steps below.
-          - os: ubuntu-latest
-            node: '20'
-            primary: false
-          # 22 covers the version between the floor and whatever lts/* resolves to.
+          # The floor leg. engines.node is >=22.12.0 and setup-node resolves '22' to
+          # a recent 22.x (the runner's cached one), so this proves the line the floor
+          # sits on rather than 22.12.0 itself: the Build step's tsdown needs 22.18+.
           - os: ubuntu-latest
             node: '22'
             primary: false
@@ -93,30 +86,10 @@ jobs:
       - name: Verify custom-elements.json is up to date
         run: node scripts/check-manifest.mjs --check
 
-      # The build toolchain's own floor is higher than the package's: tsdown@0.23.0
-      # declares engines.node ^22.18.0 || ^24.11.0 || >=26 and calls
-      # Promise.withResolvers, added in Node 22.0, so `tsdown` dies on Node 20 with
-      # "Promise.withResolvers is not a function". engines.node ">=20" is a promise
-      # about the published artifact - which tsdown compiles to ES2022 - so the
-      # floor leg builds here under 22 and drops back to 20 for the tests.
-      - name: Set node 22 to build on the node-20 leg
-        if: matrix.node == '20'
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-          cache: pnpm
-
       # Build every workspace (core + react, vscode, github-action, playground)
       # so package build breakage is caught, not just the core library.
       - name: Build
         run: pnpm turbo run build
-
-      - name: Back to node ${{ matrix.node }} to run against the built output
-        if: matrix.node == '20'
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
 
       - name: Assert the runner is on node ${{ matrix.node }}
         run: |
@@ -190,8 +163,7 @@ jobs:
       # cover the *bun-compiled* binary on Linux and Windows and skip macOS
       # entirely (codesign), so without this the npm-installed entry point is
       # never spawned on macOS at all, and on Windows only in its compiled form.
-      # The node-20 leg is the point of the exercise: it runs the bin under the
-      # version engines.node claims to support.
+      # The node-22 leg runs it on the line engines.node's floor sits on.
       - name: Smoke test the packed tarball's bin
         run: |
           VERSION="$(node -p "require('./package.json').version")"
@@ -219,26 +191,9 @@ jobs:
       # files that build rewrites. A torn read there reports a stale bundle that is
       # not stale. Splitting the two removes the overlap.
       - name: Test
-        if: matrix.node != '20'
         run: |
           pnpm test
           pnpm turbo run test --filter='!sfn-diagram'
-
-      # Two things in the workspace fan-out run tsdown, so neither works on Node 20
-      # (see the build note above): packages/sfn-diagram-react's `test` script
-      # rebuilds first, and the `element` project shells out to
-      # scripts/build-test-element-bundle.mjs to bundle a page for Puppeteer. Both
-      # are deliberately skipped on this leg and covered by the four others; the
-      # unit and perf projects don't run tsdown and run here against the dist built
-      # under 22, as does the packed CLI in the step above. tests/buildTarget.test.ts
-      # does import tsdown to read its configs; that loads on Node 20 as of tsdown 0.23
-      # but sits outside tsdown's engines, so a tsdown bump can break it here first.
-      - name: Test (unit + perf; element and the fan-out need a Node-22 bundler)
-        if: matrix.node == '20'
-        run: |
-          node scripts/build-viewer-script.mjs --check
-          pnpm exec vitest run --project unit
-          pnpm exec vitest run --project perf
 
       # Coverage is the unit project only, so its number cannot differ by platform
       # or Node version. vitest fails the run itself when a threshold in

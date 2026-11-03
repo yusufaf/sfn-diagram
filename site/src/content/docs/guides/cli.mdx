@@ -229,7 +229,7 @@ before a release ships it. To match the version you have installed exactly, or t
 offline, point at the copy in the package instead:
 `./node_modules/sfn-diagram/config.schema.json`. Tools that locate the schema from code
 can resolve the installed copy through the package exports, with
-`require.resolve('sfn-diagram/config.schema.json')`, or on Node 20.10+ import it with
+`require.resolve('sfn-diagram/config.schema.json')`, or import it with
 `import schema from 'sfn-diagram/config.schema.json' with { type: 'json' }`.
 
 The schema is stricter than the CLI in one way: it flags a key it doesn't know, where the
