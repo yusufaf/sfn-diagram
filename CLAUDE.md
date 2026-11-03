@@ -13,7 +13,7 @@ Library for generating diagrams from AWS Step Functions ASL (Amazon States Langu
 
 ## Build & Development
 
-- **Build**: `npm run build` - Uses tsdown to generate dual ESM/CJS outputs with declarations
+- **Build**: `npm run build` - Uses tsdown to generate ESM outputs with declarations
 - **Dev**: `npm run dev` - Watch mode
 - **Test**: `npm test` - Vitest runner
 - **Typecheck**: `npm run typecheck` - No emit, validation only
@@ -79,10 +79,10 @@ Pass, Task, Choice, Wait, Succeed, Fail, Parallel, Map - each with distinct visu
 
 ## Build Configuration
 
-- **tsdown.config.ts**: Dual format (ESM + CJS), neutral platform
+- **tsdown.config.ts**: ESM only, neutral platform
 - **tsconfig.json**: Strict mode, ESNext target, isolated modules
 - **src/dagre.d.ts**: Custom type declarations for @dagrejs/dagre
-- Package exports support both import/require with proper type declarations
+- Package exports carry only `types` and `default` conditions; CommonJS callers `require()` the ES modules on Node 22.12+
 
 ## Current Status
 

@@ -12,7 +12,7 @@ export default defineConfig([
         entry: {
             index: './src/index.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -24,7 +24,7 @@ export default defineConfig([
         entry: {
             png: './src/png.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -36,7 +36,7 @@ export default defineConfig([
         entry: {
             aws: './src/aws.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -48,7 +48,7 @@ export default defineConfig([
         entry: {
             cfn: './src/cfn.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -60,7 +60,7 @@ export default defineConfig([
         entry: {
             terraform: './src/terraform.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -72,7 +72,7 @@ export default defineConfig([
         entry: {
             ci: './src/ci/index.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -84,7 +84,7 @@ export default defineConfig([
         entry: {
             element: './src/element/index.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',
@@ -96,7 +96,7 @@ export default defineConfig([
         entry: {
             'element-auto': './src/element/auto.ts',
         },
-        format: ['cjs', 'esm'],
+        format: ['esm'],
         hash: false,
         outDir: './dist',
         platform: 'neutral',

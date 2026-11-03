@@ -90,10 +90,7 @@ describe('BUNDLE_BUDGETS', () => {
         // than bundles, so they carry no budget; any other string target is still budgeted.
         const packageJson = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8')) as {
             bin: Record<string, string>;
-            exports: Record<
-                string,
-                string | { import: { default: string }; require: { default: string } }
-            >;
+            exports: Record<string, string | { default: string; types: string }>;
         };
 
         const published = new Set<string>();
@@ -102,8 +99,7 @@ describe('BUNDLE_BUDGETS', () => {
                 if (!entry.endsWith('.json')) published.add(basename(entry));
                 continue;
             }
-            published.add(basename(entry.import.default));
-            published.add(basename(entry.require.default));
+            published.add(basename(entry.default));
         }
         for (const entry of Object.values(packageJson.bin)) {
             published.add(basename(entry));

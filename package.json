@@ -6,122 +6,46 @@
   "packageManager": "pnpm@9.15.9",
   "sideEffects": [
     "./dist/element.js",
-    "./dist/element.cjs",
-    "./dist/element-auto.js",
-    "./dist/element-auto.cjs"
+    "./dist/element-auto.js"
   ],
   "customElements": "custom-elements.json",
-  "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./png": {
-      "import": {
-        "types": "./dist/png.d.ts",
-        "default": "./dist/png.js"
-      },
-      "require": {
-        "types": "./dist/png.d.cts",
-        "default": "./dist/png.cjs"
-      }
+      "types": "./dist/png.d.ts",
+      "default": "./dist/png.js"
     },
     "./aws": {
-      "import": {
-        "types": "./dist/aws.d.ts",
-        "default": "./dist/aws.js"
-      },
-      "require": {
-        "types": "./dist/aws.d.cts",
-        "default": "./dist/aws.cjs"
-      }
+      "types": "./dist/aws.d.ts",
+      "default": "./dist/aws.js"
     },
     "./cfn": {
-      "import": {
-        "types": "./dist/cfn.d.ts",
-        "default": "./dist/cfn.js"
-      },
-      "require": {
-        "types": "./dist/cfn.d.cts",
-        "default": "./dist/cfn.cjs"
-      }
+      "types": "./dist/cfn.d.ts",
+      "default": "./dist/cfn.js"
     },
     "./terraform": {
-      "import": {
-        "types": "./dist/terraform.d.ts",
-        "default": "./dist/terraform.js"
-      },
-      "require": {
-        "types": "./dist/terraform.d.cts",
-        "default": "./dist/terraform.cjs"
-      }
+      "types": "./dist/terraform.d.ts",
+      "default": "./dist/terraform.js"
     },
     "./ci": {
-      "import": {
-        "types": "./dist/ci.d.ts",
-        "default": "./dist/ci.js"
-      },
-      "require": {
-        "types": "./dist/ci.d.cts",
-        "default": "./dist/ci.cjs"
-      }
+      "types": "./dist/ci.d.ts",
+      "default": "./dist/ci.js"
     },
     "./element": {
-      "import": {
-        "types": "./dist/element.d.ts",
-        "default": "./dist/element.js"
-      },
-      "require": {
-        "types": "./dist/element.d.cts",
-        "default": "./dist/element.cjs"
-      }
+      "types": "./dist/element.d.ts",
+      "default": "./dist/element.js"
     },
     "./element/auto": {
-      "import": {
-        "types": "./dist/element-auto.d.ts",
-        "default": "./dist/element-auto.js"
-      },
-      "require": {
-        "types": "./dist/element-auto.d.cts",
-        "default": "./dist/element-auto.cjs"
-      }
+      "types": "./dist/element-auto.d.ts",
+      "default": "./dist/element-auto.js"
     },
     "./config.schema.json": "./config.schema.json",
     "./package.json": "./package.json"
-  },
-  "typesVersions": {
-    "*": {
-      "png": [
-        "./dist/png.d.ts"
-      ],
-      "aws": [
-        "./dist/aws.d.ts"
-      ],
-      "cfn": [
-        "./dist/cfn.d.ts"
-      ],
-      "terraform": [
-        "./dist/terraform.d.ts"
-      ],
-      "ci": [
-        "./dist/ci.d.ts"
-      ],
-      "element": [
-        "./dist/element.d.ts"
-      ],
-      "element/auto": [
-        "./dist/element-auto.d.ts"
-      ]
-    }
   },
   "bin": {
     "sfn-diagram": "dist/bin.js"
@@ -162,7 +86,7 @@
     "typecheck": "tsc --noEmit",
     "validate": "pnpm run validate:publint && pnpm run validate:types",
     "validate:publint": "publint",
-    "validate:types": "attw --pack .",
+    "validate:types": "attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm",
     "prepare": "husky"
   },
   "keywords": [

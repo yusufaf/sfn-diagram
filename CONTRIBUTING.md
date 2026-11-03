@@ -47,7 +47,7 @@ pnpm run dev
 
 | Command | Description |
 |---------|-------------|
-| `pnpm run build` | Build the viewer script and manifest, then the library with tsdown (ESM + CJS) |
+| `pnpm run build` | Build the viewer script and manifest, then the library with tsdown (ES modules) |
 | `pnpm run dev` | Watch mode for development |
 | `pnpm test` | Run the Vitest suites (`unit`, `element`, `perf`) |
 | `pnpm run typecheck` | TypeScript type checking (no emit) |
@@ -436,7 +436,7 @@ sfn-diagram/
 ## Build System
 
 The project uses **tsdown** for building:
-- Generates dual format outputs (ESM + CJS)
+- Generates ES modules only; CommonJS callers `require()` them on Node 22.12+
 - Auto-generates TypeScript declarations
 - Bundles dependencies appropriately
 - Platform-neutral output for Node.js
