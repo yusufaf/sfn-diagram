@@ -1,9 +1,20 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AslDefinition } from '../src/types';
+
+const repoRoot = join(__dirname, '..');
+const hasBuild = existsSync(join(repoRoot, 'dist/index.js'));
+
+interface PackageManifest {
+    exports: Record<string, string | { default: string; types: string }>;
+    main?: string;
+    sideEffects?: string[];
+    typesVersions?: unknown;
+    version: string;
+}
 
 describe('Module Format Compatibility', () => {
     describe('ESM imports', () => {
@@ -122,8 +133,7 @@ describe('Module Format Compatibility', () => {
 });
 
 describe('Published export maps', () => {
-    const repoRoot = join(__dirname, '..');
-    const readManifest = (name: string): { exports: Record<string, unknown>; version: string } =>
+    const readManifest = (name: string): PackageManifest =>
         JSON.parse(readFileSync(join(repoRoot, name), 'utf8'));
 
     /**
@@ -143,6 +153,22 @@ describe('Published export maps', () => {
         const jsr = Object.keys(readManifest('jsr.json').exports).sort();
 
         expect(jsr).toEqual(npm);
+    });
+
+    it('declares ES module entry points only', () => {
+        const manifest = readManifest('package.json');
+
+        expect(manifest.main).toBeUndefined();
+        expect(manifest.typesVersions).toBeUndefined();
+        for (const entry of Object.values(manifest.exports)) {
+            if (typeof entry === 'string') {
+                continue;
+            }
+            expect(Object.keys(entry)).toEqual(['types', 'default']);
+            expect(entry.types).toMatch(/\.d\.ts$/);
+            expect(entry.default).toMatch(/\.js$/);
+        }
+        expect((manifest.sideEffects ?? []).filter((path) => path.endsWith('.cjs'))).toEqual([]);
     });
 
     it('resolves sfn-diagram/package.json through the exports map', () => {
@@ -186,4 +212,38 @@ describe('Published export maps', () => {
             version: readManifest('package.json').version,
         });
     }, 15000);
+});
+
+describe.skipIf(!hasBuild)('ESM-only build output', () => {
+    it('emits no CommonJS files or CommonJS declarations', () => {
+        const commonJsFiles = readdirSync(join(repoRoot, 'dist')).filter((name) =>
+            /\.(cjs|d\.cts)$/.test(name)
+        );
+
+        expect(commonJsFiles).toEqual([]);
+    });
+
+    it('lets CommonJS require() every Node entry point, resolving to the ES module', () => {
+        // The element entries are left out: they extend HTMLElement, so they never loaded in
+        // Node. On the CI node-22 leg this exercises require(esm) on the floor's release line.
+        const script = [
+            "const specifiers = ['sfn-diagram', 'sfn-diagram/png', 'sfn-diagram/aws', 'sfn-diagram/cfn', 'sfn-diagram/terraform', 'sfn-diagram/ci'];",
+            'specifiers.forEach((specifier) => require(specifier));',
+            'const resolved = specifiers.map((specifier) => require.resolve(specifier));',
+            "const { svg } = require('sfn-diagram').generateSvg({ aslDefinition: { StartAt: 'A', States: { A: { End: true, Type: 'Pass' } } } });",
+            'process.stdout.write(JSON.stringify({ resolved, svgStart: svg.slice(0, 4) }));',
+        ].join('\n');
+        const result = spawnSync(process.execPath, ['--input-type=commonjs', '-e', script], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+        });
+
+        expect(result.status, result.stderr).toBe(0);
+        const output = JSON.parse(result.stdout) as { resolved: string[]; svgStart: string };
+        const expectedFiles = ['index', 'png', 'aws', 'cfn', 'terraform', 'ci'];
+        output.resolved.forEach((path, index) => {
+            expect(path.replace(/\\/g, '/')).toMatch(new RegExp(`dist/${expectedFiles[index]}\\.js$`));
+        });
+        expect(output.svgStart).toBe('<svg');
+    }, 30000);
 });

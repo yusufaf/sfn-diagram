@@ -37,6 +37,9 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * (`"!dist/cli.js"`), so it ships to nobody. `dist/bin.js` is the CLI consumers
  * actually get, and it is budgeted.
  *
+ * The `.cjs` rows were removed when the package went ESM-only (#524). The history below
+ * still quotes `.cjs` sizes from when both formats shipped; every `.js` budget is unchanged.
+ *
  * Every budget sits roughly 10% above what its entry measured when it was last set.
  * That headroom is the whole mechanism: it absorbs ordinary change and trips on
  * something unexpected. A budget the current build only just fits under has stopped
@@ -128,22 +131,14 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * headroom and was left alone.
  */
 export const BUNDLE_BUDGETS = {
-    'aws.cjs': { gzip: 1160, raw: 3050 },
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 265000, raw: 908000 },
-    'cfn.cjs': { gzip: 4900, raw: 14600 },
     'cfn.js': { gzip: 4900, raw: 14600 },
-    'ci.cjs': { gzip: 114500, raw: 392000 },
     'ci.js': { gzip: 114000, raw: 390000 },
-    'element-auto.cjs': { gzip: 132500, raw: 460500 },
     'element-auto.js': { gzip: 132000, raw: 459000 },
-    'element.cjs': { gzip: 132500, raw: 460000 },
     'element.js': { gzip: 132000, raw: 458500 },
-    'index.cjs': { gzip: 195000, raw: 663500 },
     'index.js': { gzip: 194500, raw: 661000 },
-    'png.cjs': { gzip: 88500, raw: 300500 },
     'png.js': { gzip: 88000, raw: 299000 },
-    'terraform.cjs': { gzip: 11200, raw: 39600 },
     'terraform.js': { gzip: 11200, raw: 39600 },
 };
 

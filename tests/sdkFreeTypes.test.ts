@@ -196,7 +196,7 @@ function createConsumerFixture(params: CreateConsumerFixtureParams): string {
     cpSync(join(repoRoot, 'package.json'), join(packageDir, 'package.json'));
     cpSync(join(repoRoot, 'dist'), join(packageDir, 'dist'), {
         filter: (source) =>
-            statSync(source).isDirectory() || /\.d\.c?ts$/.test(source),
+            statSync(source).isDirectory() || source.endsWith('.d.ts'),
         recursive: true,
     });
 
@@ -372,7 +372,7 @@ describe.skipIf(!hasBuild)(
             ).toThrow();
         });
 
-        it('type-check with skipLibCheck off for every SDK-free entry, ESM and CJS', () => {
+        it('type-check with skipLibCheck off for every SDK-free entry, from ESM and from CommonJS under nodenext', () => {
             const { errors, sourceFiles } = typeCheckConsumer({
                 dir,
                 rootNames: ['consumer.mts', 'consumer.cts'],
@@ -380,13 +380,11 @@ describe.skipIf(!hasBuild)(
 
             expect(errors).toEqual([]);
             for (const name of SDK_FREE_DECLARATIONS) {
-                for (const extension of ['.d.ts', '.d.cts']) {
-                    const suffix = `node_modules/sfn-diagram/dist/${name}${extension}`;
-                    expect(
-                        sourceFiles.some((file) => file.endsWith(suffix)),
-                        `${suffix} was not part of the program`,
-                    ).toBe(true);
-                }
+                const suffix = `node_modules/sfn-diagram/dist/${name}.d.ts`;
+                expect(
+                    sourceFiles.some((file) => file.endsWith(suffix)),
+                    `${suffix} was not part of the program`,
+                ).toBe(true);
             }
         });
     },
