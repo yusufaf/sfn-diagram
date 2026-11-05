@@ -16,8 +16,5 @@
  * `tests/integration.test.ts` was the one absorbing ~9s as whichever suite went
  * first. So the value stays at 30s. Local timings are single-digit
  * milliseconds and say nothing about this.
- *
- * Suites that mock their engine (`tests/PngExporterHtmlEngine.test.ts`) keep their
- * own, tighter timeout: nothing is rasterized there.
  */
 export const REAL_PNG_EXPORT_TIMEOUT_MS = 30_000;

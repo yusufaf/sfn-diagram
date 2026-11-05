@@ -1,48 +1,42 @@
 import type { PngExporterOptions, PngOutput } from '../types';
 import { getTheme } from '../config/themes';
-import { renderHtmlToImagePng } from './htmlToImageEngine';
 import { renderResvgPng } from './resvgEngine';
 
 /** Parameters for converting SVG to PNG */
 export interface ConvertParams {
-    /**
-     * Height of the SVG in pixels.
-     *
-     * Only enforced on the deprecated `html-to-image` engine (removed in 2.0),
-     * which lays the SVG out in a fixed-size HTML page. The `resvg` engine (the
-     * default) computes height itself from the SVG's own aspect ratio at the
-     * requested `width`, so the returned {@link PngOutput.height} can differ
-     * from this value if the two disagree - pass a `height` consistent with the
-     * SVG's intrinsic aspect ratio when it matters.
-     *
-     * @deprecated Only the deprecated `html-to-image` engine uses it;
-     * removed in 2.0. The default `resvg` engine takes the aspect ratio from
-     * the SVG, so delete it when you upgrade to 2.0. It stays required through
-     * 1.x, so keep passing the SVG's height until then.
-     */
-    height: number;
     /** SVG markup string */
     svg: string;
-    /** Width of the SVG in pixels */
+    /**
+     * Intrinsic width of the SVG in pixels. The PNG's height follows from the
+     * SVG's own aspect ratio.
+     */
     width: number;
 }
 
 /**
- * PngExporter - Converts SVG to PNG.
+ * PngExporter - Converts SVG to PNG with `resvg`, a native, browser-free
+ * rasterizer.
  *
- * Defaults to `resvg`, a native, browser-free rasterizer. Pass
- * `engine: 'html-to-image'` to opt into the deprecated Puppeteer-based fallback
- * engine instead (removed in 2.0).
- *
- * Note: neither engine fetches external images (like AWS service icons from
- * a CDN) itself - `exportPng` (the `sfn-diagram/png` subpath) inlines them as
- * data URIs first via `embedIcons` when `showIcons` is set and the engine is
- * `resvg`. A caller using `PngExporter` directly must do the same.
+ * Note: resvg does not fetch external images (like AWS service icons from a
+ * CDN). `exportPng` (the `sfn-diagram/png` subpath) inlines them as data URIs
+ * first via `embedIcons` when `showIcons` is set; a caller using `PngExporter`
+ * directly must do the same.
  */
 export class PngExporter {
     private options: PngExporterOptions;
 
+    /**
+     * @param options - Background, font, scale and theme options for the PNG.
+     * @throws {Error} When `engine` is set to anything other than `'resvg'`.
+     */
     constructor(options: PngExporterOptions) {
+        const engine: unknown = options.engine;
+        if (engine !== undefined && engine !== 'resvg') {
+            throw new Error(
+                `PNG export 'engine' must be 'resvg', got '${String(engine)}'. ` +
+                    "The 'html-to-image' engine was removed in sfn-diagram 2.0; omit `engine` to use resvg."
+            );
+        }
         this.options = options;
     }
 
@@ -50,15 +44,13 @@ export class PngExporter {
      * Convert SVG string to PNG buffer
      */
     async convert(params: ConvertParams): Promise<PngOutput> {
-        const { svg, width, height } = params;
+        const { svg, width } = params;
         const {
             backgroundColor,
-            engine = 'resvg',
             fontDirs,
             fontFamily,
             fontFiles,
             loadSystemFonts,
-            pngQuality,
             scale,
             theme,
         } = this.options;
@@ -73,20 +65,17 @@ export class PngExporter {
         // one, so the whole value goes over as it is.
         const preferredFamily = getTheme(theme).fontFamily;
 
-        const rendered =
-            engine === 'resvg'
-                ? await renderResvgPng({
-                      backgroundColor,
-                      fontDirs,
-                      fontFamily,
-                      fontFiles,
-                      loadSystemFonts,
-                      preferredFamily,
-                      scale,
-                      svg,
-                      width,
-                  })
-                : await renderHtmlToImagePng({ backgroundColor, height, pngQuality, svg, width });
+        const rendered = await renderResvgPng({
+            backgroundColor,
+            fontDirs,
+            fontFamily,
+            fontFiles,
+            loadSystemFonts,
+            preferredFamily,
+            scale,
+            svg,
+            width,
+        });
 
         return {
             buffer: rendered.buffer,

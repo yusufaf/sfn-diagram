@@ -102,10 +102,12 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # PNG export (node-html-to-image) launches puppeteer with headless: "shell",
-      # so it needs the chrome-headless-shell binary — not just chrome. Install
-      # both explicitly; --frozen-lockfile skips puppeteer's postinstall, so we
-      # cannot rely on that to populate the browser cache.
+      # The viewer, element and SVG well-formedness suites launch Chrome through
+      # puppeteer (headless: true). Install it explicitly; --frozen-lockfile skips
+      # puppeteer's postinstall, so we cannot rely on that to populate the browser
+      # cache. chrome-headless-shell is no longer launched by anything (2.0
+      # removed the PNG engine that used headless: "shell"); dropping it is a
+      # separate change.
       - name: Install browsers for Puppeteer
         run: |
           pnpm exec puppeteer browsers install chrome

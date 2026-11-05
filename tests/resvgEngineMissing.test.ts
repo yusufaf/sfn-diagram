@@ -9,7 +9,7 @@ describe('renderResvgPng when the optional peer is missing', () => {
         const { renderResvgPng } = await import('../src/exporters/resvgEngine');
 
         await expect(renderResvgPng({ svg: '<svg></svg>', width: 100 })).rejects.toThrow(
-            /@resvg\/resvg-js.*npm install @resvg\/resvg-js.*engine: 'html-to-image'/s
+            /^PNG export requires the optional peer dependency '@resvg\/resvg-js'\. Install it with: npm install @resvg\/resvg-js$/
         );
     });
 });

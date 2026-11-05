@@ -108,7 +108,6 @@ describe('Visual outputs (generates sample files)', () => {
                     const result = await exporter.convert({
                         svg: svgWithEmbeddedIcons,
                         width: svgResult.width,
-                        height: svgResult.height,
                     });
 
                     const outputPath = join(OUTPUT_DIR, `${baseName}.png`);

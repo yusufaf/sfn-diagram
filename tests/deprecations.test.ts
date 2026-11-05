@@ -22,7 +22,6 @@ const EXPECTED_DEPRECATED_NAMES = [
     'edges',
     'executionStatusByNodeId',
     'get',
-    'height',
     'keyFor',
     'nodes',
     'options',
@@ -42,9 +41,7 @@ interface SnippetForParams {
 /**
  * Builds a consumer snippet that touches every API 2.0 removes, plus the
  * neighbours that stay (`clear`, `stats`, `createLayoutCache`,
- * `generateViewerUpdate`, the `relayoutModel` field, `ConvertParams.svg` and
- * `ConvertParams.width`), which must not be flagged. No entry point exports
- * `ConvertParams`, so the snippet reaches it as `Parameters<PngExporter['convert']>[0]`.
+ * `generateViewerUpdate`, the `relayoutModel` field), which must not be flagged.
  * Properties are read rather than written in object literals: TypeScript only
  * reports deprecation on a literal property through hover and completion.
  *
@@ -58,14 +55,12 @@ function snippetFor(params: SnippetForParams): string {
     return [
         `import { buildViewerContent, createLayoutCache, generateViewerUpdate, resolveViewerTheme } from '${indexPath}';`,
         `import type { DiagramOptions, ViewerUpdate } from '${indexPath}';`,
-        `import type { ExportPngParams, PngExporter } from '${pngPath}';`,
-        "declare const convertParams: Parameters<PngExporter['convert']>[0];",
+        `import type { ExportPngParams } from '${pngPath}';`,
         'declare const options: DiagramOptions;',
         'declare const pngParams: ExportPngParams;',
         'declare const update: ViewerUpdate;',
         'options.pngQuality;',
         'pngParams.pngQuality;',
-        'convertParams.height; convertParams.svg; convertParams.width;',
         "buildViewerContent({ minimapCollapsed: false, svg: '' });",
         "resolveViewerTheme({ theme: 'dark' });",
         'const cache = createLayoutCache();',

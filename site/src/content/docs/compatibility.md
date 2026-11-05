@@ -32,8 +32,8 @@ anything covered below ships only in a major release, with the exceptions listed
 - Documented environment variables: `SFN_DIAGRAM_PNG_FONT_DIRS`,
   `SFN_DIAGRAM_PNG_FONT_FAMILY`, `SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS` and
   `SFN_DIAGRAM_GITLAB_TOKEN`.
-- Warning codes such as `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`, which you can filter on with
-  Node's `--disable-warning`.
+- Warning codes that sfn-diagram passes to `process.emitWarning` (prefixed
+  `SFN_DIAGRAM_`), which you can filter on with Node's `--disable-warning`.
 
 ## Not covered
 

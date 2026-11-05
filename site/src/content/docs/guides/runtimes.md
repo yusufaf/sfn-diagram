@@ -17,21 +17,7 @@ to `git` and, optionally, `@aws-sdk/client-sfn` for execution overlays. Because
 install them alongside `sfn-diagram` when you need PNG output or execution
 overlays; `exportPng` throws an actionable error if `@resvg/resvg-js` is missing.
 
-`sfn-diagram/png` also ships an opt-in `engine: 'html-to-image'` fallback backed
-by the `node-html-to-image` peer, for cases that need its headless-Chromium
-rendering instead of the native rasterizer. It is a library-only option — the CLI
-and Docker image always use `@resvg/resvg-js` and have no engine flag.
-
-**Deprecated:** the `html-to-image` engine emits a one-time `DeprecationWarning`
-(code `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`) when used and will be removed in 2.0, along
-with the `node-html-to-image` peer. Use the default `resvg` engine. To silence the
-warning in the meantime, run Node with
-`--disable-warning=SFN_DIAGRAM_DEP_HTML_TO_IMAGE` (or `--no-deprecation` to silence
-all deprecation warnings). See [Upcoming in 2.0](/upgrading-to-v2/) for everything
-else 2.0 removes.
-
-**Node versions:** on Node, every entry point (core, the CLI, and PNG export with either
-engine) requires **Node >= 22.12.0**. Node 20 reached end of life on 2026-04-30 and
+**Node versions:** on Node, every entry point (core, the CLI, and PNG export) requires **Node >= 22.12.0**. Node 20 reached end of life on 2026-04-30 and
 sfn-diagram 1.x was the last line to support it; see [Upcoming in 2.0](/upgrading-to-v2/).
 An end-of-life Node line may be dropped in a minor release
 (see [Runtime support](/compatibility/#runtime-support)).

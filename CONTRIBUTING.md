@@ -402,7 +402,7 @@ sfn-diagram/
 │   ├── config/                 # Themes, style presets and option defaults
 │   ├── constants/              # Shared constant values
 │   ├── element/                # The `<sfn-diagram>` custom element
-│   ├── exporters/              # PNG exporters (resvg, html-to-image)
+│   ├── exporters/              # PNG exporter (resvg)
 │   ├── graph/                  # Container collapse, catch handling, edge identity
 │   ├── layout/                 # Graph layout (Dagre)
 │   ├── renderers/              # SVG, Mermaid, HTML and interactive viewer
