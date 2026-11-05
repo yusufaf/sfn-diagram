@@ -9,7 +9,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import nodeHtmlToImage from 'node-html-to-image';
+import puppeteer from 'puppeteer';
 import { generateSvg } from '../dist/index.js';
 import { repoRootFrom } from './lib/repo-paths.mjs';
 
@@ -95,15 +95,19 @@ const html = `
 </html>
 `.trim();
 
-const buffer = await nodeHtmlToImage({
-    html,
-    puppeteerArgs: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-        defaultViewport: { width: WIDTH, height: HEIGHT },
-    },
-    quality: 100,
-    type: 'png',
+const browser = await puppeteer.launch({
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    headless: true,
 });
+let buffer;
+try {
+    const page = await browser.newPage();
+    await page.setViewport({ height: HEIGHT, width: WIDTH });
+    await page.setContent(html, { waitUntil: 'load' });
+    buffer = await page.screenshot({ type: 'png' });
+} finally {
+    await browser.close();
+}
 
 const outputs = [join(repoRoot, 'site', 'public', 'og.png'), join(repoRoot, 'docs', 'images', 'og.png')];
 

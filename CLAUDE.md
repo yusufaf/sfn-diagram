@@ -51,7 +51,7 @@ Library for generating diagrams from AWS Step Functions ASL (Amazon States Langu
 - Proper start/end state handling
 
 **src/exporters/PngExporter.ts** - PNG export
-- Converts SVG to PNG using `@resvg/resvg-js` (default) or `node-html-to-image` (opt-in fallback)
+- Converts SVG to PNG using `@resvg/resvg-js`, an optional peer dependency
 - Configurable quality and background
 
 **src/config/** - Configuration

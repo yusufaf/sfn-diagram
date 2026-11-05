@@ -19,9 +19,8 @@ import { generateSvg } from '../src';
 const asl = { StartAt: 'A', States: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } } };
 
 /**
- * resvg ignores `@media` rules, but the html-to-image engine is headless Chromium,
- * which would follow the OS colour scheme. So `'auto'` has to be resolved to light
- * before the SVG is drawn, not left to the rasteriser.
+ * A raster has no colour scheme to follow, so `'auto'` is resolved to light
+ * before the SVG is drawn rather than left to the rasteriser.
  */
 describe("exportPng with theme: 'auto'", () => {
     it('rasterises the light SVG', async () => {

@@ -77,7 +77,6 @@ interface ResvgModule {
  */
 async function loadResvg(): Promise<ResvgModule> {
     return loadOptionalPeer({
-        hint: " (or pass engine: 'html-to-image' to use the deprecated Puppeteer-based fallback until it is removed in 2.0).",
         load: async () => (await import('@resvg/resvg-js')) as unknown as ResvgModule,
         packageName: '@resvg/resvg-js',
     });
@@ -119,9 +118,8 @@ export interface RenderResvgPngParams {
 /**
  * Rasterize an SVG string to PNG using the native, browser-free `resvg` engine.
  *
- * Unlike the `html-to-image` engine's lenient browser HTML parser, resvg's
- * XML parser requires the SVG root element to declare `xmlns`. Every SVG this
- * package generates already does, but a hand-rolled SVG string passed
+ * resvg's XML parser requires the SVG root element to declare `xmlns`. Every
+ * SVG this package generates already does, but a hand-rolled SVG string passed
  * directly to {@link PngExporter} must too.
  *
  * @param params - The SVG markup, its intrinsic width, and rendering options.

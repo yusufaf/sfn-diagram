@@ -32,7 +32,7 @@
         },
         {
             "title": "PNG Export",
-            "purpose": "exportPng in sfn-diagram/png: the default resvg engine, the opt-in node-html-to-image engine, both loaded as optional peer dependencies, and why PNG export is Node-only.",
+            "purpose": "exportPng in sfn-diagram/png: the resvg engine, loaded as an optional peer dependency, and why PNG export is Node-only.",
             "parent": "Public API and Entry Points"
         },
         {

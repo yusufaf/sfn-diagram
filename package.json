@@ -132,7 +132,6 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.13.0",
     "husky": "^9.1.7",
-    "node-html-to-image": "^6.2.0",
     "oxlint": "^1.89.0",
     "prettier": "3.9.10",
     "publint": "^0.3.25",
@@ -153,17 +152,13 @@
   },
   "peerDependencies": {
     "@aws-sdk/client-sfn": "^3.0.0",
-    "@resvg/resvg-js": "^2.6.2",
-    "node-html-to-image": "^6.0.0"
+    "@resvg/resvg-js": "^2.6.2"
   },
   "peerDependenciesMeta": {
     "@aws-sdk/client-sfn": {
       "optional": true
     },
     "@resvg/resvg-js": {
-      "optional": true
-    },
-    "node-html-to-image": {
       "optional": true
     }
   },

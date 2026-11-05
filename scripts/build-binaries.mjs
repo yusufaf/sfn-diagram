@@ -46,13 +46,13 @@ const TARGETS = {
 };
 
 /**
- * Packages that must stay out of the bundle. All three are optional peers, which a
+ * Packages that must stay out of the bundle. Both are optional peers, which a
  * single-file executable has no node_modules to load from, so src/cli.ts refuses
  * every flag that needs one before taking the dynamic import:
  *
- * - `@resvg/resvg-js` and `node-html-to-image` are reached only through the PNG
- *   exporter. resvg's napi loader `require`s one platform package per target and
- *   only the host's is ever installed, and html-to-image needs Chromium.
+ * - `@resvg/resvg-js` is reached only through the PNG exporter. Its napi loader
+ *   `require`s one platform package per target and only the host's is ever
+ *   installed.
  * - `@aws-sdk/client-sfn` is reached by `--from-aws`, `--diff <arn>`,
  *   `--execution <arn>` and `comment gitlab --execution-mode`. Bundling it cost
  *   about 1 MB and 150 modules per binary for routes the binary refuses (#341).
@@ -62,7 +62,7 @@ const TARGETS = {
  * startup and fail on every command. No module the CLI reaches may therefore import
  * one of these statically; tests/coreDependencies.test.ts enforces that.
  */
-const EXTERNALS = ['@aws-sdk/client-sfn', '@resvg/resvg-js', 'node-html-to-image'];
+const EXTERNALS = ['@aws-sdk/client-sfn', '@resvg/resvg-js'];
 
 function hostTarget() {
     const os = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[

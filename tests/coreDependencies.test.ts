@@ -387,11 +387,7 @@ describe('the CLI graph bun compiles into the standalone binaries', () => {
     // module it inlines, including one reached only through import(), so the
     // binary resolves it at startup and crashes without node_modules (#341).
     it('reads the optional peers from package.json', () => {
-        expect(OPTIONAL_PEERS).toEqual([
-            '@aws-sdk/client-sfn',
-            '@resvg/resvg-js',
-            'node-html-to-image',
-        ]);
+        expect(OPTIONAL_PEERS).toEqual(['@aws-sdk/client-sfn', '@resvg/resvg-js']);
     });
 
     it.each(OPTIONAL_PEERS)(

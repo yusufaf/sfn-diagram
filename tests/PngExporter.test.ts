@@ -1,11 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, it, expect, vi } from 'vitest';
-
-vi.mock('node-html-to-image', () => {
-    throw new Error('node-html-to-image must not be loaded by the default engine');
-});
-
+import { describe, it, expect } from 'vitest';
 import { exportPng, PngExporter } from '../src/png';
 import type { AslDefinition } from '../src/types';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
@@ -23,7 +18,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({});
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.buffer).toBeDefined();
             expect(result.buffer).toBeInstanceOf(Buffer);
@@ -34,7 +29,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({});
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.width).toBe(200);
             expect(result.height).toBe(100);
@@ -44,7 +39,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({});
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.metadata).toBeDefined();
             expect(result.metadata.format).toBe('png');
@@ -55,8 +50,8 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         it('should treat pngQuality as a no-op on the resvg engine', async () => {
             const svg = createTestSvg();
 
-            const low = await new PngExporter({ pngQuality: 10 }).convert({ svg, width: 200, height: 100 });
-            const high = await new PngExporter({ pngQuality: 90 }).convert({ svg, width: 200, height: 100 });
+            const low = await new PngExporter({ pngQuality: 10 }).convert({ svg, width: 200 });
+            const high = await new PngExporter({ pngQuality: 90 }).convert({ svg, width: 200 });
 
             expect(low.buffer.equals(high.buffer)).toBe(true);
         });
@@ -67,7 +62,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({ backgroundColor: 'transparent' });
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.buffer).toBeDefined();
         });
@@ -76,7 +71,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({ backgroundColor: 'white' });
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.buffer).toBeDefined();
         });
@@ -85,7 +80,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({ backgroundColor: '#f0f0f0' });
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.buffer).toBeDefined();
         });
@@ -96,7 +91,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({ scale: 2 });
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 200, height: 100 });
+            const result = await exporter.convert({ svg, width: 200 });
 
             expect(result.width).toBe(400);
             expect(result.height).toBe(200);
@@ -108,7 +103,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({});
             const svg = '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 
-            const result = await exporter.convert({ svg, width: 100, height: 100 });
+            const result = await exporter.convert({ svg, width: 100 });
 
             expect(result.buffer).toBeDefined();
         });
@@ -117,7 +112,7 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
             const exporter = new PngExporter({});
             const svg = createTestSvg();
 
-            const result = await exporter.convert({ svg, width: 2000, height: 1000 });
+            const result = await exporter.convert({ svg, width: 2000 });
 
             expect(result.buffer).toBeDefined();
             expect(result.width).toBe(2000);

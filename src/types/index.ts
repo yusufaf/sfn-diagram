@@ -727,9 +727,7 @@ export interface DiagramOptions {
     /**
      * PNG export quality from 1-100.
      *
-     * Has no effect on the default `resvg` engine (PNG is lossless, and resvg
-     * exposes no compression knob) or on the deprecated `html-to-image`
-     * fallback engine (its `quality` option is JPEG-only).
+     * Has no effect: PNG is lossless, and resvg exposes no compression knob.
      * @default 90
      * @deprecated No effect; removed in 2.0. Use {@link PngExportOptions.scale} to control PNG resolution instead.
      */
@@ -887,32 +885,26 @@ export interface MermaidOutput {
     };
 }
 
-/**
- * Engine used to rasterize the SVG to PNG. `'html-to-image'` is deprecated and
- * will be removed in 2.0: selecting it emits a one-time `DeprecationWarning`
- * (code `SFN_DIAGRAM_DEP_HTML_TO_IMAGE`). Use `'resvg'`, the default.
- */
-export type PngEngine = 'html-to-image' | 'resvg';
+/** Engine used to rasterize the SVG to PNG. `'resvg'` is the only engine. */
+export type PngEngine = 'resvg';
 
 /** Node-only PNG rasterization options (the `sfn-diagram/png` subpath). */
 export interface PngExportOptions {
     /**
-     * Rasterization engine. `resvg` is a native, browser-free renderer.
-     * `html-to-image` is **Deprecated:** it launches headless Chromium via
-     * Puppeteer, emits a one-time `DeprecationWarning` when used, and will be
-     * removed in 2.0. Use `resvg` (the default) instead.
+     * Rasterization engine: `resvg`, a native, browser-free renderer and the
+     * only engine.
      * @default 'resvg'
      */
     engine?: PngEngine;
 
     /**
-     * Directories to search for font files. `resvg` only.
+     * Directories to search for font files.
      */
     fontDirs?: string[];
 
     /**
      * Default font family for text that names none of its own, which is what
-     * resvg's `defaultFontFamily` means. `resvg` only.
+     * resvg's `defaultFontFamily` means.
      *
      * Note this does *not* restyle a generated diagram: `SvgRenderer` writes
      * `theme.fontFamily` onto every `<text>`, so an export is byte-identical
@@ -925,13 +917,13 @@ export interface PngExportOptions {
     fontFamily?: string;
 
     /**
-     * Explicit font files to load. `resvg` only.
+     * Explicit font files to load.
      */
     fontFiles?: string[];
 
     /**
      * Whether resvg should also parse every installed system font, which costs
-     * ~250ms per export. `resvg` only.
+     * ~250ms per export.
      *
      * Defaults to `false` only when a readable font *file* is known — an entry
      * of `fontFiles`, or a hit in the built-in per-platform probe table — and
@@ -957,8 +949,8 @@ export interface PngExportOptions {
     loadSystemFonts?: boolean;
 
     /**
-     * Multiplier applied to the diagram's rendered size. `resvg` only. Must be a
-     * positive finite number; anything else throws. Also throws when the resulting
+     * Multiplier applied to the diagram's rendered size. Must be a positive
+     * finite number; anything else throws. Also throws when the resulting
      * image would need more memory than the process can have (the machine's, or a
      * container's limit), since resvg would otherwise abort the process.
      * @default 1

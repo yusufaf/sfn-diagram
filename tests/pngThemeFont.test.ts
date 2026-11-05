@@ -27,7 +27,7 @@ const svg = '<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>';
 const lastParams = () => resolvePngFontOptions.mock.calls.at(-1)?.[0];
 
 const render = async (options: ConstructorParameters<typeof PngExporter>[0]) => {
-    await new PngExporter(options).convert({ height: 100, svg, width: 200 });
+    await new PngExporter(options).convert({ svg, width: 200 });
     return lastParams();
 };
 

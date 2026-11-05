@@ -11,12 +11,12 @@ importers:
         specifier: ^2.9.0
         version: 2.9.1
     devDependencies:
+      '@aws-sdk/client-sfn':
+        specifier: ^3.1154.0
+        version: 3.1154.0
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
-      node-html-to-image:
-        specifier: ^6.2.0
-        version: 6.2.0
       react-dom:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
