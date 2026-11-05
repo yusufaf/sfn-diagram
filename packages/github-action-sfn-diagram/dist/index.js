@@ -66419,8 +66419,6 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   layout: "TB",
   rankSeparation: 50,
   nodeSeparation: 50,
-  width: void 0,
-  height: void 0,
   nodeWidth: 120,
   nodeHeight: 60,
   padding: 20,

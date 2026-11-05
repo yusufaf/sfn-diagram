@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { DagreLayout } from '../src/layout';
+import { DagreLayout, type LayoutResult } from '../src/layout';
 import type { StateNode, GraphEdge, AslDefinition, LayoutDirection } from '../src/types';
 import { parseAsl } from '../src/AslParser';
 import { applyCollapse } from '../src/graph';
@@ -58,14 +58,10 @@ describe('DagreLayout', () => {
     ];
 
     describe('Layout calculation', () => {
-        it('ignores the deprecated width and height options', () => {
-            const withOptions = new DagreLayout({ height: 1500, width: 2000 }).calculate(
-                createTestNodes(),
-                createTestEdges(),
-            );
-            const without = new DagreLayout({}).calculate(createTestNodes(), createTestEdges());
+        it('returns only nodes and edges', () => {
+            const result = new DagreLayout({}).calculate(createTestNodes(), createTestEdges());
 
-            expect(withOptions.graph).toEqual(without.graph);
+            expect(Object.keys(result).sort()).toEqual(['edges', 'nodes']);
         });
 
         it('should calculate positions for nodes', () => {
@@ -312,7 +308,11 @@ describe('DagreLayout with collapsed containers', () => {
         const collapsed = applyCollapse({ collapse: true, edges: parsed.edges, nodes: parsed.nodes });
         const collapsedLayout = new DagreLayout({}).calculate(collapsed.nodes, collapsed.edges);
 
-        expect(collapsedLayout.graph.height).toBeLessThan(expandedLayout.graph.height);
+        const bottomOf = (result: LayoutResult): number =>
+            Math.max(...result.nodes.map((node) => (node.y ?? 0) + (node.height ?? 0) / 2));
+
+        expect(bottomOf(collapsedLayout)).toBeGreaterThan(0);
+        expect(bottomOf(collapsedLayout)).toBeLessThan(bottomOf(expandedLayout));
     });
 
     // The container -> Next edge is visual-only, and the non-visual end-marker edge

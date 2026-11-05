@@ -31,8 +31,8 @@ export interface DeprecatedUsagesInParams {
  * @example
  * deprecatedUsagesIn({
  *     fileName: join(repoRoot, 'tests/__snippet.ts'),
- *     sourceText: "import type { DiagramOptions } from '../src/index';\ndeclare const options: DiagramOptions;\noptions.width;",
- * }); // [{ message: 'No effect; will be removed in 2.0. ...', name: 'width' }]
+ *     sourceText: "import type { DiagramOptions } from '../src/index';\ndeclare const options: DiagramOptions;\noptions.pngQuality;",
+ * }); // [{ message: 'No effect; removed in 2.0. ...', name: 'pngQuality' }]
  */
 export function deprecatedUsagesIn(
     params: DeprecatedUsagesInParams,

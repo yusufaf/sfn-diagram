@@ -275,7 +275,6 @@ describe('SvgRenderer', () => {
             const layout: LayoutResult = {
                 nodes: [pollNode()],
                 edges: [selfLoopEdge()],
-                graph: { height: 400, width: 800 },
             };
 
             const result = new SvgRenderer({}).render(layout);
@@ -299,7 +298,6 @@ describe('SvgRenderer', () => {
             const layout: LayoutResult = {
                 nodes: [pollNode(), neighbor],
                 edges: [selfLoopEdge()],
-                graph: { height: 400, width: 800 },
             };
 
             const result = new SvgRenderer({}).render(layout);
@@ -317,7 +315,6 @@ describe('SvgRenderer', () => {
                     nestedSelfLoopEdge({ label: 'a somewhat longer loop one label', loopIndex: 1 }),
                     nestedSelfLoopEdge({ label: 'loop two', loopIndex: 2 }),
                 ],
-                graph: { height: 400, width: 800 },
             };
 
             const result = new SvgRenderer({}).render(layout);
@@ -369,7 +366,6 @@ describe('SvgRenderer', () => {
                     }),
                     nestedLrSelfLoopEdge({ label: 'x', loopIndex: 1 }),
                 ],
-                graph: { height: 400, width: 800 },
             };
 
             const result = new SvgRenderer({ layout: 'LR' }).render(layout);
@@ -746,7 +742,6 @@ describe('SvgRenderer', () => {
                 { id: 'B', label: 'B', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 260, y: 100, width: 120, height: 60 },
             ],
             edges: [bentEdge()],
-            graph: { height: 300, width: 400 },
         });
 
         const extractPathD = (svg: string): string =>
@@ -839,7 +834,6 @@ describe('SvgRenderer', () => {
                 { id: 'B', label: 'B', type: 'Task', style: { fill: '#fff', stroke: '#000', strokeWidth: 2, shape: 'rect' }, x: 260, y: 100, width: 120, height: 60 },
             ],
             edges: [reservedEdge()],
-            graph: { height: 300, width: 400 },
         });
 
         const labelCenter = (svg: string): { x: number; y: number } => {

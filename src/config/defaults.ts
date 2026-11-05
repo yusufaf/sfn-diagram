@@ -7,8 +7,6 @@ import { withoutUndefined } from './withoutUndefined';
 export const DEFAULT_DIAGRAM_OPTIONS: Required<
     Omit<
         DiagramOptions,
-        | 'width'
-        | 'height'
         | 'collapse'
         | 'customColors'
         | 'iconResolver'
@@ -20,8 +18,6 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
         | 'idPrefix'
     >
 > & {
-    width: number | undefined;
-    height: number | undefined;
     collapse: DiagramOptions['collapse'];
     customColors: DiagramOptions['customColors'];
     iconResolver: DiagramOptions['iconResolver'];
@@ -44,9 +40,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     rankSeparation: 50,
     nodeSeparation: 50,
 
-    // Dimensions (auto-calculate if not provided)
-    width: undefined,
-    height: undefined,
+    // Node dimensions
     nodeWidth: 120,
     nodeHeight: 60,
     padding: 20,
