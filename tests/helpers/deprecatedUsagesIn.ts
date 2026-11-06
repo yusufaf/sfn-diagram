@@ -31,8 +31,8 @@ export interface DeprecatedUsagesInParams {
  * @example
  * deprecatedUsagesIn({
  *     fileName: join(repoRoot, 'tests/__snippet.ts'),
- *     sourceText: "import type { DiagramOptions } from '../src/index';\ndeclare const options: DiagramOptions;\noptions.pngQuality;",
- * }); // [{ message: 'No effect; removed in 2.0. ...', name: 'pngQuality' }]
+ *     sourceText: '/** @deprecated Use next() instead. *\/\ndeclare function old(): void;\nold();',
+ * }); // [{ message: 'Use next() instead.', name: 'old' }]
  */
 export function deprecatedUsagesIn(
     params: DeprecatedUsagesInParams,

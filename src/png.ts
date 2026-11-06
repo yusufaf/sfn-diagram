@@ -55,7 +55,6 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontFamily,
         fontFiles,
         loadSystemFonts,
-        pngQuality,
         scale,
         ...svgOptions
     } = params;
@@ -70,7 +69,6 @@ export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
         fontFamily,
         fontFiles,
         loadSystemFonts,
-        pngQuality,
         scale,
         theme,
     });
