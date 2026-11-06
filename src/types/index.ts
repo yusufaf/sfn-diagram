@@ -649,14 +649,6 @@ export interface DiagramOptions {
     format?: DiagramFormat;
 
     /**
-     * Has no effect on any output. The SVG is sized to its content plus `padding`, and its
-     * `viewBox` lets it scale freely: set its height with CSS when embedding, or use
-     * {@link PngExportOptions.scale} for PNG resolution (`resvg` engine).
-     * @deprecated No effect; will be removed in 2.0.
-     */
-    height?: number;
-
-    /**
      * Position of AWS service icons relative to node label
      * @default 'left'
      */
@@ -771,14 +763,6 @@ export interface DiagramOptions {
      * PNG and Mermaid output; see {@link ThemeOption}.
      */
     theme?: ThemeOption;
-
-    /**
-     * Has no effect on any output. The SVG is sized to its content plus `padding`, and its
-     * `viewBox` lets it scale freely: set its width with CSS when embedding, or use
-     * {@link PngExportOptions.scale} for PNG resolution (`resvg` engine).
-     * @deprecated No effect; will be removed in 2.0.
-     */
-    width?: number;
 
     /**
      * Per-node style overrides keyed by graph node id, which is the state name for

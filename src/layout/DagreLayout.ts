@@ -175,10 +175,6 @@ export interface LayoutResult {
         }
     >;
     nodes: StateNode[]; // With x, y, width, height populated
-    graph: {
-        height: number;
-        width: number;
-    };
 }
 
 /**
@@ -482,15 +478,8 @@ export class DagreLayout {
             });
         }
 
-        // Get final graph dimensions
-        const graphDims = graph.graph();
-
         return {
             edges: routedEdges,
-            graph: {
-                height: graphDims.height ?? 600,
-                width: graphDims.width ?? 800,
-            },
             nodes: allPositionedNodes,
         };
     }

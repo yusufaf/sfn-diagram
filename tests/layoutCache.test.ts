@@ -175,12 +175,6 @@ describe('layout cache key covers every layout-affecting option', () => {
         expect(keyFor(options)).not.toBe(keyFor({}));
     });
 
-    // width and height are deprecated no-ops (#322): DagreLayout no longer reads them,
-    // so they must not split the cache key either.
-    test.each(['height', 'width'] as const)('%s does not change the cache key (deprecated no-op)', (field) => {
-        expect(keyFor({ [field]: 4000 })).toBe(keyFor({}));
-    });
-
     test('idPrefix does not change the cache key', () => {
         expect(keyFor({ idPrefix: 'p-' })).toBe(keyFor({}));
     });

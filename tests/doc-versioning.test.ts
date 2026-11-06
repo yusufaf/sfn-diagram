@@ -100,7 +100,7 @@ interface CollectRemovedIn2DeclarationsParams {
  * @param params - The directory to walk.
  * @returns Sorted, de-duplicated names.
  * @example
- * collectRemovedIn2Declarations({ sourceRoot: join(repoRoot, 'src') }); // ['DiagramOptions.height', …]
+ * collectRemovedIn2Declarations({ sourceRoot: join(repoRoot, 'src') }); // ['DiagramOptions.pngQuality', …]
  */
 function collectRemovedIn2Declarations(
     params: CollectRemovedIn2DeclarationsParams,
