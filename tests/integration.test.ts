@@ -354,13 +354,6 @@ describe('Integration Tests', () => {
             expect(result.metadata.format).toBe('png');
         });
 
-        it('should apply PNG quality option', async () => {
-            const aslDefinition = loadFixture('simple');
-            const result = await exportPng({ aslDefinition, pngQuality: 50 });
-
-            expect(result.buffer).toBeDefined();
-        });
-
         it('should apply background color option', async () => {
             const aslDefinition = loadFixture('simple');
             const result = await exportPng({ aslDefinition, backgroundColor: 'white' });

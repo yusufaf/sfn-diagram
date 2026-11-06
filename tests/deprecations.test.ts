@@ -25,7 +25,6 @@ const EXPECTED_DEPRECATED_NAMES = [
     'keyFor',
     'nodes',
     'options',
-    'pngQuality',
     'resolveViewerTheme',
     'set',
 ];
@@ -34,8 +33,6 @@ const EXPECTED_DEPRECATED_NAMES = [
 interface SnippetForParams {
     /** Specifier of the root entry, relative to the snippet. */
     indexPath: string;
-    /** Specifier of the `png` entry, relative to the snippet. */
-    pngPath: string;
 }
 
 /**
@@ -45,22 +42,18 @@ interface SnippetForParams {
  * Properties are read rather than written in object literals: TypeScript only
  * reports deprecation on a literal property through hover and completion.
  *
- * @param params - Where the snippet imports the root and `png` entries from.
+ * @param params - Where the snippet imports the root entry from.
  * @returns The snippet source.
  * @example
- * snippetFor({ indexPath: '../src/index', pngPath: '../src/png' });
+ * snippetFor({ indexPath: '../src/index' });
  */
 function snippetFor(params: SnippetForParams): string {
-    const { indexPath, pngPath } = params;
+    const { indexPath } = params;
     return [
         `import { buildViewerContent, createLayoutCache, generateViewerUpdate, resolveViewerTheme } from '${indexPath}';`,
         `import type { DiagramOptions, ViewerUpdate } from '${indexPath}';`,
-        `import type { ExportPngParams } from '${pngPath}';`,
         'declare const options: DiagramOptions;',
-        'declare const pngParams: ExportPngParams;',
         'declare const update: ViewerUpdate;',
-        'options.pngQuality;',
-        'pngParams.pngQuality;',
         "buildViewerContent({ minimapCollapsed: false, svg: '' });",
         "resolveViewerTheme({ theme: 'dark' });",
         'const cache = createLayoutCache();',
@@ -77,12 +70,12 @@ function snippetFor(params: SnippetForParams): string {
 
 describe.each([
     {
-        entries: { indexPath: '../src/index', pngPath: '../src/png' },
+        entries: { indexPath: '../src/index' },
         label: 'source',
         skip: false,
     },
     {
-        entries: { indexPath: '../dist/index.js', pngPath: '../dist/png.js' },
+        entries: { indexPath: '../dist/index.js' },
         label: 'dist',
         skip: !hasBuild,
     },

@@ -46,17 +46,6 @@ describe('PngExporter', { timeout: REAL_PNG_EXPORT_TIMEOUT_MS }, () => {
         });
     });
 
-    describe('Quality settings', () => {
-        it('should treat pngQuality as a no-op on the resvg engine', async () => {
-            const svg = createTestSvg();
-
-            const low = await new PngExporter({ pngQuality: 10 }).convert({ svg, width: 200 });
-            const high = await new PngExporter({ pngQuality: 90 }).convert({ svg, width: 200 });
-
-            expect(low.buffer.equals(high.buffer)).toBe(true);
-        });
-    });
-
     describe('Background color', () => {
         it('should support transparent background', async () => {
             const exporter = new PngExporter({ backgroundColor: 'transparent' });

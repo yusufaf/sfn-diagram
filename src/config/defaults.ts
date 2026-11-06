@@ -65,7 +65,6 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     showIcons: false,
 
     // PNG-specific
-    pngQuality: 90,
     backgroundColor: 'transparent',
 
     // Diff / execution overlay style overrides

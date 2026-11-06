@@ -66436,7 +66436,6 @@ var DEFAULT_DIAGRAM_OPTIONS = {
   iconResolver: void 0,
   iconSize: 24,
   showIcons: false,
-  pngQuality: 90,
   backgroundColor: "transparent",
   nodeOverrides: void 0,
   edgeOverrides: void 0,

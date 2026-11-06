@@ -717,15 +717,6 @@ export interface DiagramOptions {
     padding?: number;
 
     /**
-     * PNG export quality from 1-100.
-     *
-     * Has no effect: PNG is lossless, and resvg exposes no compression knob.
-     * @default 90
-     * @deprecated No effect; removed in 2.0. Use {@link PngExportOptions.scale} to control PNG resolution instead.
-     */
-    pngQuality?: number;
-
-    /**
      * Vertical separation between ranks in pixels
      * @default 50
      */
