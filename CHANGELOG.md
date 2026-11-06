@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.10.0...sfn-diagram-v2.0.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* `DiagramOptions.pngQuality` is removed, so `exportPng` and `PngExporter` no longer accept it; it never affected PNG output. Use `PngExportOptions.scale` to control PNG resolution.
+* `DiagramOptions.width` and `height` are removed; they never affected output. Size the SVG with CSS (its `viewBox` scales freely), or use `PngExportOptions.scale` for PNG resolution.
+* **png:** the html-to-image PNG engine and its node-html-to-image peer are removed. Drop engine: 'html-to-image' and ConvertParams.height and uninstall node-html-to-image; resvg renders every PNG.
+* sfn-diagram ships ES modules only and drops main and typesVersions. CommonJS callers on Node 22.12+ keep calling require(); Jest users add sfn-diagram to transformIgnorePatterns; TypeScript projects need moduleResolution node16/nodenext/bundler, and CommonJS output needs TS 5.8+ with module nodenext or node20.
+* sfn-diagram requires Node.js >= 22.12.0; upgrade from Node 20.
+
+### Code Refactoring
+
+* **png:** remove the html-to-image engine ([#601](https://github.com/yusufaf/sfn-diagram/issues/601)) ([aca9c8b](https://github.com/yusufaf/sfn-diagram/commit/aca9c8b9788de809a69090b4e2a6a8d4354810d7))
+* remove the deprecated DiagramOptions.width and height ([#602](https://github.com/yusufaf/sfn-diagram/issues/602)) ([65ad4e1](https://github.com/yusufaf/sfn-diagram/commit/65ad4e1c26586fae14e1217bdb901b3fd4ac0d0a))
+* remove the no-op DiagramOptions.pngQuality ([#603](https://github.com/yusufaf/sfn-diagram/issues/603)) ([c141123](https://github.com/yusufaf/sfn-diagram/commit/c141123097f071ba861558f36a42cfac67abd372))
+
+
+### Build System
+
+* raise engines.node to &gt;=22.12.0 ([#598](https://github.com/yusufaf/sfn-diagram/issues/598)) ([18ebc93](https://github.com/yusufaf/sfn-diagram/commit/18ebc93c04cc17afbbfa7dd9e9187793aa5d37bb))
+* ship ESM only ([#600](https://github.com/yusufaf/sfn-diagram/issues/600)) ([0c1762f](https://github.com/yusufaf/sfn-diagram/commit/0c1762fc9c995a3f860ba218440ba193269a1102))
+
 ## [1.10.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.9.1...sfn-diagram-v1.10.0) (2026-10-31)
 
 

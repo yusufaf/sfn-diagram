@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.8.0...github-action-sfn-diagram-v1.9.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* `DiagramOptions.pngQuality` is removed, so `exportPng` and `PngExporter` no longer accept it; it never affected PNG output. Use `PngExportOptions.scale` to control PNG resolution.
+* `DiagramOptions.width` and `height` are removed; they never affected output. Size the SVG with CSS (its `viewBox` scales freely), or use `PngExportOptions.scale` for PNG resolution.
+
+### Code Refactoring
+
+* remove the deprecated DiagramOptions.width and height ([#602](https://github.com/yusufaf/sfn-diagram/issues/602)) ([65ad4e1](https://github.com/yusufaf/sfn-diagram/commit/65ad4e1c26586fae14e1217bdb901b3fd4ac0d0a))
+* remove the no-op DiagramOptions.pngQuality ([#603](https://github.com/yusufaf/sfn-diagram/issues/603)) ([c141123](https://github.com/yusufaf/sfn-diagram/commit/c141123097f071ba861558f36a42cfac67abd372))
+
 ## [1.8.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.7.1...github-action-sfn-diagram-v1.8.0) (2026-10-31)
 
 
