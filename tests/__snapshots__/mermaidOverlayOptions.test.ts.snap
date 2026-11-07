@@ -85,6 +85,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for m
     classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
     classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px
     classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
     classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
     classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
@@ -97,6 +98,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for m
     class ValidateItem execSucceeded
     class Done execNotReached",
   "metadata": {
+    "aborted": [],
     "caught": [],
     "edgeCount": 3,
     "executionStatus": "failed",
@@ -203,6 +205,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for p
     classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
     classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px
     classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
     classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
     classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
@@ -215,6 +218,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for p
     class HandleError execSucceeded
     class FinalState execSucceeded",
   "metadata": {
+    "aborted": [],
     "caught": [
       "ParallelExecution",
     ],
@@ -312,6 +316,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for r
     classDef waitState fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
     classDef parallelState fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     classDef mapState fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+    classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px
     classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px
     classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px
     classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px
@@ -322,6 +327,7 @@ exports[`Mermaid overlays with no new options > keeps the execution output for r
     class Done execSucceeded
     class Failed execNotReached",
   "metadata": {
+    "aborted": [],
     "caught": [],
     "edgeCount": 3,
     "executionStatus": "succeeded",

@@ -17,6 +17,7 @@ const PLAYING_CLASS = 'sfn-playing';
 
 /** Status classes, in the order a paint may need to remove them. */
 const STATUS_CLASSES = [
+    'sfn-exec-aborted',
     'sfn-exec-active',
     'sfn-exec-caught',
     'sfn-exec-failed',

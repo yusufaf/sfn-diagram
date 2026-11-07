@@ -73,6 +73,16 @@ describe('Mermaid overlays with no new options', () => {
             generateMermaidExecution({ aslDefinition: loadAsl(aslName), history: loadHistoryJson(historyName) }),
         ).toMatchSnapshot();
     });
+
+    it('styles the states a stopped execution abandoned as aborted', () => {
+        const { code } = generateMermaidExecution({
+            aslDefinition: loadAsl('redrive'),
+            history: loadHistoryJson('execution-aborted'),
+        });
+
+        expect(code).toContain('classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px');
+        expect(code).toMatch(/class [^\n]*\bRight\b[^\n]* execAborted/);
+    });
 });
 
 const SNIPPET_HEADER = `import { generateMermaidDiff, generateMermaidExecution } from '../src/index';

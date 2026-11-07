@@ -59,11 +59,16 @@ working on Node 22.12+, which can `require` ES modules. Tooling that ignores the
 
 ### `aborted` execution status ([#309](https://github.com/yusufaf/sfn-diagram/issues/309))
 
-**What changes:** `ExecutionStateStatus` gains an `aborted` member, and
-`ExecutionMetadataSummary` gains an `aborted` list.
+**What changes:** `ExecutionStateStatus` and `TimelineEntryStatus` gain an `aborted`
+member, and `ExecutionMetadataSummary` gains an `aborted` list. A Parallel branch or Map
+iteration stopped because another one failed, a container AWS aborted, and every state
+still open when an execution is stopped now report `aborted` (blue-grey; Mermaid class
+`execAborted`) instead of `failed`. The branch or iteration that actually errored stays
+`failed`.
 
 **What to do:** add a case, or a `default:` branch, to exhaustive switches over the
-status. From 2.0 on, the [compatibility policy](/compatibility/#output-unions-may-grow-in-a-minor)
+status. Code that reads `metadata.failed` to find every state that did not finish
+should read `metadata.aborted` too. From 2.0 on, the [compatibility policy](/compatibility/#output-unions-may-grow-in-a-minor)
 lets this union grow in a minor release, so a `default:` branch keeps working.
 
 ### Marker ids prefixed by default ([#527](https://github.com/yusufaf/sfn-diagram/issues/527))

@@ -3,6 +3,12 @@ import { buildViewerStyles, resolveViewerTheme } from '../../src/renderers/viewe
 import { AUTO_THEME_DARK_CSS } from '../../src/config/autoTheme';
 
 describe('buildViewerStyles', () => {
+    it('paints an aborted replay frame with the static overlay\'s aborted colours', () => {
+        expect(buildViewerStyles({})).toContain(
+            '.sfn-exec-aborted > rect, .sfn-exec-aborted > circle, .sfn-exec-aborted > ellipse, .sfn-exec-aborted > polygon { fill: #cfd8dc; stroke: #455a64; }',
+        );
+    });
+
     describe('focus styling', () => {
         it('gives toolbar buttons and the panel close button a visible focus ring', () => {
             const css = buildViewerStyles({});

@@ -391,7 +391,8 @@ Big, branchy state machines are hard to read as a static image. A few options he
   `buildExecutionTimeline()` computes the same thing from a history alone. Every
   `Retry` attempt, Map iteration and pass through a Parallel branch is its own entry,
   in the order the execution entered them, carrying the node id the diagram stamps as
-  `data-state-id`. A redriven execution resumes where it failed: each resumed state gets
+  `data-state-id`. A run abandoned before it finished — a sibling branch failed, its
+  container was aborted, or the execution was stopped — ends `aborted`. A redriven execution resumes where it failed: each resumed state gets
   its next attempt, so a redrive reads like a `Retry`:
 
   ```typescript
@@ -462,8 +463,9 @@ Big, branchy state machines are hard to read as a static image. A few options he
   Overlays collapse too — in the viewer, and with `collapse` on `generateExecution()`
   / `--execution --collapse`. A collapsed container's placeholder takes the status
   rolled up from the states it hides: any failure makes it red, otherwise anything
-  still running makes it blue, otherwise the container's own outcome stands. Its
-  annotation gains a `3/4 succeeded` (or `1/4 failed`, `2/4 running`) summary beside
+  aborted makes it blue-grey, otherwise anything still running makes it blue,
+  otherwise the container's own outcome stands. Its annotation gains a `3/4 succeeded`
+  (or `1/4 failed`, `1/4 aborted`, `2/4 running`) summary beside
   the container's own duration, and a placeholder hiding a diff change keeps its
   `1 changed inside` count. Edges into and out of the placeholder keep their taken /
   untaken styling.

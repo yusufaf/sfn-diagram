@@ -123,7 +123,7 @@ describe('parseExecutionHistory', () => {
         expect(overlay.states.FinalState.status).toBe('succeeded');
     });
 
-    it('fails the iteration leaf a Map run failure abandons', () => {
+    it('aborts the iteration leaf a Map run failure abandons', () => {
         const events: HistoryEvent[] = [
             { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
             {
@@ -159,15 +159,16 @@ describe('parseExecutionHistory', () => {
 
         const overlay = parseExecutionHistory({ events });
 
-        // MapRunFailed carries the error, so the leaf inherits it.
-        expect(overlay.states.ProcessItem.status).toBe('failed');
+        // MapRunFailed carries the error, so the leaf inherits it; the leaf recorded no
+        // failure of its own, so the run abandoned it rather than it failing.
+        expect(overlay.states.ProcessItem.status).toBe('aborted');
         expect(overlay.states.ProcessItem.error).toBe('States.TaskFailed');
         expect(overlay.states.ProcessItems.status).toBe('caught');
     });
 
     it('closes a sibling branch the container failure aborted mid-run', () => {
-        // Branch1 is still in flight when Branch2 takes the Parallel down. It reports
-        // `failed` with no error of its own rather than staying open as `running`.
+        // Slow is still in flight when Doomed takes the Parallel down. It reports
+        // `aborted` with no error of its own rather than staying open as `running`.
         const events: HistoryEvent[] = [
             { id: 1, previousEventId: 0, type: 'ExecutionStarted' } as HistoryEvent,
             {
@@ -209,9 +210,12 @@ describe('parseExecutionHistory', () => {
 
         expect(overlay.states.Doomed.status).toBe('failed');
         expect(overlay.states.Doomed.error).toBe('Boom');
-        expect(overlay.states.Slow.status).toBe('failed');
+        expect(overlay.states.Slow.status).toBe('aborted');
         expect(overlay.states.Slow.error).toBeUndefined();
         expect(overlay.states.Fanout.status).toBe('caught');
+        expect(
+            buildExecutionTimeline({ events }).entries.map((entry) => `${entry.nodeId}#${entry.attempt} ${entry.status}`)
+        ).toEqual(expect.arrayContaining(['Slow#1 aborted', 'Doomed#1 failed']));
     });
 
     it('resolves nested container failures outermost-last, not to the inner frame twice', () => {
@@ -1119,8 +1123,13 @@ describe('failure details and redrives', () => {
         expect(overlay.executionStatus).toBe('aborted');
         expect(overlay.states.Fan.error).toBe('ManualStop');
         expect(overlay.states.Right.error).toBe('ManualStop');
+        // A stopped execution abandons whatever was still open; what finished keeps its outcome.
+        expect(overlay.states.Fan.status).toBe('aborted');
+        expect(overlay.states.Right.status).toBe('aborted');
+        expect(overlay.states.Left.status).toBe('succeeded');
+        expect(overlay.states.Prep.status).toBe('succeeded');
         for (const nodeId of ['Fan', 'Right']) {
-            expect(entryFor(nodeId).status).toBe('failed');
+            expect(entryFor(nodeId).status).toBe('aborted');
             expect(entryFor(nodeId).error).toBe('ManualStop');
             expect(entryFor(nodeId).cause?.text).toBe('probe abort cause');
         }

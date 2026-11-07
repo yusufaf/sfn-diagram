@@ -66353,6 +66353,11 @@ function computeContainerChangeAnnotations(params) {
   };
 }
 var EXECUTION_COLORS = {
+  aborted: {
+    fill: "#cfd8dc",
+    stroke: "#455a64",
+    strokeWidth: 2
+  },
   caught: {
     fill: "#ffe0b2",
     stroke: "#e65100",
@@ -66385,6 +66390,7 @@ function rollUpExecutionStatuses(params) {
   const rollUps = {};
   for (const containerId of plan.effectiveTargets) {
     const counts = {
+      aborted: 0,
       caught: 0,
       failed: 0,
       notReached: 0,
@@ -66399,9 +66405,9 @@ function rollUpExecutionStatuses(params) {
       counts[statusByNodeId[hiddenId] ?? "notReached"] += 1;
     }
     const own = statusByNodeId[containerId] ?? "notReached";
-    const ownFinished = own === "succeeded" || own === "caught" || own === "failed";
+    const ownFinished = own === "succeeded" || own === "caught" || own === "failed" || own === "aborted";
     const reachedInside = counts.total - counts.notReached;
-    const status = own === "failed" || counts.failed > 0 ? "failed" : own === "running" || !ownFinished && counts.running > 0 ? "running" : own !== "notReached" ? own : reachedInside > 0 ? "succeeded" : "notReached";
+    const status = own === "failed" || counts.failed > 0 ? "failed" : own === "aborted" || counts.aborted > 0 ? "aborted" : own === "running" || !ownFinished && counts.running > 0 ? "running" : own !== "notReached" ? own : reachedInside > 0 ? "succeeded" : "notReached";
     const shown = status === "caught" ? "succeeded" : status;
     const annotation = status === "notReached" ? `0/${counts.total} ran` : reachedInside === 0 ? void 0 : `${counts[shown]}/${counts.total} ${shown}`;
     rollUps[containerId] = {
@@ -67637,6 +67643,7 @@ var DIFF_CLASS_NAMES = {
   removed: "diffRemoved"
 };
 var EXECUTION_CLASS_DEFS = {
+  aborted: "classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px",
   caught: "classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px",
   failed: "classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px",
   notReached: "classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px",
@@ -67644,6 +67651,7 @@ var EXECUTION_CLASS_DEFS = {
   succeeded: "classDef execSucceeded fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px"
 };
 var EXECUTION_CLASS_NAMES = {
+  aborted: "execAborted",
   caught: "execCaught",
   failed: "execFailed",
   notReached: "execNotReached",
@@ -68207,6 +68215,20 @@ var CONTAINER_FAILURE_EVENT_TYPES = /* @__PURE__ */ new Map([
     terminal: true
   }]
 ]);
+var CONTAINER_ABORT_EVENT_TYPES = /* @__PURE__ */ new Map([
+  ["MapRunAborted", {
+    enteredType: "MapStateEntered",
+    terminal: false
+  }],
+  ["MapStateAborted", {
+    enteredType: "MapStateEntered",
+    terminal: true
+  }],
+  ["ParallelStateAborted", {
+    enteredType: "ParallelStateEntered",
+    terminal: true
+  }]
+]);
 var CONTAINER_START_EVENT_TYPES = /* @__PURE__ */ new Map([
   ["MapRunStarted", "MapStateEntered"],
   ["MapStateStarted", "MapStateEntered"],
@@ -68307,11 +68329,12 @@ function buildChildScopes(params) {
 }
 function mergeStatus(current, incoming) {
   const rank = {
-    failed: 4,
+    aborted: 4,
     caught: 3,
+    failed: 5,
+    notReached: 0,
     running: 2,
-    succeeded: 1,
-    notReached: 0
+    succeeded: 1
   };
   if (!current) return incoming;
   return rank[incoming] > rank[current] ? incoming : current;
@@ -68372,11 +68395,11 @@ function walkExecutionHistory(params) {
     const result = ensure2(name);
     result.status = mergeStatus(result.status, status);
   };
-  const withdrawFailure = (name) => {
+  const withdrawOutcome = (name, status) => {
     const tally = statusTally.get(name);
     if (!tally) return;
-    tally.set("failed", Math.max((tally.get("failed") ?? 0) - 1, 0));
-    ensure2(name).status = [...tally].filter(([, count]) => count > 0).reduce((status, [incoming]) => mergeStatus(status, incoming), "succeeded");
+    tally.set(status, Math.max((tally.get(status) ?? 0) - 1, 0));
+    ensure2(name).status = [...tally].filter(([, count]) => count > 0).reduce((status2, [incoming]) => mergeStatus(status2, incoming), "succeeded");
   };
   const retired = /* @__PURE__ */ new Set();
   let resumable = /* @__PURE__ */ new Map();
@@ -68384,7 +68407,7 @@ function walkExecutionHistory(params) {
     resumable.delete(frame.enteredEventId);
     const result = ensure2(frame.name);
     result.attempts -= frame.retiredAttempts ?? 0;
-    withdrawFailure(frame.name);
+    withdrawOutcome(frame.name, frame.retiredStatus ?? "failed");
     frame.failures = Math.max(frame.failures, 1);
     frame.lastOutcome = void 0;
     frame.failureClosed = false;
@@ -68455,17 +68478,20 @@ function walkExecutionHistory(params) {
     stampChildCount(frame, entry);
     frame.openEntryIndex = void 0;
   };
-  const closeAsFailed = (frame, ms, fallbackError, cause) => {
+  const closeUnfinished = (frame, ms, status, fallbackError, cause) => {
     const result = ensure2(frame.name);
-    contribute(frame.name, "failed");
+    contribute(frame.name, status);
     result.attempts += Math.max(frame.failures, 1);
     frame.retiredAttempts = Math.max(frame.failures, 1);
     frame.retiredMs = ms;
+    frame.retiredStatus = status;
     if (frame.enteredEventId !== void 0) retired.add(frame);
     const error3 = frame.error ?? fallbackError;
     if (error3 && !result.error) result.error = error3;
-    closeEntry(frame, ms, "failed", error3, { cause: frame.payloadCause ?? cause });
+    const aborted = status === "aborted";
+    closeEntry(frame, ms, status, aborted ? fallbackError : error3, { cause: aborted ? cause : frame.payloadCause ?? cause });
   };
+  const leafOutcome = (frame) => frame.lastOutcome === "failure" && frame.openEntryIndex === void 0 ? "failed" : "aborted";
   for (const event of events) {
     const type = event.type ?? "";
     const nowMs = eventMs(event);
@@ -68551,8 +68577,9 @@ function walkExecutionHistory(params) {
           stateId: frame.nodeId
         }) : void 0;
         const leaves = openStack.splice(containerIndex + 1);
-        for (const leaf of leaves) closeAsFailed(leaf, nowMs, eventError, leaf.payloadCause ? void 0 : causeFor(leaf));
-        const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === "failure");
+        const outcomes = leaves.map(leafOutcome);
+        for (const [index, leaf] of leaves.entries()) closeUnfinished(leaf, nowMs, outcomes[index], eventError, leaf.payloadCause ? void 0 : causeFor(leaf));
+        const failingLeaf = leaves.find((_leaf, index) => outcomes[index] === "failed");
         const leafError = failingLeaf?.error;
         const container = openStack[containerIndex];
         if (!container.failureCounted) {
@@ -68563,6 +68590,25 @@ function walkExecutionHistory(params) {
         container.error = container.error ?? eventError ?? leafError;
         if (containerFailure.terminal) container.failureClosed = true;
         closeEntry(container, nowMs, "failed", eventError ?? leafError, { cause: causeFor(container) ?? failingLeaf?.payloadCause });
+      }
+      continue;
+    }
+    const containerAbort = CONTAINER_ABORT_EVENT_TYPES.get(type);
+    if (containerAbort) {
+      const containerIndex = findFrameIndex((frame) => frame.enteredType === containerAbort.enteredType);
+      if (containerIndex >= 0) {
+        const eventError = extractError(event);
+        const rawCause = extractCause(event);
+        const causeFor = (frame) => includePayloads ? capturePayload({
+          field: "cause",
+          raw: rawCause,
+          stateId: frame.nodeId
+        }) : void 0;
+        const container = openStack[containerIndex];
+        const keepContainer = !containerAbort.terminal || leafOutcome(container) === "failed";
+        const closed = openStack.splice(containerIndex + (keepContainer ? 1 : 0));
+        for (const frame of closed) closeUnfinished(frame, nowMs, leafOutcome(frame), eventError, frame.payloadCause ? void 0 : causeFor(frame));
+        if (!containerAbort.terminal) container.failureClosed = true;
       }
       continue;
     }
@@ -68618,8 +68664,9 @@ function walkExecutionHistory(params) {
     else if (type === "ExecutionFailed" || type === "ExecutionAborted" || type === "ExecutionTimedOut") {
       executionStatus = type === "ExecutionFailed" ? "failed" : type === "ExecutionAborted" ? "aborted" : "timedOut";
       const execError = extractError(event);
+      const unfinishedStatus = type === "ExecutionAborted" ? "aborted" : "failed";
       const rawExecCause = extractCause(event);
-      for (const frame of openStack) closeAsFailed(frame, nowMs, execError, frame.payloadCause || !includePayloads ? void 0 : capturePayload({
+      for (const frame of openStack) closeUnfinished(frame, nowMs, unfinishedStatus, execError, frame.payloadCause || !includePayloads ? void 0 : capturePayload({
         field: "cause",
         raw: rawExecCause,
         stateId: frame.nodeId
@@ -68661,6 +68708,7 @@ function buildAnnotation(result) {
 }
 function summarize(overlay, allStateNames) {
   const summary2 = {
+    aborted: [],
     caught: [],
     failed: [],
     notReached: [],
@@ -69279,6 +69327,7 @@ async function buildExecutionOverlaySection(params) {
     `\u2705 ${metadata.succeeded.length}`,
     `\u274C ${metadata.failed.length}`,
     `\u{1F7E0} ${metadata.caught.length}`,
+    `\u23F9\uFE0F ${metadata.aborted.length}`,
     `\u26AA ${metadata.notReached.length}`
   ].join(" \xB7 ");
   let header = `### \u{1F3AC} Execution overlay \u2014 \`${candidate.filename}\`
@@ -69286,7 +69335,7 @@ async function buildExecutionOverlaySection(params) {
 `;
   header += `> Most recent${mode === "latest-failed" ? " **failed**" : ""} execution: \`${execution.executionArn}\`
 `;
-  header += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary2} (succeeded \xB7 failed \xB7 caught \xB7 not reached)
+  header += `> Status: **${execution.status ?? metadata.executionStatus}** \u2014 ${summary2} (succeeded \xB7 failed \xB7 caught \xB7 aborted \xB7 not reached)
 
 `;
   return { section: {

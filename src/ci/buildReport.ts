@@ -403,12 +403,13 @@ export async function buildExecutionOverlaySection(
         `✅ ${metadata.succeeded.length}`,
         `❌ ${metadata.failed.length}`,
         `🟠 ${metadata.caught.length}`,
+        `⏹️ ${metadata.aborted.length}`,
         `⚪ ${metadata.notReached.length}`,
     ].join(' · ');
 
     let header = `### 🎬 Execution overlay — \`${candidate.filename}\`\n\n`;
     header += `> Most recent${mode === 'latest-failed' ? ' **failed**' : ''} execution: \`${execution.executionArn}\`\n`;
-    header += `> Status: **${execution.status ?? metadata.executionStatus}** — ${summary} (succeeded · failed · caught · not reached)\n\n`;
+    header += `> Status: **${execution.status ?? metadata.executionStatus}** — ${summary} (succeeded · failed · caught · aborted · not reached)\n\n`;
 
     return {
         section: { header, mermaidCode: code, mermaidLabel: '📊 Execution diagram' },

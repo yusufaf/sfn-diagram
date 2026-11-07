@@ -8,6 +8,7 @@ import type { ExecutionStateStatus, NodeStyle, StateNode } from '../types';
  * relayout can colour a placeholder without dragging the history parser along.
  */
 export const EXECUTION_COLORS: Record<ExecutionStateStatus, Partial<NodeStyle>> = {
+    aborted: { fill: '#cfd8dc', stroke: '#455a64', strokeWidth: 2 },
     caught: { fill: '#ffe0b2', stroke: '#e65100', strokeWidth: 2 },
     failed: { fill: '#ffcdd2', stroke: '#c62828', strokeWidth: 3 },
     notReached: { fill: '#f5f5f5', stroke: '#bdbdbd', strokeWidth: 1 },
@@ -27,6 +28,7 @@ export interface RollUpExecutionStatusesParams {
 
 /** How many of a collapsed container's hidden states ended in each status. */
 export interface ExecutionRollUpCounts {
+    aborted: number;
     caught: number;
     failed: number;
     notReached: number;
@@ -56,13 +58,14 @@ export interface ExecutionRollUp {
  *
  * The placeholder's status is the worst thing that happened inside or to the
  * container: any `failed` (a hidden state's or the container's own) makes it
- * `failed`; otherwise, for a container that has not finished, any `running` inside
- * makes it `running`; otherwise the container's own outcome (`succeeded`, or `caught`
- * when it recovered from a branch failure) stands — a finished container cannot
- * still be running, whatever a hidden leaf's status says; a container nothing ran
- * inside is `notReached`. The annotation counts the hidden states in the rolled-up
- * status — `1/4 failed`, `2/4 running`, `4/4 succeeded` — so a reader can tell a
- * clean run from a partial one at a glance.
+ * `failed`; otherwise any `aborted` makes it `aborted`; otherwise, for a container
+ * that has not finished, any `running` inside makes it `running`; otherwise the
+ * container's own outcome (`succeeded`, or `caught` when it recovered from a branch
+ * failure) stands — a finished container cannot still be running, whatever a hidden
+ * leaf's status says; a container nothing ran inside is `notReached`. The annotation
+ * counts the hidden states in the rolled-up status — `1/4 failed`, `1/4 aborted`,
+ * `2/4 running`, `4/4 succeeded` — so a reader can tell a clean run from a partial
+ * one at a glance.
  *
  * Pure over the plan and the status map, so the viewer runs it again in the browser
  * for whatever the reader collapses, and execution playback can re-run it as
@@ -87,6 +90,7 @@ export function rollUpExecutionStatuses(
 
     for (const containerId of plan.effectiveTargets) {
         const counts: ExecutionRollUpCounts = {
+            aborted: 0,
             caught: 0,
             failed: 0,
             notReached: 0,
@@ -102,12 +106,14 @@ export function rollUpExecutionStatuses(
         }
 
         const own = statusByNodeId[containerId] ?? 'notReached';
-        const ownFinished = own === 'succeeded' || own === 'caught' || own === 'failed';
+        const ownFinished = own === 'succeeded' || own === 'caught' || own === 'failed' || own === 'aborted';
         const reachedInside = counts.total - counts.notReached;
         const status: ExecutionStateStatus =
             own === 'failed' || counts.failed > 0
                 ? 'failed'
-                : own === 'running' || (!ownFinished && counts.running > 0)
+                : own === 'aborted' || counts.aborted > 0
+                  ? 'aborted'
+                  : own === 'running' || (!ownFinished && counts.running > 0)
                   ? 'running'
                   : own !== 'notReached'
                     ? own
