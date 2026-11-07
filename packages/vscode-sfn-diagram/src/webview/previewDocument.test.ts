@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateHtml } from 'sfn-diagram'
 import type { AslDefinition } from 'sfn-diagram'
+import type { ExecutionMetadata } from './hostToolbar'
 import { buildPreviewDocument } from './previewDocument'
 
 const asl: AslDefinition = { StartAt: 'A', States: { A: { Type: 'Pass', End: true } } }
@@ -84,7 +85,7 @@ describe('buildPreviewDocument', () => {
                 succeeded: ['A'],
                 takenEdgeCount: 0,
                 timeline: { endMs: 0, entries: [], startMs: 0, status: 'succeeded' },
-            },
+            } as ExecutionMetadata,
         })
         expect(document).toContain('Clear overlay')
         expect(document).toContain('Succeeded (1)')
