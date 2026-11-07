@@ -106,7 +106,11 @@ export function rollUpExecutionStatuses(
         }
 
         const own = statusByNodeId[containerId] ?? 'notReached';
-        const ownFinished = own === 'succeeded' || own === 'caught' || own === 'failed' || own === 'aborted';
+        const ownFinished =
+            own === 'succeeded' ||
+            own === 'caught' ||
+            own === 'failed' ||
+            own === 'aborted';
         const reachedInside = counts.total - counts.notReached;
         const status: ExecutionStateStatus =
             own === 'failed' || counts.failed > 0
@@ -114,12 +118,12 @@ export function rollUpExecutionStatuses(
                 : own === 'aborted' || counts.aborted > 0
                   ? 'aborted'
                   : own === 'running' || (!ownFinished && counts.running > 0)
-                  ? 'running'
-                  : own !== 'notReached'
-                    ? own
-                    : reachedInside > 0
-                      ? 'succeeded'
-                      : 'notReached';
+                    ? 'running'
+                    : own !== 'notReached'
+                      ? own
+                      : reachedInside > 0
+                        ? 'succeeded'
+                        : 'notReached';
 
         const shown = status === 'caught' ? 'succeeded' : status;
         const annotation =
