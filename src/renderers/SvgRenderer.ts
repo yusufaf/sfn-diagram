@@ -886,9 +886,9 @@ export class SvgRenderer {
     private resolveNodeColors(
         node: StateNode,
     ): Partial<Pick<NodeStyle, 'fill' | 'stroke'>> {
-        // `node.type` is free-form (it also carries synthetic types like BranchEnd
-        // and ItemReader), and a caller-supplied theme need not define nodeColors at
-        // all - either miss leaves the key out, so `node.style` keeps its say.
+        // `node.type` also carries synthetic types like BranchEnd and ItemReader, and a
+        // caller-supplied theme need not define nodeColors at all - either miss leaves
+        // the key out, so `node.style` keeps its say.
         const themeColor = this.theme.nodeColors?.[node.type as StateType];
         const fill = themeColor?.fill;
         const stroke = themeColor?.stroke;

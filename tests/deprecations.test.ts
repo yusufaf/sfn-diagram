@@ -21,12 +21,9 @@ const EXPECTED_DEPRECATED_NAMES = [
     'diffChangedIds',
     'edges',
     'executionStatusByNodeId',
-    'get',
-    'keyFor',
     'nodes',
     'options',
     'resolveViewerTheme',
-    'set',
 ];
 
 /** Parameters for {@link snippetFor}. */
@@ -51,14 +48,11 @@ function snippetFor(params: SnippetForParams): string {
     const { indexPath } = params;
     return [
         `import { buildViewerContent, createLayoutCache, generateViewerUpdate, resolveViewerTheme } from '${indexPath}';`,
-        `import type { DiagramOptions, ViewerUpdate } from '${indexPath}';`,
-        'declare const options: DiagramOptions;',
+        `import type { ViewerUpdate } from '${indexPath}';`,
         'declare const update: ViewerUpdate;',
         "buildViewerContent({ minimapCollapsed: false, svg: '' });",
         "resolveViewerTheme({ theme: 'dark' });",
         'const cache = createLayoutCache();',
-        'const key = cache.keyFor({ edges: [], nodes: [], options });',
-        'cache.set(key, cache.get(key)!);',
         'cache.clear();',
         'cache.stats();',
         "generateViewerUpdate({ aslDefinition: '{}', cache, relayout: true });",

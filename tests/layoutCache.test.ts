@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { buildDiagramGraph, renderSvgGraph } from '../src/pipeline';
 import { mergeOptions } from '../src/config';
-import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS } from '../src/layout';
+import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS, layoutCacheStore } from '../src/layout';
 import { generateHtml, generateSvg, generateViewerUpdate } from '../src/index';
 import type { AslDefinition, DiagramOptions } from '../src/types';
 
@@ -76,16 +76,16 @@ function graphFor(options: DiagramOptions) {
 function keyFor(options: DiagramOptions): string {
     const cache = createLayoutCache();
     const { edges, merged, nodes } = graphFor(options);
-    return cache.keyFor({ edges, nodes, options: merged });
+    return layoutCacheStore(cache).keyFor({ edges, nodes, options: merged });
 }
 
 /** Positions of every node, as the thing a stale cache hit would get wrong. */
 function geometryFor(options: DiagramOptions): string {
     const cache = createLayoutCache();
     const { edges, merged, nodes } = graphFor(options);
-    const key = cache.keyFor({ edges, nodes, options: merged });
+    const key = layoutCacheStore(cache).keyFor({ edges, nodes, options: merged });
     renderSvgGraph({ cache, edges, nodes, options: merged });
-    const positioned = cache.get(key);
+    const positioned = layoutCacheStore(cache).get(key);
     return JSON.stringify(
         positioned?.nodes.map((node) => [node.id, node.x, node.y, node.width, node.height]),
     );
@@ -298,9 +298,9 @@ describe('layout cache does not return a stale layout', () => {
             const merged = mergeOptions({ theme: { fontSize } });
             const { edges, nodes } = buildDiagramGraph({ definition, options: merged });
             const cache = createLayoutCache();
-            const key = cache.keyFor({ edges, nodes, options: merged });
+            const key = layoutCacheStore(cache).keyFor({ edges, nodes, options: merged });
             renderSvgGraph({ cache, edges, nodes, options: merged });
-            return cache.get(key)?.nodes.find((node) => node.id === 'Batch')?.width;
+            return layoutCacheStore(cache).get(key)?.nodes.find((node) => node.id === 'Batch')?.width;
         };
 
         expect(widthAt(8)).not.toBe(widthAt(30));
@@ -330,10 +330,10 @@ describe('layout cache does not return a stale layout', () => {
     test('rendering does not mutate the cached layout', () => {
         const cache = createLayoutCache();
         const { edges, merged, nodes } = graphFor({});
-        const key = cache.keyFor({ edges, nodes, options: merged });
+        const key = layoutCacheStore(cache).keyFor({ edges, nodes, options: merged });
 
         renderSvgGraph({ cache, edges, nodes, options: merged });
-        const stored = cache.get(key);
+        const stored = layoutCacheStore(cache).get(key);
         expect(stored).toBeDefined();
         deepFreeze(stored);
 
@@ -432,12 +432,12 @@ describe('layout cache key ignores fields layout adds to its edges', () => {
             readFileSync(join(__dirname, 'fixtures', 'long-condition.asl.json'), 'utf8'),
         ) as AslDefinition;
         const { edges, nodes } = buildDiagramGraph({ definition, options: merged });
-        const key = cache.keyFor({ edges, nodes, options: merged });
+        const key = layoutCacheStore(cache).keyFor({ edges, nodes, options: merged });
         renderSvgGraph({ cache, edges, nodes, options: merged });
 
-        const laidOut = cache.get(key);
+        const laidOut = layoutCacheStore(cache).get(key);
 
         expect(laidOut?.edges.some((edge) => edge.labelPosition)).toBe(true);
-        expect(cache.keyFor({ edges: laidOut?.edges ?? [], nodes, options: merged })).toBe(key);
+        expect(layoutCacheStore(cache).keyFor({ edges: laidOut?.edges ?? [], nodes, options: merged })).toBe(key);
     });
 });

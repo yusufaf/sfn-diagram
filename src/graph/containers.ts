@@ -1,4 +1,4 @@
-import type { AslDefinition, AslState, StateNode } from '../types';
+import type { AslDefinition, AslState, NodeType, StateNode } from '../types';
 
 /**
  * True for a container node that is still drawn as a group with its own child
@@ -15,7 +15,7 @@ export function isOpenContainer(node: StateNode): boolean {
  * Map iterator's terminal edge for layout - not real ASL states, and never
  * meant to be shown to a reader.
  */
-export const MARKER_NODE_TYPES: ReadonlySet<string> = new Set(['BranchEnd', 'IteratorEnd']);
+export const MARKER_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['BranchEnd', 'IteratorEnd']);
 
 /** True for a synthetic branch/iterator end marker node (see {@link MARKER_NODE_TYPES}). */
 export function isMarkerNode(node: StateNode): boolean {
