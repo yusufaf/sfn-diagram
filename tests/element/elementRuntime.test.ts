@@ -420,7 +420,25 @@ describe('interactive mode', () => {
             document.body.appendChild(b);
             (a as unknown as { definition: unknown }).definition = definition;
             (b as unknown as { definition: unknown }).definition = definition;
-            return new Promise<{ aStage: boolean; bStage: boolean; duplicateIds: number }>(
+            // Every arrowhead an element draws must point at a marker inside that same
+            // element, not at the other element's copy.
+            const resolvesOwnMarkers = (element: Element): boolean => {
+                const paths = Array.from(element.querySelectorAll('path[marker-end]'));
+                return (
+                    paths.length > 0 &&
+                    paths.every((path) => {
+                        const id = /^url\(#(.*)\)$/.exec(path.getAttribute('marker-end') ?? '')?.[1];
+                        return id !== undefined && element.querySelector(`marker[id="${id}"]`) !== null;
+                    })
+                );
+            };
+            return new Promise<{
+                aOwnMarkers: boolean;
+                aStage: boolean;
+                bOwnMarkers: boolean;
+                bStage: boolean;
+                duplicateIds: number;
+            }>(
                 (resolve) => {
                     queueMicrotask(() =>
                         queueMicrotask(() => {
@@ -429,7 +447,9 @@ describe('interactive mode', () => {
                                 ids.set(element.id, (ids.get(element.id) ?? 0) + 1);
                             });
                             resolve({
+                                aOwnMarkers: resolvesOwnMarkers(a),
                                 aStage: !!a.querySelector('[data-sfn="stage"]'),
+                                bOwnMarkers: resolvesOwnMarkers(b),
                                 bStage: !!b.querySelector('[data-sfn="stage"]'),
                                 duplicateIds: Array.from(ids.values()).filter((count) => count > 1)
                                     .length,
@@ -443,6 +463,8 @@ describe('interactive mode', () => {
         expect(result.aStage).toBe(true);
         expect(result.bStage).toBe(true);
         expect(result.duplicateIds).toBe(0);
+        expect(result.aOwnMarkers).toBe(true);
+        expect(result.bOwnMarkers).toBe(true);
     });
 
     it('detaches its listeners on remove()', async () => {

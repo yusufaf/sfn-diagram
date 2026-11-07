@@ -48,8 +48,8 @@ describe("theme: 'auto'", () => {
             (name): [string, () => { auto: string; light: string }] => [
                 name,
                 () => ({
-                    auto: generateSvg({ aslDefinition: loadAsl(name), theme: 'auto' }).svg,
-                    light: generateSvg({ aslDefinition: loadAsl(name), theme: 'light' }).svg,
+                    auto: generateSvg({ aslDefinition: loadAsl(name), idPrefix: '', theme: 'auto' }).svg,
+                    light: generateSvg({ aslDefinition: loadAsl(name), idPrefix: '', theme: 'light' }).svg,
                 }),
             ],
         ),
@@ -61,8 +61,8 @@ describe("theme: 'auto'", () => {
         ).map(([label, options]): [string, () => { auto: string; light: string }] => [
             label,
             () => ({
-                auto: generateSvg({ aslDefinition: loadAsl('parallel'), ...options, theme: 'auto' }).svg,
-                light: generateSvg({ aslDefinition: loadAsl('parallel'), ...options, theme: 'light' }).svg,
+                auto: generateSvg({ aslDefinition: loadAsl('parallel'), ...options, idPrefix: '', theme: 'auto' }).svg,
+                light: generateSvg({ aslDefinition: loadAsl('parallel'), ...options, idPrefix: '', theme: 'light' }).svg,
             }),
         ]),
         [
@@ -70,8 +70,8 @@ describe("theme: 'auto'", () => {
             () => {
                 const params = { aslDefinition: loadAsl('retry'), history: loadHistory('execution-retry-success') };
                 return {
-                    auto: generateExecution({ ...params, theme: 'auto' }).svg,
-                    light: generateExecution({ ...params, theme: 'light' }).svg,
+                    auto: generateExecution({ ...params, idPrefix: '', theme: 'auto' }).svg,
+                    light: generateExecution({ ...params, idPrefix: '', theme: 'light' }).svg,
                 };
             },
         ],
@@ -80,8 +80,8 @@ describe("theme: 'auto'", () => {
             () => {
                 const params = { aslDefinition: loadAsl('choice'), history: loadHistory('execution-choice-highvalue') };
                 return {
-                    auto: generateExecution({ ...params, theme: 'auto' }).svg,
-                    light: generateExecution({ ...params, theme: 'light' }).svg,
+                    auto: generateExecution({ ...params, idPrefix: '', theme: 'auto' }).svg,
+                    light: generateExecution({ ...params, idPrefix: '', theme: 'light' }).svg,
                 };
             },
         ],
@@ -90,8 +90,8 @@ describe("theme: 'auto'", () => {
             () => {
                 const params = { after: loadAsl('diff-nested-after'), before: loadAsl('diff-nested-before') };
                 return {
-                    auto: generateDiff({ ...params, theme: 'auto' }).svg,
-                    light: generateDiff({ ...params, theme: 'light' }).svg,
+                    auto: generateDiff({ ...params, idPrefix: '', theme: 'auto' }).svg,
+                    light: generateDiff({ ...params, idPrefix: '', theme: 'light' }).svg,
                 };
             },
         ],
@@ -137,6 +137,7 @@ describe("theme: 'auto'", () => {
             aslDefinition: asl,
             customColors: { Task: { fill: '#abcdef' } },
             edgeOverrides: { 'B->C': { stroke: '#2e7d32' } },
+            idPrefix: '',
             nodeOverrides: { A: { fill: '#123456' } },
             theme: 'auto',
         }).svg;
@@ -163,7 +164,7 @@ describe("theme: 'auto'", () => {
     it('gives an override equal to the light type colour its own fixed arrowhead', () => {
         const asl: AslDefinition = { StartAt: 'A', States: { A: { Type: 'Pass', Next: 'B' }, B: { Type: 'Succeed' } } };
         const normal = getTheme('light').edgeColors.normal;
-        const options = { aslDefinition: asl, edgeOverrides: { 'A->B': { stroke: normal } } };
+        const options = { aslDefinition: asl, edgeOverrides: { 'A->B': { stroke: normal } }, idPrefix: '' };
 
         expect(generateSvg({ ...options, theme: 'light' }).svg).toContain('marker-end="url(#arrowhead-normal)"');
         expect(generateSvg({ ...options, theme: 'auto' }).svg).toContain('marker-end="url(#arrowhead-override-0)"');

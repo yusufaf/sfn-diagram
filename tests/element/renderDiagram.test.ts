@@ -47,6 +47,18 @@ describe('renderDiagramString', () => {
         if (result.type === 'mermaid') expect(result.code).toContain('stateDiagram-v2');
     });
 
+    it('forwards idPrefix to the SVG render', () => {
+        const result = renderDiagramString({ asl, idPrefix: 'x-' });
+        expect(result.type).toBe('svg');
+        if (result.type === 'svg') expect(result.svg).toContain('id="x-arrowhead-normal"');
+    });
+
+    it('forwards idPrefix to the execution overlay', () => {
+        const result = renderDiagramString({ asl, history: loadHistory(), idPrefix: 'x-' });
+        expect(result.type).toBe('svg');
+        if (result.type === 'svg') expect(result.svg).toContain('id="x-arrowhead-normal"');
+    });
+
     it('respects layout and theme', () => {
         const result = renderDiagramString({ asl, layout: 'LR', theme: 'dark' });
         expect(result.type).toBe('svg');

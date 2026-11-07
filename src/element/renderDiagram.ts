@@ -16,6 +16,8 @@ export interface RenderDiagramParams {
     format?: 'mermaid' | 'svg';
     /** Optional execution history; when set, renders an execution overlay. */
     history?: ExecutionHistoryInput;
+    /** Forwarded to the SVG render as `DiagramOptions.idPrefix`; ignored for Mermaid. */
+    idPrefix?: string;
     /** Graph layout direction. Defaults to `'TB'`. */
     layout?: LayoutDirection;
     /** Diagram theme. Defaults to `'light'`. */
@@ -45,7 +47,7 @@ export type RenderDiagramResult =
  * ```
  */
 export function renderDiagramString(params: RenderDiagramParams): RenderDiagramResult {
-    const { asl, edgeHitAreas = false, format = 'svg', history, layout = 'TB', theme = 'light' } = params;
+    const { asl, edgeHitAreas = false, format = 'svg', history, idPrefix, layout = 'TB', theme = 'light' } = params;
 
     if (format === 'mermaid') {
         const output = history
@@ -55,7 +57,7 @@ export function renderDiagramString(params: RenderDiagramParams): RenderDiagramR
     }
 
     const output = history
-        ? generateExecution({ aslDefinition: asl, edgeHitAreas, history, layout, theme })
-        : generateSvg({ aslDefinition: asl, edgeHitAreas, layout, theme });
+        ? generateExecution({ aslDefinition: asl, edgeHitAreas, history, idPrefix, layout, theme })
+        : generateSvg({ aslDefinition: asl, edgeHitAreas, idPrefix, layout, theme });
     return { nodeCount: output.metadata.nodeCount, svg: output.svg, type: 'svg' };
 }

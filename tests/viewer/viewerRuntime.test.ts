@@ -388,7 +388,7 @@ describe('minimap', () => {
             await page.$eval('.edges path:not([data-edge-hit-area])', (element) =>
                 element.getAttribute('marker-end'),
             ),
-        ).toMatch(/^url\(#arrowhead-/);
+        ).toMatch(/^url\(#sfn-[0-9a-f]{8}-arrowhead-/);
     });
 
     it('tracks the viewport rectangle across a pan', async () => {

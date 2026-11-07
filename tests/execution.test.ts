@@ -1407,6 +1407,7 @@ describe('retry self-loops in the overlay', () => {
         const { svg } = generateExecution({
             aslDefinition: loadAsl('parallel-edges'),
             history: loadHistoryJson('execution-parallel-edges'),
+            idPrefix: '',
         });
 
         const retryPath = svg.match(/<path[^>]*marker-end="url\(#arrowhead-retry\)"[^>]*>/)?.[0];

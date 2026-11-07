@@ -85,32 +85,6 @@ function nonceAttribute(nonce?: string): string {
     return ` nonce="${nonce}"`;
 }
 
-/**
- * `generateSvg()` emits fixed `id="arrowhead-{type}"` marker defs and matching
- * `url(#arrowhead-{type})` references - fine for one diagram, but the expanded and
- * collapsed views embed two renderings of the same diagram into one document, which
- * would otherwise duplicate every one of those ids. Beyond being invalid HTML,
- * `url(#...)` resolves the first matching id in the whole document rather than within
- * its own `<svg>`, so the second view would silently borrow the first's markers.
- * Prefixing one view's copies keeps them distinct without touching the shared
- * renderer, whose fixed ids are relied on elsewhere (e.g. single-diagram SVG export).
- * A caller's `idPrefix` sits before `arrowhead-` and this view's suffix goes after it
- * (`p-arrowhead-collapsed-normal`), so the two views stay distinct under one too.
- *
- * `src/element/SfnDiagramElement.ts` solves the same collision per element instance;
- * that copy stays separate rather than shared, to avoid a `renderers` -> `element`
- * dependency in either direction. It only matches bare `arrowhead-` ids, which is
- * enough there: the element renders with a fixed option set, so no `idPrefix` reaches it.
- */
-function namespaceMarkerIds(svg: string, prefix: string): string {
-    // Both branches are anchored on the attribute that carries the id - `<marker id="`
-    // and `marker-end="url(#` - not a bare `id="` or `url(#`. A state literally named
-    // e.g. "arrowhead-check" or "url(#xarrowhead-check" would otherwise also match
-    // inside its own `data-state-id` attribute and get silently corrupted; escaped
-    // content never contains a literal `"`, so it cannot match either anchor.
-    return svg.replace(/(<marker id="|marker-end="url\(#)([^"\s()<>]*?)arrowhead-/g, `$1$2arrowhead-${prefix}-`);
-}
-
 /** Parameters for {@link buildViewerContent}. */
 export interface BuildViewerContentParams {
     /**
@@ -156,10 +130,10 @@ export function buildViewerContent(params: BuildViewerContentParams): string {
 
     // Two sibling wrapper divs when a collapsed rendering was supplied - the toggle
     // (controller/collapse.ts) flips `hidden` between them. Otherwise
-    // the content node holds the SVG directly, exactly as before. The collapsed view's
-    // marker ids are namespaced so the two copies don't collide - see namespaceMarkerIds.
+    // the content node holds the SVG directly, exactly as before. The renderer already
+    // gives the two views distinct marker ids - see buildHtmlViews in html.ts.
     return hasCollapse
-        ? `<div data-sfn-view="expanded" data-sfn-minimap-auto="${minimapCollapsed ? '1' : '0'}">${svg}</div><div data-sfn-view="collapsed" data-sfn-minimap-auto="${collapsedMinimapCollapsed ? '1' : '0'}" hidden>${namespaceMarkerIds(collapsedSvg!, 'collapsed')}</div>`
+        ? `<div data-sfn-view="expanded" data-sfn-minimap-auto="${minimapCollapsed ? '1' : '0'}">${svg}</div><div data-sfn-view="collapsed" data-sfn-minimap-auto="${collapsedMinimapCollapsed ? '1' : '0'}" hidden>${collapsedSvg!}</div>`
         : svg;
 }
 

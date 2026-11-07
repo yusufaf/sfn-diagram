@@ -23,6 +23,9 @@ import { replaceXmlForbiddenChars } from '../utils/xmlChars';
 /** A value assignable to an SVG attribute; numbers are stringified like the DOM does. */
 export type SvgAttrValue = number | string;
 
+/** An attribute value, or a function the builder calls for it at every {@link SvgElement.serialize}. */
+export type SvgAttrInput = SvgAttrValue | (() => SvgAttrValue);
+
 /**
  * Escape a string for use as a double-quoted HTML attribute value.
  *
@@ -69,7 +72,7 @@ export function escapeText(value: string): string {
  */
 export class SvgElement {
     private readonly tag: string;
-    private readonly attributes: Array<[string, string]> = [];
+    private readonly attributes: Array<[string, SvgAttrInput]> = [];
     private readonly children: SvgElement[] = [];
     private textContent: string | null = null;
 
@@ -80,11 +83,13 @@ export class SvgElement {
     /**
      * Set an attribute. Repeated calls preserve insertion order, matching the DOM,
      * so a later call appends the attribute rather than reordering an existing one.
-     * An `undefined` value sets nothing, for attributes only some renders carry.
+     * An `undefined` value sets nothing, for attributes only some renders carry. A
+     * function value is called at every {@link serialize}, so one tree can be serialized
+     * under different marker-id prefixes.
      */
-    attr(name: string, value: SvgAttrValue | undefined): this {
+    attr(name: string, value: SvgAttrInput | undefined): this {
         if (value !== undefined) {
-            this.attributes.push([name, String(value)]);
+            this.attributes.push([name, value]);
         }
         return this;
     }
@@ -105,7 +110,10 @@ export class SvgElement {
     /** Serialize this element and its subtree to an SVG string. */
     serialize(): string {
         const attrs = this.attributes
-            .map(([name, value]) => ` ${name}="${escapeAttribute(value)}"`)
+            .map(([name, value]) => {
+                const resolved = typeof value === 'function' ? value() : value;
+                return ` ${name}="${escapeAttribute(String(resolved))}"`;
+            })
             .join('');
 
         const inner =

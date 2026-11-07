@@ -24,8 +24,10 @@ anything covered below ships only in a major release, with the exceptions listed
 - Documented CLI flags, [exit codes](/guides/cli/#exit-codes) and config-file keys.
 - Documented `data-*` attributes on rendered output (`data-state-id`,
   `data-edge-id`) and documented CSS classes.
-- Marker and element ids, once they are prefixed
-  ([#527](https://github.com/yusufaf/sfn-diagram/issues/527)).
+- Marker ids in standalone SVG output (`generateSvg`, `generateExecution`,
+  `generateDiff`): `<idPrefix>arrowhead-<type>` for the edge types `normal`, `error`,
+  `choice`, `default` and `retry`, when you pass `idPrefix` (`''` for bare
+  `arrowhead-<type>`).
 - The `<sfn-diagram>` element's documented
   [attributes and properties](/ecosystem/web-component/#attributes-and-properties),
   and its `sfn-error` event.
@@ -49,6 +51,11 @@ anything covered below ships only in a major release, with the exceptions listed
 - The interactive viewer's embedded JSON blobs (`#sfn-state-data` and the others) and
   any DOM not listed above as a hook.
 - The message text of warnings and errors. The warning codes are covered.
+- The default marker-id prefix (a hash of the rendered output, which changes whenever
+  the output does), the numbered `arrowhead-override-<n>` variants, the marker ids of
+  the interactive viewer's collapsed view (`<idPrefix>collapsed-arrowhead-<type>`
+  today), and the `<sfn-diagram>` element's marker ids (`sfn-el<n>-arrowhead-<type>`,
+  numbered in creation order).
 
 ## Output unions may grow in a minor
 
