@@ -1,7 +1,7 @@
 import { bench, describe } from 'vitest';
 import { generateExecution, generateMermaid, generateSvg } from '../../src';
 import { parseAsl } from '../../src/AslParser';
-import { createLayoutCache, DagreLayout } from '../../src/layout';
+import { createLayoutCache, DagreLayout, layoutCacheStore } from '../../src/layout';
 import { mergeOptions } from '../../src/config';
 import { buildLinearChain, buildLinearChainHistory, buildParallel, buildWideChoice } from './fixtures';
 
@@ -64,7 +64,7 @@ describe('layout cache', () => {
     const keyGraph = parseAsl({ definition: linear500 });
 
     bench('cache key build only (500-state chain)', () => {
-        keyProbe.keyFor({ edges: keyGraph.edges, nodes: keyGraph.nodes, options });
+        layoutCacheStore(keyProbe).keyFor({ edges: keyGraph.edges, nodes: keyGraph.nodes, options });
     });
 });
 

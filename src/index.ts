@@ -568,6 +568,7 @@ export type {
     AslDefinition,
     AslState,
     StateType,
+    NodeType,
     QueryLanguage,
     DiagramOptions,
     SvgOutput,
@@ -648,6 +649,15 @@ export {
 } from './html';
 export { createLayoutCache } from './layout';
 export type { CreateLayoutCacheParams, LayoutCache, LayoutCacheStats } from './layout';
+export type {
+    LayoutEngineEdge,
+    LayoutEngineEdgeRoute,
+    LayoutEngineInput,
+    LayoutEngineNode,
+    LayoutEngineNodeBox,
+    LayoutEngineOutput,
+    LayoutEnginePadding,
+} from './layout';
 export { lintAsl } from './lint';
 export type { LintAslParams } from './lint';
 export { EXECUTION_PAYLOAD_CAP, EXECUTION_PAYLOAD_TOTAL_CAP } from './execution';

@@ -11,7 +11,7 @@
  */
 import { parseAsl } from './AslParser';
 import { applyCatchHandling, applyCollapse } from './graph';
-import { DagreLayout } from './layout';
+import { DagreLayout, layoutCacheStore } from './layout';
 import { SvgRenderer } from './renderers';
 import type { ParseResult } from './AslParser';
 import type { mergeOptions } from './config';
@@ -110,13 +110,15 @@ export function renderSvgGraph(params: RenderSvgGraphParams): SvgOutput {
     // Keyed on the *collapsed* graph, which is what dagre actually sees. That is why
     // `collapse` and `catchHandling` need no place in the key: they change which nodes
     // and edges exist, so the graph half of the key already covers them.
-    const cacheKey = cache?.keyFor({ edges: collapsedGraph.edges, nodes: collapsedGraph.nodes, options });
-    const cached = cacheKey === undefined ? undefined : cache?.get(cacheKey);
+    // Loose `==`: a JS caller passing `cache: null` means no cache, as it always has.
+    const store = cache == null ? undefined : layoutCacheStore(cache);
+    const cacheKey = store?.keyFor({ edges: collapsedGraph.edges, nodes: collapsedGraph.nodes, options });
+    const cached = cacheKey === undefined ? undefined : store?.get(cacheKey);
 
     // Calculate layout
     const positioned = cached ?? new DagreLayout(options).calculate(collapsedGraph.nodes, collapsedGraph.edges);
     if (cached === undefined && cacheKey !== undefined) {
-        cache?.set(cacheKey, positioned);
+        store?.set(cacheKey, positioned);
     }
 
     // Render SVG

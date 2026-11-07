@@ -7,6 +7,7 @@ import type {
     CatchBlock,
     DiagramOptions,
     LintDiagnostic,
+    NodeType,
     QueryLanguage,
 } from './types';
 import { getNodeStyle } from './styles/NodeStyles';
@@ -847,8 +848,8 @@ function extractEdgesFromState(params: ExtractEdgesFromStateParams): RawEdge[] {
             const satelliteId = `${stateId}${io.idSuffix}`;
             edges.push(
                 io.edgeDirection === 'in'
-                    ? { from: satelliteId, label: io.label, to: stateId }
-                    : { from: stateId, label: io.label, to: satelliteId }
+                    ? { from: satelliteId, label: io.label, to: stateId, type: 'normal' }
+                    : { from: stateId, label: io.label, to: satelliteId, type: 'normal' }
             );
         }
     }
@@ -1098,7 +1099,7 @@ const ITEM_IO_ROLES = [
     field: 'ItemReader' | 'ResultWriter';
     idSuffix: string;
     label: string;
-    nodeType: string;
+    nodeType: NodeType;
 }>;
 
 /** Parameters for {@link endsBranchSuccessfully}. */

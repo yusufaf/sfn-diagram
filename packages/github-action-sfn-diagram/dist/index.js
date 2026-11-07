@@ -67015,11 +67015,13 @@ function extractEdgesFromState(params) {
     edges.push(io.edgeDirection === "in" ? {
       from: satelliteId,
       label: io.label,
-      to: stateId
+      to: stateId,
+      type: "normal"
     } : {
       from: stateId,
       label: io.label,
-      to: satelliteId
+      to: satelliteId,
+      type: "normal"
     });
   }
   switch (state2.Type) {
