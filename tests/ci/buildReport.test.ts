@@ -548,6 +548,8 @@ describe('buildExecutionOverlaySection', () => {
         });
         expect(result.section?.header).toContain('Execution overlay');
         expect(result.section?.header).toContain('run-1');
+        expect(result.section?.header).toContain('⏹️ 0');
+        expect(result.section?.header).toContain('caught · aborted · not reached');
         expect(renderExecutionOverlaySection(result.section!)).toContain('```mermaid');
     });
 

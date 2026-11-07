@@ -452,9 +452,9 @@ function buildHtmlMetadata(params: {
  *
  * Overlays collapse like a plain diagram. A `diff` placeholder that hides a change is
  * annotated `"<n> changed inside"`; a `history` placeholder takes the status rolled up
- * from the states it hides (any failure makes it `failed`, otherwise any `running`
- * makes it `running`, otherwise the container's own outcome) and a `3/4 succeeded`
- * summary beside its own duration.
+ * from the states it hides (any failure makes it `failed`, otherwise any `aborted`
+ * makes it `aborted`, otherwise any `running` makes it `running`, otherwise the
+ * container's own outcome) and a `3/4 succeeded` summary beside its own duration.
  */
 export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
     const { afterObj, aslObj, cache, diff, history, includeExecutionPayloads, nonce, options, redact } =

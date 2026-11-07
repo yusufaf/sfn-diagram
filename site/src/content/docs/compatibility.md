@@ -53,8 +53,8 @@ anything covered below ships only in a major release, with the exceptions listed
 ## Output unions may grow in a minor
 
 Adding a member to a union that sfn-diagram *returns* is not a breaking change. That
-applies to `ExecutionStateStatus`, `LintCode`, `EdgeType` and `NodeType`. If you
-switch on one, give the switch a `default:` branch:
+applies to `ExecutionStateStatus`, `TimelineEntryStatus`, `LintCode`, `EdgeType` and
+`NodeType`. If you switch on one, give the switch a `default:` branch:
 
 ```ts
 import type { ExecutionStateStatus } from 'sfn-diagram';

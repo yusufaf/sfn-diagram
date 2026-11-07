@@ -71,7 +71,23 @@ describe('rollUpExecutionStatuses', () => {
         const result = rollUp({ Branch1: 'succeeded', Branch2: 'failed', ParallelExecution: 'failed' });
         expect(result.status).toBe('failed');
         expect(result.annotation).toBe('1/2 failed');
-        expect(result.counts).toEqual({ caught: 0, failed: 1, notReached: 0, running: 0, succeeded: 1, total: 2 });
+        expect(result.counts).toEqual({ aborted: 0, caught: 0, failed: 1, notReached: 0, running: 0, succeeded: 1, total: 2 });
+    });
+
+    it('lets a failure inside outrank an aborted sibling', () => {
+        const result = rollUp({ Branch1: 'aborted', Branch2: 'failed', ParallelExecution: 'caught' });
+        expect(result.status).toBe('failed');
+        expect(result.counts.aborted).toBe(1);
+    });
+
+    it('reports an abandoned run inside as aborted', () => {
+        const result = rollUp({ Branch1: 'aborted', Branch2: 'succeeded', ParallelExecution: 'aborted' });
+        expect(result.status).toBe('aborted');
+        expect(result.annotation).toBe('1/2 aborted');
+    });
+
+    it('ranks aborted above running', () => {
+        expect(rollUp({ Branch1: 'aborted', Branch2: 'running', ParallelExecution: 'running' }).status).toBe('aborted');
     });
 
     it('reports a state still running inside as running', () => {

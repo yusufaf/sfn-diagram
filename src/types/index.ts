@@ -1421,6 +1421,9 @@ export interface GenerateMermaidDiffParams extends Pick<
 
 /**
  * Outcome of a single state within an execution.
+ * - `aborted`    — entered, but abandoned before it finished: another branch's or
+ *                  iteration's failure stopped it, AWS aborted its container, or the
+ *                  execution was stopped
  * - `succeeded`  — entered and completed normally (possibly after retries)
  * - `failed`     — errored terminally, or a Fail state that was reached
  * - `caught`     — errored but a Catch handled it and the run continued
@@ -1428,6 +1431,7 @@ export interface GenerateMermaidDiffParams extends Pick<
  * - `notReached` — never entered by this execution
  */
 export type ExecutionStateStatus =
+    | 'aborted'
     | 'caught'
     | 'failed'
     | 'notReached'
@@ -1440,7 +1444,7 @@ export interface ExecutionStateResult {
     attempts: number;
     /** Total time spent in the state in milliseconds (summed across re-entries) */
     durationMs?: number;
-    /** Error name associated with a failed/caught state */
+    /** Error name associated with a failed, caught or aborted state */
     error?: string;
     /** Outcome of the state */
     status: ExecutionStateStatus;
@@ -1467,7 +1471,7 @@ export interface TakenEdge {
  * because the execution entered the state. `running` means the entry never closed,
  * which on a finished execution only happens to a state the run was still inside.
  */
-export type TimelineEntryStatus = 'caught' | 'failed' | 'running' | 'succeeded';
+export type TimelineEntryStatus = 'aborted' | 'caught' | 'failed' | 'running' | 'succeeded';
 
 /**
  * One captured execution payload — a state's input, its output, or a failure's cause.
@@ -1731,6 +1735,8 @@ export interface GenerateMermaidExecutionParams extends Pick<
 
 /** Status summary shared by execution overlay outputs. */
 export interface ExecutionMetadataSummary {
+    /** State names whose run was abandoned before it finished */
+    aborted: string[];
     /** State names that were caught */
     caught: string[];
     /** State names that failed */

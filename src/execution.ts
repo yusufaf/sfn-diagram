@@ -73,11 +73,14 @@ export type KnownHistoryEventType =
     | 'LambdaFunctionScheduleFailed'
     | 'LambdaFunctionStartFailed'
     | 'LambdaFunctionTimedOut'
+    | 'MapRunAborted'
     | 'MapRunFailed'
     | 'MapRunStarted'
+    | 'MapStateAborted'
     | 'MapStateEntered'
     | 'MapStateFailed'
     | 'MapStateStarted'
+    | 'ParallelStateAborted'
     | 'ParallelStateEntered'
     | 'ParallelStateFailed'
     | 'ParallelStateStarted'
@@ -117,14 +120,14 @@ const FAILURE_DETAILS_KEYS: readonly FailureDetailsKey[] = [
     'mapRunFailedEventDetails',
 ];
 
-/** What a container-level failure event says about the frame it belongs to. */
+/** What a container-level failure or abort event says about the frame it belongs to. */
 interface ContainerFailureEvent {
-    /** The `*StateEntered` type of the frame this event's failure belongs to. */
+    /** The `*StateEntered` type of the frame this event belongs to. */
     enteredType: KnownHistoryEventType;
     /**
-     * Whether this event ends the container's attempt. `MapRunFailed` does not — the
-     * `MapStateFailed` that follows it does — so the two are not counted twice and a
-     * nested container's failure is not mistaken for its parent's.
+     * Whether this event ends the container's attempt. `MapRunFailed` / `MapRunAborted`
+     * do not — the `MapState*` event that follows does — so the two are not counted twice
+     * and a nested container's failure is not mistaken for its parent's.
      */
     terminal: boolean;
 }
@@ -150,6 +153,41 @@ const CONTAINER_FAILURE_EVENT_TYPES: ReadonlyMap<string, ContainerFailureEvent> 
     ['MapRunFailed', { enteredType: 'MapStateEntered', terminal: false }],
     ['MapStateFailed', { enteredType: 'MapStateEntered', terminal: true }],
     ['ParallelStateFailed', { enteredType: 'ParallelStateEntered', terminal: true }],
+]);
+
+/**
+ * Container-level abort events, mapped to the frame each one belongs to. AWS aborts a
+ * container whose run was stopped from outside it — typically a nested Parallel or Map
+ * whose enclosing branch was abandoned because a sibling branch failed. Every frame still
+ * open inside it is closed as `aborted`, unless it recorded a failure of its own.
+ *
+ * `MapIterationAborted` is absent for the same reason as `MapIterationFailed` in
+ * {@link CONTAINER_FAILURE_EVENT_TYPES}: one iteration says nothing about the others.
+ *
+ * AWS documents no ordering between these events and the container failures around
+ * them, so the handler assumes as little as it can. None of the orders below has been
+ * checked against a real history:
+ * - An abort resolves to the innermost open frame of its type, even one that already
+ *   failed. A failed container is kept open for its Catch exit or its parent's failure,
+ *   so an abort that lands after the outer failure (its own container already gone from
+ *   the stack) resolves harmlessly to that failed outer container.
+ * - If an inner container fails and its *parent* is then aborted by a sibling of the
+ *   parent failing, the abort resolves to the failed inner container and leaves the
+ *   parent open; the outer failure then resolves to the parent, and the container
+ *   around it exits `succeeded` instead of `caught`.
+ * - If the outer container's failure arrives before the inner container's abort, the
+ *   failure resolves to the inner container, as it does without this table.
+ * - `MapRunAborted` leaves its Map open for the `MapStateAborted` (or the execution's
+ *   end) that closes it; a `MapStateFailed` for the same Map would resolve to the Map
+ *   around it instead.
+ */
+const CONTAINER_ABORT_EVENT_TYPES: ReadonlyMap<string, ContainerFailureEvent> = new Map<
+    KnownHistoryEventType,
+    ContainerFailureEvent
+>([
+    ['MapRunAborted', { enteredType: 'MapStateEntered', terminal: false }],
+    ['MapStateAborted', { enteredType: 'MapStateEntered', terminal: true }],
+    ['ParallelStateAborted', { enteredType: 'ParallelStateEntered', terminal: true }],
 ]);
 
 /**
@@ -344,10 +382,12 @@ interface OpenFrame {
     payloadCause?: TimelinePayload;
     /** The state's input, stamped on every attempt of this entry when captured. */
     payloadInput?: TimelinePayload;
-    /** The attempts `closeAsFailed` added to the state's result, so a redrive can take them back. */
+    /** The attempts `closeUnfinished` added to the state's result, so a redrive can take them back. */
     retiredAttempts?: number;
-    /** When `closeAsFailed` closed this frame, so the wait for a redrive is not counted as duration. */
+    /** When `closeUnfinished` closed this frame, so the wait for a redrive is not counted as duration. */
     retiredMs?: number;
+    /** The status `closeUnfinished` closed this frame with, so a redrive withdraws the right outcome. */
+    retiredStatus?: 'aborted' | 'failed';
 }
 
 /** The entered-event types that open a container frame (a Parallel or a Map). */
@@ -401,17 +441,18 @@ function buildChildScopes(params: {
     return childScopes;
 }
 
-/** Merge a per-entry outcome into the aggregated status (failed > caught > succeeded). */
+/** Merge a per-entry outcome into the aggregated status (failed > aborted > caught > running > succeeded). */
 function mergeStatus(
     current: ExecutionStateStatus | undefined,
     incoming: ExecutionStateStatus,
 ): ExecutionStateStatus {
     const rank: Record<ExecutionStateStatus, number> = {
-        failed: 4,
+        aborted: 4,
         caught: 3,
+        failed: 5,
+        notReached: 0,
         running: 2,
         succeeded: 1,
-        notReached: 0,
     };
     if (!current) return incoming;
     return rank[incoming] > rank[current] ? incoming : current;
@@ -524,11 +565,11 @@ function walkExecutionHistory(params: {
         const result = ensure(name);
         result.status = mergeStatus(result.status, status);
     };
-    /** Take one failure back from a state's status, which then reflects what is left. */
-    const withdrawFailure = (name: string): void => {
+    /** Take one failed or aborted run back from a state's status, which then reflects what is left. */
+    const withdrawOutcome = (name: string, status: 'aborted' | 'failed'): void => {
         const tally = statusTally.get(name);
         if (!tally) return;
-        tally.set('failed', Math.max((tally.get('failed') ?? 0) - 1, 0));
+        tally.set(status, Math.max((tally.get(status) ?? 0) - 1, 0));
         ensure(name).status = [...tally]
             .filter(([, count]) => count > 0)
             .reduce<ExecutionStateStatus>((status, [incoming]) => mergeStatus(status, incoming), 'succeeded');
@@ -536,9 +577,9 @@ function walkExecutionHistory(params: {
 
     // A redrive appends to the history of the failed run and starts no new `*StateEntered`
     // for what it picks up again: the resumed Task's events point back at the original
-    // entry. So a frame that `closeAsFailed` retires stays recoverable until a redrive
+    // entry. So a frame that `closeUnfinished` retires stays recoverable until a redrive
     // says which ones to take up.
-    /** Frames closed as failed since the last redrive. */
+    /** Frames closed as failed or aborted since the last redrive. */
     const retired = new Set<OpenFrame>();
     /** Frames the last redrive can resume, keyed by the event that entered them. */
     let resumable = new Map<number, OpenFrame>();
@@ -552,7 +593,7 @@ function walkExecutionHistory(params: {
         resumable.delete(frame.enteredEventId!);
         const result = ensure(frame.name);
         result.attempts -= frame.retiredAttempts ?? 0;
-        withdrawFailure(frame.name);
+        withdrawOutcome(frame.name, frame.retiredStatus ?? 'failed');
         frame.failures = Math.max(frame.failures, 1);
         frame.lastOutcome = undefined;
         frame.failureClosed = false;
@@ -678,25 +719,40 @@ function walkExecutionHistory(params: {
         frame.openEntryIndex = undefined;
     };
 
-    /** Fold a frame that never exited into its result as a failed run. */
-    const closeAsFailed = (
+    /** Fold a frame that never exited into its result as a failed or an aborted run. */
+    const closeUnfinished = (
         frame: OpenFrame,
         ms: number,
+        status: 'aborted' | 'failed',
         fallbackError?: string,
         cause?: TimelinePayload
     ): void => {
         const result = ensure(frame.name);
-        contribute(frame.name, 'failed');
+        contribute(frame.name, status);
         result.attempts += Math.max(frame.failures, 1);
         frame.retiredAttempts = Math.max(frame.failures, 1);
         frame.retiredMs = ms;
+        frame.retiredStatus = status;
         if (frame.enteredEventId !== undefined) retired.add(frame);
         const error = frame.error ?? fallbackError;
         if (error && !result.error) result.error = error;
-        // Paired with the error, so an entry never shows one state's error name beside
-        // another's cause text: a leaf that recorded its own failure keeps both halves.
-        closeEntry(frame, ms, 'failed', error, { cause: frame.payloadCause ?? cause });
+        // Error and cause stay paired, so an entry never shows one state's error name
+        // beside another's cause text. A leaf that recorded its own failure keeps both
+        // halves; an abandoned attempt did not fail of its own, so its entry carries only
+        // what stopped it, not an earlier attempt's error.
+        const aborted = status === 'aborted';
+        closeEntry(frame, ms, status, aborted ? fallbackError : error, {
+            cause: aborted ? cause : (frame.payloadCause ?? cause),
+        });
     };
+
+    /**
+     * How a frame its container abandoned ended: `failed` if its latest attempt ended in a
+     * failure of its own and no new attempt had started, otherwise `aborted`. A Retry that
+     * was mid-attempt when a sibling failed is abandoned, not failed.
+     */
+    const leafOutcome = (frame: OpenFrame): 'aborted' | 'failed' =>
+        frame.lastOutcome === 'failure' && frame.openEntryIndex === undefined ? 'failed' : 'aborted';
 
     for (const event of events) {
         const type = event.type ?? '';
@@ -844,20 +900,21 @@ function walkExecutionHistory(params: {
                         : undefined;
                 // Every leaf still open under the container is closed, not just the one
                 // that errored: a failing Parallel branch aborts its siblings mid-run,
-                // and they emit nothing further. An aborted sibling reports `failed`
-                // with no error of its own - the model has no `aborted` status to tell
-                // an abandoned run from a failed one (#309), and leaving it open would
-                // report it `running` long after the execution finished.
+                // and they emit nothing further. The leaf that errored closes `failed`;
+                // a sibling the failure stopped mid-run closes `aborted`. Outcomes are
+                // read before any leaf is closed, because closing clears the open entry
+                // that tells a mid-Retry sibling from the leaf that failed.
                 const leaves = openStack.splice(containerIndex + 1);
-                for (const leaf of leaves) {
-                    // closeAsFailed prefers the leaf's own cause, so one that has it
+                const outcomes = leaves.map(leafOutcome);
+                for (const [index, leaf] of leaves.entries()) {
+                    // closeUnfinished prefers the leaf's own cause, so one that has it
                     // never pays for a copy of the container's.
-                    closeAsFailed(leaf, nowMs, eventError, leaf.payloadCause ? undefined : causeFor(leaf));
+                    closeUnfinished(leaf, nowMs, outcomes[index], eventError, leaf.payloadCause ? undefined : causeFor(leaf));
                 }
                 // `ParallelStateFailed` carries no error details of its own, so fall back
                 // to the error of the leaf that actually failed - that is the failure
                 // that took the container down.
-                const failingLeaf = leaves.find((leaf) => leaf.lastOutcome === 'failure');
+                const failingLeaf = leaves.find((_leaf, index) => outcomes[index] === 'failed');
                 const leafError = failingLeaf?.error;
                 // The container itself stays open: it exits normally when a Catch
                 // handles the error, and that exit reads `lastOutcome` as `caught`.
@@ -872,6 +929,43 @@ function walkExecutionHistory(params: {
                 closeEntry(container, nowMs, 'failed', eventError ?? leafError, {
                     cause: causeFor(container) ?? failingLeaf?.payloadCause,
                 });
+            }
+            continue;
+        }
+
+        // --- Container abort: AWS stopped the container itself ---
+        const containerAbort = CONTAINER_ABORT_EVENT_TYPES.get(type);
+        if (containerAbort) {
+            // The innermost frame of the type, failed or not: an abort may follow the
+            // container's own failure.
+            const containerIndex = findFrameIndex((frame) => frame.enteredType === containerAbort.enteredType);
+            if (containerIndex >= 0) {
+                const eventError = extractError(event);
+                // Captured per frame, as for a container failure above.
+                const rawCause = extractCause(event);
+                const causeFor = (frame: OpenFrame): TimelinePayload | undefined =>
+                    includePayloads
+                        ? capturePayload({ field: 'cause', raw: rawCause, stateId: frame.nodeId })
+                        : undefined;
+                const container = openStack[containerIndex];
+                // A container that already failed stays open, as after its own failure: its
+                // Catch exit, or the failure of the container around it, closes it. Closing
+                // it here would turn a caught outer container `failed` when the inner
+                // container's abort lands after the outer failure.
+                const keepContainer = !containerAbort.terminal || leafOutcome(container) === 'failed';
+                const closed = openStack.splice(containerIndex + (keepContainer ? 1 : 0));
+                for (const frame of closed) {
+                    closeUnfinished(
+                        frame,
+                        nowMs,
+                        leafOutcome(frame),
+                        eventError,
+                        frame.payloadCause ? undefined : causeFor(frame)
+                    );
+                }
+                // `MapRunAborted` leaves the Map open for the `MapStateAborted` that ends
+                // it, but an outer container's failure must not resolve to it.
+                if (!containerAbort.terminal) container.failureClosed = true;
             }
             continue;
         }
@@ -984,17 +1078,20 @@ function walkExecutionHistory(params: {
                       ? 'aborted'
                       : 'timedOut';
             const execError = extractError(event);
-            // Any state still open when the execution ends failed to complete.
-            // Add this entry's attempts (failed tries, at least one) to any prior
-            // completed iterations of the same state.
+            // Any state still open when the execution ends: `aborted` if the run was
+            // stopped, otherwise `failed`. Add this entry's attempts (failed tries, at
+            // least one) to any prior completed iterations of the same state.
+            const unfinishedStatus =
+                type === ('ExecutionAborted' satisfies KnownHistoryEventType) ? 'aborted' : 'failed';
             // Spread over whichever states were still open, so - like a container's
             // cause above - it is offered once per frame it is written onto rather
             // than once for all of them.
             const rawExecCause = extractCause(event);
             for (const frame of openStack) {
-                closeAsFailed(
+                closeUnfinished(
                     frame,
                     nowMs,
+                    unfinishedStatus,
                     execError,
                     frame.payloadCause || !includePayloads
                         ? undefined
@@ -1086,6 +1183,8 @@ export interface BuildExecutionTimelineParams {
  * them apart — every `Retry` attempt, every Map iteration and every pass through a
  * Parallel branch is its own {@link TimelineEntry}, in the order the execution entered
  * them. That is what a scrubber, a Gantt view or a "what ran when" report needs.
+ * A run abandoned before it finished — a sibling branch failed, its container was
+ * aborted, or the execution was stopped — ends `aborted`.
  *
  * Pure and deterministic; it reads the history and nothing else.
  *
@@ -1145,6 +1244,7 @@ function summarize(
     allStateNames: string[],
 ): ExecutionMetadataSummary {
     const summary: ExecutionMetadataSummary = {
+        aborted: [],
         caught: [],
         failed: [],
         notReached: [],

@@ -912,6 +912,17 @@ describe('diff, execution and icon flags', () => {
         expect(stdoutData).toContain('#c8e6c9');
     });
 
+    it('--execution lists what a stopped execution abandoned as aborted', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'redrive.asl.json'),
+            '--execution',
+            join(__dirname, 'fixtures', 'execution-aborted.json'),
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('  aborted: Fan, Right');
+        expect(stderrData).not.toContain('  failed:');
+    });
+
     it('--execution honours --collapse and --hide-catch', async () => {
         const args = [
             parallelCatchFixture,

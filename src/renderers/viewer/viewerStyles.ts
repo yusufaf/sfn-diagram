@@ -182,6 +182,7 @@ const DARK_PALETTE: ChromePalette = {
  * the viewer bundle, which may not reach outside `src/renderers/viewer`.
  */
 const PLAYBACK_STATUS_COLORS: Array<{ fill: string; status: string; stroke: string }> = [
+    { fill: '#cfd8dc', status: 'aborted', stroke: '#455a64' },
     { fill: '#ffe0b2', status: 'caught', stroke: '#e65100' },
     { fill: '#ffcdd2', status: 'failed', stroke: '#c62828' },
     { fill: '#f5f5f5', status: 'pending', stroke: '#bdbdbd' },

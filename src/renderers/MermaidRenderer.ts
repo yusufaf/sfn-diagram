@@ -78,6 +78,7 @@ const DIFF_CLASS_NAMES: Record<DiffStatus, string> = {
 
 /** Mermaid classDef declarations for execution highlighting, keyed by status. */
 const EXECUTION_CLASS_DEFS: Record<ExecutionStateStatus, string> = {
+    aborted: 'classDef execAborted fill:#cfd8dc,stroke:#455a64,stroke-width:2px',
     caught: 'classDef execCaught fill:#ffe0b2,stroke:#e65100,stroke-width:2px',
     failed: 'classDef execFailed fill:#ffcdd2,stroke:#c62828,stroke-width:3px',
     notReached: 'classDef execNotReached fill:#f5f5f5,stroke:#bdbdbd,stroke-width:1px',
@@ -87,6 +88,7 @@ const EXECUTION_CLASS_DEFS: Record<ExecutionStateStatus, string> = {
 
 /** Mermaid class name applied to a state for a given execution status. */
 const EXECUTION_CLASS_NAMES: Record<ExecutionStateStatus, string> = {
+    aborted: 'execAborted',
     caught: 'execCaught',
     failed: 'execFailed',
     notReached: 'execNotReached',

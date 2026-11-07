@@ -20,6 +20,7 @@ const TRANSIENT_CLASSES = [
     'sfn-dim',
     'sfn-edge-endpoint',
     'sfn-edge-selected',
+    'sfn-exec-aborted',
     'sfn-exec-active',
     'sfn-exec-caught',
     'sfn-exec-failed',

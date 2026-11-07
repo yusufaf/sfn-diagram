@@ -1528,6 +1528,7 @@ function formatOnlyRefusal(params: FormatOnlyRefusalParams): string {
 /** Statuses printed in the `--execution` summary, worst outcome first. */
 const EXECUTION_STATUS_ORDER: ExecutionStateStatus[] = [
     'failed',
+    'aborted',
     'caught',
     'running',
     'succeeded',
