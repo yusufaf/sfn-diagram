@@ -1,9 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { generateHtml } from 'sfn-diagram'
-import type { AslDefinition } from 'sfn-diagram'
+import { generateExecution, generateHtml } from 'sfn-diagram'
+import type { AslDefinition, ExecutionHistoryEvent } from 'sfn-diagram'
 import { buildPreviewDocument } from './previewDocument'
 
 const asl: AslDefinition = { StartAt: 'A', States: { A: { Type: 'Pass', End: true } } }
+const succeededHistory: ExecutionHistoryEvent[] = [
+    { id: 1, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+    {
+        id: 2,
+        type: 'PassStateEntered',
+        previousEventId: 1,
+        stateEnteredEventDetails: { name: 'A' },
+        timestamp: '2024-01-01T00:00:00.100Z',
+    },
+    {
+        id: 3,
+        type: 'PassStateExited',
+        previousEventId: 2,
+        stateExitedEventDetails: { name: 'A' },
+        timestamp: '2024-01-01T00:00:00.200Z',
+    },
+    { id: 4, type: 'ExecutionSucceeded', previousEventId: 3, timestamp: '2024-01-01T00:00:00.300Z' },
+]
 const CSP_SOURCE = 'vscode-webview://abc123'
 const NONCE = 'test-nonce'
 
@@ -72,20 +90,8 @@ describe('buildPreviewDocument', () => {
     })
 
     it('includes the execution legend and clear-overlay control when execution metadata is supplied', () => {
-        const document = buildDocument({
-            executionMetadata: {
-                caught: [],
-                edgeCount: 1,
-                executionStatus: 'succeeded',
-                failed: [],
-                nodeCount: 1,
-                notReached: [],
-                running: [],
-                succeeded: ['A'],
-                takenEdgeCount: 0,
-                timeline: { endMs: 0, entries: [], startMs: 0, status: 'succeeded' },
-            },
-        })
+        const { metadata } = generateExecution({ aslDefinition: asl, history: succeededHistory })
+        const document = buildDocument({ executionMetadata: metadata })
         expect(document).toContain('Clear overlay')
         expect(document).toContain('Succeeded (1)')
     })
