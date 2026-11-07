@@ -15,6 +15,15 @@ export type StateType =
     | 'Map';
 
 /**
+ * The type of a node in the diagram graph: an ASL {@link StateType}, or one of the
+ * synthetic nodes the parser adds. `BranchEnd` closes each Parallel branch and
+ * `IteratorEnd` closes a Map iterator (both are end markers); `ItemReader` and
+ * `ResultWriter` are the input and output satellites of a Distributed Map.
+ * Output only: new synthetic types may be added in a minor release.
+ */
+export type NodeType = StateType | 'BranchEnd' | 'IteratorEnd' | 'ItemReader' | 'ResultWriter';
+
+/**
  * The query language a state machine or an individual state evaluates its fields in.
  * ASL defaults to `JSONPath` when the top-level field is omitted; a state-level value
  * overrides the top-level one for that state only.
@@ -346,7 +355,7 @@ export interface StateNode {
      * Absent when no tolerance is configured.
      */
     toleratedFailure?: string;
-    type: string;
+    type: NodeType;
     /**
      * How long a Wait state waits, pre-formatted for display (e.g. `5s`, or the path
      * or JSONata expression the duration is read from). Absent for other state types.
@@ -387,7 +396,7 @@ export interface GraphEdge {
     id: string;
     label?: string;
     to: string;
-    type?: EdgeType;
+    type: EdgeType;
     visualOnly?: boolean; // If true, edge is for rendering only and doesn't participate in layout
 }
 

@@ -42,6 +42,10 @@ anything covered below ships only in a major release, with the exceptions listed
 - `sfn-diagram/ci`, which is marked `@experimental`. Its supported consumers are the
   GitHub Action and the `sfn-diagram comment gitlab` subcommand; pin an exact version
   if you build on it directly.
+- The layout engine types (`LayoutEngineInput`, `LayoutEngineOutput` and the types
+  they use), marked `@experimental` until pluggable layout engines ship
+  ([#545](https://github.com/yusufaf/sfn-diagram/issues/545)). No render function
+  accepts an engine yet.
 - The interactive viewer's embedded JSON blobs (`#sfn-state-data` and the others) and
   any DOM not listed above as a hook.
 - The message text of warnings and errors. The warning codes are covered.
@@ -49,8 +53,8 @@ anything covered below ships only in a major release, with the exceptions listed
 ## Output unions may grow in a minor
 
 Adding a member to a union that sfn-diagram *returns* is not a breaking change. That
-applies to `ExecutionStateStatus`, `LintCode` and `EdgeType`. If you switch on one,
-give the switch a `default:` branch:
+applies to `ExecutionStateStatus`, `LintCode`, `EdgeType` and `NodeType`. If you
+switch on one, give the switch a `default:` branch:
 
 ```ts
 import type { ExecutionStateStatus } from 'sfn-diagram';

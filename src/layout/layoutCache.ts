@@ -35,7 +35,7 @@ export interface CreateLayoutCacheParams {
      * Most recently used entries to retain.
      *
      * This bounds the entry *count*, not memory: each entry retains a full
-     * {@link LayoutResult} plus its exact-string key, both proportional to the graph
+     * laid-out graph plus its exact-string key, both proportional to the graph
      * (the key alone measures ~83,000 characters for a 500-state machine). A host
      * holding one of these across large definitions should size it accordingly and
      * {@link LayoutCache.clear} when a document closes.
@@ -59,33 +59,43 @@ export interface LayoutCacheStats {
  * An opt-in, caller-owned memo of dagre layout results.
  *
  * Created with {@link createLayoutCache} and passed to a render function. The core is
- * stateless without one, so omitting it preserves existing behaviour exactly.
- * Callers need only {@link LayoutCache.clear} and {@link LayoutCache.stats}; render
- * functions call the rest.
+ * stateless without one, so omitting it preserves existing behaviour exactly. Only
+ * {@link LayoutCache.clear} and {@link LayoutCache.stats} are public: the lookup itself
+ * is internal to render functions. An SVG, HTML or PNG render rejects an object that
+ * {@link createLayoutCache} did not make (a hand-built object or a spread copy) with a
+ * `TypeError`. Mermaid output ignores `cache`.
  */
 export interface LayoutCache {
     /** Drop every entry. A long-lived host should call this when a document closes. */
     clear(): void;
-    /**
-     * The cached layout for `key`, or `undefined`. Refreshes the entry's recency.
-     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
-     */
-    get(key: string): LayoutResult | undefined;
-    /**
-     * Build the cache key for a graph and the options it will be laid out with.
-     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
-     */
-    keyFor(params: LayoutCacheKeyForParams): string;
-    /**
-     * Store `value` under `key`, evicting the least recently used entry if full.
-     * @deprecated Internal to render functions; removed in 2.0. Pass the cache to a render function such as `generateSvg` and let it do the lookup; only `clear()` and `stats()` stay public.
-     */
-    set(key: string, value: LayoutResult): void;
     /** Current counters. */
     stats(): LayoutCacheStats;
 }
 
-/** Parameters for {@link LayoutCache.keyFor}. */
+/**
+ * The lookup half of a {@link LayoutCache}, internal to render functions. Reach it with
+ * {@link layoutCacheStore}.
+ */
+export interface LayoutCacheStore {
+    /** The cached layout for `key`, or `undefined`. Refreshes the entry's recency. */
+    get(key: string): LayoutResult | undefined;
+    /** Build the cache key for a graph and the options it will be laid out with. */
+    keyFor(params: LayoutCacheKeyForParams): string;
+    /** Store `value` under `key`, evicting the least recently used entry if full. */
+    set(key: string, value: LayoutResult): void;
+}
+
+/**
+ * Where {@link createLayoutCache} hangs a cache's {@link LayoutCacheStore}.
+ *
+ * `Symbol.for`, not `Symbol()` or a module-level `WeakMap`: on npm, `sfn-diagram` and
+ * `sfn-diagram/png` are separate bundles, each with its own copy of this module, and a
+ * cache made by one must still work when passed to `exportPng` from the other. The
+ * global symbol registry is shared across both copies.
+ */
+const LAYOUT_CACHE_STORE = Symbol.for('sfn-diagram.layoutCache.store');
+
+/** Parameters for {@link LayoutCacheStore.keyFor}. */
 export interface LayoutCacheKeyForParams {
     /** The edges that will be passed to the layout, after any collapse was applied. */
     edges: GraphEdge[];
@@ -213,11 +223,7 @@ export function createLayoutCache(params: CreateLayoutCacheParams = {}): LayoutC
     let hits = 0;
     let misses = 0;
 
-    return {
-        clear() {
-            entries.clear();
-        },
-
+    const store: LayoutCacheStore = {
         get(key) {
             const cached = entries.get(key);
             if (cached === undefined) {
@@ -261,11 +267,49 @@ export function createLayoutCache(params: CreateLayoutCacheParams = {}): LayoutC
                 }
             }
         },
+    };
+
+    const cache: LayoutCache = {
+        clear() {
+            entries.clear();
+        },
 
         stats() {
             return { entries: entries.size, hits, misses };
         },
     };
+    // Non-enumerable and read-only: invisible to Object.keys, spread and JSON, so a copy
+    // of the cache carries no store and is rejected rather than silently uncached.
+    Object.defineProperty(cache, LAYOUT_CACHE_STORE, { value: store });
+    return cache;
+}
+
+/**
+ * The internal lookup store of a cache made by {@link createLayoutCache}.
+ *
+ * Render functions call this instead of reading the cache directly, so the public
+ * {@link LayoutCache} stays `clear()` and `stats()` only.
+ *
+ * @param cache - A cache from {@link createLayoutCache}
+ * @returns The cache's {@link LayoutCacheStore}
+ * @throws {TypeError} When `cache` was not made by {@link createLayoutCache}, such as a
+ * hand-built object with `clear` and `stats`, or a spread copy of a real cache
+ *
+ * @example
+ * ```typescript
+ * const store = layoutCacheStore(cache);
+ * const key = store.keyFor({ edges, nodes, options });
+ * const layout = store.get(key) ?? new DagreLayout(options).calculate(nodes, edges);
+ * ```
+ */
+export function layoutCacheStore(cache: LayoutCache): LayoutCacheStore {
+    const store = (cache as { [LAYOUT_CACHE_STORE]?: LayoutCacheStore })[LAYOUT_CACHE_STORE];
+    if (store === undefined) {
+        throw new TypeError(
+            'cache: expected a layout cache from createLayoutCache(); a hand-built or copied object cannot be used'
+        );
+    }
+    return store;
 }
 
 /** The option fields the cache key covers, exported so a test can assert the list is complete. */

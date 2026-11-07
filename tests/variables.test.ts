@@ -169,12 +169,14 @@ describe('Distributed Map', () => {
                 id: 'ProcessItems__itemreader->ProcessItems#normal#0',
                 label: 'ItemReader',
                 to: 'ProcessItems',
+                type: 'normal',
             });
             expect(edges).toContainEqual({
                 from: 'ProcessItems',
                 id: 'ProcessItems->ProcessItems__resultwriter#normal#0',
                 label: 'ResultWriter',
                 to: 'ProcessItems__resultwriter',
+                type: 'normal',
             });
         });
 

@@ -1,4 +1,4 @@
-import type { AslState, CatchLabelStyle, QueryLanguage, RetryBlock, StateNode } from '../types';
+import type { AslState, CatchLabelStyle, NodeType, QueryLanguage, RetryBlock, StateNode } from '../types';
 import { unwrapExpression } from '../utils/jsonata';
 import { splitGraphemes } from '../utils/textMeasure';
 
@@ -22,7 +22,7 @@ export const EDGE_LABELS = {
  * they represent the AWS resources a Distributed Map reads from and writes to, so
  * graph transforms that reason about state reachability need to recognise them.
  */
-export const MAP_IO_NODE_TYPES: ReadonlySet<string> = new Set(['ItemReader', 'ResultWriter']);
+export const MAP_IO_NODE_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['ItemReader', 'ResultWriter']);
 
 /** Default MaxAttempts when a Retry block omits it (per the ASL spec). */
 const DEFAULT_MAX_ATTEMPTS = 3;
