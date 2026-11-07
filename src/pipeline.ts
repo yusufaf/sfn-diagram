@@ -110,8 +110,9 @@ export function renderSvgGraph(params: RenderSvgGraphParams): SvgOutput {
     // Keyed on the *collapsed* graph, which is what dagre actually sees. That is why
     // `collapse` and `catchHandling` need no place in the key: they change which nodes
     // and edges exist, so the graph half of the key already covers them.
-    // Loose `==`: a JS caller passing `cache: null` means no cache, as it always has.
-    const store = cache == null ? undefined : layoutCacheStore(cache);
+    // Falsy, not just undefined: a JS caller passing `cache: null` (or `false`) means no
+    // cache, as it did when this read `cache?.keyFor`.
+    const store = cache ? layoutCacheStore(cache) : undefined;
     const cacheKey = store?.keyFor({ edges: collapsedGraph.edges, nodes: collapsedGraph.nodes, options });
     const cached = cacheKey === undefined ? undefined : store?.get(cacheKey);
 

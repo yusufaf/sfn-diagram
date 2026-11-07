@@ -74,8 +74,10 @@ describe('LayoutCache narrowing (2.0)', () => {
         expect(() => generateSvg({ aslDefinition: SIMPLE, cache: copy })).toThrow(/createLayoutCache/);
     });
 
-    it('treats cache: null as no cache', () => {
-        expect(() => generateSvg({ aslDefinition: SIMPLE, cache: null as never })).not.toThrow();
+    // Before 2.0 `cache?.keyFor` treated every falsy value as no cache; a JS caller
+    // passing one through a config object keeps that.
+    it.each([null, false, 0, ''])('treats cache: %j as no cache', (falsy) => {
+        expect(() => generateSvg({ aslDefinition: SIMPLE, cache: falsy as never })).not.toThrow();
     });
 
     describe.skipIf(!hasBuild)('across the built entry points', () => {
