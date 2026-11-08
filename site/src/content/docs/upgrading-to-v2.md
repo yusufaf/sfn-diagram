@@ -25,7 +25,7 @@ change until 2.0 ships. What semver will cover from 2.0 on is drafted in the
 | `LayoutCache.get`, `LayoutCache.set`, `LayoutCache.keyFor` | 1.10.0 | Pass the cache as `cache` to a render function such as `generateSvg` and let it do the lookup. `clear()` and `stats()` stay. In 2.0 an SVG, HTML or PNG render throws a `TypeError` for a cache that `createLayoutCache` did not create. ([#526](https://github.com/yusufaf/sfn-diagram/issues/526)) |
 | `buildViewerContent` | 1.10.0 | `generateViewerUpdate`, whose `contentHtml` is the same markup for a rendered diagram. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 | `resolveViewerTheme` | 1.10.0 | No public replacement: `'light'`, `'dark'` and `'auto'` map to themselves; classify a custom theme by its `background` colour. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
-| The fields of `ViewerUpdate.relayoutModel` (type `RelayoutModel`, which no entry point exports): `RelayoutModel.callerOverrides`, `RelayoutModel.collapseTargets`, `RelayoutModel.diffChangedIds`, `RelayoutModel.edges`, `RelayoutModel.executionStatusByNodeId`, `RelayoutModel.nodes`, `RelayoutModel.options` | 1.10.0 | Pass `ViewerUpdate.relayoutModel` through unchanged together with `contentHtml`. The field stays in 2.0, typed opaquely. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
+| The fields of `ViewerUpdate.relayoutModel` (type `RelayoutModel`, which no entry point exports): `RelayoutModel.callerOverrides`, `RelayoutModel.collapseTargets`, `RelayoutModel.diffChangedIds`, `RelayoutModel.edges`, `RelayoutModel.executionStatusByNodeId`, `RelayoutModel.nodes`, `RelayoutModel.options` | 1.10.0 | Pass `ViewerUpdate.relayoutModel` through unchanged together with `contentHtml`. The field stays in 2.0, typed `unknown`. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 
 ## Breaking changes with no 1.x warning
 
@@ -79,8 +79,7 @@ scripts that reference `#arrowhead-*` stop matching. The hash changes whenever t
 output does, so don't hard-code it. `<sfn-diagram>` elements change from
 `arrowhead-<n>-<type>` to `sfn-el<n>-arrowhead-<type>`. The collapsed view that
 `generateViewerUpdate` embeds gets its own hash, or `<idPrefix>collapsed-arrowhead-<type>`
-under an explicit `idPrefix` (1.10 wrote `<idPrefix>arrowhead-collapsed-<type>`). The
-deprecated `buildViewerContent` no longer rewrites the collapsed view's ids.
+under an explicit `idPrefix` (1.10 wrote `<idPrefix>arrowhead-collapsed-<type>`).
 
 **What to do:** pass `idPrefix: ''` to keep the bare ids, or your own prefix to
 target the ids from CSS (`idPrefix: 'orders-'` gives `orders-arrowhead-normal`). The CLI and

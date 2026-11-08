@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AWS_DARK_THEME, AWS_LIGHT_THEME, getTheme } from '../../src/config/themes';
-import { generateSvg, resolveViewerTheme } from '../../src/index';
+import { generateSvg } from '../../src/index';
+import { resolveViewerTheme } from '../../src/renderers/viewer';
 import type { AslDefinition, CustomTheme } from '../../src/types';
 
 const asl: AslDefinition = {

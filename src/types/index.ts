@@ -1,6 +1,5 @@
 import type { LayoutCache } from '../layout/layoutCache';
 import type { ViewerEdge } from '../renderers/viewer/edgeData';
-import type { RelayoutModel } from '../renderers/viewer/relayout';
 
 // ASL Definition Types
 /** The set of Amazon States Language state types a state machine can contain. */
@@ -1155,11 +1154,11 @@ export interface GenerateViewerUpdateParams extends DiagramOptions {
 
 /**
  * Diagram content a running interactive viewer can swap in, without rebuilding the
- * surrounding document. Produced by `generateViewerUpdate`, and matches the shape
- * `ViewerHandle.setContent` (in `sfn-diagram/renderers`) expects.
+ * surrounding document. Produced by `generateViewerUpdate`. Hand it to the viewer
+ * whole; its fields mirror what the viewer's content swap reads.
  */
 export interface ViewerUpdate {
-    /** Markup for the viewer's `data-sfn="content"` node, from `buildViewerContent`. */
+    /** Markup for the viewer's `data-sfn="content"` node. */
     contentHtml: string;
 
     /** Viewer-facing detail for each edge, keyed by edge id. */
@@ -1170,8 +1169,8 @@ export interface ViewerUpdate {
 
     /**
      * Mermaid source for the same diagram, for the viewer toolbar's copy button. Pass
-     * it to `ViewerHandle.setContent` alongside `contentHtml`, or the button would go
-     * on handing out the Mermaid of the diagram that was just replaced.
+     * it to the viewer alongside `contentHtml`, or the button would go on handing out
+     * the Mermaid of the diagram that was just replaced.
      *
      * `generateViewerUpdate` always sets it. Optional only so that adding it could not
      * break anyone who *builds* a `ViewerUpdate` themselves - an adapter or a test
@@ -1185,12 +1184,12 @@ export interface ViewerUpdate {
 
     /**
      * The model for per-container collapse, present when rendered with
-     * `relayout: true` and the diagram has something to collapse. Pass it to
-     * `ViewerHandle.setContent` alongside `contentHtml`. Treat it as opaque and
-     * pass it through unchanged: its fields are viewer internals, and 2.0 types
-     * this field opaquely.
+     * `relayout: true` and the diagram has something to collapse. Opaque: pass it
+     * through unchanged alongside `contentHtml`, including across `postMessage` or
+     * JSON. Its contents are a viewer internal that can change in any release (see
+     * the compatibility policy).
      */
-    relayoutModel?: RelayoutModel;
+    relayoutModel?: unknown;
 
     /** Raw ASL for each state, keyed by state name. */
     stateData: Record<string, AslState>;

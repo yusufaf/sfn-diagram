@@ -34,40 +34,33 @@ export interface RelayoutModel {
     /**
      * The caller's own `nodeAnnotations` / `nodeOverrides`, re-applied on top of
      * whatever a placeholder computes so an explicit entry for a container still wins.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     callerOverrides?: ViewNodeStyling;
     /**
      * Container ids the toolbar's "Collapse" button collapses — the effective targets
      * of the document's `collapse` option, so the button means what it always has.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     collapseTargets: string[];
     /**
      * For a diff overlay, the ids that count as one change each, so a collapsed
      * placeholder hiding a change gets its `"<n> changed inside"` annotation.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     diffChangedIds?: string[];
     /**
      * The graph's edges after catch handling, before any collapse.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     edges: GraphEdge[];
     /**
      * For an execution overlay, each node's status, so a collapsed placeholder takes
      * the status rolled up from the states it hides and a `3/4 succeeded` summary.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     executionStatusByNodeId?: Record<string, ExecutionStateStatus>;
     /**
      * The graph's nodes after catch handling, before any collapse.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     nodes: StateNode[];
     /**
      * The options the expanded view was rendered with.
-     * @deprecated Viewer internal; removed in 2.0, when `ViewerUpdate.relayoutModel` becomes opaque. Pass the model through to the viewer unchanged rather than reading or building it.
      */
     options: RelayoutRenderOptions;
 }
