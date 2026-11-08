@@ -13,9 +13,9 @@ const hasBuild = existsSync(join(repoRoot, 'dist/index.d.ts'));
 const SNIPPET_FILE = join(repoRoot, 'tests', '__viewerInternalsRemoval.snippet.ts');
 
 describe.each([
-    { indexPath: '../src/index', label: 'source', skip: false },
-    { indexPath: '../dist/index.js', label: 'dist', skip: !hasBuild },
-])('viewer internals removal (2.0, $label)', ({ indexPath, label, skip }) => {
+    { htmlPath: '../src/html', indexPath: '../src/index', label: 'source', skip: false },
+    { htmlPath: '../dist/html.js', indexPath: '../dist/index.js', label: 'dist', skip: !hasBuild },
+])('viewer internals removal (2.0, $label)', ({ htmlPath, indexPath, label, skip }) => {
     it.skipIf(skip)(
         'buildViewerContent and resolveViewerTheme are not root exports',
         () => {
@@ -54,7 +54,7 @@ describe.each([
                 typeErrorsIn({
                     fileName: SNIPPET_FILE,
                     sourceText: [
-                        `import { generateViewerUpdate } from '${indexPath}';`,
+                        `import { generateViewerUpdate } from '${htmlPath}';`,
                         `import type { ViewerTheme, ViewerUpdate } from '${indexPath}';`,
                         "const update = generateViewerUpdate({ aslDefinition: '{}', relayout: true });",
                         "const message: { relayoutModel?: ViewerUpdate['relayoutModel'] } = { relayoutModel: update.relayoutModel };",
@@ -75,6 +75,6 @@ describe.each([
                 : await import(pathToFileURL(join(repoRoot, 'dist/index.js')).href);
         expect(Object.keys(root)).not.toContain('buildViewerContent');
         expect(Object.keys(root)).not.toContain('resolveViewerTheme');
-        expect(Object.keys(root)).toContain('generateViewerUpdate');
+        expect(Object.keys(root)).toContain('generateSvg');
     });
 });

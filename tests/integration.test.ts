@@ -285,14 +285,21 @@ describe('Integration Tests', () => {
             expect('code' in result).toBe(true);
         });
 
-        it('should generate interactive HTML when format is specified', () => {
+        it('should throw and point at sfn-diagram/html for format html', () => {
             const aslDefinition = loadFixture('simple');
-            const result = generateDiagram({ aslDefinition, format: 'html' });
 
-            expect('html' in result).toBe(true);
-            const { html } = result as { html: string };
-            expect(html).toContain('<!DOCTYPE html>');
-            expect(html).toContain('data-sfn-zoom');
+            const migration = "import { generateHtml } from 'sfn-diagram/html'";
+
+            expect(() => generateDiagram({ aslDefinition, format: 'html' })).toThrow(migration);
+            expect(() =>
+                generateFromAwsResponse({
+                    format: 'html',
+                    response: { definition: JSON.stringify(aslDefinition) },
+                }),
+            ).toThrow(migration);
+            expect(() =>
+                new SfnDiagramGenerator({ format: 'html' }).generate({ aslDefinition }),
+            ).toThrow(migration);
         });
 
         it('should throw rather than silently return SVG for format png', () => {
@@ -524,7 +531,7 @@ describe('Integration Tests', () => {
             const generator = new SfnDiagramGenerator({ format: 'mermaid' });
             const aslDefinition = loadFixture('simple');
 
-            expect('html' in generator.generate({ aslDefinition, format: 'html' })).toBe(true);
+            expect('svg' in generator.generate({ aslDefinition, format: 'svg' })).toBe(true);
             expect('code' in generator.generate({ aslDefinition })).toBe(true);
         });
     });

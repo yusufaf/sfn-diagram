@@ -9,7 +9,6 @@ import type {
     DiagramFormat,
     DiagramOptions,
     GenerateDiagramParams,
-    HtmlOutput,
     IconPosition,
     MermaidOutput,
     SfnDiagramGenerator,
@@ -20,7 +19,7 @@ import type { CliConfig } from '../../src/cliConfig';
 /** `true` only when the two types are identical, not merely assignable. */
 export type Equals<Left, Right> =
     (<Probe>() => Probe extends Left ? 1 : 2) extends <Probe>() => Probe extends Right ? 1 : 2 ? true : false;
-type AnyOutput = HtmlOutput | MermaidOutput | SvgOutput;
+type AnyOutput = MermaidOutput | SvgOutput;
 
 declare const aslDefinition: AslDefinition;
 declare const anyFormat: DiagramFormat;
@@ -38,7 +37,7 @@ export const svgFormatIsSvgOutput: Equals<typeof svgFormat, SvgOutput> = true;
 export const mermaidFormat = generateDiagram({ aslDefinition, format: 'mermaid' });
 export const mermaidFormatIsMermaidOutput: Equals<typeof mermaidFormat, MermaidOutput> = true;
 export const htmlFormat = generateDiagram({ aslDefinition, format: 'html' });
-export const htmlFormatIsHtmlOutput: Equals<typeof htmlFormat, HtmlOutput> = true;
+export const htmlFormatIsAnyOutput: Equals<typeof htmlFormat, AnyOutput> = true;
 export const pngFormat = generateDiagram({ aslDefinition, format: 'png' });
 export const pngFormatIsAnyOutput: Equals<typeof pngFormat, AnyOutput> = true;
 export const variableFormat = generateDiagram({ aslDefinition, format: anyFormat });
@@ -55,7 +54,7 @@ export const awsSvgIsSvgOutput: Equals<typeof awsSvg, SvgOutput> = true;
 export const awsMermaid = generateFromAwsResponse({ response, format: 'mermaid' });
 export const awsMermaidIsMermaidOutput: Equals<typeof awsMermaid, MermaidOutput> = true;
 export const awsHtml = generateFromAwsResponse({ response, format: 'html' });
-export const awsHtmlIsHtmlOutput: Equals<typeof awsHtml, HtmlOutput> = true;
+export const awsHtmlIsAnyOutput: Equals<typeof awsHtml, AnyOutput> = true;
 export const awsPng = generateFromAwsResponse({ response, format: 'png' });
 export const awsPngIsAnyOutput: Equals<typeof awsPng, AnyOutput> = true;
 export const awsVariableFormat = generateFromAwsResponse({ response, format: anyFormat });
@@ -68,7 +67,7 @@ export const generatorSvgIsSvgOutput: Equals<typeof generatorSvg, SvgOutput> = t
 export const generatorMermaid = generator.generate({ aslDefinition, format: 'mermaid' });
 export const generatorMermaidIsMermaidOutput: Equals<typeof generatorMermaid, MermaidOutput> = true;
 export const generatorHtml = generator.generate({ aslDefinition, format: 'html' });
-export const generatorHtmlIsHtmlOutput: Equals<typeof generatorHtml, HtmlOutput> = true;
+export const generatorHtmlIsAnyOutput: Equals<typeof generatorHtml, AnyOutput> = true;
 export const generatorVariableFormat = generator.generate({ aslDefinition, format: anyFormat });
 export const generatorVariableFormatIsAnyOutput: Equals<typeof generatorVariableFormat, AnyOutput> = true;
 

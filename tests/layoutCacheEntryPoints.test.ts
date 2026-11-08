@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { generateHtml } from '../src/html';
 import { exportPng } from '../src/png';
 import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS } from '../src/layout';
 import {
@@ -113,15 +114,6 @@ describe('generateDiagram', () => {
         expect(cache.stats().hits).toBe(1);
     });
 
-    test('forwards the cache for html', () => {
-        const cache = createLayoutCache();
-
-        generateDiagram({ aslDefinition: DEFINITION, cache, format: 'html' });
-        generateDiagram({ aslDefinition: DEFINITION, cache, format: 'html' });
-
-        expect(cache.stats().hits).toBeGreaterThan(0);
-    });
-
     test('ignores the cache for mermaid, which does no layout', () => {
         const cache = createLayoutCache();
 
@@ -130,6 +122,17 @@ describe('generateDiagram', () => {
 
         expect(cache.stats()).toMatchObject({ entries: 0, hits: 0, misses: 0 });
         expect(withCache).toEqual(without);
+    });
+});
+
+describe('generateHtml', () => {
+    test('uses a cache created by the root entry', () => {
+        const cache = createLayoutCache();
+
+        generateHtml({ aslDefinition: DEFINITION, cache });
+        generateHtml({ aslDefinition: DEFINITION, cache });
+
+        expect(cache.stats().hits).toBeGreaterThan(0);
     });
 });
 
