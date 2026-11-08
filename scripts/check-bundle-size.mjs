@@ -129,6 +129,9 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * 79,479 gzip on `main`, 0.0% under its gzip budget, and the change took it to 271,595 raw
  * and 79,958 gzip (png.cjs: 272,866 raw, 80,437 gzip). Every other entry kept at least 3.4%
  * headroom and was left alone.
+ *
+ * `html.js` was added at about 10% above its measurement when the interactive viewer
+ * gained its own `sfn-diagram/html` entry (#615): 561,981 raw and 166,277 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
@@ -137,6 +140,7 @@ export const BUNDLE_BUDGETS = {
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 132000, raw: 459000 },
     'element.js': { gzip: 132000, raw: 458500 },
+    'html.js': { gzip: 183000, raw: 618000 },
     'index.js': { gzip: 194500, raw: 661000 },
     'png.js': { gzip: 88000, raw: 299000 },
     'terraform.js': { gzip: 11200, raw: 39600 },

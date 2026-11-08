@@ -392,7 +392,7 @@ sfn-diagram/
 │   ├── aws.ts                  # `sfn-diagram/aws` entry (AWS SDK input)
 │   ├── cfn.ts                  # `sfn-diagram/cfn` entry (CloudFormation/SAM/CDK)
 │   ├── png.ts                  # `sfn-diagram/png` entry (Node-only)
-│   ├── html.ts                 # Self-contained HTML documents
+│   ├── html.ts                 # `sfn-diagram/html` entry (interactive viewer)
 │   ├── diff.ts                 # Definition diffing
 │   ├── execution.ts            # Execution-history overlays
 │   ├── lint.ts                 # ASL lint rules

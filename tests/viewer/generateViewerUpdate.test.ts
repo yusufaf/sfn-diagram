@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AslSyntaxError, generateHtml, generateViewerUpdate } from '../../src';
+import { generateHtml, generateViewerUpdate } from '../../src/html';
+import { AslSyntaxError } from '../../src';
 import { collectEdgeData, collectStateData } from '../../src/renderers';
 import type { AslDefinition } from '../../src/types';
 

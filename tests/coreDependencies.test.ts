@@ -12,9 +12,10 @@ const repoRoot = resolve(__dirname, '..');
  */
 const ALLOWED_CORE_RUNTIME_PACKAGES = ['@dagrejs/dagre', 'd3-shape'];
 
-/** Entries that must stay on that list: the core entry and the custom element. */
+/** Entries that must stay on that list: the core entry, the HTML viewer and the custom element. */
 const BROWSER_FACING_ENTRIES = [
     'src/index.ts',
+    'src/html.ts',
     'src/element/index.ts',
     'src/element/auto.ts',
 ];

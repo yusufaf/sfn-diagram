@@ -22,6 +22,18 @@ export default defineConfig([
         clean: false,
         dts: true,
         entry: {
+            html: './src/html.ts',
+        },
+        format: ['esm'],
+        hash: false,
+        outDir: './dist',
+        platform: 'neutral',
+        target,
+    },
+    {
+        clean: false,
+        dts: true,
+        entry: {
             png: './src/png.ts',
         },
         format: ['esm'],

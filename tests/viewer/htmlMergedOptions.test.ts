@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateHtml, generateHtmlAsync, generateViewerUpdate } from '../../src';
+import { generateHtml, generateHtmlAsync, generateViewerUpdate } from '../../src/html';
 import { DEFAULT_DIAGRAM_OPTIONS } from '../../src/config';
 import * as aslParserModule from '../../src/AslParser';
 import type { AslDefinition, ViewerEdge } from '../../src/types';

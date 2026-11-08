@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer';
-import { generateHtml } from '../../src';
+import { generateHtml } from '../../src/html';
 import type { AslDefinition, ThemeOption } from '../../src/types';
 
 /**

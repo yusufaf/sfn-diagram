@@ -9,7 +9,8 @@ raw Markdown by appending `.md` to its URL.
 
 | Import | Contents | Runtime |
 |---|---|---|
-| `sfn-diagram` | `generateSvg`, `generateMermaid`, `generateHtml`, `generateDiagram`, `generateFromAwsResponse`, diff and execution overlays | Node, browser, edge |
+| `sfn-diagram` | `generateSvg`, `generateMermaid`, `generateDiagram`, `generateFromAwsResponse`, diff and execution overlays | Node, browser, edge |
+| `sfn-diagram/html` | `generateHtml`, `generateHtmlAsync`, `generateViewerUpdate`, `generateExecutionHtml`, `generateExecutionHtmlAsync` — the self-contained interactive viewer | Node, browser, edge |
 | `sfn-diagram/png` | `exportPng` | Node only |
 | `sfn-diagram/aws` | `fetchExecutionHistory` | Node only |
 | `sfn-diagram/cfn` | `extractAslFromTemplate` for CloudFormation/SAM/CDK | Node, browser, edge |

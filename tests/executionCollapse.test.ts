@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { generateExecution, generateExecutionHtml, generateHtml } from '../src';
+import { generateExecutionHtml, generateHtml } from '../src/html';
+import { generateExecution } from '../src';
 import { computeCollapsePlan, rollUpExecutionStatuses } from '../src/graph';
 import { parseAsl } from '../src/AslParser';
 import { renderCollapsedView } from '../src/renderers/viewer/relayout';

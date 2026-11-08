@@ -373,7 +373,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   overlay's summary. (`generateExecutionHtml()` remains as a thin wrapper.)
 
   ```typescript
-  import { generateHtml } from 'sfn-diagram';
+  import { generateHtml } from 'sfn-diagram/html';
 
   const { html, metadata } = generateHtml({
     aslDefinition: after,
@@ -475,7 +475,7 @@ Big, branchy state machines are hard to read as a static image. A few options he
   > synchronous `generateHtml()` leaves icon URLs pointing at the jsDelivr CDN — use
   > the async `generateHtmlAsync()` to inline them:
   > ```typescript
-  > import { generateHtmlAsync } from 'sfn-diagram';
+  > import { generateHtmlAsync } from 'sfn-diagram/html';
   > const { html } = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
   > ```
 - **`--hide-catch`** (or `catchHandling: 'hide'`) — drop per-state error-handler

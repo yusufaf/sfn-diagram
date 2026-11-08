@@ -6,7 +6,8 @@ description: "Where sfn-diagram runs: Node, browsers, edge runtimes, and what ea
 The core entry (`sfn-diagram`) builds SVG with a DOM-free string renderer, so
 `generateSvg`, `generateMermaid`, `generateDiagram`, and `generateFromAwsResponse`
 run in **Node, browsers, and edge runtimes** (Cloudflare Workers, Vercel Edge, Deno, Bun)
-with no DOM polyfill.
+with no DOM polyfill. So does the interactive viewer in `sfn-diagram/html`
+(`generateHtml` and the rest), which builds its document as a string too.
 
 PNG export (`sfn-diagram/png`), the CLI, and CI/PR integration building blocks
 (`sfn-diagram/ci` — used by the GitHub Action and the `sfn-diagram comment gitlab`

@@ -23,6 +23,7 @@ const SDK_PACKAGE = '@aws-sdk/client-sfn';
 /** Entries a consumer can import without `@aws-sdk/client-sfn` installed. */
 const SDK_FREE_ENTRIES = [
     'src/index.ts',
+    'src/html.ts',
     'src/png.ts',
     'src/cfn.ts',
     'src/terraform.ts',
@@ -33,6 +34,7 @@ const SDK_FREE_ENTRIES = [
 /** The declaration files those entries publish, by basename. */
 const SDK_FREE_DECLARATIONS = [
     'index',
+    'html',
     'png',
     'cfn',
     'terraform',
@@ -258,6 +260,7 @@ import {
 import type { AslDefinition, ExecutionHistoryEvent, ExecutionHistoryInput } from 'sfn-diagram';
 import { extractAslFromTemplate } from 'sfn-diagram/cfn';
 import { extractAslFromTerraform } from 'sfn-diagram/terraform';
+import { generateHtml } from 'sfn-diagram/html';
 import { exportPng } from 'sfn-diagram/png';
 import { SfnDiagramElement } from 'sfn-diagram/element';
 import 'sfn-diagram/element/auto';
@@ -284,18 +287,19 @@ buildExecutionTimeline({ events });
 generateFromAwsResponse({ response: { definition: JSON.stringify(aslDefinition), name: 'Orders' } });
 generateSvg({ aslDefinition });
 
-export const entries = [extractAslFromTemplate, extractAslFromTerraform, exportPng, SfnDiagramElement];
+export const entries = [extractAslFromTemplate, extractAslFromTerraform, generateHtml, exportPng, SfnDiagramElement];
 `;
 
 const CONSUMER_WITHOUT_SDK_CTS = `
 import { generateSvg } from 'sfn-diagram';
+import { generateHtml } from 'sfn-diagram/html';
 import { extractAslFromTemplate } from 'sfn-diagram/cfn';
 import { extractAslFromTerraform } from 'sfn-diagram/terraform';
 import { exportPng } from 'sfn-diagram/png';
 import { SfnDiagramElement } from 'sfn-diagram/element';
 import 'sfn-diagram/element/auto';
 
-export const entries = [generateSvg, extractAslFromTemplate, extractAslFromTerraform, exportPng, SfnDiagramElement];
+export const entries = [generateSvg, generateHtml, extractAslFromTemplate, extractAslFromTerraform, exportPng, SfnDiagramElement];
 `;
 
 const CONSUMER_WITH_SDK_MTS = `

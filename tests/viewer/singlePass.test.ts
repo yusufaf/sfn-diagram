@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { generateDiff, generateHtml, generateHtmlAsync, generateViewerUpdate } from '../../src';
+import { generateHtml, generateHtmlAsync, generateViewerUpdate } from '../../src/html';
+import { generateDiff } from '../../src';
 import * as aslParserModule from '../../src/AslParser';
 import { DagreLayout } from '../../src/layout';
 import type { AslDefinition } from '../../src/types';
