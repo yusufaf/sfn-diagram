@@ -255,9 +255,9 @@ Big, branchy state machines are hard to read as a static image. A few options he
   the colours rather than silently dropping them. On a diff that means the merged
   definition, removed states included.
 
-  A host patching a live viewer through `ViewerHandle.setContent` should pass the new
-  `mermaid` from its `ViewerUpdate` along with `contentHtml` — without it the copy
-  button retires rather than handing out the diagram that was just replaced.
+  A host patching a live viewer with a `ViewerUpdate` should pass its new `mermaid`
+  along with `contentHtml` — without it the copy button retires rather than handing
+  out the diagram that was just replaced.
 
   ### Deep links
 

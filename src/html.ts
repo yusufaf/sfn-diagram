@@ -501,8 +501,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * Render diagram content a running interactive viewer can swap in, without rebuilding
  * the surrounding document. Counterpart to {@link generateHtml} for hosts that keep one
  * viewer alive across re-renders (e.g. the VS Code preview) and want to patch it in
- * place — via `ViewerHandle.setContent` — rather than replace the whole document on
- * every edit.
+ * place rather than replace the whole document on every edit.
  *
  * By default the fragment carries the expanded view and, when there is something to
  * collapse, the fully collapsed one for the toggle to swap to. With `relayout: true`
@@ -512,7 +511,7 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  *
  * @param params - ASL definition plus the same options as {@link generateSvg}, and
  *   optionally `relayout`.
- * @returns Content markup plus the data `ViewerHandle.setContent` needs to rewire it.
+ * @returns Content markup plus the data the viewer needs to rewire it.
  *
  * @example
  * ```typescript
