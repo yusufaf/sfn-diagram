@@ -73,7 +73,7 @@ interface BreakingSection {
  */
 function collectBreakingSections(params: CollectBreakingSectionsParams): BreakingSection[] {
     const { page } = params;
-    const prose = page.replace(/^```[^\n]*\n[\s\S]*?^```$/gm, '');
+    const prose = page.replace(/^ *(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ *\1[`~]* *$/gm, '');
     const start = /^## Breaking changes$/m.exec(prose);
     if (!start) {
         throw new Error('migration guide has no "## Breaking changes" section');
