@@ -1,4 +1,5 @@
-import type { LayoutDirection, ThemeOption } from 'sfn-diagram'
+import type { LayoutDirection } from 'sfn-diagram'
+import type { ResolvedTheme } from '../settings'
 import { buildContentSecurityPolicyMeta } from './csp'
 import { injectBeforeBodyEnd, injectIntoHead } from './documentSurgery'
 import { buildHostBridgeScript, buildHostToolbarHtml, buildHostToolbarStyles } from './hostToolbar'
@@ -15,8 +16,8 @@ export interface BuildPreviewDocumentParams {
     layout: LayoutDirection
     /** Nonce shared with the viewer document's own `<style>`/`<script>` tags. */
     nonce: string
-    /** Currently selected diagram theme. */
-    theme: ThemeOption
+    /** Currently selected diagram theme, with `'auto'` already resolved to the VS Code colour scheme. */
+    theme: ResolvedTheme
     /** The interactive viewer document produced by `generateHtml`/`generateExecutionHtml`. */
     viewerHtml: string
 }
