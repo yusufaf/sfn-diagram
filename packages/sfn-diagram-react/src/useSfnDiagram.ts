@@ -4,12 +4,12 @@ import { useMemo } from 'react'
 import {
     generateDiff,
     generateExecution,
-    generateHtml,
     generateMermaid,
     generateMermaidDiff,
     generateMermaidExecution,
     generateSvg,
 } from 'sfn-diagram'
+import { generateHtml } from 'sfn-diagram/html'
 import type {
     DiagramOptions,
     DiffOutput,
