@@ -217,9 +217,22 @@ jobs:
   # every image from v1.4.0 through v1.5.0) went unnoticed for three releases
   # because nothing built it until then. Build - never push - on every PR so
   # Dockerfile/build-script drift fails here instead of at release time.
+  #
+  # arm64 runs on a native arm64 runner: since 2.0 the image loads a per-architecture
+  # musl resvg binary, and only running it proves PNG text renders there. Native, not
+  # QEMU, so it costs about what the amd64 leg does. The amd64 leg keeps the bare
+  # name the branch ruleset requires.
   docker-build-check:
-    name: Docker Build Check
-    runs-on: ubuntu-latest
+    name: ${{ matrix.arch == 'amd64' && 'Docker Build Check' || format('Docker Build Check ({0})', matrix.arch) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -239,15 +252,21 @@ jobs:
       - name: Build image
         uses: docker/build-push-action@v7
         with:
-          cache-from: type=gha,scope=docker-check-amd64
-          cache-to: type=gha,mode=min,scope=docker-check-amd64
+          cache-from: type=gha,scope=docker-check-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=docker-check-${{ matrix.arch }}
           context: .
           load: true
           tags: sfn-diagram-ci-check
 
+      - name: Check the image's architecture
+        env:
+          WANT: ${{ matrix.arch }}
+        run: |
+          got="$(docker image inspect sfn-diagram-ci-check --format '{{.Architecture}}')"
+          [ "$got" = "$WANT" ] || { echo "::error::built a $got image on the $WANT leg"; exit 1; }
+
       # Same script docker.yml runs against the published image, so the two cannot
-      # drift (#230). It takes the font path from scripts/font-probes.mjs rather
-      # than restating it.
+      # drift (#230).
       - name: Smoke test the built image
         run: bash scripts/docker-smoke.sh --image sfn-diagram-ci-check --png-out docker-smoke/diagram.png
 
@@ -257,7 +276,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: docker-png-smoke
+          name: docker-png-smoke-${{ matrix.arch }}
           path: docker-smoke/diagram.png
           if-no-files-found: warn
 

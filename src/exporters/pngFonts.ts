@@ -9,14 +9,10 @@ export interface FontProbe {
 }
 
 /**
- * Per-platform font probing tables, checked in order.
- *
- * Exported so `scripts/font-probes.mjs` — which CI uses to assert an image ships
- * the font this will actually look for — can be pinned against it by
- * `tests/ci/fontProbes.test.ts`, rather than a workflow comment claiming to know
- * the path (#230).
+ * Per-platform font probing tables, checked in order. `scripts/docker-smoke.sh`
+ * checks an image against this table by rendering with the system-font scan off.
  */
-export const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
+const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
     darwin: [
         { family: 'Helvetica', path: '/System/Library/Fonts/Helvetica.ttc' },
         { family: 'Arial', path: '/Library/Fonts/Arial.ttf' },
@@ -26,6 +22,8 @@ export const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
             family: 'Liberation Sans',
             path: '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
         },
+        // Alpine's font-liberation, which the Docker image installs (#555).
+        { family: 'Liberation Sans', path: '/usr/share/fonts/liberation/LiberationSans-Regular.ttf' },
         { family: 'DejaVu Sans', path: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf' },
         { family: 'Noto Sans', path: '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf' },
     ],

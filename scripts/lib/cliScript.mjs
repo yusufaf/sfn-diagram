@@ -5,7 +5,7 @@
 // show up as a GitHub Actions annotation.
 //
 // Extracted for #230: resolve-docker-tag.mjs and resolve-optional-peer-version.mjs
-// carried near-identical copies, and font-probes.mjs would have been a third.
+// carried near-identical copies.
 //
 // No shebang, for the same reason those two have none: they are imported directly
 // by tests, and a shebang followed by CRLF line endings (what a Windows checkout

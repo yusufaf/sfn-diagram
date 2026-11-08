@@ -1036,7 +1036,7 @@ Tags: `latest`, `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`.
 
 The newest release's tags are rebuilt every week to pick up base-image security fixes, so a tag's digest changes over time. To freeze an image, pin it by digest (`ghcr.io/yusufaf/sfn-diagram@sha256:…`). Older versions' tags are not rebuilt.
 
-From 1.10.0 the image ships no npm, npx, corepack or yarn: it runs the CLI and nothing else. To build your own image with extra packages, start `FROM node:24-slim` instead.
+From 1.10.0 the image ships no npm, npx, corepack or yarn: it runs the CLI and nothing else. From 2.0 the image is based on Alpine Linux (`node:24-alpine`): add OS packages in a derived image with `apk add`, or start `FROM node:24-alpine` (or `node:24-slim`) to build your own image with npm packages. See [Upcoming in 2.0](/upgrading-to-v2/#docker-image-base-555).
 
 The same image is mirrored to Docker Hub as `azulaf/sfn-diagram` from 1.9.0 on — same tags, same image digest. Prefer ghcr.io in CI: Docker Hub rate-limits anonymous pulls, which shared runners can hit.
 
