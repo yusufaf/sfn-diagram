@@ -48,8 +48,9 @@ anything covered below ships only in a major release, with the exceptions listed
   they use), marked `@experimental` until pluggable layout engines ship
   ([#545](https://github.com/yusufaf/sfn-diagram/issues/545)). No render function
   accepts an engine yet.
-- The interactive viewer's embedded JSON blobs (`#sfn-state-data` and the others) and
-  any DOM not listed above as a hook.
+- The interactive viewer's embedded JSON blobs (`#sfn-state-data`, `#sfn-relayout-model`
+  and the others), the contents of `ViewerUpdate.relayoutModel` (typed `unknown`: pass
+  it through unchanged), and any DOM not listed above as a hook.
 - The message text of warnings and errors. The warning codes are covered.
 - The default marker-id prefix (a hash of the rendered output, which changes whenever
   the output does), the numbered `arrowhead-override-<n>` variants, the marker ids of
