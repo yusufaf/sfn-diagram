@@ -145,8 +145,37 @@ const fileContents = `${banner}
 export const VIEWER_CONTROLLER_BUNDLE = ${JSON.stringify(body)};
 `;
 
+/**
+ * Third-party code the relayout bundle carries, and the licence file whose notice
+ * every copy must reproduce. dagre's dist inlines graphlib, which has the same MIT
+ * notice. src/utils/linePath.ts is ported from d3-shape and d3-path, which share one
+ * ISC notice.
+ */
+const RELAYOUT_LICENCES = [
+    { code: '@dagrejs/dagre and @dagrejs/graphlib', file: 'node_modules/@dagrejs/dagre/LICENSE' },
+    { code: 'code ported from d3-shape and d3-path', file: 'node_modules/d3-shape/LICENSE' },
+];
+
+// The minifier keeps no legal comments of its own (dagre's points at a LEGAL.txt that
+// a generated document doesn't have), so the notices go in one banner instead.
+const relayoutBanner = [
+    '/*!',
+    ...RELAYOUT_LICENCES.flatMap(({ code, file }) => [
+        ` * Includes ${code}:`,
+        ' *',
+        ...readFileSync(path.join(repoRoot, file), 'utf8')
+            .replace(/\r\n/g, '\n')
+            .trim()
+            .split('\n')
+            .map((line) => (line ? ` * ${line}` : ' *')),
+        ' *',
+    ]),
+    ' */',
+].join('\n');
+
 const relayoutResult = await build({
     absWorkingDir: repoRoot,
+    banner: { js: relayoutBanner },
     bundle: true,
     entryPoints: [relayoutSourcePath],
     // An IIFE assigning `sfnRelayout`, so the controller script can inline it and
