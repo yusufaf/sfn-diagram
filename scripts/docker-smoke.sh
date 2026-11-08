@@ -106,7 +106,7 @@ echo "== the PNG engine finds a probed font without scanning"
     -o /dev/stdout < "$fixture" > /dev/null ||
     fail "the PNG engine found no probed font in the image - labels would render in a fallback face, or not at all"
 
-# #554: node:24-slim bundles npm, corepack and yarn. The runtime never runs them,
+# #554: node:24-alpine bundles npm, corepack and yarn. The runtime never runs them,
 # and npm's own node_modules carried every node-pkg finding the image scans reported.
 echo "== no package manager ships in the image"
 if ! leftovers="$("$docker" run --rm --entrypoint sh "$image" -c \
