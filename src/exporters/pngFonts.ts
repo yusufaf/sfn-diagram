@@ -22,6 +22,8 @@ const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
             family: 'Liberation Sans',
             path: '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
         },
+        // Alpine's font-liberation, which the Docker image installs (#555).
+        { family: 'Liberation Sans', path: '/usr/share/fonts/liberation/LiberationSans-Regular.ttf' },
         { family: 'DejaVu Sans', path: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf' },
         { family: 'Noto Sans', path: '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf' },
     ],
