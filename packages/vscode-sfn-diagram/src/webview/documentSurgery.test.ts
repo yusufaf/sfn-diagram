@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateHtml } from 'sfn-diagram'
+import { generateHtml } from 'sfn-diagram/html'
 import type { AslDefinition } from 'sfn-diagram'
 import { injectBeforeBodyEnd, injectIntoHead } from './documentSurgery'
 

@@ -1,4 +1,4 @@
-import { generateExecutionHtml, generateHtml, generateViewerUpdate } from 'sfn-diagram'
+import { generateExecutionHtml, generateHtml, generateViewerUpdate } from 'sfn-diagram/html'
 import type { LayoutCache, LayoutDirection, ThemeOption, ViewerUpdate } from 'sfn-diagram'
 import type { ExecutionMetadata } from './hostToolbar'
 

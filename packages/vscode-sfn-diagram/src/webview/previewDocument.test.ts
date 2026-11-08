@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { generateExecution, generateHtml } from 'sfn-diagram'
+import { generateExecution } from 'sfn-diagram'
+import { generateHtml } from 'sfn-diagram/html'
 import type { AslDefinition, ExecutionHistoryEvent } from 'sfn-diagram'
 import { buildPreviewDocument } from './previewDocument'
 
