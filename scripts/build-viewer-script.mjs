@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // Bundles src/renderers/viewer/viewerController.ts and the ./controller/* modules it
-// composes into a bare script body with no import/export syntax, and writes it as a
-// committed string constant. That constant is what buildViewerScript() inlines into
-// the self-contained HTML document; the custom element imports viewerController.ts
-// directly instead.
+// composes into a minified IIFE that assigns `sfnViewer` (with `attachViewer`), and
+// writes it as a committed string constant. That constant is what buildViewerScript()
+// inlines into the self-contained HTML document; the custom element imports
+// viewerController.ts directly instead.
+//
+// `--readable` writes the controller unminified, for stepping through a generated
+// document in a debugger. It is for local use only: `--check` always compares against
+// the minified build, so committing a readable bundle fails CI.
 //
 // The controller must stay free of runtime dependencies - the inlined script has no
 // module loader, and pulling a package into it would silently bloat every generated
@@ -97,12 +101,10 @@ if (/\brequire\(/.test(outputText)) {
     process.exit(1);
 }
 
-// esbuild's ESM output ends with the entry's export list. The only export is the
-// `attachViewer` function declaration - already hoisted and present in the body - so
-// that one statement is stripped to leave a bare script; buildViewerScript() calls
-// `attachViewer` by name inside the IIFE it wraps this body in. Anything other than
-// exactly that statement means the entry's exports changed, and the inline caller
-// would break at runtime, so the build stops here instead.
+// esbuild's ESM output ends with the entry's export list. buildViewerScript() calls
+// `sfnViewer.attachViewer`, so anything other than exactly that one export means the
+// entry's exports changed and the inline caller would break at runtime. The build
+// stops here instead. This unminified ESM pass exists only for these checks.
 const EXPORT_STATEMENT = /\nexport \{\n {2}attachViewer\n\};\n$/;
 if (!EXPORT_STATEMENT.test(outputText)) {
     console.error(
@@ -111,7 +113,23 @@ if (!EXPORT_STATEMENT.test(outputText)) {
     );
     process.exit(1);
 }
-const body = outputText.replace(EXPORT_STATEMENT, '').trim();
+
+// The inlined controller: an IIFE assigning `sfnViewer`, minified like the relayout
+// bundle, since every generated HTML document carries it.
+const readable = process.argv.includes('--readable') && !process.argv.includes('--check');
+const controllerResult = await build({
+    absWorkingDir: repoRoot,
+    bundle: true,
+    entryPoints: [sourcePath],
+    format: 'iife',
+    globalName: 'sfnViewer',
+    legalComments: 'none',
+    minify: !readable,
+    platform: 'neutral',
+    target: 'es2019',
+    write: false,
+});
+const body = controllerResult.outputFiles[0].text.trim();
 
 const banner = `// GENERATED FILE - do not edit by hand.
 // Source: src/renderers/viewer/viewerController.ts (and src/renderers/viewer/controller/*)
@@ -119,7 +137,10 @@ const banner = `// GENERATED FILE - do not edit by hand.
 `;
 
 const fileContents = `${banner}
-/** Compiled body of {@link attachViewer}, inlined into the self-contained HTML viewer. */
+/**
+ * Minified IIFE defining \`sfnViewer\` (with {@link attachViewer}), inlined into the
+ * self-contained HTML viewer.
+ */
 export const VIEWER_CONTROLLER_BUNDLE = ${JSON.stringify(body)};
 `;
 
