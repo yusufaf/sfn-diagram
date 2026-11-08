@@ -137,6 +137,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * entry (#615). Its controller and relayout strings were most of the root: index.js went
  * from 608,983 to 364,479 raw and from 179,078 to 105,874 gzip. The old budget sat about
  * 80% above the new size, so it would have let the root regrow that far unnoticed.
+ *
+ * `html.js` was restated to about 10% above its measurement when the viewer controller
+ * string began shipping minified (#550). It went from 562,080 to 522,611 raw and from
+ * 166,340 to 161,498 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
@@ -145,7 +149,7 @@ export const BUNDLE_BUDGETS = {
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 132000, raw: 459000 },
     'element.js': { gzip: 132000, raw: 458500 },
-    'html.js': { gzip: 183000, raw: 618000 },
+    'html.js': { gzip: 177500, raw: 575000 },
     'index.js': { gzip: 116500, raw: 401000 },
     'png.js': { gzip: 88000, raw: 299000 },
     'terraform.js': { gzip: 11200, raw: 39600 },

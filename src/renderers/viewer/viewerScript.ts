@@ -43,7 +43,7 @@ function readBlob(variableName: string, elementId: string, fallback = '{}'): str
  *
  * Inlines the compiled {@link VIEWER_CONTROLLER_BUNDLE} (generated from
  * `viewerController.ts` by `scripts/build-viewer-script.mjs`, the same logic the
- * `sfn-diagram/element` custom element runs) and calls `attachViewer({ root: document })`,
+ * `sfn-diagram/element` custom element runs) and calls `sfnViewer.attachViewer({ root: document })`,
  * parsing each embedded data blob first when its flag is set. No external references,
  * so the document stays self-contained and works from `file://`.
  *
@@ -99,7 +99,7 @@ export function buildViewerScript(params: BuildViewerScriptParams): string {
 ${VIEWER_CONTROLLER_BUNDLE}
 ${hasRelayout ? VIEWER_RELAYOUT_BUNDLE : ''}
 ${reads}
-  var handle = attachViewer({ ${attachArgs.join(', ')} });
+  var handle = sfnViewer.attachViewer({ ${attachArgs.join(', ')} });
   document.addEventListener('sfn-set-content', function (event) {
     handle.setContent(event.detail);
   });
