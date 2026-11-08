@@ -437,7 +437,7 @@ Options:
 Example .gitlab-ci.yml:
   sfn-preview:
     stage: test
-    image: ghcr.io/yusufaf/sfn-diagram:1
+    image: ghcr.io/yusufaf/sfn-diagram:2
     variables:
       GIT_DEPTH: 0
     rules:

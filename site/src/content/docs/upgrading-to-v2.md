@@ -24,6 +24,8 @@ the last 1.x release ([below](#releases-and-other-packages)).
   - [hand-built graph objects](#graph-types-tightened-526).
 - **CLI, Docker image and binaries:**
   - the [Node version](#node-2212-or-later-285), for `npx` and `npm i -g`;
+  - jobs that pull the Docker image as `latest` or `:1`: `latest` moves to 2.0, and `:1`
+    stops getting rebuilds ([below](#releases-and-other-packages));
   - images built [`FROM` the Docker image](#docker-image-base-555);
   - [SVG marker ids](#marker-ids-prefixed-by-default-527), which the CLI can't opt out of
     yet;
@@ -158,7 +160,8 @@ because the viewer is about half of the root entry. Without it, `sfn-diagram` go
 
 **What changes:** `buildViewerContent` and `resolveViewerTheme` are no longer exported.
 `generateViewerUpdate` (from `sfn-diagram/html`) replaces `buildViewerContent`: its
-`contentHtml` is the same markup for a rendered diagram.
+`contentHtml` is the same markup for a rendered diagram. It renders from the definition,
+so there is no replacement that takes an `svg` you rendered or edited yourself.
 
 **Before (1.x):**
 

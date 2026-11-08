@@ -60,7 +60,8 @@ interface BreakingSection {
 }
 
 /**
- * Splits the guide's `## Breaking changes` section into its `###` sections.
+ * Splits the guide's `## Breaking changes` section into its `###` sections. Fenced code
+ * blocks are dropped first, so a `#` comment line inside one can't start or end a section.
  *
  * @param params - The page to read.
  * @returns The sections in page order.
@@ -72,11 +73,12 @@ interface BreakingSection {
  */
 function collectBreakingSections(params: CollectBreakingSectionsParams): BreakingSection[] {
     const { page } = params;
-    const start = /^## Breaking changes$/m.exec(page);
+    const prose = page.replace(/^```[^\n]*\n[\s\S]*?^```$/gm, '');
+    const start = /^## Breaking changes$/m.exec(prose);
     if (!start) {
         throw new Error('migration guide has no "## Breaking changes" section');
     }
-    const rest = page.slice(start.index + start[0].length);
+    const rest = prose.slice(start.index + start[0].length);
     const end = rest.indexOf('\n## ');
     const section = end === -1 ? rest : rest.slice(0, end);
     return section
