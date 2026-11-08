@@ -1,8 +1,26 @@
+/*! @license
+ * buildLinePath is ported from d3-shape 3.2 (src/line.js, src/curve/linear.js,
+ * src/curve/basis.js) and d3-path 3.1 (src/path.js).
+ *
+ * Copyright 2010-2022 Mike Bostock
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any purpose
+ * with or without fee is hereby granted, provided that the above copyright notice
+ * and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+ * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+ * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+ * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+ * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+ * THIS SOFTWARE.
+ */
+
 /**
  * The SVG path `d` strings for edges, matching d3-shape's `line()` with `curveLinear`
  * or `curveBasis` character for character, so dropping d3-shape left every rendered
- * SVG unchanged. Ported from d3-shape 3.2 (`src/line.js`, `src/curve/linear.js`,
- * `src/curve/basis.js`) and d3-path 3.1, ISC licence, Copyright 2010-2022 Mike Bostock.
+ * SVG unchanged.
  *
  * Each number is rounded to at most three decimals when it is written, as d3-shape's
  * default `digits(3)` does (`Math.round(value * 1000) / 1000`). The curve math runs on
