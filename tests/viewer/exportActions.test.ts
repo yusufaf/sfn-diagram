@@ -1,7 +1,8 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateMermaid, generateViewerUpdate } from '../../src';
+import { generateHtml, generateViewerUpdate } from '../../src/html';
+import { generateMermaid } from '../../src';
 import { buildViewerBody } from '../../src/renderers/viewer';
 import { CANVAS_LIMITS, diagramSize, fitRasterScale } from '../../src/renderers/viewer/controller/rasterize';
 import type { AslDefinition } from '../../src/types';

@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-    generateDiff,
-    generateExecution,
     generateExecutionHtml,
     generateExecutionHtmlAsync,
     generateHtml,
     generateHtmlAsync,
-} from '../src';
+} from '../src/html';
+import { generateDiff, generateExecution } from '../src';
 import { renderCollapsedView } from '../src/renderers/viewer/relayout';
 import type { RelayoutModel } from '../src/renderers/viewer/relayout';
 import type { AslDefinition } from '../src/types';

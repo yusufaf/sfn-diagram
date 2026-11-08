@@ -2,13 +2,12 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import type { HistoryEvent } from '@aws-sdk/client-sfn';
+import { generateExecutionHtml, generateExecutionHtmlAsync } from '../src/html';
 import {
     buildExecutionTimeline,
     EXECUTION_PAYLOAD_CAP,
     EXECUTION_PAYLOAD_TOTAL_CAP,
     generateExecution,
-    generateExecutionHtml,
-    generateExecutionHtmlAsync,
     generateMermaidExecution,
     parseExecutionHistory,
 } from '../src/index';

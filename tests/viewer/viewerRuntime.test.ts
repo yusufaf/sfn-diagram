@@ -4,7 +4,7 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import puppeteer, { type Browser, type CDPSession, type Page } from 'puppeteer';
-import { generateHtml, generateViewerUpdate } from '../../src';
+import { generateHtml, generateViewerUpdate } from '../../src/html';
 import type { ViewerUpdate } from '../../src';
 import type { AslDefinition } from '../../src/types';
 import { AUTO_THEME_DARK_CSS } from '../../src/config/autoTheme';

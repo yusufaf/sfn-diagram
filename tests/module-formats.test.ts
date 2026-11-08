@@ -32,6 +32,18 @@ describe('Module Format Compatibility', () => {
             15000
         );
 
+        it('should import the HTML viewer from the html sub-path', async () => {
+            const html = await import('../src/html');
+
+            expect(Object.keys(html).sort()).toEqual([
+                'generateExecutionHtml',
+                'generateExecutionHtmlAsync',
+                'generateHtml',
+                'generateHtmlAsync',
+                'generateViewerUpdate',
+            ]);
+        }, 15000);
+
         it('should import exportPng from png sub-path', async () => {
             const { exportPng, PngExporter } = await import('../src/png');
 
@@ -227,7 +239,7 @@ describe.skipIf(!hasBuild)('ESM-only build output', () => {
         // The element entries are left out: they extend HTMLElement, so they never loaded in
         // Node. On the CI node-22 leg this exercises require(esm) on the floor's release line.
         const script = [
-            "const specifiers = ['sfn-diagram', 'sfn-diagram/png', 'sfn-diagram/aws', 'sfn-diagram/cfn', 'sfn-diagram/terraform', 'sfn-diagram/ci'];",
+            "const specifiers = ['sfn-diagram', 'sfn-diagram/html', 'sfn-diagram/png', 'sfn-diagram/aws', 'sfn-diagram/cfn', 'sfn-diagram/terraform', 'sfn-diagram/ci'];",
             'specifiers.forEach((specifier) => require(specifier));',
             'const resolved = specifiers.map((specifier) => require.resolve(specifier));',
             "const { svg } = require('sfn-diagram').generateSvg({ aslDefinition: { StartAt: 'A', States: { A: { End: true, Type: 'Pass' } } } });",
@@ -240,7 +252,7 @@ describe.skipIf(!hasBuild)('ESM-only build output', () => {
 
         expect(result.status, result.stderr).toBe(0);
         const output = JSON.parse(result.stdout) as { resolved: string[]; svgStart: string };
-        const expectedFiles = ['index', 'png', 'aws', 'cfn', 'terraform', 'ci'];
+        const expectedFiles = ['index', 'html', 'png', 'aws', 'cfn', 'terraform', 'ci'];
         output.resolved.forEach((path, index) => {
             expect(path.replace(/\\/g, '/')).toMatch(new RegExp(`dist/${expectedFiles[index]}\\.js$`));
         });

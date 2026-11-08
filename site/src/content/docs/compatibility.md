@@ -18,8 +18,8 @@ anything covered below ships only in a major release, with the exceptions listed
 ## Covered by semver
 
 - The exported functions, classes, constants and types of `sfn-diagram`,
-  `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`, `sfn-diagram/png`,
-  `sfn-diagram/element` and `sfn-diagram/element/auto`.
+  `sfn-diagram/html`, `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`,
+  `sfn-diagram/png`, `sfn-diagram/element` and `sfn-diagram/element/auto`.
 - The `sfn-diagram/package.json` and `sfn-diagram/config.schema.json` export paths.
 - Documented CLI flags, [exit codes](/guides/cli/#exit-codes) and config-file keys.
 - Documented `data-*` attributes on rendered output (`data-state-id`,

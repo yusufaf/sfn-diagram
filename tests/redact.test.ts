@@ -1,10 +1,9 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from 'vitest';
+import { generateHtml, generateViewerUpdate } from '../src/html';
 import {
     buildExecutionTimeline,
-    generateHtml,
-    generateViewerUpdate,
     REDACTED,
     redactPayloadText,
     redactStateData,

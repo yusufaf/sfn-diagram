@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import puppeteer, { type Browser, type Page, type PuppeteerLifeCycleEvent } from 'puppeteer';
 import { Resvg } from '@resvg/resvg-js';
-import { generateHtml, generateViewerUpdate } from '../../src';
+import { generateHtml, generateViewerUpdate } from '../../src/html';
 import { ICON_TIMEOUT_MS } from '../../src/renderers/viewer/controller/rasterize';
 import type { AslDefinition } from '../../src/types';
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateHtml, generateHtmlAsync, generateSvg, generateViewerUpdate } from '../src';
+import { generateHtml, generateHtmlAsync, generateViewerUpdate } from '../src/html';
+import { generateSvg } from '../src';
 import { resolveViewerTheme, wrapSvgInInteractiveHtml } from '../src/renderers';
 import { renderCollapsedView } from '../src/renderers/viewer/relayout';
 import type { RelayoutModel } from '../src/renderers/viewer/relayout';

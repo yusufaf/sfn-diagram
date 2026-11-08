@@ -1,12 +1,28 @@
 /**
  * @module
  *
- * The interactive HTML viewer entry points: {@link generateHtml},
- * {@link generateHtmlAsync}, {@link generateViewerUpdate}, and the execution-overlay
- * wrappers {@link generateExecutionHtml} / {@link generateExecutionHtmlAsync}. All of
- * them run one parse through `pipeline.ts` and derive every view of the diagram — the
- * expanded one, the collapsed one behind the toggle, the viewer's edge data — plus any
- * `diff` / `history` overlay from that single pass.
+ * The interactive HTML viewer for `sfn-diagram` (the `sfn-diagram/html` subpath):
+ * {@link generateHtml}, {@link generateHtmlAsync}, {@link generateViewerUpdate}, and the
+ * execution-overlay wrappers {@link generateExecutionHtml} /
+ * {@link generateExecutionHtmlAsync}.
+ *
+ * The viewer's script, styles and client-side relayout are most of the package's code.
+ * In 2.0 they leave the core entry and live only here, so importing `sfn-diagram` for SVG
+ * or Mermaid never pulls them in (#615).
+ *
+ * Every function runs one parse and derives every view of the diagram (the expanded one,
+ * the collapsed one behind the toggle, the viewer's edge data) plus any `diff` /
+ * `history` overlay from that single pass. A layout cache from `createLayoutCache` in
+ * `sfn-diagram` works here too.
+ *
+ * @example
+ * ```typescript
+ * import { generateHtml } from 'sfn-diagram/html';
+ * import { writeFileSync } from 'node:fs';
+ *
+ * const { html } = generateHtml({ aslDefinition: asl, theme: 'auto' });
+ * writeFileSync('diagram.html', html);
+ * ```
  */
 import { parseAslSource } from './AslParser';
 import { redactStateData } from './redact';
@@ -424,14 +440,14 @@ function buildHtmlMetadata(params: {
  * (what `generateDiff` draws, in the viewer). The two compose — see
  * {@link GenerateHtmlParams.diff} for how a state that both changed and ran is shown.
  *
- * @param params - ASL definition plus the same options as {@link generateSvg}, and
+ * @param params - ASL definition plus the same options as `generateSvg` from `sfn-diagram`, and
  *   optionally `history` and/or `diff`.
  * @returns The HTML document string plus dimensions and metadata. `metadata.execution`
  *   and `metadata.diff` carry each overlay's summary when it was requested.
  *
  * @example
  * ```typescript
- * import { generateHtml } from 'sfn-diagram';
+ * import { generateHtml } from 'sfn-diagram/html';
  * import { writeFileSync } from 'node:fs';
  * const { html } = generateHtml({ aslDefinition: asl });
  * writeFileSync('diagram.html', html);
@@ -509,13 +525,13 @@ export function generateHtml(params: GenerateHtmlParams): HtmlOutput {
  * for a viewer whose document `generateHtml` produced for a diagram with a container,
  * which is what ships the relayout bundle the model needs.
  *
- * @param params - ASL definition plus the same options as {@link generateSvg}, and
+ * @param params - ASL definition plus the same options as `generateSvg` from `sfn-diagram`, and
  *   optionally `relayout`.
  * @returns Content markup plus the data the viewer needs to rewire it.
  *
  * @example
  * ```typescript
- * import { generateViewerUpdate } from 'sfn-diagram';
+ * import { generateViewerUpdate } from 'sfn-diagram/html';
  * const update = generateViewerUpdate({ aslDefinition: asl });
  * webview.postMessage({ command: 'updateContent', ...update });
  * ```
@@ -562,13 +578,13 @@ export function generateViewerUpdate(params: GenerateViewerUpdateParams): Viewer
  * diagram has no remote icons this costs nothing — no icon is fetched and no network
  * request is made.
  *
- * @param params - ASL definition plus the same options as {@link generateSvg}, and
+ * @param params - ASL definition plus the same options as `generateSvg` from `sfn-diagram`, and
  *   optionally `history` and/or `diff`.
  * @returns Promise resolving to the HTML document string plus dimensions and metadata.
  *
  * @example
  * ```typescript
- * import { generateHtmlAsync } from 'sfn-diagram';
+ * import { generateHtmlAsync } from 'sfn-diagram/html';
  * import { writeFileSync } from 'node:fs';
  * const { html } = await generateHtmlAsync({ aslDefinition: asl, showIcons: true });
  * writeFileSync('diagram.html', html); // opens offline, icons included
@@ -651,7 +667,7 @@ function toExecutionHtmlOutput(output: HtmlOutput): ExecutionHtmlOutput {
 /**
  * Generate a self-contained interactive HTML execution overlay: the same viewer
  * {@link generateHtml} produces (pan/zoom, search, minimap, click-a-state/edge detail
- * panel), wrapped around {@link generateExecution}'s coloured, taken-path-emphasized
+ * panel), wrapped around `generateExecution`'s coloured, taken-path-emphasized
  * SVG rather than a plain diagram.
  *
  * A thin wrapper over `generateHtml({ history })`, kept for its
@@ -661,12 +677,12 @@ function toExecutionHtmlOutput(output: HtmlOutput): ExecutionHtmlOutput {
  * @param params.aslDefinition - ASL definition as an object or JSON string
  * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
  * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
- * @param params - Any additional {@link DiagramOptions}
+ * @param params - Any additional `DiagramOptions`
  * @returns {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
  *
  * @example
  * ```typescript
- * import { generateExecutionHtml } from 'sfn-diagram';
+ * import { generateExecutionHtml } from 'sfn-diagram/html';
  * const { html } = generateExecutionHtml({ aslDefinition: asl, history: events });
  * ```
  *
@@ -690,12 +706,12 @@ export function generateExecutionHtml(params: GenerateExecutionHtmlParams): Exec
  * @param params.aslDefinition - ASL definition as an object or JSON string
  * @param params.history - Execution history: events array, GetExecutionHistory response, or JSON string
  * @param params.nonce - Content-Security-Policy nonce for the embedded `<style>`/`<script>` tags
- * @param params - Any additional {@link DiagramOptions}
+ * @param params - Any additional `DiagramOptions`
  * @returns Promise resolving to {@link ExecutionHtmlOutput} with the HTML document and a per-status summary
  *
  * @example
  * ```typescript
- * import { generateExecutionHtmlAsync } from 'sfn-diagram';
+ * import { generateExecutionHtmlAsync } from 'sfn-diagram/html';
  * const { html } = await generateExecutionHtmlAsync({
  *     aslDefinition: asl,
  *     history: events,
@@ -708,3 +724,14 @@ export async function generateExecutionHtmlAsync(
 ): Promise<ExecutionHtmlOutput> {
     return toExecutionHtmlOutput(await generateHtmlAsync(params));
 }
+
+export type {
+    ExecutionHtmlOutput,
+    GenerateExecutionHtmlParams,
+    GenerateHtmlParams,
+    GenerateViewerUpdateParams,
+    HtmlDiffOverlay,
+    HtmlOutput,
+    ViewerUpdate,
+} from './types';
+export type { ViewerTheme } from './renderers';

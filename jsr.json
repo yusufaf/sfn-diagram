@@ -4,6 +4,7 @@
   "version": "1.10.0",
   "exports": {
     ".": "./src/index.ts",
+    "./html": "./src/html.ts",
     "./png": "./src/png.ts",
     "./aws": "./src/aws.ts",
     "./cfn": "./src/cfn.ts",

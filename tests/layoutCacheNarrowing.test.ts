@@ -91,5 +91,16 @@ describe('LayoutCache narrowing (2.0)', () => {
 
             expect(cache.stats().hits).toBe(1);
         });
+
+        it('a cache from sfn-diagram is reused by generateHtml from sfn-diagram/html', async () => {
+            const index = (await import(pathToFileURL(join(repoRoot, 'dist/index.js')).href)) as typeof import('../src/index');
+            const html = (await import(pathToFileURL(join(repoRoot, 'dist/html.js')).href)) as typeof import('../src/html');
+            const cache = index.createLayoutCache();
+
+            html.generateHtml({ aslDefinition: SIMPLE, cache });
+            html.generateHtml({ aslDefinition: SIMPLE, cache });
+
+            expect(cache.stats().hits).toBeGreaterThan(0);
+        });
     });
 });

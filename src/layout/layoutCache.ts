@@ -88,10 +88,10 @@ export interface LayoutCacheStore {
 /**
  * Where {@link createLayoutCache} hangs a cache's {@link LayoutCacheStore}.
  *
- * `Symbol.for`, not `Symbol()` or a module-level `WeakMap`: on npm, `sfn-diagram` and
- * `sfn-diagram/png` are separate bundles, each with its own copy of this module, and a
- * cache made by one must still work when passed to `exportPng` from the other. The
- * global symbol registry is shared across both copies.
+ * `Symbol.for`, not `Symbol()` or a module-level `WeakMap`: on npm, `sfn-diagram`,
+ * `sfn-diagram/html` and `sfn-diagram/png` are separate bundles, each with its own copy
+ * of this module, and a cache made by one must still work when passed to `generateHtml`
+ * or `exportPng` from another. The global symbol registry is shared across every copy.
  */
 const LAYOUT_CACHE_STORE = Symbol.for('sfn-diagram.layoutCache.store');
 
@@ -193,7 +193,8 @@ function layoutRelevantEdge(edge: GraphEdge): Record<string, unknown> {
  *
  * @example
  * ```typescript
- * import { createLayoutCache, generateViewerUpdate } from 'sfn-diagram';
+ * import { createLayoutCache } from 'sfn-diagram';
+ * import { generateViewerUpdate } from 'sfn-diagram/html';
  *
  * const cache = createLayoutCache();
  * // Second call reuses the layout: only the theme changed.

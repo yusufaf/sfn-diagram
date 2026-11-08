@@ -4,7 +4,8 @@ import { describe, expect, test } from 'vitest';
 import { buildDiagramGraph, renderSvgGraph } from '../src/pipeline';
 import { mergeOptions } from '../src/config';
 import { createLayoutCache, LAYOUT_CACHE_OPTION_KEYS, layoutCacheStore } from '../src/layout';
-import { generateHtml, generateSvg, generateViewerUpdate } from '../src/index';
+import { generateHtml, generateViewerUpdate } from '../src/html';
+import { generateSvg } from '../src/index';
 import type { AslDefinition, DiagramOptions } from '../src/types';
 
 /**
