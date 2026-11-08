@@ -134,11 +134,20 @@ A cache from `createLayoutCache` works with both entries.
 
 ### Docker image base ([#555](https://github.com/yusufaf/sfn-diagram/issues/555))
 
-**What changes:** the image moves off Debian, to Alpine or distroless (decided in
-#555).
+**What changes:** the image is built on `node:24-alpine` (Alpine Linux, musl libc) instead
+of the Debian-based `node:24-slim`. The CLI, its entrypoint, the `node` user (uid 1000) and
+the `/app` layout don't change. The Debian image carried 35 high and critical OS findings
+with no Debian fix; the Alpine image has none.
 
-**What to do:** Dockerfiles that build `FROM` the image and run `apt-get`, or rely on
-glibc or a shell, must change.
+**What to do:** nothing, unless you build `FROM` the image:
+
+- Install packages with `apk add --no-cache <package>` instead of `apt-get install`, as root
+  (`USER root`, then back to `USER node`). Package names can differ.
+- Binaries linked against glibc don't run on musl. Use Alpine builds of them, or build your
+  own image from `node:24-slim`.
+- `/bin/sh` is BusyBox `ash`, and there is no `bash` unless you add it.
+- Liberation Sans is at `/usr/share/fonts/liberation/`. If `SFN_DIAGRAM_PNG_FONT_DIRS`
+  points at `/usr/share/fonts/truetype/liberation`, update it.
 
 ## Not changing
 
