@@ -73,11 +73,17 @@ lets this union grow in a minor release, so a `default:` branch keeps working.
 
 ### Marker ids prefixed by default ([#527](https://github.com/yusufaf/sfn-diagram/issues/527))
 
-**What changes:** SVG marker ids get a prefix by default, so CSS or scripts that
-reference `#arrowhead-*` stop matching.
+**What changes:** each SVG render prefixes its marker ids with `sfn-` and eight hex
+digits hashed from the rest of the SVG (`sfn-1a2b3c4d-arrowhead-normal`), so CSS or
+scripts that reference `#arrowhead-*` stop matching. The hash changes whenever the
+output does, so don't hard-code it. `<sfn-diagram>` elements change from
+`arrowhead-<n>-<type>` to `sfn-el<n>-arrowhead-<type>`. The collapsed view that
+`generateViewerUpdate` embeds gets its own hash, or `<idPrefix>collapsed-arrowhead-<type>`
+under an explicit `idPrefix` (1.10 wrote `<idPrefix>arrowhead-collapsed-<type>`). The
+deprecated `buildViewerContent` no longer rewrites the collapsed view's ids.
 
-**What to do:** preview the change now by passing the `idPrefix` library option
-(available since 1.10). In 2.0, pass `idPrefix: ''` to keep the bare ids. The CLI and
+**What to do:** pass `idPrefix: ''` to keep the bare ids, or your own prefix to
+target the ids from CSS (`idPrefix: 'orders-'` gives `orders-arrowhead-normal`). The CLI and
 config file have no `idPrefix` setting yet
 ([#564](https://github.com/yusufaf/sfn-diagram/issues/564), not scheduled), so CLI
 output gets the 2.0 default with no opt-out until that lands.

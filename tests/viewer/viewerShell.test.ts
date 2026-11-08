@@ -43,25 +43,14 @@ describe('buildViewerContent', () => {
         expect(contentHtml).toContain('data-sfn-view="collapsed" data-sfn-minimap-auto="0"');
     });
 
-    it('namespaces marker ids in the collapsed view so the two copies never collide', () => {
+    it('embeds the collapsed view markup unchanged', () => {
+        const collapsedSvg = '<marker id="arrowhead-normal"></marker><path marker-end="url(#arrowhead-normal)"></path>';
         const contentHtml = buildViewerContent({
-            collapsedSvg: '<marker id="arrowhead-normal"></marker><path marker-end="url(#arrowhead-normal)"></path>',
+            collapsedSvg,
             minimapCollapsed: true,
             svg: '<marker id="arrowhead-normal"></marker>',
         });
-        expect(contentHtml).toContain('id="arrowhead-collapsed-normal"');
-        expect(contentHtml).toContain('url(#arrowhead-collapsed-normal)');
-    });
-
-    it('namespaces the collapsed view after a caller idPrefix', () => {
-        const contentHtml = buildViewerContent({
-            collapsedSvg:
-                '<marker id="p-arrowhead-normal"></marker><path marker-end="url(#p-arrowhead-normal)"></path>',
-            minimapCollapsed: true,
-            svg: '<marker id="p-arrowhead-normal"></marker>',
-        });
-        expect(contentHtml).toContain('id="p-arrowhead-collapsed-normal"');
-        expect(contentHtml).toContain('url(#p-arrowhead-collapsed-normal)');
+        expect(contentHtml).toContain(collapsedSvg);
     });
 
     it('matches the contentInner buildViewerBody embeds for two views', () => {

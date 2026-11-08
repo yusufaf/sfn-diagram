@@ -27,19 +27,6 @@ function ensureViewerStylesInjected(theme: ViewerTheme): void {
 let nextInstanceId = 0;
 
 /**
- * `generateSvg()` emits fixed `id="arrowhead-{type}"` marker defs (and matching
- * `url(#arrowhead-{type})` references) - fine for one diagram, but two `<sfn-diagram>`
- * elements on the same page would otherwise emit duplicate ids, and (since `url(#...)`
- * resolves the first matching id in the whole document, not scoped to its own `<svg>`)
- * the second instance would silently borrow the first instance's marker colours. This
- * makes them unique per element instance without touching the shared renderer, whose
- * fixed ids are relied on elsewhere (e.g. offline single-diagram HTML export).
- */
-function namespaceMarkerIds(svg: string, instanceId: number): string {
-    return svg.replace(/(?:id="|url\(#)arrowhead-/g, (match) => match.replace('arrowhead-', `arrowhead-${instanceId}-`));
-}
-
-/**
  * `<sfn-diagram>` — a framework-agnostic custom element rendering an AWS Step
  * Functions ASL definition as an SVG or Mermaid diagram, with an optional
  * interactive viewer (pan/zoom, search, minimap, and a detail panel for a clicked
@@ -213,6 +200,9 @@ export class SfnDiagramElement extends HTMLElement {
                 edgeHitAreas: this.interactive,
                 format: this.format,
                 history: this.#history,
+                // Per instance: two elements showing the same definition would
+                // otherwise get the same hash-derived marker-id prefix.
+                idPrefix: `sfn-el${this.#instanceId}-`,
                 layout: this.layout,
                 theme,
             });
@@ -245,9 +235,7 @@ export class SfnDiagramElement extends HTMLElement {
             return;
         }
 
-        // Namespaced so more than one <sfn-diagram> on a page doesn't collide on the
-        // renderer's fixed marker ids - see namespaceMarkerIds().
-        const svg = namespaceMarkerIds(result.svg, this.#instanceId);
+        const { svg } = result;
 
         if (!this.interactive) {
             this.innerHTML = svg;

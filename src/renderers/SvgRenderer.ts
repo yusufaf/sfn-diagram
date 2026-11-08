@@ -212,17 +212,17 @@ interface ResolveIdPrefixParams {
 }
 
 /**
- * Validate `DiagramOptions.idPrefix` and default it to `''`.
+ * Validate `DiagramOptions.idPrefix`; `undefined` stays `undefined`, meaning "derive one".
  *
  * The prefix lands in an `id` and in an unquoted `url(#...)`, so whitespace, quotes,
  * brackets, `\`, `#` and `%` would break the reference; they throw rather than being
- * escaped, which would change the default output. Non-ASCII is allowed (React's
- * `useId()` emits `«r0»`) unless it is whitespace, which the viewer's marker-id
- * namespacing will not cross, or a character XML forbids.
+ * escaped, which would change the output. Non-ASCII is allowed (React's `useId()`
+ * emits `«r0»`) unless it is whitespace, which an HTML `id` cannot contain, or a
+ * character XML forbids.
  */
-function resolveIdPrefix(params: ResolveIdPrefixParams): string {
+function resolveIdPrefix(params: ResolveIdPrefixParams): string | undefined {
     const { idPrefix } = params;
-    if (idPrefix === undefined) return '';
+    if (idPrefix === undefined) return undefined;
     const message = 'idPrefix must contain only letters, digits, "_", "-", ".", ":", or non-whitespace non-ASCII characters';
     if (typeof idPrefix !== 'string') throw new Error(message);
     for (const char of idPrefix) {
@@ -234,6 +234,29 @@ function resolveIdPrefix(params: ResolveIdPrefixParams): string {
     return idPrefix;
 }
 
+interface DefaultIdPrefixParams {
+    /** The SVG serialized with bare marker ids. */
+    svg: string;
+}
+
+/**
+ * `sfn-` + 8 lowercase hex digits of the 32-bit FNV-1a hash of `svg`'s UTF-16 code
+ * units, + `-`. Hashing the output covers every option that changes it, so different
+ * diagrams get different prefixes while the same input always gets the same one.
+ */
+function defaultIdPrefix(params: DefaultIdPrefixParams): string {
+    const { svg } = params;
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < svg.length; index++) {
+        hash = Math.imul(hash ^ svg.charCodeAt(index), 0x01000193);
+    }
+    return `sfn-${(hash >>> 0).toString(16).padStart(8, '0')}-`;
+}
+
+interface SerializeWithIdPrefixParams {
+    svg: SvgElement;
+}
+
 /**
  * SvgRenderer - Generates SVG diagrams from positioned nodes and edges
  */
@@ -243,9 +266,12 @@ export class SvgRenderer {
     // `'auto'` draws the light palette inline and tags every themed colour with a
     // class that AUTO_THEME_DARK_CSS repaints under prefers-color-scheme: dark.
     private readonly autoTheme: boolean;
-    // Prepended to every emitted marker id and `url(#...)` reference; the ids stored
-    // in arrowMarkerIds stay bare.
-    private readonly idPrefix: string;
+    // The caller's `idPrefix`, validated; `undefined` derives one from the bare output.
+    private readonly explicitIdPrefix: string | undefined;
+    // Prepended to every emitted marker id and `url(#...)` reference when the tree is
+    // serialized - the caller's prefix or the derived one; the ids stored in
+    // arrowMarkerIds stay bare.
+    private idPrefix = '';
     private pathGenerator: (
         points: Array<{ x: number; y: number }>,
     ) => string | null;
@@ -269,7 +295,7 @@ export class SvgRenderer {
         this.options = options;
         this.theme = getTheme(options.theme, options.customColors);
         this.autoTheme = options.theme === 'auto';
-        this.idPrefix = resolveIdPrefix({ idPrefix: options.idPrefix });
+        this.explicitIdPrefix = resolveIdPrefix({ idPrefix: options.idPrefix });
 
         // Build the edge path generator once - it's stateless and reused for every
         // edge, so there's no need to recreate it inside the per-edge render loop.
@@ -478,9 +504,27 @@ export class SvgRenderer {
                 edgeCount: layout.edges.length,
                 nodeCount: layout.nodes.length,
             },
-            svg: svg.serialize(),
+            svg: this.serializeWithIdPrefix({ svg }),
             width: bounds.width,
         };
+    }
+
+    /**
+     * Serialize the finished tree under the caller's `idPrefix`, or by default twice:
+     * once with bare marker ids to hash, then under the prefix derived from that hash.
+     * The marker attributes read `idPrefix` at serialize time, so no markup is
+     * rewritten after the fact.
+     */
+    private serializeWithIdPrefix(params: SerializeWithIdPrefixParams): string {
+        const { svg } = params;
+        if (this.explicitIdPrefix !== undefined) {
+            this.idPrefix = this.explicitIdPrefix;
+            return svg.serialize();
+        }
+        this.idPrefix = '';
+        const bare = svg.serialize();
+        this.idPrefix = defaultIdPrefix({ svg: bare });
+        return svg.serialize();
     }
 
     /**
@@ -1347,6 +1391,7 @@ export class SvgRenderer {
         // Render path. The edge id is emitted alongside it so callers can read the key
         // that addresses this edge in `edgeOverrides` straight off a rendered diagram,
         // rather than deriving `${from}->${to}#${type}#${ordinal}` by hand.
+        const markerId = this.arrowMarkerId({ defs, fill: strokeColor, themed: edgeThemed, type: markerType });
         const pathElement = group
             .append('path')
             .attr('d', pathData)
@@ -1354,10 +1399,7 @@ export class SvgRenderer {
             .attr('fill', 'none')
             .attr('stroke', strokeColor)
             .attr('stroke-width', strokeWidth)
-            .attr(
-                'marker-end',
-                `url(#${this.idPrefix}${this.arrowMarkerId({ defs, fill: strokeColor, themed: edgeThemed, type: markerType })})`,
-            );
+            .attr('marker-end', () => `url(#${this.idPrefix}${markerId})`);
 
         pathElement.append('title').text(edgeTitle);
 
@@ -1432,14 +1474,13 @@ export class SvgRenderer {
     }
 
     /**
-     * Append one arrowhead `<marker>` to `<defs>`, its id behind the `idPrefix`. The `id`
-     * attribute must stay first: the viewer namespaces marker ids with a regex anchored
-     * on `<marker id="`, which allows an `idPrefix` before `arrowhead-`.
+     * Append one arrowhead `<marker>` to `<defs>`, its id behind the `idPrefix` that is
+     * current when the tree is serialized.
      */
     private appendArrowMarker(params: AppendArrowMarkerParams): void {
         const { className, defs, fill, id } = params;
         defs.append('marker')
-            .attr('id', `${this.idPrefix}${id}`)
+            .attr('id', () => `${this.idPrefix}${id}`)
             .attr('markerWidth', 10)
             .attr('markerHeight', 10)
             .attr('refX', 9)
@@ -1458,8 +1499,8 @@ export class SvgRenderer {
      * that references it - so an edge restyled through `edgeOverrides` needs a marker
      * in its own colour. The type's shared marker is reused when the colour already
      * matches it; otherwise one variant per distinct colour is added to `<defs>` and
-     * shared by every edge in that colour. Variants keep the `arrowhead-` stem so the
-     * viewer's marker-id namespacing covers them. The returned id is bare; callers add
+     * shared by every edge in that colour. Variants keep the `arrowhead-` stem so every
+     * marker id reads `<prefix>arrowhead-...`. The returned id is bare; callers add
      * the `idPrefix` where they emit it.
      *
      * Under `'auto'` the shared marker is themed and repaints in dark mode, so an

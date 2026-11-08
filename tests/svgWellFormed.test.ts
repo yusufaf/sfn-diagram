@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import puppeteer, { type Browser } from 'puppeteer';
 import { generateHtml, generateSvg } from '../src';
 import { exportPng } from '../src/png';
-import { escapeAttribute, escapeText } from '../src/renderers/svgBuilder';
+import { SvgElement, escapeAttribute, escapeText } from '../src/renderers/svgBuilder';
 import type { AslDefinition } from '../src/types';
 
 /**
@@ -47,6 +47,21 @@ describe('escapers', () => {
         const value = `a\tb\nc\rd${String.fromCodePoint(0x1f680)}`;
         expect(escapeText(value)).toBe(value);
         expect(escapeAttribute(value)).toBe(value);
+    });
+});
+
+describe('SvgElement attribute values', () => {
+    it('reads a function attribute value at serialize time', () => {
+        let current = 'a"b';
+        const root = new SvgElement('svg');
+        root.append('marker').attr('id', () => current);
+
+        const first = root.serialize();
+        current = 'c';
+        const second = root.serialize();
+
+        expect(first).toBe('<svg><marker id="a&quot;b"></marker></svg>');
+        expect(second).toBe('<svg><marker id="c"></marker></svg>');
     });
 });
 

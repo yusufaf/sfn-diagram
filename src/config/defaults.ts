@@ -76,7 +76,7 @@ export const DEFAULT_DIAGRAM_OPTIONS: Required<
     diagramDescription: undefined,
     diagramTitle: undefined,
 
-    // SVG ids
+    // SVG ids: undefined derives a prefix from the output
     idPrefix: undefined,
 };
 

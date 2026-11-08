@@ -149,9 +149,11 @@ document.querySelector('#diagram').innerHTML = svg;
 
 **Several diagrams on one page**
 
-SVG ids are global to the whole HTML document, so two inlined diagrams share their
-arrowhead markers and the second one's edges draw with the first one's arrowheads. Give
-each diagram its own `idPrefix`:
+SVG ids are global to the whole HTML document. Each render prefixes its arrowhead
+marker ids with a hash of its own output, so different diagrams inlined on one page
+already keep their markers apart (the `sfn-diagram-react` wrapper too, once it runs on
+sfn-diagram 2). The same diagram rendered twice with the same options gets the same
+prefix, so if a page shows two copies, give each its own `idPrefix`:
 
 ```ts
 const { svg } = generateSvg({ aslDefinition: definition, idPrefix: 'orders-' });

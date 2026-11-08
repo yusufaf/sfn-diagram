@@ -510,81 +510,47 @@ describe('collapse toggle', () => {
         expect(result.html).not.toContain('data-sfn-collapse-toggle');
     });
 
-    it('namespaces marker ids so the two embedded views never collide', () => {
-        // generateViewerUpdate still ships the two pre-rendered views (its host swaps
-        // content in place and has no relayout), so it is where the namespacing lives.
-        const result = { html: generateViewerUpdate({ aslDefinition: parallelAsl }).contentHtml };
-        expect(result.html).toContain('data-sfn-view="collapsed"');
+    // The leading `\s` skips `data-state-id` and `data-edge-id`.
+    const markerIdsIn = (html: string): string[] =>
+        Array.from(html.matchAll(/\sid="([^"]*arrowhead-[^"]*)"/g), (match) => match[1]);
+    const urlTargetsIn = (html: string): string[] => Array.from(html.matchAll(/url\(#([^)]*)\)/g), (match) => match[1]);
 
-        const markerIds = result.html.match(/id="arrowhead-[^"]*"/g) ?? [];
+    it.each([undefined, '', 'p-'])('gives the two embedded views distinct marker ids (idPrefix %j)', (idPrefix) => {
+        // generateViewerUpdate still ships the two pre-rendered views (its host swaps
+        // content in place and has no relayout), so it is where the two can collide.
+        const html = generateViewerUpdate({ aslDefinition: parallelAsl, idPrefix }).contentHtml;
+        expect(html).toContain('data-sfn-view="collapsed"');
+
+        const markerIds = markerIdsIn(html);
         expect(markerIds.length).toBeGreaterThan(1); // both views define their own
         expect(new Set(markerIds).size).toBe(markerIds.length);
-
-        // Every reference must still resolve to an id that exists in the document.
-        const definedIds = new Set(
-            markerIds.map((attribute) => attribute.slice('id="'.length, -1)),
-        );
-        const references = result.html.match(/url\(#(arrowhead-[^)]*)\)/g) ?? [];
-        for (const reference of references) {
-            expect(definedIds).toContain(reference.slice('url(#'.length, -1));
-        }
+        for (const target of urlTargetsIn(html)) expect(markerIds).toContain(target);
     });
 
-    it('namespaces the per-colour marker an edge override adds in each view', () => {
-        // `FanOut->Done` is drawn in both views, so the override's variant marker is
-        // defined twice and only the collapsed copy gets a prefix.
-        const html = generateViewerUpdate({
-            aslDefinition: parallelAsl,
-            edgeOverrides: { 'FanOut->Done': { stroke: '#ff0000' } },
-        }).contentHtml;
+    it.each([undefined, '', 'p-'])(
+        'gives the per-colour marker an edge override adds a distinct id in each view (idPrefix %j)',
+        (idPrefix) => {
+            // `FanOut->Done` is drawn in both views, so the override's variant marker is
+            // defined twice.
+            const html = generateViewerUpdate({
+                aslDefinition: parallelAsl,
+                edgeOverrides: { 'FanOut->Done': { stroke: '#ff0000' } },
+                idPrefix,
+            }).contentHtml;
 
-        const markerIds = html.match(/id="arrowhead-[^"]*"/g) ?? [];
-        expect(markerIds.filter((attribute) => attribute.includes('override'))).toHaveLength(2);
-        expect(new Set(markerIds).size).toBe(markerIds.length);
-
-        const definedIds = new Set(markerIds.map((attribute) => attribute.slice('id="'.length, -1)));
-        const references = html.match(/url\(#(arrowhead-[^)]*)\)/g) ?? [];
-        for (const reference of references) {
-            expect(definedIds).toContain(reference.slice('url(#'.length, -1));
-        }
-    });
-
-    it('does not corrupt a state literally named like a marker id', () => {
-        // The state must survive collapse (stay outside the container) so it appears
-        // in the namespaced collapsed view too, where the corruption would show up.
-        // `(` and `#` reach the markup unescaped, so the two `url(#` names check that the
-        // namespacing regex only rewrites a `marker-end` reference, never a state name.
-        const trickyAsl: AslDefinition = {
-            StartAt: 'arrowhead-check',
-            States: {
-                'arrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'url(#xarrowhead-check' },
-                'url(#xarrowhead-check': { Type: 'Task', Resource: 'arn:x', Next: 'url(#arrowhead-check2' },
-                'url(#arrowhead-check2': { Type: 'Task', Resource: 'arn:x', Next: 'FanOut' },
-                FanOut: {
-                    Type: 'Parallel',
-                    Branches: [
-                        { StartAt: 'B', States: { B: { Type: 'Task', Resource: 'arn:b', End: true } } },
-                    ],
-                    Next: 'Done',
-                },
-                Done: { Type: 'Succeed' },
-            },
-        };
-        const result = { html: generateViewerUpdate({ aslDefinition: trickyAsl }).contentHtml };
-        expect(result.html).toContain('data-state-id="arrowhead-check"');
-        expect(result.html).not.toContain('data-state-id="arrowhead-collapsed-check"');
-        expect(result.html).toContain('data-state-id="url(#xarrowhead-check"');
-        expect(result.html).toContain('data-state-id="url(#arrowhead-check2"');
-        expect(result.html).not.toContain('xarrowhead-collapsed-check');
-        expect(result.html).not.toContain('url(#arrowhead-collapsed-check2');
-    });
+            const markerIds = markerIdsIn(html);
+            expect(markerIds.filter((id) => id.includes('override'))).toHaveLength(2);
+            expect(new Set(markerIds).size).toBe(markerIds.length);
+            for (const target of urlTargetsIn(html)) expect(markerIds).toContain(target);
+        },
+    );
 
     it('keeps the two views\' marker ids distinct under an idPrefix', () => {
         const html = generateViewerUpdate({ aslDefinition: parallelAsl, idPrefix: 'p-' }).contentHtml;
 
         expect(html).toContain('id="p-arrowhead-normal"');
-        expect(html).toContain('id="p-arrowhead-collapsed-normal"');
-        expect(html).toContain('url(#p-arrowhead-collapsed-normal)');
+        expect(html).toContain('id="p-collapsed-arrowhead-normal"');
+        expect(html).toContain('url(#p-collapsed-arrowhead-normal)');
         const ids = Array.from(html.matchAll(/\sid="([^"]*)"/g), (match) => match[1]);
         expect(new Set(ids).size).toBe(ids.length);
     });

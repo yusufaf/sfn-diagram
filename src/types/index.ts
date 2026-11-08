@@ -674,18 +674,25 @@ export interface DiagramOptions {
 
     /**
      * String prepended to every id the SVG emits (the arrowhead `<marker>` ids) and to
-     * every `url(#...)` reference to one. Set a distinct prefix per diagram when inlining
-     * several SVGs in one HTML page: ids are document-global, so without one the second
-     * diagram's edges resolve to the first diagram's markers.
+     * every `url(#...)` reference to one. Ids are document-global, so two SVGs inlined
+     * in one HTML page must not share them, or the second diagram's edges resolve to
+     * the first diagram's markers.
+     *
+     * By default each render prefixes its marker ids with `sfn-` and eight hex digits
+     * hashed from the rest of its output (`sfn-1a2b3c4d-arrowhead-normal`), so different
+     * diagrams on one page never share ids and re-rendering the same input gives the
+     * same ids. Two renders of the same definition with the same options get the same
+     * prefix, so pass your own to tell such copies apart. `''` gives bare ids.
      *
      * Letters, digits, `_`, `-`, `.`, `:` and non-whitespace non-ASCII characters only,
      * so React's `useId()` values work as-is; anything else throws. The prefix is
      * prepended verbatim, so end it with a separator (`'orders-'`). Has no effect on
      * Mermaid output or on layout.
      *
-     * @default '' (bare ids such as `arrowhead-normal`)
+     * @default a hash-derived `sfn-xxxxxxxx-` prefix
      * @example
      * generateSvg({ aslDefinition, idPrefix: 'orders-' }); // id="orders-arrowhead-normal"
+     * generateSvg({ aslDefinition, idPrefix: '' }); // id="arrowhead-normal"
      */
     idPrefix?: string;
 

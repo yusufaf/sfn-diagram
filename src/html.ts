@@ -249,6 +249,9 @@ function buildHtmlViews(params: {
                       ...expandedStyling,
                       ...styleCollapsedView({ ...overlayData, expanded: expandedStyling, nodes, plan }),
                       collapse: resolvedCollapse,
+                      // By default each view hashes its own, different output; an
+                      // explicit prefix would otherwise be shared by both views.
+                      idPrefix: options.idPrefix === undefined ? undefined : `${options.idPrefix}collapsed-`,
                   },
               })
             : undefined;

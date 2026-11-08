@@ -1237,7 +1237,7 @@ describe('SvgRenderer', () => {
         const renderChoice = (edgeOverrides: Record<string, EdgeStyleOverride>): string => {
             const { edges, nodes } = parseAsl({ definition: loadFixture('choice') });
             const positioned = new DagreLayout({}).calculate(nodes, edges);
-            return new SvgRenderer({ edgeOverrides }).render(positioned).svg;
+            return new SvgRenderer({ edgeOverrides, idPrefix: '' }).render(positioned).svg;
         };
 
         // Plain substring lookups over the serialized tags: the serializer writes `->` in
@@ -1848,11 +1848,53 @@ describe('idPrefix', () => {
         for (const target of targets) expect(ids).toContain(target);
     });
 
-    it('leaves ids bare when idPrefix is unset or empty', () => {
-        const bare = generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg;
+    // Asserts the default shape before returning it, so no test built on it can pass
+    // with an empty prefix (`'x'.replaceAll('', '')` is a no-op).
+    const extractDefaultPrefix = (svg: string): string => {
+        const prefix = /<marker id="([^"]*?)arrowhead-/.exec(svg)?.[1];
+        expect(prefix).toMatch(/^sfn-[0-9a-f]{8}-$/);
+        return prefix!;
+    };
 
-        expect(generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix: '' }).svg).toBe(bare);
+    it('prefixes marker ids with sfn- and eight hex digits by default', () => {
+        const { svg } = generateSvg({ aslDefinition: EVERY_EDGE_TYPE });
+        const prefix = extractDefaultPrefix(svg);
+        const ids = emittedIds(svg);
+
+        expect(ids.length).toBeGreaterThan(0);
+        for (const id of ids) expect(id).toMatch(/^sfn-[0-9a-f]{8}-arrowhead-/);
+        for (const id of ids) expect(id.startsWith(prefix)).toBe(true);
+        for (const target of urlTargets(svg)) expect(ids).toContain(target);
+    });
+
+    it('adds nothing but the default prefix to the bare output', () => {
+        const defaultSvg = generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg;
+        const bare = generateSvg({ aslDefinition: EVERY_EDGE_TYPE, idPrefix: '' }).svg;
+        const prefix = extractDefaultPrefix(defaultSvg);
+
+        expect(defaultSvg.replaceAll(prefix, '')).toBe(bare);
         expect(bare).toContain('id="arrowhead-normal"');
+        expect(bare).not.toContain('sfn-');
+    });
+
+    it('derives the same default prefix for the same input', () => {
+        const first = generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg;
+        const second = generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg;
+
+        expect(extractDefaultPrefix(second)).toBe(extractDefaultPrefix(first));
+        expect(second).toBe(first);
+    });
+
+    it('derives different default prefixes for different diagrams', () => {
+        // The light/dark pair is the issue's case: one page inlining both would
+        // otherwise paint one diagram's arrowheads in the other's colours.
+        const prefixes = [
+            generateSvg({ aslDefinition: EVERY_EDGE_TYPE }).svg,
+            generateSvg({ aslDefinition: EVERY_EDGE_TYPE, theme: 'dark' }).svg,
+            generateSvg({ aslDefinition: loadFixture('choice') }).svg,
+        ].map(extractDefaultPrefix);
+
+        expect(new Set(prefixes).size).toBe(3);
     });
 
     it('keeps two prefixed renders free of shared ids', () => {
