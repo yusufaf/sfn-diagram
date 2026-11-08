@@ -9,14 +9,10 @@ export interface FontProbe {
 }
 
 /**
- * Per-platform font probing tables, checked in order.
- *
- * Exported so `scripts/font-probes.mjs` — which CI uses to assert an image ships
- * the font this will actually look for — can be pinned against it by
- * `tests/ci/fontProbes.test.ts`, rather than a workflow comment claiming to know
- * the path (#230).
+ * Per-platform font probing tables, checked in order. `scripts/docker-smoke.sh`
+ * checks an image against this table by rendering with the system-font scan off.
  */
-export const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
+const FONT_PROBES: Partial<Record<NodeJS.Platform, FontProbe[]>> = {
     darwin: [
         { family: 'Helvetica', path: '/System/Library/Fonts/Helvetica.ttc' },
         { family: 'Arial', path: '/Library/Fonts/Arial.ttf' },

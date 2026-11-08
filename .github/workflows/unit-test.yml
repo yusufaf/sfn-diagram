@@ -246,8 +246,7 @@ jobs:
           tags: sfn-diagram-ci-check
 
       # Same script docker.yml runs against the published image, so the two cannot
-      # drift (#230). It takes the font path from scripts/font-probes.mjs rather
-      # than restating it.
+      # drift (#230).
       - name: Smoke test the built image
         run: bash scripts/docker-smoke.sh --image sfn-diagram-ci-check --png-out docker-smoke/diagram.png
 

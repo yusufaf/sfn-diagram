@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Smoke-test a sfn-diagram container image: that it runs, renders an SVG from
-# stdin, ships the font the PNG engine actually probes for, ships no package
+# stdin, lets the PNG engine find a probed font without scanning, ships no package
 # manager, and produces real PNG bytes. Optionally that it reports an expected
 # --version.
 #
@@ -16,10 +16,8 @@
 #
 # Set DOCKER to run a different container CLI, e.g. DOCKER=podman.
 #
-# The font path is not written down here. It comes from scripts/font-probes.mjs,
-# which reads src/exporters/pngFonts.ts, because resvg renders no text at all
-# without a real font file and a check against a path nothing probes any more is
-# worse than no check. tests/ci/fontProbes.test.ts pins that reader to the table.
+# The font check asks the engine itself, with the system-font scan off, so it
+# follows pngFonts.ts's probe table without restating a path from it.
 #
 # Usage:
 #   scripts/docker-smoke.sh --image <ref> --png-out <path> [--expect-version <version>]
@@ -97,16 +95,16 @@ echo "== svg from stdin"
 "$docker" run --rm -i "$image" - --format svg < "$fixture" | grep -q '<svg' ||
     fail "image did not render a valid SVG from stdin"
 
-echo "== the font the PNG engine probes for is present"
-# Assigned in its own `if`, not inline: under `set -e` an inline assignment from a
-# failing command aborts before the guard below can turn it into an annotation, so
-# a missing `node` would fail the step with nothing but bash's own message.
-if ! font_path="$(node "$repo_root/scripts/font-probes.mjs" --platform linux | head -n 1)"; then
-    fail "could not run scripts/font-probes.mjs to find the path pngFonts.ts probes first"
-fi
-[ -n "$font_path" ] || fail "scripts/font-probes.mjs printed no font path for linux"
-"$docker" run --rm --entrypoint sh "$image" -c "test -f '$font_path'" ||
-    fail "image is missing $font_path - resvg would render text-free diagrams"
+# #555: with the system-font scan forced off, the PNG engine renders only from a font
+# file in pngFonts.ts's probe table, and throws if the image holds none of them. With
+# the scan on, a probe miss still exits 0 - in whatever face resvg falls back to
+# (monospace, on Alpine before its Liberation path was probed), which the byte checks
+# below cannot see. Asking the engine rather than testing a path from the table needs
+# no shell in the image and cannot drift from the table (#230).
+echo "== the PNG engine finds a probed font without scanning"
+"$docker" run --rm -i -e SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS=false "$image" - --format png \
+    -o /dev/stdout < "$fixture" > /dev/null ||
+    fail "the PNG engine found no probed font in the image - labels would render in a fallback face, or not at all"
 
 # #554: node:24-slim bundles npm, corepack and yarn. The runtime never runs them,
 # and npm's own node_modules carried every node-pkg finding the image scans reported.
