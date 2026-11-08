@@ -32,17 +32,30 @@ describe('Module Format Compatibility', () => {
             15000
         );
 
-        it('should import the HTML viewer from the html sub-path', async () => {
+        it('should import the HTML viewer from the html sub-path, and only there', async () => {
             const html = await import('../src/html');
-
-            expect(Object.keys(html).sort()).toEqual([
+            const root: Record<string, unknown> = await import('../src/index');
+            const viewerFunctions = [
                 'generateExecutionHtml',
                 'generateExecutionHtmlAsync',
                 'generateHtml',
                 'generateHtmlAsync',
                 'generateViewerUpdate',
-            ]);
+            ];
+
+            expect(Object.keys(html).sort()).toEqual(viewerFunctions);
+            for (const name of viewerFunctions) {
+                expect(Object.keys(root)).not.toContain(name);
+            }
         }, 15000);
+
+        it.skipIf(!hasBuild)('keeps the viewer bundle out of the root entry', () => {
+            const marker = 'sfnRelayout';
+            const read = (file: string): string => readFileSync(join(repoRoot, 'dist', file), 'utf8');
+
+            expect(read('html.js')).toContain(marker);
+            expect(read('index.js')).not.toContain(marker);
+        });
 
         it('should import exportPng from png sub-path', async () => {
             const { exportPng, PngExporter } = await import('../src/png');

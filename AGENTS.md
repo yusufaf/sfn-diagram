@@ -61,6 +61,8 @@ Type-only imports (`AslDefinition`, `DiagramOptions`, `CustomTheme`,
   are flat: `GenerateSvgParams extends DiagramOptions` with an `aslDefinition`
   field, so options sit beside it at the top level.
 - Importing `exportPng` from `sfn-diagram` — it lives in `sfn-diagram/png`.
+- Importing `generateHtml` or `generateViewerUpdate` from `sfn-diagram`, or passing
+  `format: 'html'` to `generateDiagram` — the viewer lives in `sfn-diagram/html`.
 - Assuming a DOM. SVG output is built as a string with no `document` access, so
   it works server-side and in edge runtimes without a shim.
 - Treating `layout` as a Mermaid direction string. Valid values are `'TB'`,

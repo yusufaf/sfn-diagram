@@ -3,8 +3,10 @@ title: Upcoming in 2.0
 description: "Every API sfn-diagram 1.x deprecates and every breaking change planned for 2.0, with what to use instead."
 ---
 
-sfn-diagram 1.10 marks everything 2.0 removes as deprecated, so editors strike it
-through before it goes. Nothing is removed in 1.x, and 2.0 has no release date yet.
+sfn-diagram 1.10 marks what 2.0 removes as deprecated, so editors strike it through
+before it goes. The one exception is the interactive viewer's move to `sfn-diagram/html`
+([below](#interactive-viewer-moved-to-sfn-diagramhtml-615)), which 1.10 did not flag.
+Nothing is removed in 1.x, and 2.0 has no release date yet.
 When 2.0 ships, this page becomes its migration guide
 ([#530](https://github.com/yusufaf/sfn-diagram/issues/530)).
 
@@ -23,13 +25,14 @@ change until 2.0 ships. What semver will cover from 2.0 on is drafted in the
 | `DiagramOptions.pngQuality` | 1.10.0 | `PngExportOptions.scale`. The option has no effect on PNG output. ([#321](https://github.com/yusufaf/sfn-diagram/issues/321)) |
 | The `html-to-image` PNG engine (`engine: 'html-to-image'`) and its `node-html-to-image` peer | 1.9.0 | The default `resvg` engine: drop the `engine` option and uninstall the peer. `PngExporter.convert` also stops taking `height` (`ConvertParams.height`, deprecated in 1.10.0; no entry point exports the type) in 2.0, since only that engine used it; the PNG's aspect ratio comes from the SVG. ([#525](https://github.com/yusufaf/sfn-diagram/issues/525)) |
 | `LayoutCache.get`, `LayoutCache.set`, `LayoutCache.keyFor` | 1.10.0 | Pass the cache as `cache` to a render function such as `generateSvg` and let it do the lookup. `clear()` and `stats()` stay. In 2.0 an SVG, HTML or PNG render throws a `TypeError` for a cache that `createLayoutCache` did not create. ([#526](https://github.com/yusufaf/sfn-diagram/issues/526)) |
-| `buildViewerContent` | 1.10.0 | `generateViewerUpdate`, whose `contentHtml` is the same markup for a rendered diagram. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
+| `buildViewerContent` | 1.10.0 | `generateViewerUpdate` (from `sfn-diagram/html` in 2.0), whose `contentHtml` is the same markup for a rendered diagram. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 | `resolveViewerTheme` | 1.10.0 | No public replacement: `'light'`, `'dark'` and `'auto'` map to themselves; classify a custom theme by its `background` colour. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 | The fields of `ViewerUpdate.relayoutModel` (type `RelayoutModel`, which no entry point exports): `RelayoutModel.callerOverrides`, `RelayoutModel.collapseTargets`, `RelayoutModel.diffChangedIds`, `RelayoutModel.edges`, `RelayoutModel.executionStatusByNodeId`, `RelayoutModel.nodes`, `RelayoutModel.options` | 1.10.0 | Pass `ViewerUpdate.relayoutModel` through unchanged together with `contentHtml`. The field stays in 2.0, typed `unknown`. ([#528](https://github.com/yusufaf/sfn-diagram/issues/528)) |
 
 ## Breaking changes with no 1.x warning
 
-These can't be flagged in 1.x, because the API that changes stays in place.
+Most of these can't be flagged in 1.x, because the API that changes stays in place.
+The viewer move is the exception.
 
 ### Node 22.12 or later ([#285](https://github.com/yusufaf/sfn-diagram/issues/285))
 
@@ -95,6 +98,39 @@ of `string`, and `GraphEdge.type` becomes required.
 
 **What to do:** nothing, unless your code builds these objects by hand; then set a
 valid `type` on each.
+
+### Interactive viewer moved to `sfn-diagram/html` ([#615](https://github.com/yusufaf/sfn-diagram/issues/615))
+
+**What changes:** `generateHtml`, `generateHtmlAsync`, `generateExecutionHtml`,
+`generateExecutionHtmlAsync` and `generateViewerUpdate` move from `sfn-diagram` to
+`sfn-diagram/html`. `generateDiagram`, `generateFromAwsResponse` and
+`SfnDiagramGenerator.generate` no longer accept `format: 'html'`: they throw an error
+that names the new import, and their return types narrow to `MermaidOutput | SvgOutput`.
+The HTML types (`HtmlOutput`, `GenerateHtmlParams` and the rest) are still exported
+from the root as well. The CLI's `--format html` is unchanged.
+
+Unlike the rest of this section, 1.10 could have flagged this one and didn't. It ships
+in 2.0 anyway because the viewer is about half of the root entry. Without it,
+`sfn-diagram` goes from 369 kB to 163 kB minified (120 kB to 57 kB gzipped). That
+saving reaches every caller of `generateDiagram` and every unbundled import, which
+tree-shaking can't help.
+
+**What to do:** import the viewer from the subpath.
+
+```ts
+import { generateHtml } from 'sfn-diagram/html';
+```
+
+Replace `generateDiagram({ ...options, format: 'html' })` with `generateHtml(options)`.
+For `generateFromAwsResponse({ response, ...options, format: 'html' })`, pass the
+definition yourself, checking it first as `generateFromAwsResponse` did:
+
+```ts
+if (!response.definition) throw new Error('No definition found in AWS response');
+const { html } = generateHtml({ ...options, aslDefinition: response.definition });
+```
+
+A cache from `createLayoutCache` works with both entries.
 
 ### Docker image base ([#555](https://github.com/yusufaf/sfn-diagram/issues/555))
 

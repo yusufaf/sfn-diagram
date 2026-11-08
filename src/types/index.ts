@@ -1210,7 +1210,7 @@ export interface GenerateDiagramParams extends DiagramOptions {
 /** Constructor options for `SfnDiagramGenerator`. */
 export interface SfnDiagramGeneratorOptions extends DiagramOptions {
     /**
-     * Optional layout cache from `createLayoutCache`, shared by every SVG/HTML render this
+     * Optional layout cache from `createLayoutCache`, shared by every SVG render this
      * generator makes. Omitted, the generator caches nothing.
      */
     cache?: LayoutCache;

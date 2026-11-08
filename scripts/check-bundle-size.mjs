@@ -132,6 +132,11 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  *
  * `html.js` was added at about 10% above its measurement when the interactive viewer
  * gained its own `sfn-diagram/html` entry (#615): 561,981 raw and 166,277 gzip.
+ *
+ * `index.js` was cut to about 10% above its measurement when the viewer then left the root
+ * entry (#615). Its controller and relayout strings were most of the root: index.js went
+ * from 608,983 to 364,479 raw and from 179,078 to 105,874 gzip. The old budget sat about
+ * 80% above the new size, so it would have let the root regrow that far unnoticed.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
@@ -141,7 +146,7 @@ export const BUNDLE_BUDGETS = {
     'element-auto.js': { gzip: 132000, raw: 459000 },
     'element.js': { gzip: 132000, raw: 458500 },
     'html.js': { gzip: 183000, raw: 618000 },
-    'index.js': { gzip: 194500, raw: 661000 },
+    'index.js': { gzip: 116500, raw: 401000 },
     'png.js': { gzip: 88000, raw: 299000 },
     'terraform.js': { gzip: 11200, raw: 39600 },
 };
