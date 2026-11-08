@@ -24,6 +24,8 @@ The package also exports two JSON files: `sfn-diagram/package.json` and
 them on any supported Node, or import them from ESM with `with { type: 'json' }`.
 They are npm only, not on JSR.
 
+The package is ES modules only and needs Node >= 22.12.0; `require()` works there.
+
 The core is platform-agnostic and has no browser-engine dependency.
 `sfn-diagram/png` (via the optional `@resvg/resvg-js` peer, a native rasterizer),
 `sfn-diagram/aws` (via the optional `@aws-sdk/client-sfn` peer), `sfn-diagram/ci`
@@ -63,6 +65,9 @@ Type-only imports (`AslDefinition`, `DiagramOptions`, `CustomTheme`,
 - Importing `exportPng` from `sfn-diagram` — it lives in `sfn-diagram/png`.
 - Importing `generateHtml` or `generateViewerUpdate` from `sfn-diagram`, or passing
   `format: 'html'` to `generateDiagram` — the viewer lives in `sfn-diagram/html`.
+- Using 1.x options 2.0 removed: `width`/`height`, `pngQuality`,
+  `engine: 'html-to-image'`, or `LayoutCache.get`/`set`/`keyFor`. See
+  <https://sfn.yusufaf.dev/upgrading-to-v2/>.
 - Assuming a DOM. SVG output is built as a string with no `document` access, so
   it works server-side and in edge runtimes without a shim.
 - Treating `layout` as a Mermaid direction string. Valid values are `'TB'`,
