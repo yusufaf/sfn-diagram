@@ -1,4 +1,3 @@
-import { line, curveBasis } from 'd3-shape';
 import {
     fitSubLabel,
     fitText,
@@ -7,6 +6,7 @@ import {
 } from '../constants/labels';
 import { isMarkerNode, isOpenContainer } from '../graph';
 import { measureEdgeLabel, type EdgeLabelBox } from '../layout/edgeLabel';
+import { buildLinePath } from '../utils/linePath';
 import { nearestPointOnPath, parsePath, pointAtHalfLength } from '../utils/pathSample';
 import { estimateTextWidth } from '../utils/textMeasure';
 import type {
@@ -303,13 +303,8 @@ export class SvgRenderer {
             this.pathGenerator = (points) =>
                 buildRoundedOrthogonalPath({ points, radius: ORTHOGONAL_CORNER_RADIUS });
         } else {
-            const generator = line<{ x: number; y: number }>()
-                .x((point) => point.x)
-                .y((point) => point.y);
-            if (options.edgeStyle === 'curved') {
-                generator.curve(curveBasis);
-            }
-            this.pathGenerator = generator;
+            const curve = options.edgeStyle === 'curved' ? 'basis' : 'linear';
+            this.pathGenerator = (points) => buildLinePath({ curve, points });
         }
     }
 
@@ -1338,7 +1333,7 @@ export class SvgRenderer {
         const isSelfLoop = edge.from === edge.to;
 
         // Self-loops (Retry) use an explicit loop path; all other edges use the
-        // shared d3 path generator built once in the constructor.
+        // shared path generator built once in the constructor.
         const pathData = isSelfLoop
             ? this.buildSelfLoopPath(edge.points)
             : (this.pathGenerator(edge.points) ?? '');

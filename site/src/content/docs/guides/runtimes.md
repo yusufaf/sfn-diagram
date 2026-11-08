@@ -24,7 +24,7 @@ An end-of-life Node line may be dropped in a minor release
 (see [Runtime support](/compatibility/#runtime-support)).
 
 **Syntax level:** sfn-diagram's own code behind every import path uses ES2022 syntax
-whatever the Node floor; its dependencies (`@dagrejs/dagre`, `d3-shape` and the rest)
+whatever the Node floor; its dependencies (`@dagrejs/dagre` and the rest)
 ship as their authors publish them. A browser or edge bundler that targets an older
 baseline has to transpile both.
 
@@ -39,18 +39,17 @@ import { runGitlabComment } from 'sfn-diagram/ci';
 
 ## What installing `sfn-diagram` pulls in
 
-The package has four unconditional `dependencies`, and only two of them are
+The package has three unconditional `dependencies`, and only one of them is
 reachable from the core entry:
 
 | Dependency | Needed by |
 | --- | --- |
 | `@dagrejs/dagre` | graph layout — every entry that renders a diagram: core, `/png`, `/ci`, `/element`, the CLI |
-| `d3-shape` | edge paths — the same set |
 | `yaml` | `sfn-diagram/cfn` (CloudFormation/SAM templates) and the CLI's `sfn-diagram.config.*` file |
 | `minimatch` | `sfn-diagram/ci` (changed-file filtering) and the CLI's glob inputs |
 
 `sfn-diagram/cfn` needs only `yaml`, and `sfn-diagram/aws` only its own
-`@aws-sdk/client-sfn` peer — neither touches the layout packages.
+`@aws-sdk/client-sfn` peer — neither touches `@dagrejs/dagre`.
 `sfn-diagram/terraform` has no dependencies at all and no Node built-ins, so it runs
 in browsers and edge runtimes too.
 

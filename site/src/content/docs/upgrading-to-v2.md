@@ -52,9 +52,9 @@ working on Node 22.12+, which can `require` ES modules. Tooling that ignores the
 `exports` map and reads `main` needs an update.
 
 - **Jest:** exempt `sfn-diagram` (and `sfn-diagram-react`) from
-  `transformIgnorePatterns` so Jest transforms them. Extend the exemption you already
-  need for `d3-shape` and `d3-path`, for example
-  `transformIgnorePatterns: ['/node_modules/(?!(sfn-diagram|sfn-diagram-react|d3-shape|d3-path)/)']`.
+  `transformIgnorePatterns` so Jest transforms them, for example
+  `transformIgnorePatterns: ['/node_modules/(?!(sfn-diagram|sfn-diagram-react)/)']`.
+  2.0 no longer depends on `d3-shape` or `d3-path`, so a 1.x exemption for them can go.
 - **TypeScript:** with `typesVersions` gone, `moduleResolution: "node"` (`"node10"`)
   loses the subpath types (`sfn-diagram/png` and the rest). Use `"node16"`,
   `"nodenext"` or `"bundler"`. Projects that compile to CommonJS need TypeScript 5.8+

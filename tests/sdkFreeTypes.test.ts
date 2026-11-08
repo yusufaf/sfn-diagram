@@ -144,7 +144,7 @@ function resolveLocalModule(params: ResolveLocalModuleParams): string {
  * into the declarations a consumer compiles and into the source JSR serves.
  *
  * @param params - The entry module to walk from.
- * @returns The set of specifiers as written, e.g. `Set { 'd3-shape', 'yaml' }`.
+ * @returns The set of specifiers as written, e.g. `Set { '@dagrejs/dagre', 'yaml' }`.
  *
  * @example
  * ```typescript
