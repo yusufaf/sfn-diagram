@@ -73,11 +73,11 @@ helpers the Action uses, so the comment looks the same as the Action's.
 From the root of your CDK app, install the script's dependencies into their own folder:
 
 ```bash
-npm install --prefix .github/sfn-diagram sfn-diagram@1 yaml@2
+npm install --prefix .github/sfn-diagram sfn-diagram@2 yaml@2
 ```
 
 This creates `.github/sfn-diagram/package.json` and `package-lock.json`. Commit both, so CI
-installs exactly the versions you tested. `sfn-diagram@1` takes the newest 1.x release and
+installs exactly the versions you tested. `sfn-diagram@2` takes the newest 2.x release and
 never crosses a major version. The `node_modules` folder it creates is already ignored by
 the `.gitignore` that `cdk init` writes. If your repository doesn't ignore `node_modules`,
 for example a SAM or CloudFormation project, add `.github/sfn-diagram/node_modules/` to its
