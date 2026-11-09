@@ -1,10 +1,14 @@
 import { fireEvent, render } from '@testing-library/react'
-import { createRef, StrictMode } from 'react'
+import { act, createRef, StrictMode } from 'react'
+import { hydrateRoot } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
+import type { AslDefinition } from 'sfn-diagram'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
 import type { SfnDiagramHandle } from './SfnDiagram'
 
-const HELLO_WORLD = {
+const HELLO_WORLD: AslDefinition = {
     Comment: 'Hello World',
     StartAt: 'HelloWorld',
     States: {
@@ -14,7 +18,7 @@ const HELLO_WORLD = {
 
 const HELLO_WORLD_STR = JSON.stringify(HELLO_WORLD)
 
-const WITH_PARALLEL = {
+const WITH_PARALLEL: AslDefinition = {
     StartAt: 'DoParallel',
     States: {
         DoParallel: {
@@ -38,7 +42,7 @@ const WITH_PARALLEL = {
     },
 }
 
-const TASK_WITH_LAMBDA = {
+const TASK_WITH_LAMBDA: AslDefinition = {
     StartAt: 'InvokeLambda',
     States: {
         InvokeLambda: {
@@ -49,7 +53,7 @@ const TASK_WITH_LAMBDA = {
     },
 }
 
-const WITH_ASSIGN = {
+const WITH_ASSIGN: AslDefinition = {
     StartAt: 'LoadTotal',
     States: {
         LoadTotal: {
@@ -61,7 +65,7 @@ const WITH_ASSIGN = {
     },
 }
 
-const WITH_CATCH = {
+const WITH_CATCH: AslDefinition = {
     StartAt: 'RiskyTask',
     States: {
         HandleError: { Type: 'Fail' },
@@ -74,7 +78,7 @@ const WITH_CATCH = {
     },
 }
 
-const DIFF_BEFORE = {
+const DIFF_BEFORE: AslDefinition = {
     StartAt: 'StateA',
     States: {
         StateA: { Next: 'StateB', Type: 'Pass' },
@@ -82,7 +86,7 @@ const DIFF_BEFORE = {
     },
 }
 
-const DIFF_AFTER = {
+const DIFF_AFTER: AslDefinition = {
     StartAt: 'StateA',
     States: {
         StateA: { Next: 'StateC', Type: 'Pass' },
@@ -90,7 +94,7 @@ const DIFF_AFTER = {
     },
 }
 
-const WITH_PARALLEL_PLUS_EXTRA = {
+const WITH_PARALLEL_PLUS_EXTRA: AslDefinition = {
     StartAt: 'DoParallel',
     States: {
         DoParallel: {
@@ -141,6 +145,20 @@ const ASSIGN_HISTORY = {
             stateExitedEventDetails: { name: 'LoadTotal' },
         },
         { id: 4, previousEventId: 3, type: 'ExecutionSucceeded', timestamp: '2024-01-01T00:00:00.300Z' },
+    ],
+}
+
+const ABORTED_HISTORY = {
+    events: [
+        { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+        {
+            id: 2,
+            previousEventId: 1,
+            type: 'PassStateEntered',
+            timestamp: '2024-01-01T00:00:00.100Z',
+            stateEnteredEventDetails: { name: 'HelloWorld' },
+        },
+        { id: 3, previousEventId: 2, type: 'ExecutionAborted', timestamp: '2024-01-01T00:00:00.200Z' },
     ],
 }
 
@@ -232,6 +250,26 @@ describe('SfnDiagram', () => {
                 />
             )
             expect(container.querySelector('pre')?.textContent).not.toContain('$total')
+        })
+
+        it('colours a state the execution abandoned as aborted (SVG)', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} history={JSON.stringify(ABORTED_HISTORY)} />
+            )
+            expect(container.querySelector('svg')?.innerHTML).toContain('#cfd8dc')
+        })
+
+        it('marks an aborted state with execAborted (Mermaid)', () => {
+            const { container } = render(
+                <SfnDiagram
+                    definition={HELLO_WORLD}
+                    format="mermaid"
+                    history={JSON.stringify(ABORTED_HISTORY)}
+                />
+            )
+            expect(container.querySelector('pre')?.textContent).toContain(
+                'class HelloWorld execAborted'
+            )
         })
     })
 
@@ -674,6 +712,79 @@ describe('SfnDiagram', () => {
         })
     })
 
+    describe('Marker ids', () => {
+        const markerIds = (markup: string): string[] =>
+            [...markup.matchAll(/<marker[^>]*\bid="([^"]+)"/g)].map((match) => match[1])
+
+        // The same definition matters: core's default prefix hashes the output, so two
+        // different definitions already get different ids.
+        it('gives two diagrams of the same definition their own marker ids', () => {
+            const { container } = render(
+                <>
+                    <SfnDiagram definition={DIFF_AFTER} />
+                    <SfnDiagram definition={DIFF_AFTER} />
+                </>
+            )
+            const svgs = [...container.querySelectorAll('svg')]
+            expect(svgs).toHaveLength(2)
+            const [firstIds, secondIds] = svgs.map((svg) =>
+                [...svg.querySelectorAll('marker')].map((marker) => marker.id)
+            )
+            expect(firstIds.length).toBeGreaterThan(0)
+            expect(firstIds.filter((id) => secondIds.includes(id))).toEqual([])
+            for (const svg of svgs) {
+                const ownIds = [...svg.querySelectorAll('marker')].map((marker) => marker.id)
+                const referenced = [...svg.innerHTML.matchAll(/url\(#([^)]+)\)/g)].map(
+                    (match) => match[1]
+                )
+                expect(referenced.length).toBeGreaterThan(0)
+                expect(referenced.filter((id) => !ownIds.includes(id))).toEqual([])
+            }
+        })
+
+        it('renders under an identifierPrefix with characters invalid in an id', () => {
+            const html = renderToString(<SfnDiagram definition={DIFF_AFTER} />, {
+                identifierPrefix: 'my app ',
+            })
+            expect(html).toContain('<svg')
+            expect(html).toMatch(/id="sfn-_my_app_R_[^"]*-arrowhead-/)
+        })
+
+        // A regression guard rather than a red test: core's hash default is
+        // deterministic too. React reports a mismatch inside dangerouslySetInnerHTML
+        // only through console.error and leaves the DOM as the server wrote it, so the
+        // ids are compared with what the client computed through the handle.
+        it('keeps marker ids equal between the server render and hydration', async () => {
+            const html = renderToString(<SfnDiagram definition={DIFF_AFTER} />)
+            const container = document.createElement('div')
+            container.innerHTML = html
+            document.body.appendChild(container)
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            const onRecoverableError = vi.fn()
+            const ref = createRef<SfnDiagramHandle>()
+            let root: Root | undefined
+            try {
+                await act(async () => {
+                    root = hydrateRoot(
+                        container,
+                        <SfnDiagram definition={DIFF_AFTER} ref={ref} />,
+                        { onRecoverableError }
+                    )
+                })
+
+                const serverIds = markerIds(html)
+                expect(serverIds.length).toBeGreaterThan(0)
+                expect(markerIds(ref.current?.getSvg() ?? '')).toEqual(serverIds)
+                expect(consoleError).not.toHaveBeenCalled()
+                expect(onRecoverableError).not.toHaveBeenCalled()
+            } finally {
+                act(() => root?.unmount())
+                container.remove()
+                consoleError.mockRestore()
+            }
+        })
+    })
+
     describe('Error handling', () => {
         it('returns null and calls onError for invalid JSON string', () => {
             const onError = vi.fn()
@@ -687,8 +798,11 @@ describe('SfnDiagram', () => {
         it('returns null and calls onError for invalid definition object', () => {
             const onError = vi.fn()
             const { container } = render(
-                // Structurally invalid at runtime (missing States), but a valid `object` prop
-                <SfnDiagram definition={{ StartAt: 'Missing' }} onError={onError} />
+                <SfnDiagram
+                    // @ts-expect-error missing States - a JavaScript caller can still pass it
+                    definition={{ StartAt: 'Missing' }}
+                    onError={onError}
+                />
             )
             expect(container.firstChild).toBeNull()
             expect(onError).toHaveBeenCalledWith(expect.any(Error))

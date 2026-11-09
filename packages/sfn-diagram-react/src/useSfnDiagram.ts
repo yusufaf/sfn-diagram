@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 import {
     generateDiff,
     generateExecution,
@@ -11,6 +11,7 @@ import {
 } from 'sfn-diagram'
 import { generateHtml } from 'sfn-diagram/html'
 import type {
+    AslDefinition,
     DiagramOptions,
     DiffOutput,
     ExecutionHistoryInput,
@@ -21,6 +22,7 @@ import type {
     MermaidOutput,
     SvgOutput,
 } from 'sfn-diagram'
+import { toIdPrefix } from './idPrefix'
 
 export interface UseSfnDiagramParams
     extends Pick<
@@ -43,15 +45,15 @@ export interface UseSfnDiagramParams
      * removed states rather than the plain machine. Accepts an ASL object or a
      * JSON string. Cannot be combined with `history` (core's SVG and Mermaid diff
      * functions take no history) or with `format="html"` (core's `generateHtml`
-     * accepts a diff since sfn-diagram 1.8, but this hook does not wire it up yet).
+     * accepts a diff, but this hook does not wire it up yet).
      *
      * The Mermaid diff ignores every option in this type's `Pick<DiagramOptions, ...>`
      * list - `layout`, `theme`, and the rest: this hook doesn't forward them to
-     * `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram
-     * 1.10. The SVG diff honours them.
+     * `generateMermaidDiff` yet (#393), although core's `generateMermaidDiff` accepts
+     * them. The SVG diff honours them.
      */
-    before?: object | string
-    definition: object | string
+    before?: AslDefinition | string
+    definition: AslDefinition | string
     /**
      * Output format. `'svg'` and `'mermaid'` render static markup; `'html'` renders
      * the interactive pan/zoom/search viewer as a self-contained HTML document.
@@ -93,7 +95,7 @@ export type SfnDiagramResult =
       }
 
 interface ToAslStringParams {
-    definition: object | string
+    definition: AslDefinition | string
 }
 
 function toAslString(params: ToAslStringParams): string {
@@ -127,6 +129,9 @@ function omitUndefinedValues<Options extends Record<string, unknown>>(
  * than mounted markup - for example, building a data URI for `<img src>`, a
  * download button, or a custom render target.
  *
+ * SVG marker ids are prefixed per hook instance from `useId()`, so diagrams on one
+ * page don't share them and server-rendered ids match the client's.
+ *
  * @param params - The same option-bearing props `<SfnDiagram>` accepts, minus
  * the presentational ones (`className`, `onError`, `onStateClick`, `style`,
  * `title`).
@@ -135,7 +140,7 @@ function omitUndefinedValues<Options extends Record<string, unknown>>(
  *
  * @example
  * ```tsx
- * function DownloadSvgButton({ definition }: { definition: object }) {
+ * function DownloadSvgButton({ definition }: { definition: AslDefinition }) {
  *     const result = useSfnDiagram({ definition })
  *     if (result.type !== 'svg') return null
  *
@@ -163,6 +168,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
         theme = 'light',
     } = params
 
+    const idPrefix = toIdPrefix({ reactId: useId() })
     const asl = useMemo(() => toAslString({ definition }), [definition])
     const beforeAsl = useMemo(
         () => (before === undefined ? undefined : toAslString({ definition: before })),
@@ -184,6 +190,9 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
                 showVariables,
                 theme,
             })
+            // The HTML viewer renders in its own iframe document and Mermaid emits no
+            // ids, so only the SVG calls take the prefix.
+            const svgOptions = { ...diagramOptions, idPrefix }
             if (beforeAsl !== undefined) {
                 if (history) {
                     throw new Error('history and before cannot be combined')
@@ -195,7 +204,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
                     const output = generateMermaidDiff({ after: asl, before: beforeAsl })
                     return { code: output.code, metadata: output.metadata, type: 'mermaid' }
                 }
-                const output = generateDiff({ after: asl, before: beforeAsl, ...diagramOptions })
+                const output = generateDiff({ after: asl, before: beforeAsl, ...svgOptions })
                 return {
                     height: output.height,
                     metadata: output.metadata,
@@ -224,8 +233,8 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
                 return { code: output.code, metadata: output.metadata, type: 'mermaid' }
             }
             const output = history
-                ? generateExecution({ aslDefinition: asl, history, ...diagramOptions })
-                : generateSvg({ aslDefinition: asl, ...diagramOptions })
+                ? generateExecution({ aslDefinition: asl, history, ...svgOptions })
+                : generateSvg({ aslDefinition: asl, ...svgOptions })
             return {
                 height: output.height,
                 metadata: output.metadata,
@@ -247,6 +256,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
         history,
         iconPosition,
         iconSize,
+        idPrefix,
         layout,
         nodeOverrides,
         showIcons,

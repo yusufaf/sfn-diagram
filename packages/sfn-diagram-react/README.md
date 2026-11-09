@@ -15,14 +15,15 @@ npm install sfn-diagram-react sfn-diagram
 pnpm add sfn-diagram-react sfn-diagram
 ```
 
-`react` and `sfn-diagram` are peer dependencies. `sfn-diagram >= 1.7.0` is required — earlier versions don't have the options this package forwards (`collapse`, `catchHandling`, `showVariables`, `generateHtml`, `edgeOverrides`' qualified-id form, and `layout`/`theme` on the Mermaid path).
+`react` and `sfn-diagram` are peer dependencies. `sfn-diagram-react` 1.x needs `sfn-diagram` 2, because `format="html"` renders through the `sfn-diagram/html` subpath that 2.0 introduced. Like core, it ships ES modules only and needs Node >= 22.12, where `require()` still loads it. Upgrading from 1.x? See [Migrating to 2.0](https://sfn.yusufaf.dev/upgrading-to-v2/), which also covers Jest's `transformIgnorePatterns`.
 
 ## Usage
 
 ```tsx
+import type { AslDefinition } from 'sfn-diagram'
 import { SfnDiagram } from 'sfn-diagram-react'
 
-const definition = {
+const definition: AslDefinition = {
     StartAt: 'Hello',
     States: {
         Hello: { Type: 'Pass', Next: 'World' },
@@ -42,13 +43,21 @@ export function Diagram() {
 }
 ```
 
-`definition` accepts either an ASL object or a JSON string.
+`definition` accepts an `AslDefinition` object or a JSON string. An unannotated object
+in a variable widens `Type` to `string`, so annotate it
+(`const definition: AslDefinition = {...}`). A definition imported from a `.json` file
+is widened the same way: pass it as a string (`JSON.stringify(json)` or the raw file
+text), or cast it with `as unknown as AslDefinition`. A direct `as AslDefinition` fails
+for a Parallel whose branches name different states.
 
 ### Execution overlay
 
 Pass an execution's `history` to overlay a real run onto the diagram: states are
-coloured by outcome (succeeded / failed / caught / not-reached), the taken path is
-emphasized, and per-state duration and retry counts are annotated.
+coloured by outcome (succeeded / failed / caught / aborted / not-reached), the taken
+path is emphasized, and per-state duration and retry counts are annotated. An aborted
+state was entered but abandoned before it finished: another branch's or iteration's
+failure stopped it, AWS aborted its container, or it was still open when the execution
+was stopped.
 
 ```tsx
 // historyJson: output of `aws stepfunctions get-execution-history`, as a JSON string
@@ -58,16 +67,14 @@ emphasized, and per-state duration and retry counts are annotated.
 `history` accepts a `GetExecutionHistory` events array, the raw command output, or a
 JSON string of either. In the browser, pass the JSON string.
 
-`history` and `before` (diff mode, below) cannot be combined — core has no API for
-overlaying an execution onto a diff. Combining them calls `onError` and renders `null`,
-the same way any other invalid input is handled.
+`history` and `before` (diff mode, below) cannot be combined — core's SVG and Mermaid
+functions can't overlay an execution onto a diff. Its interactive viewer can
+(`generateHtml` takes both), but this package doesn't wire that up yet. Combining them
+calls `onError` and renders `null`, the same way any other invalid input is handled.
 
 **`format="mermaid"` combined with `history` honours the same options as plain
 `format="mermaid"`** — `catchHandling`, `collapse`, `showVariables`, `layout` and
-`theme` — with sfn-diagram 1.10 or later. Earlier versions of core's Mermaid
-execution-overlay function (`generateMermaidExecution`) accept only the ASL definition,
-`history`, `layout`, and `theme`, and ignore the rest. The SVG execution overlay
-honours every option.
+`theme`. The SVG execution overlay honours every option.
 
 ### Interactive viewer (`format="html"`)
 
@@ -84,8 +91,8 @@ Consequences worth knowing:
 - `onStateClick` does not fire from inside it — clicks inside a sandboxed iframe never
   reach the parent document's event handlers.
 - `history` cannot be combined with `format="html"` yet — core's `generateHtml` accepts
-  `history` and `diff` overlays since sfn-diagram 1.8, but this hook does not wire them
-  up. Combining them calls `onError` and renders `null`.
+  `history` and `diff` overlays, but this package does not wire them up yet. Combining
+  them calls `onError` and renders `null`.
 
 ```tsx
 <SfnDiagram definition={definition} format="html" style={{ height: 600, width: '100%' }} />
@@ -105,13 +112,15 @@ coloured (green / yellow / red) instead of the machine's normal styling.
 ```
 
 - `before` accepts an ASL object or a JSON string, same as `definition`.
-- `before` cannot be combined with `history` or `format="html"` — core has no diff API
-  for either combination. Combining them calls `onError` and renders `null`.
+- `before` cannot be combined with `history` (see
+  [Execution overlay](#execution-overlay)) or with `format="html"`. Core's
+  `generateHtml` takes a diff, but this package doesn't pass one to it yet. Combining
+  them calls `onError` and renders `null`.
 - The **SVG diff** (`generateDiff`) honours every diagram option this package forwards
   (`collapse`, `catchHandling`, `showIcons`, and the rest).
-- The **Mermaid diff** ignores every prop except the two definitions (`layout`, `theme`,
-  `collapse`, …) in `format="mermaid"` diff mode: this package doesn't forward them to
-  `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram 1.10.
+- The **Mermaid diff** ignores every diagram prop (`layout`, `theme`, `collapse`, …):
+  core's `generateMermaidDiff` accepts them, but this package doesn't forward them yet
+  (#393).
 
 ### `onStateClick`
 
@@ -148,15 +157,24 @@ There is no programmatic zoom/pan control — core doesn't expose the interactiv
 viewer's controller from a public subpath yet, so a meaningful pan/zoom handle needs a
 core change first.
 
+### Several diagrams on one page
+
+Each `<SfnDiagram>` (and each `useSfnDiagram` call) prefixes its SVG marker ids with a
+value from React's `useId()`. Within one React root, two diagrams, even of the same
+definition, never pick up each other's arrowheads, and server-rendered markup keeps the
+same ids after hydration. When a page hydrates several roots, give each root its own
+`identifierPrefix`, as React requires for `useId`.
+
 ### `useSfnDiagram`
 
 For the raw output — the SVG/HTML string, Mermaid code, dimensions, and metadata —
 without mounting anything, use the hook `<SfnDiagram>` is built on:
 
 ```tsx
+import type { AslDefinition } from 'sfn-diagram'
 import { useSfnDiagram } from 'sfn-diagram-react'
 
-function DownloadSvgButton({ definition }: { definition: object }) {
+function DownloadSvgButton({ definition }: { definition: AslDefinition }) {
     const result = useSfnDiagram({ definition })
     if (result.type !== 'svg') return null
 
@@ -178,31 +196,29 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 
 | Prop | Type | Default | Applies to | Description |
 | --- | --- | --- | --- | --- |
-| `before` | `object \| string` | — | svg, mermaid | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
+| `before` | `AslDefinition \| string` | — | svg, mermaid | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
 | `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid¹ | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
 | `collapse` | `string[] \| boolean` | — | svg, mermaid¹ | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
-| `definition` | `object \| string` | — (required) | all | ASL definition as an object or JSON string. |
+| `definition` | `AslDefinition \| string` | — (required) | all | ASL definition as an object or JSON string. |
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
-| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg, mermaid¹ | Edge path rendering style. |
+| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
 | `format` | `'svg' \| 'mermaid' \| 'html'` | `'svg'` | — | Output format. See [Interactive viewer](#interactive-viewer-formathtml) for `'html'`. |
 | `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | svg, mermaid | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
 | `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
 | `iconSize` | `number` | `24` | svg only | Size of AWS service icons in pixels. |
-| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid | Graph layout direction. |
+| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid¹ | Graph layout direction. |
 | `nodeOverrides` | `Record<string, Partial<NodeStyle>>` | — | svg only | Per-node style overrides keyed by graph node id. |
 | `onError` | `(error: Error) => void` | — | all | Called when the definition fails to parse/render. |
 | `onStateClick` | `(params: { event, stateId }) => void` | — | svg only | See [`onStateClick`](#onstateclick). |
 | `showIcons` | `boolean` | `false` | svg only | Whether to display AWS service icons on Task state nodes. |
 | `showVariables` | `boolean` | `true` | svg, mermaid¹ | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
 | `style` | `React.CSSProperties` | — | all | Applied to the wrapper element. |
-| `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid | Diagram theme. |
+| `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid¹ | Diagram theme. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
 
-¹ Ignored when `format="mermaid"` is combined with `history` on sfn-diagram before 1.10 —
-see [Execution overlay](#execution-overlay). Applies normally to plain `format="mermaid"`
-(no `history`). `format="mermaid"` diff mode (the `before` prop) is a separate
-carve-out with its own rule — see [Diff mode](#diff-mode).
+¹ Not applied in `format="mermaid"` diff mode (the `before` prop) — see
+[Diff mode](#diff-mode).
 
 When the definition is invalid the component renders `null` and (if provided) calls
 `onError`.
