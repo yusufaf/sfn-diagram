@@ -13,17 +13,15 @@ const parseVersion = (version: string): { major: number; minor: number } => {
     return { major, minor }
 }
 
-// sfn-diagram 1.6.0 introduced collapse, catchHandling, showVariables,
-// generateHtml, and edgeOverrides' qualified-id form - everything this package
-// forwards from Step 3 onward - and 1.7.0 made generateMermaid honour layout
-// and theme, which this package forwards on the Mermaid path. A peer floor
-// older than that would let a consumer install a core too old to have those
-// options, so props would be silently dropped at runtime instead of failing
-// to install.
-const MINIMUM_REQUIRED_CORE_VERSION = { major: 1, minor: 7 }
+// sfn-diagram 2.0 introduced the `sfn-diagram/html` subpath this package renders
+// `format="html"` through, typed definitions as `AslDefinition`, made `idPrefix`
+// the way each diagram gets its own marker ids, added the `aborted` execution
+// status, and went ES modules only on Node 22.12. A peer floor older than that
+// would let a consumer install a core this package cannot import from.
+const MINIMUM_REQUIRED_CORE_VERSION = { major: 2, minor: 0 }
 
 describe('sfn-diagram peer range', () => {
-    it('has a caret range no older than the core version this package requires, and no newer than the workspace has', () => {
+    it('has a caret range no older than the core version this package requires, and no newer than the next core release', () => {
         const peerRange = (reactPackage.peerDependencies as Record<string, string>)['sfn-diagram']
         expect(peerRange).toMatch(/^\^\d+\.\d+\.\d+$/)
 
@@ -33,7 +31,13 @@ describe('sfn-diagram peer range', () => {
         expect(floor.major).toBe(MINIMUM_REQUIRED_CORE_VERSION.major)
         expect(floor.minor).toBeGreaterThanOrEqual(MINIMUM_REQUIRED_CORE_VERSION.minor)
 
-        expect(floor.major).toBe(current.major)
-        expect(floor.minor).toBeLessThanOrEqual(current.minor)
+        if (floor.major === current.major) {
+            expect(floor.minor).toBeLessThanOrEqual(current.minor)
+        } else {
+            // The peer may name the next core major before release-please bumps the
+            // workspace version, since both publish in the same release run.
+            expect(floor.major).toBe(current.major + 1)
+            expect(peerRange).toBe(`^${floor.major}.0.0`)
+        }
     })
 })

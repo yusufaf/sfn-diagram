@@ -11,6 +11,7 @@ import {
 } from 'sfn-diagram'
 import { generateHtml } from 'sfn-diagram/html'
 import type {
+    AslDefinition,
     DiagramOptions,
     DiffOutput,
     ExecutionHistoryInput,
@@ -50,8 +51,8 @@ export interface UseSfnDiagramParams
      * `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram
      * 1.10. The SVG diff honours them.
      */
-    before?: object | string
-    definition: object | string
+    before?: AslDefinition | string
+    definition: AslDefinition | string
     /**
      * Output format. `'svg'` and `'mermaid'` render static markup; `'html'` renders
      * the interactive pan/zoom/search viewer as a self-contained HTML document.
@@ -93,7 +94,7 @@ export type SfnDiagramResult =
       }
 
 interface ToAslStringParams {
-    definition: object | string
+    definition: AslDefinition | string
 }
 
 function toAslString(params: ToAslStringParams): string {
@@ -135,7 +136,7 @@ function omitUndefinedValues<Options extends Record<string, unknown>>(
  *
  * @example
  * ```tsx
- * function DownloadSvgButton({ definition }: { definition: object }) {
+ * function DownloadSvgButton({ definition }: { definition: AslDefinition }) {
  *     const result = useSfnDiagram({ definition })
  *     if (result.type !== 'svg') return null
  *

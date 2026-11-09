@@ -1,10 +1,11 @@
 import { fireEvent, render } from '@testing-library/react'
 import { createRef, StrictMode } from 'react'
+import type { AslDefinition } from 'sfn-diagram'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
 import type { SfnDiagramHandle } from './SfnDiagram'
 
-const HELLO_WORLD = {
+const HELLO_WORLD: AslDefinition = {
     Comment: 'Hello World',
     StartAt: 'HelloWorld',
     States: {
@@ -14,7 +15,7 @@ const HELLO_WORLD = {
 
 const HELLO_WORLD_STR = JSON.stringify(HELLO_WORLD)
 
-const WITH_PARALLEL = {
+const WITH_PARALLEL: AslDefinition = {
     StartAt: 'DoParallel',
     States: {
         DoParallel: {
@@ -38,7 +39,7 @@ const WITH_PARALLEL = {
     },
 }
 
-const TASK_WITH_LAMBDA = {
+const TASK_WITH_LAMBDA: AslDefinition = {
     StartAt: 'InvokeLambda',
     States: {
         InvokeLambda: {
@@ -49,7 +50,7 @@ const TASK_WITH_LAMBDA = {
     },
 }
 
-const WITH_ASSIGN = {
+const WITH_ASSIGN: AslDefinition = {
     StartAt: 'LoadTotal',
     States: {
         LoadTotal: {
@@ -61,7 +62,7 @@ const WITH_ASSIGN = {
     },
 }
 
-const WITH_CATCH = {
+const WITH_CATCH: AslDefinition = {
     StartAt: 'RiskyTask',
     States: {
         HandleError: { Type: 'Fail' },
@@ -74,7 +75,7 @@ const WITH_CATCH = {
     },
 }
 
-const DIFF_BEFORE = {
+const DIFF_BEFORE: AslDefinition = {
     StartAt: 'StateA',
     States: {
         StateA: { Next: 'StateB', Type: 'Pass' },
@@ -82,7 +83,7 @@ const DIFF_BEFORE = {
     },
 }
 
-const DIFF_AFTER = {
+const DIFF_AFTER: AslDefinition = {
     StartAt: 'StateA',
     States: {
         StateA: { Next: 'StateC', Type: 'Pass' },
@@ -90,7 +91,7 @@ const DIFF_AFTER = {
     },
 }
 
-const WITH_PARALLEL_PLUS_EXTRA = {
+const WITH_PARALLEL_PLUS_EXTRA: AslDefinition = {
     StartAt: 'DoParallel',
     States: {
         DoParallel: {
@@ -687,8 +688,11 @@ describe('SfnDiagram', () => {
         it('returns null and calls onError for invalid definition object', () => {
             const onError = vi.fn()
             const { container } = render(
-                // Structurally invalid at runtime (missing States), but a valid `object` prop
-                <SfnDiagram definition={{ StartAt: 'Missing' }} onError={onError} />
+                <SfnDiagram
+                    // @ts-expect-error missing States - a JavaScript caller can still pass it
+                    definition={{ StartAt: 'Missing' }}
+                    onError={onError}
+                />
             )
             expect(container.firstChild).toBeNull()
             expect(onError).toHaveBeenCalledWith(expect.any(Error))

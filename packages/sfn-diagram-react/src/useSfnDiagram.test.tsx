@@ -1,8 +1,9 @@
 import { renderHook } from '@testing-library/react'
+import type { AslDefinition } from 'sfn-diagram'
 import { describe, expect, it } from 'vitest'
 import { useSfnDiagram } from './useSfnDiagram'
 
-const HELLO_WORLD = {
+const HELLO_WORLD: AslDefinition = {
     Comment: 'Hello World',
     StartAt: 'HelloWorld',
     States: {
