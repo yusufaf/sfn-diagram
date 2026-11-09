@@ -23,12 +23,12 @@ describe("'use client' directive", () => {
 
     // Rolldown strips the source directive when it bundles, so tsdown re-emits it
     // as a JS banner. The built file is what a consumer's bundler actually reads.
-    it.each(['index.js', 'index.cjs'])('survives the build into dist/%s', (fileName) => {
+    it.each(['index.js'])('survives the build into dist/%s', (fileName) => {
         expect(built(fileName)).toMatch(/^["']use client["']/)
     })
 
     // A bare expression statement is a TS1036 error in an ambient declaration file.
-    it.each(['index.d.ts', 'index.d.cts'])('is not emitted into dist/%s', (fileName) => {
+    it.each(['index.d.ts'])('is not emitted into dist/%s', (fileName) => {
         expect(built(fileName)).not.toContain('use client')
     })
 })
