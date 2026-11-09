@@ -148,6 +148,20 @@ const ASSIGN_HISTORY = {
     ],
 }
 
+const ABORTED_HISTORY = {
+    events: [
+        { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+        {
+            id: 2,
+            previousEventId: 1,
+            type: 'PassStateEntered',
+            timestamp: '2024-01-01T00:00:00.100Z',
+            stateEnteredEventDetails: { name: 'HelloWorld' },
+        },
+        { id: 3, previousEventId: 2, type: 'ExecutionAborted', timestamp: '2024-01-01T00:00:00.200Z' },
+    ],
+}
+
 describe('SfnDiagram', () => {
     describe('SVG format', () => {
         it('renders SVG container for valid definition object', () => {
@@ -236,6 +250,26 @@ describe('SfnDiagram', () => {
                 />
             )
             expect(container.querySelector('pre')?.textContent).not.toContain('$total')
+        })
+
+        it('colours a state the execution abandoned as aborted (SVG)', () => {
+            const { container } = render(
+                <SfnDiagram definition={HELLO_WORLD} history={JSON.stringify(ABORTED_HISTORY)} />
+            )
+            expect(container.querySelector('svg')?.innerHTML).toContain('#cfd8dc')
+        })
+
+        it('marks an aborted state with execAborted (Mermaid)', () => {
+            const { container } = render(
+                <SfnDiagram
+                    definition={HELLO_WORLD}
+                    format="mermaid"
+                    history={JSON.stringify(ABORTED_HISTORY)}
+                />
+            )
+            expect(container.querySelector('pre')?.textContent).toContain(
+                'class HelloWorld execAborted'
+            )
         })
     })
 

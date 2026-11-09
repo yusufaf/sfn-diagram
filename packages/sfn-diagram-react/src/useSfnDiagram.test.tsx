@@ -13,6 +13,20 @@ const HELLO_WORLD: AslDefinition = {
 
 const INVALID = { StartAt: 'Missing', States: {} }
 
+const ABORTED_HISTORY = {
+    events: [
+        { id: 1, previousEventId: 0, type: 'ExecutionStarted', timestamp: '2024-01-01T00:00:00.000Z' },
+        {
+            id: 2,
+            previousEventId: 1,
+            type: 'PassStateEntered',
+            timestamp: '2024-01-01T00:00:00.100Z',
+            stateEnteredEventDetails: { name: 'HelloWorld' },
+        },
+        { id: 3, previousEventId: 2, type: 'ExecutionAborted', timestamp: '2024-01-01T00:00:00.200Z' },
+    ],
+}
+
 describe('useSfnDiagram', () => {
     it('returns svg output with surfaced metadata for a valid definition', () => {
         const { result } = renderHook(() => useSfnDiagram({ definition: HELLO_WORLD }))
@@ -60,6 +74,17 @@ describe('useSfnDiagram', () => {
         rerender({ definition: HELLO_WORLD })
 
         expect(result.current).toBe(firstResult)
+    })
+
+    it('reports aborted states in the execution metadata', () => {
+        const { result } = renderHook(() =>
+            useSfnDiagram({ definition: HELLO_WORLD, history: JSON.stringify(ABORTED_HISTORY) })
+        )
+
+        if (result.current.type !== 'svg' || !('aborted' in result.current.metadata)) {
+            throw new Error('expected an execution svg result')
+        }
+        expect(result.current.metadata.aborted).toEqual(['HelloWorld'])
     })
 
     it('prefixes marker ids per hook instance', () => {
