@@ -233,15 +233,16 @@ into one commit. Split it into separate PRs instead.
 - Once a `!` commit is on `main`, the combined release PR proposes the next core major, and
   merging it to ship *any* component ships that major too. Ship pending subpackage
   releases first.
-- **Action held on 1.x (2.0 window, #529):** the Action package has
-  `"versioning": "always-bump-minor"` in `release-please-config.json`. Every core PR that
-  changes code the Action bundles commits the rebuilt bundle, so the Action inherits core
-  `!` commits. Without the override it would release as 2.0.0, and `sync-action-mirror.sh`
-  would cut and move a `v2` tag, leaving `@v1` users on old code. Its inputs don't change.
-  The Action's CHANGELOG still lists the core breaking notes under "⚠ BREAKING CHANGES".
+- **Holding the Action on its major across a core major:** every core PR that changes
+  code the Action bundles commits the rebuilt bundle, so the Action inherits core `!`
+  commits. Left alone it would release as a new major, and `sync-action-mirror.sh` would
+  cut and move a new `v<major>` tag, leaving users of the old tag on old code. Before the
+  first `!` merge of a core major, set `"versioning": "always-bump-minor"` on
+  `packages/github-action-sfn-diagram` in `release-please-config.json`, and remove it
+  once that core major ships (added in #591 for 2.0, removal tracked in #529). The
+  Action's CHANGELOG still lists the core breaking notes under "⚠ BREAKING CHANGES".
   Don't force a core version with a `Release-As:` footer on a commit that touches the
-  Action's `dist/`: the footer beats the override and applies to the Action too. Remove
-  the override after `sfn-diagram` 2.0.0 ships.
+  Action's `dist/`: the footer beats the override and applies to the Action too.
 
 ### Milestones
 
