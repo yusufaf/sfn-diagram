@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.7.0...sfn-diagram-react-v1.0.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **react:** sfn-diagram-react needs sfn-diagram ^2.0.0 and Node >= 22.12, ships ES modules only, and types `definition` and `before` as `AslDefinition | string`. Install sfn-diagram@2 and annotate object definitions as `AslDefinition`, or pass a JSON string.
+
+### Features
+
+* **react:** target sfn-diagram 2 ([9de5a6a](https://github.com/yusufaf/sfn-diagram/commit/9de5a6a5fd402ae8fa2097391efd9002d2711163))
+
+
+### Bug Fixes
+
+* **react:** give each diagram its own marker ids ([9de5a6a](https://github.com/yusufaf/sfn-diagram/commit/9de5a6a5fd402ae8fa2097391efd9002d2711163))
+
 ## [0.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.6.0...sfn-diagram-react-v0.7.0) (2026-10-31)
 
 
