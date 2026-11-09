@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.9.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.8.0...github-action-sfn-diagram-v1.9.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **html:** import generateHtml, generateHtmlAsync, generateViewerUpdate and the execution-HTML wrappers from sfn-diagram/html. generateDiagram, generateFromAwsResponse and SfnDiagramGenerator.generate throw for format 'html'.
+* **execution:** `ExecutionStateStatus` and `TimelineEntryStatus` gain `aborted`, and `ExecutionMetadataSummary` gains a required `aborted` list. A branch or iteration stopped by another's failure, and every state still open when an execution is stopped, now report `aborted` instead of `failed`. Add a case or a `default:` branch to exhaustive switches.
+* **layout:** `LayoutCache` exposes only `clear()` and `stats()`; `get`, `set` and `keyFor` are gone, and an SVG, HTML or PNG render rejects a cache `createLayoutCache` did not make. `StateNode.type` is now `NodeType` and `GraphEdge.type` is required.
+* `DiagramOptions.pngQuality` is removed, so `exportPng` and `PngExporter` no longer accept it; it never affected PNG output. Use `PngExportOptions.scale` to control PNG resolution.
+* `DiagramOptions.width` and `height` are removed; they never affected output. Size the SVG with CSS (its `viewBox` scales freely), or use `PngExportOptions.scale` for PNG resolution.
+
+### Features
+
+* **execution:** distinguish an aborted state from a failed one ([#606](https://github.com/yusufaf/sfn-diagram/issues/606)) ([a5626f0](https://github.com/yusufaf/sfn-diagram/commit/a5626f0f9ccbdcf90af671a2fbc8d66ec7a23ffe))
+* **html:** move the interactive viewer out of the root entry ([#619](https://github.com/yusufaf/sfn-diagram/issues/619)) ([af42f4c](https://github.com/yusufaf/sfn-diagram/commit/af42f4caefad24529571d9bea264cf10a381759e))
+
+
+### Code Refactoring
+
+* **layout:** narrow LayoutCache and define the layout engine contract ([#604](https://github.com/yusufaf/sfn-diagram/issues/604)) ([ee5a254](https://github.com/yusufaf/sfn-diagram/commit/ee5a254fb91c6006d97b732fc36c064e251bd689))
+* remove the deprecated DiagramOptions.width and height ([#602](https://github.com/yusufaf/sfn-diagram/issues/602)) ([65ad4e1](https://github.com/yusufaf/sfn-diagram/commit/65ad4e1c26586fae14e1217bdb901b3fd4ac0d0a))
+* remove the no-op DiagramOptions.pngQuality ([#603](https://github.com/yusufaf/sfn-diagram/issues/603)) ([c141123](https://github.com/yusufaf/sfn-diagram/commit/c141123097f071ba861558f36a42cfac67abd372))
+
 ## [1.8.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.7.1...github-action-sfn-diagram-v1.8.0) (2026-10-31)
 
 
