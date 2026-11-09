@@ -61,4 +61,21 @@ describe('useSfnDiagram', () => {
 
         expect(result.current).toBe(firstResult)
     })
+
+    it('prefixes marker ids per hook instance', () => {
+        const firstId = (svgResult: ReturnType<typeof useSfnDiagram>): string => {
+            if (svgResult.type !== 'svg') {
+                throw new Error('expected svg result')
+            }
+            return /\bid="([^"]+)"/.exec(svgResult.svg)?.[1] ?? ''
+        }
+        const first = renderHook(() => useSfnDiagram({ definition: HELLO_WORLD }))
+        const second = renderHook(() => useSfnDiagram({ definition: HELLO_WORLD }))
+
+        const firstMarkerId = firstId(first.result.current)
+        const secondMarkerId = firstId(second.result.current)
+        expect(firstMarkerId).toMatch(/^sfn-/)
+        expect(secondMarkerId).toMatch(/^sfn-/)
+        expect(firstMarkerId).not.toBe(secondMarkerId)
+    })
 })

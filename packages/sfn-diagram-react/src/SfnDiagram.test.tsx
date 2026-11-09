@@ -1,5 +1,8 @@
 import { fireEvent, render } from '@testing-library/react'
-import { createRef, StrictMode } from 'react'
+import { act, createRef, StrictMode } from 'react'
+import { hydrateRoot } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
 import type { AslDefinition } from 'sfn-diagram'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
@@ -672,6 +675,79 @@ describe('SfnDiagram', () => {
             render(<SfnDiagram definition={HELLO_WORLD} format="html" ref={ref} />)
 
             expect(ref.current?.getSvg()).toBeNull()
+        })
+    })
+
+    describe('Marker ids', () => {
+        const markerIds = (markup: string): string[] =>
+            [...markup.matchAll(/<marker[^>]*\bid="([^"]+)"/g)].map((match) => match[1])
+
+        // The same definition matters: core's default prefix hashes the output, so two
+        // different definitions already get different ids.
+        it('gives two diagrams of the same definition their own marker ids', () => {
+            const { container } = render(
+                <>
+                    <SfnDiagram definition={DIFF_AFTER} />
+                    <SfnDiagram definition={DIFF_AFTER} />
+                </>
+            )
+            const svgs = [...container.querySelectorAll('svg')]
+            expect(svgs).toHaveLength(2)
+            const [firstIds, secondIds] = svgs.map((svg) =>
+                [...svg.querySelectorAll('marker')].map((marker) => marker.id)
+            )
+            expect(firstIds.length).toBeGreaterThan(0)
+            expect(firstIds.filter((id) => secondIds.includes(id))).toEqual([])
+            for (const svg of svgs) {
+                const ownIds = [...svg.querySelectorAll('marker')].map((marker) => marker.id)
+                const referenced = [...svg.innerHTML.matchAll(/url\(#([^)]+)\)/g)].map(
+                    (match) => match[1]
+                )
+                expect(referenced.length).toBeGreaterThan(0)
+                expect(referenced.filter((id) => !ownIds.includes(id))).toEqual([])
+            }
+        })
+
+        it('renders under an identifierPrefix with characters invalid in an id', () => {
+            const html = renderToString(<SfnDiagram definition={DIFF_AFTER} />, {
+                identifierPrefix: 'my app ',
+            })
+            expect(html).toContain('<svg')
+            expect(html).toMatch(/id="sfn-_my_app_R_[^"]*-arrowhead-/)
+        })
+
+        // A regression guard rather than a red test: core's hash default is
+        // deterministic too. React reports a mismatch inside dangerouslySetInnerHTML
+        // only through console.error and leaves the DOM as the server wrote it, so the
+        // ids are compared with what the client computed through the handle.
+        it('keeps marker ids equal between the server render and hydration', async () => {
+            const html = renderToString(<SfnDiagram definition={DIFF_AFTER} />)
+            const container = document.createElement('div')
+            container.innerHTML = html
+            document.body.appendChild(container)
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+            const onRecoverableError = vi.fn()
+            const ref = createRef<SfnDiagramHandle>()
+            let root: Root | undefined
+            try {
+                await act(async () => {
+                    root = hydrateRoot(
+                        container,
+                        <SfnDiagram definition={DIFF_AFTER} ref={ref} />,
+                        { onRecoverableError }
+                    )
+                })
+
+                const serverIds = markerIds(html)
+                expect(serverIds.length).toBeGreaterThan(0)
+                expect(markerIds(ref.current?.getSvg() ?? '')).toEqual(serverIds)
+                expect(consoleError).not.toHaveBeenCalled()
+                expect(onRecoverableError).not.toHaveBeenCalled()
+            } finally {
+                act(() => root?.unmount())
+                container.remove()
+                consoleError.mockRestore()
+            }
         })
     })
 
