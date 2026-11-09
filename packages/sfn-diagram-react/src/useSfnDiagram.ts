@@ -169,7 +169,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
     } = params
 
     const idPrefix = toIdPrefix({ reactId: useId() })
-    const asl =useMemo(() => toAslString({ definition }), [definition])
+    const asl = useMemo(() => toAslString({ definition }), [definition])
     const beforeAsl = useMemo(
         () => (before === undefined ? undefined : toAslString({ definition: before })),
         [before]
