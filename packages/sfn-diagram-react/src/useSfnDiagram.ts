@@ -45,12 +45,12 @@ export interface UseSfnDiagramParams
      * removed states rather than the plain machine. Accepts an ASL object or a
      * JSON string. Cannot be combined with `history` (core's SVG and Mermaid diff
      * functions take no history) or with `format="html"` (core's `generateHtml`
-     * accepts a diff since sfn-diagram 1.8, but this hook does not wire it up yet).
+     * accepts a diff, but this hook does not wire it up yet).
      *
      * The Mermaid diff ignores every option in this type's `Pick<DiagramOptions, ...>`
      * list - `layout`, `theme`, and the rest: this hook doesn't forward them to
-     * `generateMermaidDiff` yet (#393), although core accepts them since sfn-diagram
-     * 1.10. The SVG diff honours them.
+     * `generateMermaidDiff` yet (#393), although core's `generateMermaidDiff` accepts
+     * them. The SVG diff honours them.
      */
     before?: AslDefinition | string
     definition: AslDefinition | string
