@@ -23,6 +23,8 @@ Generate diagrams from AWS Step Functions ASL (Amazon States Language) definitio
 npm install sfn-diagram
 ```
 
+Requires Node >= 22.12.0 on Node; the package is ES modules only, and `require()` works there. Upgrading from 1.x? See [Migrating to 2.0](https://sfn.yusufaf.dev/upgrading-to-v2/).
+
 The core package pulls in **no browser engine or native rasterizer** — SVG and Mermaid generation stay lightweight. PNG export uses `@resvg/resvg-js`, a native, browser-free renderer, provided by an optional peer dependency. Install it only if you use `sfn-diagram/png`:
 
 ```bash
@@ -157,8 +159,8 @@ Full documentation lives at **[sfn.yusufaf.dev](https://sfn.yusufaf.dev)**.
 - [Examples](https://sfn.yusufaf.dev/guides/examples/) — complete worked examples
 - [Use with your framework](https://sfn.yusufaf.dev/guides/frameworks/) — Next.js, Remix, SvelteKit, Astro
 - [API reference](https://sfn.yusufaf.dev/reference/) — generated from source, always current
-- [Compatibility policy](https://sfn.yusufaf.dev/compatibility/) — what semver covers from 2.0 on
-- [Upcoming in 2.0](https://sfn.yusufaf.dev/upgrading-to-v2/) — every deprecation and planned breaking change, with what to use instead
+- [Compatibility policy](https://sfn.yusufaf.dev/compatibility/) — what each version number promises
+- [Migrating to 2.0](https://sfn.yusufaf.dev/upgrading-to-v2/) — upgrading from 1.x, with before-and-after code for every breaking change
 
 Working with an AI coding agent? The docs are published as [llms.txt](https://sfn.yusufaf.dev/llms.txt), and every page is available as raw Markdown by appending `.md` to its URL.
 
@@ -175,7 +177,7 @@ Working with an AI coding agent? The docs are published as [llms.txt](https://sf
 
 ## Runtime support
 
-Core (`sfn-diagram`) is platform-agnostic — it runs in Node, the browser, and edge runtimes. Only `sfn-diagram/png` and the CLI are Node-only. See [runtime support](https://sfn.yusufaf.dev/guides/runtimes/).
+Core (`sfn-diagram`) is platform-agnostic — it runs in Node, the browser, and edge runtimes. Only `sfn-diagram/png` and the CLI are Node-only. On Node it needs Node >= 22.12.0. See [runtime support](https://sfn.yusufaf.dev/guides/runtimes/).
 
 ## Contributing
 

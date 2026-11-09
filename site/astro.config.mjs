@@ -122,14 +122,15 @@ export default defineConfig({
                     details: [
                         'Core (`sfn-diagram`) is platform-agnostic. Only `sfn-diagram/png` and the CLI are Node-only.',
                         'Entry points: `sfn-diagram` (SVG/Mermaid), `sfn-diagram/html` (interactive HTML viewer), `sfn-diagram/png`, `sfn-diagram/aws`, `sfn-diagram/cfn`, `sfn-diagram/terraform`, `sfn-diagram/ci`, `sfn-diagram/element`, `sfn-diagram/element/auto`. JSON files (npm only): `sfn-diagram/package.json`, `sfn-diagram/config.schema.json`.',
-                    ].join('\n'),
+                        "sfn-diagram 2.0 is ES modules only and needs Node >= 22.12.0 on Node. Code written for 1.x (`width`/`height`, `pngQuality`, `engine: 'html-to-image'`, `generateHtml` from the root entry) needs the changes in https://sfn.yusufaf.dev/upgrading-to-v2/; what semver covers is at https://sfn.yusufaf.dev/compatibility/.",
+                    ].join('\n\n'),
                     demote: ['ecosystem/**'],
                     // `exclude` applies to llms-small.txt only — llms-full.txt is
                     // the complete corpus by design. Keeping the exhaustive
                     // TypeDoc reference out of the abridged set leaves it as
                     // usable prose for small context windows.
                     exclude: ['reference/**'],
-                    promote: ['introduction', 'comparison', 'installation', 'quick-start', 'guides/**'],
+                    promote: ['introduction', 'comparison', 'installation', 'quick-start', 'guides/**', 'upgrading-to-v2'],
                     optionalLinks: [
                         {
                             description: 'Interactive editor — paste ASL, see the diagram.',
@@ -167,7 +168,7 @@ export default defineConfig({
                 {
                     items: [
                         { label: 'Compatibility policy', slug: 'compatibility' },
-                        { label: 'Upcoming in 2.0', slug: 'upgrading-to-v2' },
+                        { label: 'Migrating to 2.0', slug: 'upgrading-to-v2' },
                     ],
                     label: 'Versioning',
                 },

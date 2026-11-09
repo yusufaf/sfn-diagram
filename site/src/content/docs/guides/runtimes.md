@@ -19,7 +19,7 @@ install them alongside `sfn-diagram` when you need PNG output or execution
 overlays; `exportPng` throws an actionable error if `@resvg/resvg-js` is missing.
 
 **Node versions:** on Node, every entry point (core, the CLI, and PNG export) requires **Node >= 22.12.0**. Node 20 reached end of life on 2026-04-30 and
-sfn-diagram 1.x was the last line to support it; see [Upcoming in 2.0](/upgrading-to-v2/).
+sfn-diagram 1.x was the last line to support it; see [Migrating to 2.0](/upgrading-to-v2/).
 An end-of-life Node line may be dropped in a minor release
 (see [Runtime support](/compatibility/#runtime-support)).
 
