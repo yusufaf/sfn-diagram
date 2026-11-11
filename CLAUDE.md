@@ -172,7 +172,7 @@ Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
 
 **To ship a release:** merge the open release PR. Nothing else needed.
 
-**If a core publish job fails after the tag exists** (binaries, SHA256SUMS, Homebrew formula, or a flaky verify step): run the `release-please` workflow manually with `publish_tag` set to the core tag (e.g. `sfn-diagram-v1.6.0`). Every core job is idempotent there: npm and JSR skip versions that already exist, binaries and checksums are re-uploaded with `--clobber`, and the formula is overwritten. Never re-publish by hand and never cut a new release just to retry.
+**If a core publish job fails after the tag exists** (binaries, SHA256SUMS, Homebrew formula, or a flaky verify step): run the `release-please` workflow manually with `publish_tag` set to the core tag (e.g. `sfn-diagram-v1.6.0`). Every core job is idempotent there: npm and JSR skip versions that already exist, binaries and checksums are re-uploaded with `--clobber`, and the formula is overwritten. If that run also released React, a failed or cancelled core `npm-publish` held `react-npm-publish` back: once core is on npm, run the workflow again with `publish_tag` set to the React tag (e.g. `sfn-diagram-react-v1.0.0`). Only `react-npm-publish` runs, and it skips a version already on npm. Never re-publish by hand and never cut a new release just to retry.
 
 Commit types that increment the version:
 - `feat` → MINOR bump
@@ -182,7 +182,7 @@ Commit types that increment the version:
 **Four packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
 - `.` — the `sfn-diagram` npm package. Merging the release PR publishes to npm.
 - `packages/github-action-sfn-diagram` — the GitHub Action (versioned independently, `private`, not on npm). Commits under that path — including a rebuilt `dist/` bundle from a core change — attribute to it. Merging the release PR runs the `mirror-sync` job, which syncs `scripts/sync-action-mirror.sh` to the Marketplace mirror repo (`yusufaf/sfn-diagram-action`), tags it, and publishes the Release automatically. No manual version bump or `sync:action` run is needed.
-- `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job.
+- `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job, which waits for core's `npm-publish` and runs only if it succeeded or was skipped, so React never reaches npm before the core version its `sfn-diagram` peer range needs.
 - `packages/vscode-sfn-diagram` — the VS Code extension (versioned independently). Merging the release PR runs the `openvsx-publish` job, which auto-publishes to Open VSX. The Microsoft Marketplace is published by the separate `vscode-marketplace.yml` workflow, on the published release, using Entra workload identity federation — no PAT. It is a separate workflow file on purpose: npm and JSR trusted publishing are keyed on the *workflow filename*, so an `id-token: write` job inside `release-please.yml` could mint a token good enough to publish to npm. Run `vscode-marketplace-identity.yml` to get the profile ID if the publishing identity is ever rotated.
 
 release-please emits **one combined release PR** covering all four. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
