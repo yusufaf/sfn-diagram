@@ -9,10 +9,13 @@ on:
   # idempotently. npm and JSR skip when the version is already there; the
   # binaries, SHA256SUMS, and Homebrew formula are rebuilt and overwritten.
   # Use it when a release tag exists but one of those jobs failed.
+  # A React tag (sfn-diagram-react-v*) runs only react-npm-publish, which skips a
+  # version already on npm. Use it once core is on npm after a core failure held
+  # React back.
   workflow_dispatch:
     inputs:
       publish_tag:
-        description: 'Core release tag to (re)publish, e.g. sfn-diagram-v1.6.0'
+        description: 'Release tag to (re)publish: a core tag (sfn-diagram-v2.0.0) or a React tag (sfn-diagram-react-v1.0.0)'
         required: true
         type: string
 
@@ -264,9 +267,21 @@ jobs:
   # Publish the React wrapper to npm when release-please cut a release for it.
   # Versioned independently of the core package, so it gets its own tag and its
   # own job. Same Trusted Publisher (OIDC) setup as npm-publish — no NPM_TOKEN.
+  #
+  # It waits for npm-publish, so a run that ships both never lists a React version
+  # whose sfn-diagram peer can't resolve (2.0.0 and React 1.0.0 went out about 94 s
+  # apart, React first). A skipped npm-publish (a React-only release, or a React
+  # publish_tag dispatch) lets it run. A failed one holds it back, and
+  # report-publish-failure says how to recover. A cancelled one holds it back too,
+  # but files no issue; recover with a React-tag publish_tag dispatch.
   react-npm-publish:
-    needs: release-please
-    if: needs.release-please.outputs.react_release_created == 'true'
+    needs: [release-please, npm-publish]
+    if: |
+      !cancelled() &&
+      (needs.npm-publish.result == 'success' || needs.npm-publish.result == 'skipped') &&
+      (needs.release-please.outputs.react_release_created == 'true' ||
+       (github.event_name == 'workflow_dispatch' &&
+        startsWith(github.event.inputs.publish_tag, 'sfn-diagram-react-v')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -275,7 +290,7 @@ jobs:
       - name: Checkout released tag
         uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.react_tag_name }}
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.react_tag_name }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -325,6 +340,27 @@ jobs:
               process.exit(1);
             }
           "
+
+      # The ordering above covers a run that also ships core. A publish_tag dispatch
+      # for a React tag has no core job to wait for, so check the peer directly.
+      # Poll like the verify steps: right after core publishes, a stale packument can
+      # briefly hide the new version (the 1.7.0 false failure), so force revalidation.
+      - name: Assert the sfn-diagram peer resolves on npm
+        run: |
+          RANGE="$(node -p "require('./packages/sfn-diagram-react/package.json').peerDependencies['sfn-diagram']")"
+          export npm_config_prefer_online=true
+          ATTEMPTS=10
+          for i in $(seq 1 "$ATTEMPTS"); do
+            if npm view "sfn-diagram@$RANGE" version >/dev/null; then
+              exit 0
+            fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              echo "No sfn-diagram satisfies '$RANGE' yet (attempt $i/$ATTEMPTS); retrying in 15s"
+              sleep 15
+            fi
+          done
+          echo "::error::No sfn-diagram on npm satisfies the React peer range '$RANGE'. Publish core first."
+          exit 1
 
       # Skip when already published so "Re-run failed jobs" after a verify
       # timeout doesn't die on "cannot publish over previously published version".
@@ -852,6 +888,8 @@ jobs:
             --title "Release publish failure: ${{ needs.release-please.outputs.tag_name || github.event.inputs.publish_tag }}" \
             --label bug \
             --body "A publish job failed (or its post-publish verification did), or HOMEBREW_TAP_REPO is unset so no Homebrew formula was published.
+
+          ${{ needs.release-please.outputs.react_release_created == 'true' && needs.react-npm-publish.result == 'skipped' && format('sfn-diagram-react was held back because core did not publish. Once core is on npm, run this workflow with publish_tag={0}.', needs.release-please.outputs.react_tag_name) || '' }}
 
           | Job | Result |
           |---|---|
