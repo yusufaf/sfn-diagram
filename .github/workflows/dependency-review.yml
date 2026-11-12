@@ -28,11 +28,11 @@ jobs:
       - name: Dependency review
         uses: actions/dependency-review-action@v5
         with:
-          # `high`, not `moderate`: audit-fix.yml already opens a PR for any
-          # moderate advisory in the lockfile every Monday, so the merge-time
-          # gate should block only what should not land at all. Blocking on
-          # moderate would stall Dependabot's own PRs on advisories the weekly
-          # sweep is already fixing.
+          # `high`, not `moderate`: Renovate opens security PRs for advisories in
+          # the lockfile and audit.yml flags what it can't fix every Monday, so
+          # the merge-time gate should block only what should not land at all.
+          # Blocking on moderate would stall the bots' own PRs on advisories
+          # that are already being fixed.
           fail-on-severity: high
           # Writing the summary as a PR comment needs pull-requests: write, which
           # a fork PR cannot have. The job summary carries the same report and

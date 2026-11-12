@@ -99,7 +99,7 @@ jobs:
       # to fetch. This resolves the *exact* version pnpm installed from the lockfile -
       # not the `^3.0.0` range in package.json, which would let the one job holding the
       # OIDC credential install whatever 3.x was newest that morning, including a
-      # version no CI run has ever exercised. Dependabot still owns the bump; this just
+      # version no CI run has ever exercised. Renovate still owns the bump; this just
       # reads what it produced.
       - name: Resolve the vsce version
         id: vsce
