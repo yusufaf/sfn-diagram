@@ -4,6 +4,13 @@ All notable changes to the Step Functions Diagram VS Code extension are document
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.4.0](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.3.2...vscode-sfn-diagram-v0.4.0) (2026-11-12)
+
+
+### Features
+
+* **vscode:** adopt sfn-diagram 2 and show aborted in the legend ([#630](https://github.com/yusufaf/sfn-diagram/issues/630)) ([148559c](https://github.com/yusufaf/sfn-diagram/commit/148559c6a6c7e3e8d1401284b7baeefc939e39a5))
+
 ## [0.3.2](https://github.com/yusufaf/sfn-diagram/compare/vscode-sfn-diagram-v0.3.1...vscode-sfn-diagram-v0.3.2) (2026-11-02)
 
 
