@@ -1,10 +1,16 @@
 name: Bot Dist Rebuild
 
 # packages/github-action-sfn-diagram ships a committed dist bundle, and Unit
-# Test fails when it is stale. Dependabot and the Audit Fix workflow cannot run
-# the build themselves, so this rebuilds the bundle on their PRs and pushes the
-# result back to the PR branch when it changed. The push is made with the
-# release App token so it retriggers CI.
+# Test fails when it is stale. Renovate and Dependabot (security updates) cannot
+# run the build themselves, so this rebuilds the bundle on their PRs and pushes
+# the result back to the PR branch when it changed. The push is made with the
+# release App token so it retriggers CI. renovate.json lists the App's commit
+# author in `gitIgnoredAuthors`, so Renovate keeps rebasing and automerging a
+# branch that carries a rebuild commit instead of treating it as hand-edited.
+# A Renovate rebase force-pushes the branch and drops that commit; the run the
+# force-push triggers rebuilds again, and Unit Test (a required check) stays red
+# on the stale bundle until it lands, so automerge cannot slip in between.
+# Dependabot opens security-update PRs only while that repo setting stays on.
 #
 # That push re-triggers this workflow, which is how it heals: the retriggered run
 # rebuilds, finds the committed bundle already current, and stops without a push.
@@ -17,13 +23,14 @@ name: Bot Dist Rebuild
 #
 # Dependabot-triggered `pull_request` runs only see Dependabot secrets, so
 # RELEASE_APP_KEY must also be stored under Settings > Secrets > Dependabot.
+# Renovate's runs see the ordinary Actions secrets.
 #
 # The work is split across two jobs on purpose. `build` checks out the pull
 # request and runs its dependencies, so it is given no secrets; `push` holds the
 # App token, which can write to this repository, and never has the pull request
 # on disk at all — it commits the artifact through the contents API. A dependency
-# bump is a change to what `pnpm install` and the build execute, and Dependabot
-# PRs are same-repo, so without the split a malicious package would run next to a
+# bump is a change to what `pnpm install` and the build execute, and bot PRs are
+# same-repo, so without the split a malicious package would run next to a
 # repo-push credential.
 
 on:
@@ -41,18 +48,17 @@ jobs:
   build:
     name: Rebuild GitHub Action bundle
     # Keyed on who opened the PR, not `github.actor`, which on a `synchronize`
-    # event is whoever pushed last. A maintainer pushing a fixup onto a Dependabot
-    # PR — routine when a bump needs a code change — must still get a rebuild, and
-    # so must the run our own rebuild push triggers. Gating on the actor skipped
+    # event is whoever pushed last. A maintainer pushing a fixup onto a bot PR —
+    # routine when a bump needs a code change — must still get a rebuild, and so
+    # must the run our own rebuild push triggers. Gating on the actor skipped
     # both, which left the bundle stale with nothing to heal it.
     #
-    # Same-repo only. The `deps/audit-fix` clause matches a branch name, which a
-    # fork PR can carry too; it would then build fork code here and go red minting
-    # a token it can never be given, since fork runs get no secrets.
+    # Same-repo only: a fork run would build fork code here and go red minting a
+    # token it can never be given, since fork runs get no secrets.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.pull_request.user.login == 'dependabot[bot]' ||
-      github.head_ref == 'deps/audit-fix')
+      (github.event.pull_request.user.login == 'renovate[bot]' ||
+      github.event.pull_request.user.login == 'dependabot[bot]')
     runs-on: ubuntu-latest
     # Scoped to this job rather than the workflow: a newer push makes an in-flight
     # build obsolete and cancelling it is right, but our own push is a push to this
