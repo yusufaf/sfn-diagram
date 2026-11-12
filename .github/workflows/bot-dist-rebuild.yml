@@ -7,6 +7,10 @@ name: Bot Dist Rebuild
 # release App token so it retriggers CI. renovate.json lists the App's commit
 # author in `gitIgnoredAuthors`, so Renovate keeps rebasing and automerging a
 # branch that carries a rebuild commit instead of treating it as hand-edited.
+# A Renovate rebase force-pushes the branch and drops that commit; the run the
+# force-push triggers rebuilds again, and Unit Test (a required check) stays red
+# on the stale bundle until it lands, so automerge cannot slip in between.
+# Dependabot opens security-update PRs only while that repo setting stays on.
 #
 # That push re-triggers this workflow, which is how it heals: the retriggered run
 # rebuilds, finds the committed bundle already current, and stops without a push.

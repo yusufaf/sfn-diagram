@@ -8,10 +8,11 @@ name: Audit
 # acceptance in `pnpm.auditConfig.ignoreGhsas`. This run fails while such an
 # advisory is open and prints the override to write.
 #
-# It does not run `pnpm audit --fix`. On pnpm 10.34 that writes an override for
-# every advisory, ignoring `ignoreGhsas` and `--ignore`, and can force a major
-# onto a parent that pins an older one. A plain `pnpm audit` honors the ignore
-# list.
+# It does not run `pnpm audit --fix`. This repo pins pnpm 9.15.9, but on pnpm
+# 10.34 `--fix` writes an override for every advisory, ignoring `ignoreGhsas`
+# and `--ignore`, and can force a major onto a parent that pins an older one,
+# so it would break the moment Renovate's pnpm major lands. A plain
+# `pnpm audit` honors the ignore list on both.
 
 on:
   schedule:

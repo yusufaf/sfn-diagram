@@ -1,5 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Every dependency PR touches the root pnpm-lock.yaml, so release-please attributes it to the core sfn-diagram package. The shared preset types bot commits chore/ci (never fix/feat) so they can't cut a release; retitle a PR to fix(deps) by hand when a shipped dependency should trigger a patch release",
   "extends": ["github>yusufaf/renovate-config"],
   "gitIgnoredAuthors": [
     "yusufaf-release-bot[bot]@users.noreply.github.com",
@@ -22,6 +23,12 @@
       "matchPackageNames": ["node"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Container image bumps are typed build and labeled docker, as they were under Dependabot",
+      "matchCategories": ["docker"],
+      "semanticCommitType": "build",
+      "addLabels": ["docker"]
     },
     {
       "description": "react-dom reads React internals, so a React major moves the whole family, types included, in one PR",

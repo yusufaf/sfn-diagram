@@ -1,7 +1,7 @@
 name: Dependency Review
 
 # Gates a PR that *adds* a dependency carrying a known advisory. This is not the
-# same job as audit-fix.yml, which sweeps the advisory database weekly for
+# same job as audit.yml, which sweeps the advisory database weekly for
 # packages already in the lockfile - that one reports, this one blocks.
 
 on:
