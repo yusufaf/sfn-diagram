@@ -243,12 +243,32 @@ describe('useSfnDiagram', () => {
             expect(cache.stats().misses).toBeGreaterThan(0)
         })
 
-        it('does not consult the cache for format: mermaid', () => {
-            const cache = createLayoutCache()
-            renderHook(() => useSfnDiagram({ cache, definition: HELLO_WORLD, format: 'mermaid' }))
+        const MERMAID_CASES: Array<{ label: string; params: UseSfnDiagramParams }> = [
+            { label: 'plain', params: { definition: HELLO_WORLD, format: 'mermaid' } },
+            {
+                label: 'diff',
+                params: { before: DIFF_BEFORE, definition: DIFF_AFTER, format: 'mermaid' },
+            },
+            {
+                label: 'execution',
+                params: {
+                    definition: HELLO_WORLD,
+                    format: 'mermaid',
+                    history: JSON.stringify(ABORTED_HISTORY),
+                },
+            },
+        ]
 
-            expect(cache.stats()).toEqual({ entries: 0, hits: 0, misses: 0 })
-        })
+        it.each(MERMAID_CASES)(
+            'does not consult the cache for the $label Mermaid output',
+            ({ params }) => {
+                const cache = createLayoutCache()
+                const { result } = renderHook(() => useSfnDiagram({ ...params, cache }))
+
+                expect(result.current.type).toBe('mermaid')
+                expect(cache.stats()).toEqual({ entries: 0, hits: 0, misses: 0 })
+            }
+        )
 
         it('recomputes when the cache prop changes identity', () => {
             const firstCache = createLayoutCache()

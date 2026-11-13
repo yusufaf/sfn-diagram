@@ -217,7 +217,7 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 
 | Prop | Type | Default | Applies to | Description |
 | --- | --- | --- | --- | --- |
-| `before` | `AslDefinition \| string` | — | all | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
+| `before` | `AslDefinition \| string` | — | all (with `history`: html only) | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
 | `cache` | `LayoutCache` | — | svg, html | Layout cache from `createLayoutCache()`. See [Layout cache](#layout-cache). |
 | `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
@@ -226,7 +226,7 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
 | `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
 | `format` | `'svg' \| 'mermaid' \| 'html'` | `'svg'` | — | Output format. See [Interactive viewer](#interactive-viewer-formathtml) for `'html'`. |
-| `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | all | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
+| `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | all (with `before`: html only) | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
 | `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
 | `iconSize` | `number` | `24` | svg only | Size of AWS service icons in pixels. |
 | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid | Graph layout direction. |
