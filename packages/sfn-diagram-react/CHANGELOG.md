@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.1...sfn-diagram-react-v1.1.0) (2026-11-13)
+
+
+### Features
+
+* **react:** render history and diffs in the html viewer and add a cache prop ([#637](https://github.com/yusufaf/sfn-diagram/issues/637)) ([50392fd](https://github.com/yusufaf/sfn-diagram/commit/50392fd92513ad8ccef32265a8050eccf9ce8b5b))
+
 ## [1.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.0...sfn-diagram-react-v1.0.1) (2026-11-13)
 
 
