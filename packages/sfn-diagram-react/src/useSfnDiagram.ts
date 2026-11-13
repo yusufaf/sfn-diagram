@@ -47,10 +47,9 @@ export interface UseSfnDiagramParams
      * functions take no history) or with `format="html"` (core's `generateHtml`
      * accepts a diff, but this hook does not wire it up yet).
      *
-     * The Mermaid diff ignores every option in this type's `Pick<DiagramOptions, ...>`
-     * list - `layout`, `theme`, and the rest: this hook doesn't forward them to
-     * `generateMermaidDiff` yet (#393), although core's `generateMermaidDiff` accepts
-     * them. The SVG diff honours them.
+     * The Mermaid diff honours the options Mermaid output supports (`catchHandling`,
+     * `collapse`, `layout`, `showVariables`, `theme`); the SVG-only ones (`edgeStyle`,
+     * `showIcons`, ...) apply only to the SVG diff.
      */
     before?: AslDefinition | string
     definition: AslDefinition | string
@@ -201,7 +200,11 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
                     throw new Error('before and format="html" cannot be combined')
                 }
                 if (format === 'mermaid') {
-                    const output = generateMermaidDiff({ after: asl, before: beforeAsl })
+                    const output = generateMermaidDiff({
+                        after: asl,
+                        before: beforeAsl,
+                        ...diagramOptions,
+                    })
                     return { code: output.code, metadata: output.metadata, type: 'mermaid' }
                 }
                 const output = generateDiff({ after: asl, before: beforeAsl, ...svgOptions })
