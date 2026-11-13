@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.0...sfn-diagram-react-v1.0.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **react:** forward diagram options to the Mermaid diff ([#635](https://github.com/yusufaf/sfn-diagram/issues/635)) ([70342a5](https://github.com/yusufaf/sfn-diagram/commit/70342a5168999bd2e6d21cd2d88da503f98c7121))
+
 ## [1.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.7.0...sfn-diagram-react-v1.0.0) (2026-11-09)
 
 
