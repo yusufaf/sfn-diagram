@@ -687,6 +687,80 @@ describe('SfnDiagram', () => {
             const collapsedCount = collapsed.querySelectorAll('[data-state-id]').length
             expect(collapsedCount).toBeLessThan(expandedCount)
         })
+
+        it('applies layout and theme to the Mermaid diff', () => {
+            const { container } = render(
+                <SfnDiagram
+                    before={DIFF_BEFORE}
+                    definition={DIFF_AFTER}
+                    format="mermaid"
+                    layout="LR"
+                    theme="dark"
+                />
+            )
+            const code = container.querySelector('pre')?.textContent
+            expect(code).toContain('classDef diffAdded')
+            expect(code).toContain('direction LR')
+            expect(code).toContain("%%{init: {'theme':'dark'}}%%")
+        })
+
+        it('applies collapse to the Mermaid diff', () => {
+            const { container: expanded } = render(
+                <SfnDiagram
+                    before={WITH_PARALLEL}
+                    definition={WITH_PARALLEL_PLUS_EXTRA}
+                    format="mermaid"
+                />
+            )
+            const { container: collapsed } = render(
+                <SfnDiagram
+                    before={WITH_PARALLEL}
+                    collapse
+                    definition={WITH_PARALLEL_PLUS_EXTRA}
+                    format="mermaid"
+                />
+            )
+            const expandedCode = expanded.querySelector('pre')?.textContent
+            const collapsedCode = collapsed.querySelector('pre')?.textContent
+            expect(expandedCode).toContain('class ExtraStep diffAdded')
+            expect(collapsedCode).toContain('class ExtraStep diffAdded')
+            expect(expandedCode).toContain('BranchAWork')
+            expect(collapsedCode).not.toContain('BranchAWork')
+        })
+
+        it('applies catchHandling to the Mermaid diff', () => {
+            const { container: shown } = render(
+                <SfnDiagram before={HELLO_WORLD} definition={WITH_CATCH} format="mermaid" />
+            )
+            const { container: hidden } = render(
+                <SfnDiagram
+                    before={HELLO_WORLD}
+                    catchHandling="hide"
+                    definition={WITH_CATCH}
+                    format="mermaid"
+                />
+            )
+            expect(shown.querySelector('pre')?.textContent).toContain('HandleError')
+            expect(hidden.querySelector('pre')?.textContent).toContain('class RiskyTask diffAdded')
+            expect(hidden.querySelector('pre')?.textContent).not.toContain('HandleError')
+        })
+
+        it('applies showVariables to the Mermaid diff', () => {
+            const { container: shown } = render(
+                <SfnDiagram before={HELLO_WORLD} definition={WITH_ASSIGN} format="mermaid" />
+            )
+            const { container: hidden } = render(
+                <SfnDiagram
+                    before={HELLO_WORLD}
+                    definition={WITH_ASSIGN}
+                    format="mermaid"
+                    showVariables={false}
+                />
+            )
+            expect(shown.querySelector('pre')?.textContent).toContain('$total')
+            expect(hidden.querySelector('pre')?.textContent).toContain('class LoadTotal diffAdded')
+            expect(hidden.querySelector('pre')?.textContent).not.toContain('$total')
+        })
     })
 
     describe('imperative handle', () => {

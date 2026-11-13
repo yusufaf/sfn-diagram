@@ -116,11 +116,10 @@ coloured (green / yellow / red) instead of the machine's normal styling.
   [Execution overlay](#execution-overlay)) or with `format="html"`. Core's
   `generateHtml` takes a diff, but this package doesn't pass one to it yet. Combining
   them calls `onError` and renders `null`.
-- The **SVG diff** (`generateDiff`) honours every diagram option this package forwards
-  (`collapse`, `catchHandling`, `showIcons`, and the rest).
-- The **Mermaid diff** ignores every diagram prop (`layout`, `theme`, `collapse`, …):
-  core's `generateMermaidDiff` accepts them, but this package doesn't forward them yet
-  (#393).
+- Both diffs honour the diagram props this package forwards. The **Mermaid diff**
+  (`generateMermaidDiff`) uses the ones Mermaid output supports (`layout`, `theme`,
+  `collapse`, `catchHandling`, `showVariables`) and ignores SVG-only ones such as
+  `showIcons` and `edgeStyle`, same as a plain `format="mermaid"` render.
 
 ### `onStateClick`
 
@@ -197,9 +196,9 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | Prop | Type | Default | Applies to | Description |
 | --- | --- | --- | --- | --- |
 | `before` | `AslDefinition \| string` | — | svg, mermaid | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
-| `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid¹ | `'hide'` drops Catch error edges and handler-only nodes. |
+| `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
-| `collapse` | `string[] \| boolean` | — | svg, mermaid¹ | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
+| `collapse` | `string[] \| boolean` | — | svg, mermaid | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
 | `definition` | `AslDefinition \| string` | — (required) | all | ASL definition as an object or JSON string. |
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
 | `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
@@ -207,18 +206,15 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | svg, mermaid | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
 | `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
 | `iconSize` | `number` | `24` | svg only | Size of AWS service icons in pixels. |
-| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid¹ | Graph layout direction. |
+| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid | Graph layout direction. |
 | `nodeOverrides` | `Record<string, Partial<NodeStyle>>` | — | svg only | Per-node style overrides keyed by graph node id. |
 | `onError` | `(error: Error) => void` | — | all | Called when the definition fails to parse/render. |
 | `onStateClick` | `(params: { event, stateId }) => void` | — | svg only | See [`onStateClick`](#onstateclick). |
 | `showIcons` | `boolean` | `false` | svg only | Whether to display AWS service icons on Task state nodes. |
-| `showVariables` | `boolean` | `true` | svg, mermaid¹ | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
+| `showVariables` | `boolean` | `true` | svg, mermaid | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
 | `style` | `React.CSSProperties` | — | all | Applied to the wrapper element. |
-| `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid¹ | Diagram theme. |
+| `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid | Diagram theme. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
-
-¹ Not applied in `format="mermaid"` diff mode (the `before` prop) — see
-[Diff mode](#diff-mode).
 
 When the definition is invalid the component renders `null` and (if provided) calls
 `onError`.
