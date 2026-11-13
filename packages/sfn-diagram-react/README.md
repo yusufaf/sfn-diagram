@@ -67,10 +67,12 @@ was stopped.
 `history` accepts a `GetExecutionHistory` events array, the raw command output, or a
 JSON string of either. In the browser, pass the JSON string.
 
-`history` and `before` (diff mode, below) cannot be combined — core's SVG and Mermaid
-functions can't overlay an execution onto a diff. Its interactive viewer can
-(`generateHtml` takes both), but this package doesn't wire that up yet. Combining them
-calls `onError` and renders `null`, the same way any other invalid input is handled.
+`history` and `before` (diff mode, below) combine only with `format="html"`, where the
+viewer paints the run onto the diff: a state that ran takes its execution colour, one
+the run never reached keeps its diff colour, and a changed state that ran shows its diff
+status in its annotation (`modified · 1.2s`). Core's SVG and Mermaid functions can't
+overlay an execution onto a diff, so with those formats the pair calls `onError` and
+renders `null`, the same way any other invalid input is handled.
 
 **`format="mermaid"` combined with `history` honours the same options as plain
 `format="mermaid"`** — `catchHandling`, `collapse`, `showVariables`, `layout` and
@@ -90,9 +92,8 @@ Consequences worth knowing:
   wrapper with a fixed aspect ratio).
 - `onStateClick` does not fire from inside it — clicks inside a sandboxed iframe never
   reach the parent document's event handlers.
-- `history` cannot be combined with `format="html"` yet — core's `generateHtml` accepts
-  `history` and `diff` overlays, but this package does not wire them up yet. Combining
-  them calls `onError` and renders `null`.
+- `history` and `before` both work here, alone or together. On `useSfnDiagram`'s html
+  result, `metadata.execution` and `metadata.diff` carry each overlay's summary.
 
 ```tsx
 <SfnDiagram definition={definition} format="html" style={{ height: 600, width: '100%' }} />
@@ -112,10 +113,8 @@ coloured (green / yellow / red) instead of the machine's normal styling.
 ```
 
 - `before` accepts an ASL object or a JSON string, same as `definition`.
-- `before` cannot be combined with `history` (see
-  [Execution overlay](#execution-overlay)) or with `format="html"`. Core's
-  `generateHtml` takes a diff, but this package doesn't pass one to it yet. Combining
-  them calls `onError` and renders `null`.
+- `before` can't be combined with `history` except under `format="html"` (see
+  [Execution overlay](#execution-overlay)).
 - Both diffs honour the diagram props this package forwards. The **Mermaid diff**
   (`generateMermaidDiff`) uses the ones Mermaid output supports (`layout`, `theme`,
   `collapse`, `catchHandling`, `showVariables`) and ignores SVG-only ones such as
@@ -164,6 +163,29 @@ definition, never pick up each other's arrowheads, and server-rendered markup ke
 same ids after hydration. When a page hydrates several roots, give each root its own
 `identifierPrefix`, as React requires for `useId`.
 
+### Layout cache
+
+Pass a layout cache from `sfn-diagram`'s `createLayoutCache()` to skip re-running the
+layout when only paint-level props change, such as a light/dark theme toggle with the
+same font size:
+
+```tsx
+import { createLayoutCache } from 'sfn-diagram'
+
+const cache = createLayoutCache() // module scope, or useState(() => createLayoutCache())
+
+<SfnDiagram cache={cache} definition={definition} theme={theme} />
+```
+
+- It applies to svg output (plain, diff, and execution overlay) and to the html viewer.
+  Mermaid output ignores it.
+- Pass a stable reference. A new cache on every render never hits.
+- You own its lifetime: call `cache.clear()` when you're done with it. It holds at most
+  `maxEntries` layouts (default 32).
+- One cache can serve several diagrams; marker-id prefixes aren't part of its key.
+- With svg or html, a hand-built or copied object calls `onError` with a `TypeError`.
+  Mermaid ignores `cache`, so it never checks it.
+
 ### `useSfnDiagram`
 
 For the raw output — the SVG/HTML string, Mermaid code, dimensions, and metadata —
@@ -186,8 +208,8 @@ function DownloadSvgButton({ definition }: { definition: AslDefinition }) {
 }
 ```
 
-It accepts the same option-bearing props as `<SfnDiagram>` (`before`, `definition`,
-`format`, `history`, plus every diagram option below) — just not the presentational
+It accepts the same option-bearing props as `<SfnDiagram>` (`before`, `cache`,
+`definition`, `format`, `history`, plus every diagram option below) — just not the presentational
 ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are returned as
 `{ type: 'error', error }` rather than thrown.
 
@@ -195,7 +217,8 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 
 | Prop | Type | Default | Applies to | Description |
 | --- | --- | --- | --- | --- |
-| `before` | `AslDefinition \| string` | — | svg, mermaid | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
+| `before` | `AslDefinition \| string` | — | all | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
+| `cache` | `LayoutCache` | — | svg, html | Layout cache from `createLayoutCache()`. See [Layout cache](#layout-cache). |
 | `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
 | `collapse` | `string[] \| boolean` | — | svg, mermaid | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
@@ -203,7 +226,7 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
 | `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
 | `format` | `'svg' \| 'mermaid' \| 'html'` | `'svg'` | — | Output format. See [Interactive viewer](#interactive-viewer-formathtml) for `'html'`. |
-| `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | svg, mermaid | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
+| `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | all | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
 | `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
 | `iconSize` | `number` | `24` | svg only | Size of AWS service icons in pixels. |
 | `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid | Graph layout direction. |

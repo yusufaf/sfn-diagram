@@ -3,6 +3,7 @@ import { act, createRef, StrictMode } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
+import { createLayoutCache } from 'sfn-diagram'
 import type { AslDefinition } from 'sfn-diagram'
 import { describe, expect, it, vi } from 'vitest'
 import { SfnDiagram } from './SfnDiagram'
@@ -537,18 +538,23 @@ describe('SfnDiagram', () => {
             expect(getSrcDoc(withoutToggle)).not.toContain('data-sfn="collapse-toggle"')
         })
 
-        it('calls onError and renders null when combined with history', () => {
+        it('renders the execution overlay in the viewer when combined with history', () => {
             const onError = vi.fn()
             const { container } = render(
                 <SfnDiagram
                     definition={HELLO_WORLD}
                     format="html"
-                    history={JSON.stringify(HISTORY)}
+                    history={JSON.stringify(ABORTED_HISTORY)}
                     onError={onError}
                 />
             )
-            expect(container.firstChild).toBeNull()
-            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+            const iframe = container.querySelector('iframe')
+            const srcDoc = iframe?.getAttribute('srcDoc') ?? iframe?.getAttribute('srcdoc')
+
+            // The viewer's playback CSS embeds every execution colour, so only the
+            // attribute form proves the overlay was painted.
+            expect(srcDoc).toContain('fill="#cfd8dc"')
+            expect(onError).not.toHaveBeenCalled()
         })
     })
 
@@ -652,7 +658,22 @@ describe('SfnDiagram', () => {
             expect(onError).toHaveBeenCalledWith(expect.any(Error))
         })
 
-        it('calls onError and renders null when combined with format="html"', () => {
+        it('calls onError and renders null when combined with history in Mermaid', () => {
+            const onError = vi.fn()
+            const { container } = render(
+                <SfnDiagram
+                    before={DIFF_BEFORE}
+                    definition={DIFF_AFTER}
+                    format="mermaid"
+                    history={JSON.stringify(HISTORY)}
+                    onError={onError}
+                />
+            )
+            expect(container.firstChild).toBeNull()
+            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+        })
+
+        it('renders the diff in the viewer for format="html"', () => {
             const onError = vi.fn()
             const { container } = render(
                 <SfnDiagram
@@ -662,8 +683,11 @@ describe('SfnDiagram', () => {
                     onError={onError}
                 />
             )
-            expect(container.firstChild).toBeNull()
-            expect(onError).toHaveBeenCalledWith(expect.any(Error))
+            const iframe = container.querySelector('iframe')
+            const srcDoc = iframe?.getAttribute('srcDoc') ?? iframe?.getAttribute('srcdoc')
+
+            expect(srcDoc).toContain('fill="#ffcdd2"')
+            expect(onError).not.toHaveBeenCalled()
         })
 
         it('applies diagram options to the SVG diff', () => {
@@ -760,6 +784,15 @@ describe('SfnDiagram', () => {
             expect(shown.querySelector('pre')?.textContent).toContain('$total')
             expect(hidden.querySelector('pre')?.textContent).toContain('class LoadTotal diffAdded')
             expect(hidden.querySelector('pre')?.textContent).not.toContain('$total')
+        })
+    })
+
+    describe('cache', () => {
+        it('forwards the cache prop', () => {
+            const cache = createLayoutCache()
+            render(<SfnDiagram cache={cache} definition={HELLO_WORLD} />)
+
+            expect(cache.stats().misses).toBeGreaterThan(0)
         })
     })
 
