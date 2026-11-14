@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.1.0...sfn-diagram-react-v1.2.0) (2026-11-14)
+
+
+### Features
+
+* **react:** add a customColors prop ([#646](https://github.com/yusufaf/sfn-diagram/issues/646)) ([1247f7d](https://github.com/yusufaf/sfn-diagram/commit/1247f7de2007a166bf74f0950182a9f962015182))
+
 ## [1.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.1...sfn-diagram-react-v1.1.0) (2026-11-13)
 
 

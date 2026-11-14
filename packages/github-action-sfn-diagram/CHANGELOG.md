@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.9.0...github-action-sfn-diagram-v1.9.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency minimatch to v11 [security] ([#633](https://github.com/yusufaf/sfn-diagram/issues/633)) ([3815766](https://github.com/yusufaf/sfn-diagram/commit/381576647a6a5fb2a517dcfed41a2890fa57a73b))
+
 ## [1.9.0](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.8.0...github-action-sfn-diagram-v1.9.0) (2026-11-09)
 
 
