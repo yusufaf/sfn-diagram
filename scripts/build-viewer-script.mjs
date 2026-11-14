@@ -19,7 +19,8 @@
 // graph transforms, dagre layout and SVG renderer the viewer needs to re-lay the
 // diagram out in the browser for per-container collapse. That one deliberately
 // reaches outside the viewer directory (and into @dagrejs/dagre), so it
-// is minified, kept to an explicit allow-list of modules, and inlined only into
+// is minified with its third-party licence notices written into a banner
+// (RELAYOUT_LICENCES), kept to an explicit allow-list of modules, and inlined only into
 // documents that ship a relayout model - the plain viewer never pays for it.
 //
 // Run via `pnpm run build:viewer-script`. CI (`test:viewer-script`) regenerates and
@@ -149,7 +150,8 @@ export const VIEWER_CONTROLLER_BUNDLE = ${JSON.stringify(body)};
  * Third-party code the relayout bundle carries, and the licence file whose notice
  * every copy must reproduce. dagre's dist inlines graphlib, which has the same MIT
  * notice. src/utils/linePath.ts is ported from d3-shape and d3-path, which share one
- * ISC notice.
+ * ISC notice. Adding a package to RELAYOUT_ALLOWED_PACKAGES, or porting third-party
+ * code into a module the bundle inlines, needs an entry here: the build can't see a port.
  */
 const RELAYOUT_LICENCES = [
     { code: '@dagrejs/dagre and @dagrejs/graphlib', file: 'node_modules/@dagrejs/dagre/LICENSE' },
