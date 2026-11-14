@@ -48,9 +48,9 @@ function inlinedPackages({ metafile }) {
             const files = [...subdirs]
                 .filter((subdir) => existsSync(path.join(dir, subdir)))
                 .flatMap((subdir) =>
-                    readdirSync(path.join(dir, subdir))
-                        .filter((file) => LICENCE_FILE.test(file))
-                        .map((file) => (subdir ? `${subdir}/${file}` : file))
+                    readdirSync(path.join(dir, subdir), { withFileTypes: true })
+                        .filter((entry) => entry.isFile() && LICENCE_FILE.test(entry.name))
+                        .map((entry) => (subdir ? `${subdir}/${entry.name}` : entry.name))
                 )
                 .sort(byCodeUnit)
             const text = files
@@ -86,7 +86,7 @@ function thirdPartyNotice({ packages }) {
     )
     const lines = ['/*! Third-party software bundled into this file, with the notices their licences require.', ' *']
     for (const [text, ids] of groups) {
-        lines.push(` * ${ids.join(', ')}:`, ' *')
+        lines.push(` * ${[...new Set(ids)].join(', ')}:`, ' *')
         if (text === NO_LICENCE_FILE) {
             lines.push(' * Apache-2.0. These packages ship no licence file; the Apache License 2.0 text is above.')
         } else {

@@ -75,9 +75,9 @@ function inlinedPackages(): InlinedPackage[] {
             const licenceFiles = [...dirs]
                 .filter((dir) => existsSync(dir))
                 .flatMap((dir) =>
-                    readdirSync(dir)
-                        .filter((file) => LICENCE_FILE.test(file))
-                        .map((file) => join(dir, file))
+                    readdirSync(dir, { withFileTypes: true })
+                        .filter((entry) => entry.isFile() && LICENCE_FILE.test(entry.name))
+                        .map((entry) => join(dir, entry.name))
                 )
             return { id: `${manifest.name}@${manifest.version}`, licence: manifest.license, licenceFiles, root }
         })
