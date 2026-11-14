@@ -220,23 +220,23 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | --- | --- | --- | --- | --- |
 | `before` | `AslDefinition \| string` | — | all (with `history`: html only) | The *original* side of a diff; `definition` becomes the *after* side. See [Diff mode](#diff-mode). |
 | `cache` | `LayoutCache` | — | svg, html | Layout cache from `createLayoutCache()`. See [Layout cache](#layout-cache). |
-| `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
+| `catchHandling` | `'hide' \| 'show'` | `'show'` | all | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
-| `collapse` | `string[] \| boolean` | — | svg, mermaid | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
+| `collapse` | `string[] \| boolean` | — | all | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. The html viewer starts expanded and sets what its collapse toggle collapses (every container by default); `false` or `[]` removes the toggle. |
 | `customColors` | `Partial<Record<StateType, Partial<NodeStyle>>>` | — | all | Per-state-type `fill` and `stroke` on top of `theme`; other `NodeStyle` fields are ignored (use `nodeOverrides`). An execution overlay paints every state its run-status colour instead, and a diff shows it only on unchanged states. |
 | `definition` | `AslDefinition \| string` | — (required) | all | ASL definition as an object or JSON string. |
-| `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
-| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
+| `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg, html | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
+| `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg, html | Edge path rendering style. |
 | `format` | `'svg' \| 'mermaid' \| 'html'` | `'svg'` | — | Output format. See [Interactive viewer](#interactive-viewer-formathtml) for `'html'`. |
 | `history` | `HistoryEvent[] \| GetExecutionHistoryCommandOutput \| string` | — | all (with `before`: html only) | Execution history; when set, renders an execution overlay. See [Execution overlay](#execution-overlay). |
-| `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg only | Position of AWS service icons relative to the node label. |
-| `iconSize` | `number` | `24` | svg only | Size of AWS service icons in pixels. |
-| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | svg, mermaid | Graph layout direction. |
-| `nodeOverrides` | `Record<string, Partial<NodeStyle>>` | — | svg only | Per-node style overrides keyed by graph node id. |
+| `iconPosition` | `'left' \| 'top' \| 'right'` | `'left'` | svg, html | Position of AWS service icons relative to the node label. |
+| `iconSize` | `number` | `24` | svg, html | Size of AWS service icons in pixels. |
+| `layout` | `'TB' \| 'LR' \| 'RL' \| 'BT'` | `'TB'` | all | Graph layout direction. |
+| `nodeOverrides` | `Record<string, Partial<NodeStyle>>` | — | svg, html | Per-node style overrides keyed by graph node id. |
 | `onError` | `(error: Error) => void` | — | all | Called when the definition fails to parse/render. |
 | `onStateClick` | `(params: { event, stateId }) => void` | — | svg only | See [`onStateClick`](#onstateclick). |
-| `showIcons` | `boolean` | `false` | svg only | Whether to display AWS service icons on Task state nodes. |
-| `showVariables` | `boolean` | `true` | svg, mermaid | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
+| `showIcons` | `boolean` | `false` | svg, html | Whether to display AWS service icons on Task state nodes. |
+| `showVariables` | `boolean` | `true` | all | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
 | `style` | `React.CSSProperties` | — | all | Applied to the wrapper element. |
 | `theme` | `'light' \| 'dark' \| 'auto' \| CustomTheme` | `'light'` | all | Diagram theme. `'auto'` follows the reader's colour scheme in SVG and HTML output; Mermaid renders it as light. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
