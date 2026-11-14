@@ -9,7 +9,9 @@ import path from 'node:path'
 // checks that every inlined package's notice is there.
 
 const packageDir = import.meta.dirname
-const LICENCE_FILE = /^(licen[cs]e|copying|notice)(\.(md|txt))?$/i
+// LICENSE, LICENCE.md, LICENSE-MIT, LICENSE-APACHE.txt, NOTICE, COPYING, …; never a
+// source file such as license.js.
+const LICENCE_FILE = /^(licen[cs]e|copying|notice)(-[a-z0-9]+)?(\.(md|markdown|txt))?$/i
 const MARKER = 'node_modules/'
 const NO_LICENCE_FILE = '(apache-2.0, no licence file)'
 

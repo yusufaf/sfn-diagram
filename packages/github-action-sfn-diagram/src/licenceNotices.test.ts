@@ -11,13 +11,12 @@ import { describe, expect, it } from 'vitest'
  */
 
 const packageDir = join(__dirname, '..')
-const repoRoot = join(packageDir, '..', '..')
 const bundle = readFileSync(join(packageDir, 'dist', 'index.js'), 'utf-8').replace(/\r\n/g, '\n')
 
 const NOTICE_HEADING = 'Third-party software bundled into this file'
 const notice = bundle.includes(NOTICE_HEADING) ? bundle.slice(bundle.indexOf(NOTICE_HEADING)) : ''
 
-const LICENCE_FILE = /^(licen[cs]e|copying|notice)(\.(md|txt))?$/i
+const LICENCE_FILE = /^(licen[cs]e|copying|notice)(-[a-z0-9]+)?(\.(md|markdown|txt))?$/i
 const PATH_COMMENT = /^\/\/ (\S*node_modules\/\S+)$/gm
 const MARKER = 'node_modules/'
 
@@ -95,8 +94,12 @@ describe('third-party licence notices in the Action bundle', () => {
 
     it("includes dagre's copyright and every line of its MIT licence", () => {
         expect(notice).toContain('Copyright (c) 2012-2014 Chris Pettitt')
-        for (const line of licenceLines(join(repoRoot, 'node_modules/@dagrejs/dagre/LICENSE'))) {
-            expect(notice).toContain(line)
+        const dagre = packages.find((pkg) => pkg.id.startsWith('@dagrejs/dagre@'))
+        expect(dagre?.licenceFiles.length).toBeGreaterThan(0)
+        for (const file of dagre!.licenceFiles) {
+            for (const line of licenceLines(file)) {
+                expect(notice).toContain(line)
+            }
         }
     })
 
@@ -120,7 +123,8 @@ describe('third-party licence notices in the Action bundle', () => {
             expect(ids.some((id) => id.startsWith(prefix))).toBe(true)
         }
         expect(packages.length).toBeGreaterThan(20)
-        expect(new Set(ids).size).toBe(packages.length)
+        // One entry per installed copy: two copies of a package (two versions, or one
+        // version under two pnpm peer paths) each need checking.
         expect(new Set(inlinedInputs().map(packagePrefix)).size).toBe(packages.length)
     })
 
