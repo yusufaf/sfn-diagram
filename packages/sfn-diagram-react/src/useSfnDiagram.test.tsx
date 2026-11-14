@@ -66,6 +66,19 @@ const ABORTED_HISTORY = {
     ],
 }
 
+const CUSTOM_COLORS: UseSfnDiagramParams['customColors'] = {
+    Pass: { fill: '#123456', stroke: '#abcdef' },
+}
+
+// StateA stays unchanged, so the diff draws it with its state-type colours.
+const DIFF_AFTER_UNCHANGED_PASS: AslDefinition = {
+    StartAt: 'StateA',
+    States: {
+        StateA: { Next: 'StateB', Type: 'Pass' },
+        StateB: { Comment: 'changed', Type: 'Succeed' },
+    },
+}
+
 describe('useSfnDiagram', () => {
     it('returns svg output with surfaced metadata for a valid definition', () => {
         const { result } = renderHook(() => useSfnDiagram({ definition: HELLO_WORLD }))
@@ -300,6 +313,87 @@ describe('useSfnDiagram', () => {
                 throw new Error('expected error result')
             }
             expect(result.current.error).toBeInstanceOf(TypeError)
+        })
+    })
+
+    describe('customColors', () => {
+        const MERMAID_COLOR_CASES: Array<{ label: string; params: UseSfnDiagramParams }> = [
+            { label: 'plain', params: { definition: HELLO_WORLD, format: 'mermaid' } },
+            {
+                label: 'diff',
+                params: { before: DIFF_BEFORE, definition: DIFF_AFTER, format: 'mermaid' },
+            },
+            {
+                label: 'execution',
+                params: {
+                    definition: HELLO_WORLD,
+                    format: 'mermaid',
+                    history: JSON.stringify(ABORTED_HISTORY),
+                },
+            },
+        ]
+
+        it('colours the state type in the SVG', () => {
+            const { result } = renderHook(() =>
+                useSfnDiagram({ customColors: CUSTOM_COLORS, definition: HELLO_WORLD })
+            )
+
+            if (result.current.type !== 'svg') {
+                throw new Error('expected svg result')
+            }
+            expect(result.current.svg).toContain('fill="#123456"')
+            expect(result.current.svg).toContain('stroke="#abcdef"')
+        })
+
+        it('colours an unchanged state in the SVG diff', () => {
+            const { result } = renderHook(() =>
+                useSfnDiagram({
+                    before: DIFF_BEFORE,
+                    customColors: CUSTOM_COLORS,
+                    definition: DIFF_AFTER_UNCHANGED_PASS,
+                })
+            )
+
+            if (result.current.type !== 'svg') {
+                throw new Error('expected svg result')
+            }
+            expect(result.current.metadata).toMatchObject({ unchanged: ['StateA'] })
+            expect(result.current.svg).toContain('fill="#123456"')
+        })
+
+        // These prove the option reaches core; in the diff and execution cases no
+        // state is drawn with the Pass classDef.
+        it.each(MERMAID_COLOR_CASES)(
+            'sets the state-type classDef in the $label Mermaid output',
+            ({ params }) => {
+                const { result } = renderHook(() =>
+                    useSfnDiagram({ ...params, customColors: CUSTOM_COLORS })
+                )
+
+                if (result.current.type !== 'mermaid') {
+                    throw new Error('expected mermaid result')
+                }
+                expect(result.current.code).toContain('classDef passState fill:#123456,stroke:#abcdef')
+            }
+        )
+
+        it('recomputes when customColors changes', () => {
+            const initialProps: UseSfnDiagramParams = {
+                customColors: CUSTOM_COLORS,
+                definition: HELLO_WORLD,
+            }
+            const { rerender, result } = renderHook(
+                (params: UseSfnDiagramParams) => useSfnDiagram(params),
+                { initialProps }
+            )
+
+            rerender({ customColors: { Pass: { fill: '#654321' } }, definition: HELLO_WORLD })
+
+            if (result.current.type !== 'svg') {
+                throw new Error('expected svg result')
+            }
+            expect(result.current.svg).toContain('fill="#654321"')
+            expect(result.current.svg).not.toContain('fill="#123456"')
         })
     })
 })

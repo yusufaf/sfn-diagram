@@ -74,9 +74,10 @@ status in its annotation (`modified · 1.2s`). Core's SVG and Mermaid functions 
 overlay an execution onto a diff, so with those formats the pair calls `onError` and
 renders `null`, the same way any other invalid input is handled.
 
-**`format="mermaid"` combined with `history` honours the same options as plain
-`format="mermaid"`** — `catchHandling`, `collapse`, `showVariables`, `layout` and
-`theme`. The SVG execution overlay honours every option.
+**`format="mermaid"` combined with `history` honours `catchHandling`, `collapse`,
+`showVariables`, `layout` and `theme`**, like plain `format="mermaid"`. The SVG execution
+overlay honours every option. Neither draws `customColors`: an overlay paints every state,
+including ones the run never reached, in its run-status colour.
 
 ### Interactive viewer (`format="html"`)
 
@@ -85,9 +86,8 @@ static markup. Since embedding a complete HTML *document* is only possible in an
 `<iframe>`, that's what this renders — as a sandboxed `srcDoc`, not a same-origin embed.
 Consequences worth knowing:
 
-- Page CSS does not reach the iframe's content — style it via the diagram options
-  (`theme`, `customColors` are not exposed by this package yet — file an issue if you
-  need them) rather than page-level CSS.
+- Page CSS does not reach the iframe's content — style it through the diagram props
+  (`theme`, `customColors`) rather than page-level CSS.
 - The iframe has no intrinsic height; size it yourself (`style={{ height: 600 }}`, or a
   wrapper with a fixed aspect ratio).
 - `onStateClick` does not fire from inside it — clicks inside a sandboxed iframe never
@@ -117,7 +117,7 @@ coloured (green / yellow / red) instead of the machine's normal styling.
   [Execution overlay](#execution-overlay)).
 - Both diffs honour the diagram props this package forwards. The **Mermaid diff**
   (`generateMermaidDiff`) uses the ones Mermaid output supports (`layout`, `theme`,
-  `collapse`, `catchHandling`, `showVariables`) and ignores SVG-only ones such as
+  `customColors`, `collapse`, `catchHandling`, `showVariables`) and ignores SVG-only ones such as
   `showIcons` and `edgeStyle`, same as a plain `format="mermaid"` render.
 
 ### `onStateClick`
@@ -222,6 +222,7 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `catchHandling` | `'hide' \| 'show'` | `'show'` | svg, mermaid | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
 | `collapse` | `string[] \| boolean` | — | svg, mermaid | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. |
+| `customColors` | `Partial<Record<StateType, Partial<NodeStyle>>>` | — | all | Per-state-type `fill` and `stroke` on top of `theme`; other `NodeStyle` fields are ignored (use `nodeOverrides`). An execution overlay paints every state its run-status colour instead, and a diff shows it only on unchanged states. |
 | `definition` | `AslDefinition \| string` | — (required) | all | ASL definition as an object or JSON string. |
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg only | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
 | `edgeStyle` | `'straight' \| 'curved' \| 'orthogonal'` | `'curved'` | svg only | Edge path rendering style. |
@@ -236,13 +237,13 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `showIcons` | `boolean` | `false` | svg only | Whether to display AWS service icons on Task state nodes. |
 | `showVariables` | `boolean` | `true` | svg, mermaid | Whether to annotate nodes with the variables they assign via ASL `Assign`. |
 | `style` | `React.CSSProperties` | — | all | Applied to the wrapper element. |
-| `theme` | `'light' \| 'dark' \| CustomTheme` | `'light'` | svg, mermaid | Diagram theme. |
+| `theme` | `'light' \| 'dark' \| 'auto' \| CustomTheme` | `'light'` | all | Diagram theme. `'auto'` follows the reader's colour scheme in SVG and HTML output; Mermaid renders it as light. |
 | `title` | `string` | `'Step Functions diagram'` | html only | Accessible title for the rendered iframe. |
 
 When the definition is invalid the component renders `null` and (if provided) calls
 `onError`.
 
-**Memoize object-valued props.** `collapse` (as an array), `nodeOverrides`,
+**Memoize object-valued props.** `collapse` (as an array), `customColors`, `nodeOverrides`,
 `edgeOverrides`, and a `CustomTheme` object for `theme` are all things a consumer might
 inline in JSX. An inline object or array is referentially unstable — a different
 reference on every render — which re-triggers this component's internal memo and a
