@@ -76,8 +76,9 @@ renders `null`, the same way any other invalid input is handled.
 
 **`format="mermaid"` combined with `history` honours `catchHandling`, `collapse`,
 `showVariables`, `layout` and `theme`**, like plain `format="mermaid"`. The SVG execution
-overlay honours every option. Neither execution overlay draws `customColors`: it paints
-every state, including ones the run never reached, in its run-status colour.
+overlay honours every other option too. Neither the SVG nor the Mermaid execution overlay
+draws `customColors`: both paint every state, including ones the run never reached, in its
+run-status colour.
 
 ### Interactive viewer (`format="html"`)
 
