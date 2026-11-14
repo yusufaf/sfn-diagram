@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Library for generating diagrams from AWS Step Functions ASL (Amazon States Language) definitions. Supports dual output: D3.js-based SVG and Mermaid.js diagram code, plus PNG export.
+Library for generating diagrams from AWS Step Functions ASL (Amazon States Language) definitions. Supports dual output: DOM-free SVG and Mermaid.js diagram code, plus PNG export.
 
 ## Documentation Location
 
@@ -40,7 +40,7 @@ Library for generating diagrams from AWS Step Functions ASL (Amazon States Langu
 - Calculates node positions and edge routing
 
 **src/renderers/SvgRenderer.ts** - SVG generation
-- DOM-free SVG string builder (`svgBuilder.ts`) + d3-shape for edge paths; runs in Node, browser, and edge runtimes
+- DOM-free SVG string builder (`svgBuilder.ts`) + in-house edge paths (`utils/linePath.ts`, ported from d3-shape); runs in Node, browser, and edge runtimes
 - Theme-based styling (AWS light/dark themes)
 - Supports different node shapes (rect, diamond, circle)
 - Curved or straight edge paths

@@ -108,8 +108,10 @@ module.exports = {
 ```
 
 - **Jest:** exempt `sfn-diagram` (and `sfn-diagram-react`) from
-  `transformIgnorePatterns` so Jest transforms them, alongside the exemption you already
-  need for `d3-shape` and `d3-path`.
+  `transformIgnorePatterns` so Jest transforms them, for example
+  `transformIgnorePatterns: ['/node_modules/(?!(sfn-diagram|sfn-diagram-react|d3-shape|d3-path)/)']`.
+  2.0.0 and 2.0.1 also need the `d3-shape` and `d3-path` exemption; later releases
+  no longer depend on them, so it can go once you upgrade past 2.0.1.
 - **TypeScript:** with `typesVersions` gone, `moduleResolution: "node"` (`"node10"`)
   loses the subpath types (`sfn-diagram/png` and the rest). Use `"node16"`,
   `"nodenext"` or `"bundler"`. Projects that compile to CommonJS need TypeScript 5.8+

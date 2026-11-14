@@ -1,10 +1,11 @@
 /**
- * Pure-math sampling of an SVG path `d` string produced by d3-shape's `line()`
- * generator - no DOM. Core has to stay DOM-free (Node, browser, and edge runtimes;
- * see tests/edge-runtime.test.ts), which rules out `SVGPathElement.getPointAtLength`.
+ * Pure-math sampling of an SVG path `d` string produced by `buildLinePath`
+ * (`linePath.ts`, a port of d3-shape's `line()`) - no DOM. Core has to stay DOM-free
+ * (Node, browser, and edge runtimes; see tests/edge-runtime.test.ts), which rules out
+ * `SVGPathElement.getPointAtLength`.
  *
  * Only `M`, `L` and `C` commands are handled: that is the complete command set
- * `line()` emits with `curveLinear` (the default) and `curveBasis` (used for
+ * `buildLinePath` emits with the `linear` curve and the `basis` curve (used for
  * `edgeStyle: 'curved'`), and it also covers the hand-built self-loop path in
  * SvgRenderer's `buildSelfLoopPath` and the rounded right-angled paths from
  * `buildRoundedOrthogonalPath` (`edgeStyle: 'orthogonal'`), which emit `M`/`L`/`C`.

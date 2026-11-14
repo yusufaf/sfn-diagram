@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bundles a src/element entry with @dagrejs/dagre/d3-shape/yaml inlined, for driving
+// Bundles a src/element entry with @dagrejs/dagre and yaml inlined, for driving
 // the custom element in a real browser during tests (tests/element/elementRuntime.test.ts).
 // A real consumer's own bundler resolves those as npm dependencies; a bare Puppeteer
 // page has no module resolution, so this throwaway build inlines them instead.
@@ -31,7 +31,7 @@ await build({
     format: ['esm'],
     hash: false,
     logLevel: 'silent',
-    noExternal: [/^@dagrejs\/dagre$/, /^d3-shape$/, /^yaml$/],
+    noExternal: [/^@dagrejs\/dagre$/, /^yaml$/],
     outDir,
     platform: 'browser',
 });

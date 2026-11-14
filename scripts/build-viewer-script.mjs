@@ -18,7 +18,7 @@
 // A second, separate bundle is built from src/renderers/viewer/relayout.ts: the
 // graph transforms, dagre layout and SVG renderer the viewer needs to re-lay the
 // diagram out in the browser for per-container collapse. That one deliberately
-// reaches outside the viewer directory (and into @dagrejs/dagre and d3-shape), so it
+// reaches outside the viewer directory (and into @dagrejs/dagre), so it
 // is minified, kept to an explicit allow-list of modules, and inlined only into
 // documents that ship a relayout model - the plain viewer never pays for it.
 //
@@ -55,6 +55,7 @@ const RELAYOUT_ALLOWED_PREFIXES = [
     'src/styles/',
     'src/types/',
     'src/utils/jsonata.ts',
+    'src/utils/linePath.ts',
     'src/utils/pathSample.ts',
     'src/utils/textMeasure.ts',
     'src/utils/xmlChars.ts',
@@ -64,7 +65,7 @@ const RELAYOUT_ALLOWED_PREFIXES = [
  * The only packages the relayout bundle may contain. Matched by name rather than
  * path, since pnpm installs them under `node_modules/.pnpm/<pkg>@<version>/...`.
  */
-const RELAYOUT_ALLOWED_PACKAGES = /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(?:@dagrejs\/dagre|d3-path|d3-shape)\//;
+const RELAYOUT_ALLOWED_PACKAGES = /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?@dagrejs\/dagre\//;
 
 const result = await build({
     // Paths in the metafile and the per-module `// src/...` comments are relative to

@@ -37,9 +37,6 @@ importers:
       '@dagrejs/dagre':
         specifier: ^2.0.0
         version: 2.0.4
-      d3-shape:
-        specifier: ^3.2.0
-        version: 3.2.0
       minimatch:
         specifier: '>=11.0.1 <12.0.0'
         version: 11.0.8
@@ -80,6 +77,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      d3-shape:
+        specifier: ^3.2.0
+        version: 3.2.0
       esbuild:
         specifier: '>=0.28.1'
         version: 0.28.2

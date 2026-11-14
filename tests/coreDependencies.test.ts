@@ -10,7 +10,7 @@ const repoRoot = resolve(__dirname, '..');
  * Anything else here is a cost every consumer of `generateSvg`/`generateMermaid`
  * or `<sfn-diagram>` pays, including browser and edge ones — see #201.
  */
-const ALLOWED_CORE_RUNTIME_PACKAGES = ['@dagrejs/dagre', 'd3-shape'];
+const ALLOWED_CORE_RUNTIME_PACKAGES = ['@dagrejs/dagre'];
 
 /** Entries that must stay on that list: the core entry, the HTML viewer and the custom element. */
 const BROWSER_FACING_ENTRIES = [
@@ -178,7 +178,7 @@ function resolveLocalModule(fromFile: string, specifier: string): string {
  * Every bare package the transitive runtime-import graph of an entry reaches.
  *
  * @param params - The entry module to walk from.
- * @returns The set of package names, e.g. `Set { '@dagrejs/dagre', 'd3-shape' }`.
+ * @returns The set of package names, e.g. `Set { '@dagrejs/dagre' }`.
  *
  * @example
  * ```typescript
@@ -302,7 +302,7 @@ function staticImportersReachableFrom(
 
 describe("the browser-facing entries' runtime dependency surface", () => {
     it.each(BROWSER_FACING_ENTRIES)(
-        '%s reaches nothing beyond dagre and d3-shape',
+        '%s reaches nothing beyond dagre',
         (entry) => {
             const packages = [
                 ...barePackagesReachableFrom({ entry: join(repoRoot, entry) }),

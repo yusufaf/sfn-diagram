@@ -141,14 +141,20 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `html.js` was restated to about 10% above its measurement when the viewer controller
  * string began shipping minified (#550). It went from 562,080 to 522,611 raw and from
  * 166,340 to 161,498 gzip.
+ *
+ * `element` and `element-auto` were restated to about 10% above their measurement when
+ * edge paths stopped importing d3-shape and the port, with its ISC notice, was inlined
+ * instead. Consumers bundle less overall, but the entry file itself grew: element.js
+ * went from 443,074 to 446,509 raw and from 128,574 to 129,793 gzip, leaving 1.7% gzip
+ * headroom against a budget that had already been at 2.6%.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 265000, raw: 908000 },
     'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.js': { gzip: 114000, raw: 390000 },
-    'element-auto.js': { gzip: 132000, raw: 459000 },
-    'element.js': { gzip: 132000, raw: 458500 },
+    'element-auto.js': { gzip: 143000, raw: 492000 },
+    'element.js': { gzip: 143000, raw: 491500 },
     'html.js': { gzip: 177500, raw: 575000 },
     'index.js': { gzip: 116500, raw: 401000 },
     'png.js': { gzip: 88000, raw: 299000 },

@@ -30,7 +30,7 @@ const asl: AslDefinition = {
 const historyJson = readFileSync(join(__dirname, '../fixtures/execution-success.json'), 'utf-8');
 
 /**
- * The shipped `dist/element*.js` keep `@dagrejs/dagre`/`d3-shape`/`yaml` as bare
+ * The shipped `dist/element*.js` keep `@dagrejs/dagre`/`yaml` as bare
  * external imports - correct for a real consumer's own bundler, but unresolvable
  * when loaded directly into a bare page with no module resolution. Build a
  * throwaway variant with those inlined, just for driving the element in Chromium.
