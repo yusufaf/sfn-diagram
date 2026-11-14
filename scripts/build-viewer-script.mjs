@@ -158,6 +158,21 @@ const RELAYOUT_LICENCES = [
     { code: 'code ported from d3-shape and d3-path', file: 'node_modules/d3-shape/LICENSE' },
 ];
 
+/**
+ * A licence file's text, refusing anything that would break out of the banner: `*\/`
+ * ends the block comment early, and the bundle is inlined raw into a `<script>`
+ * element, where `</script` or `<!--` would end or corrupt it.
+ */
+function readLicenceText(file) {
+    const text = readFileSync(path.join(repoRoot, file), 'utf8').replace(/\r\n/g, '\n').trim();
+    for (const unsafe of ['*/', '</script', '<!--']) {
+        if (text.toLowerCase().includes(unsafe)) {
+            throw new Error(`${file} contains "${unsafe}", which can't go in the relayout licence banner`);
+        }
+    }
+    return text;
+}
+
 // The minifier keeps no legal comments of its own (dagre's points at a LEGAL.txt that
 // a generated document doesn't have), so the notices go in one banner instead.
 const relayoutBanner = [
@@ -165,9 +180,7 @@ const relayoutBanner = [
     ...RELAYOUT_LICENCES.flatMap(({ code, file }) => [
         ` * Includes ${code}:`,
         ' *',
-        ...readFileSync(path.join(repoRoot, file), 'utf8')
-            .replace(/\r\n/g, '\n')
-            .trim()
+        ...readLicenceText(file)
             .split('\n')
             .map((line) => (line ? ` * ${line}` : ' *')),
         ' *',
