@@ -854,7 +854,8 @@ describe('SfnDiagram', () => {
                 identifierPrefix: 'my app ',
             })
             expect(html).toContain('<svg')
-            expect(html).toMatch(/id="sfn-_my_app_R_[^"]*-arrowhead-/)
+            // React 18 server ids look like `:my app R0:`, React 19's like `_my app R_0_`.
+            expect(html).toMatch(/id="sfn-_my_app_R[\w.-]*-arrowhead-/)
         })
 
         // A regression guard rather than a red test: core's hash default is

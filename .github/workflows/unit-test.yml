@@ -212,6 +212,75 @@ jobs:
           path: coverage/lcov.info
           if-no-files-found: warn
 
+  # sfn-diagram-react's peer range is "^18.0.0 || ^19.0.0" and its docs promise
+  # React 18, but its dev dependencies are React 19, so nothing else here ever runs
+  # it on 18 (#495). Swap the latest 18.x in on the runner only - the lockfile
+  # change is never committed.
+  react-18:
+    name: React 18 Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set node LTS
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      # The wrapper resolves sfn-diagram through workspace:* to the root dist/.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Install React 18
+        run: pnpm --filter sfn-diagram-react add -D react@^18 react-dom@^18 @types/react@^18 @types/react-dom@^18
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      # Testing Library is checked too: if it kept resolving React 19, the tests
+      # would mix two Reacts and prove nothing about 18.
+      - name: Assert React 18 is what the wrapper and Testing Library resolve
+        id: assert-react-18
+        working-directory: packages/sfn-diagram-react
+        run: |
+          node -e '
+            const { createRequire } = require("node:module")
+            const fromTestingLibrary = createRequire(require.resolve("@testing-library/react"))
+            const resolved = {
+              "@types/react": require("@types/react/package.json").version,
+              "@types/react-dom": require("@types/react-dom/package.json").version,
+              react: require("react/package.json").version,
+              "react (via @testing-library/react)": fromTestingLibrary("react/package.json").version,
+              "react-dom": require("react-dom/package.json").version,
+              "react-dom (via @testing-library/react)": fromTestingLibrary("react-dom/package.json").version,
+            }
+            console.log(resolved)
+            const wrong = Object.entries(resolved).filter(([, version]) => !version.startsWith("18."))
+            if (wrong.length > 0) {
+              console.log(`::error::expected React 18, got ${JSON.stringify(Object.fromEntries(wrong))}`)
+              process.exit(1)
+            }
+          '
+
+      - name: Typecheck
+        working-directory: packages/sfn-diagram-react
+        run: pnpm run typecheck
+
+      # Also after a Typecheck failure, so one red run reports both verdicts.
+      - name: Test
+        if: ${{ !cancelled() && steps.assert-react-18.outcome == 'success' }}
+        working-directory: packages/sfn-diagram-react
+        run: pnpm test
+
   # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
   # release time - a broken build stage (the missing `scripts/` COPY that broke
   # every image from v1.4.0 through v1.5.0) went unnoticed for three releases
