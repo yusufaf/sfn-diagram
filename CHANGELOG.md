@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.1...sfn-diagram-v2.0.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **html:** keep the dagre and d3 licence notices in the inlined relayout bundle ([#655](https://github.com/yusufaf/sfn-diagram/issues/655)) ([a683bdd](https://github.com/yusufaf/sfn-diagram/commit/a683bdd1ce135e861effd096095b849e441522bc))
+
+
+### Performance Improvements
+
+* **svg:** draw edge paths without d3-shape ([#621](https://github.com/yusufaf/sfn-diagram/issues/621)) ([922d1af](https://github.com/yusufaf/sfn-diagram/commit/922d1afeabe470f717a2cfad2dda8c5e4300560b))
+
 ## [2.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.0...sfn-diagram-v2.0.1) (2026-11-14)
 
 
