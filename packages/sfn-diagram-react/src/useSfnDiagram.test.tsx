@@ -361,8 +361,26 @@ describe('useSfnDiagram', () => {
             expect(result.current.svg).toContain('fill="#123456"')
         })
 
-        // These prove the option reaches core; in the diff and execution cases no
-        // state is drawn with the Pass classDef.
+        it('colours an unchanged state in the Mermaid diff', () => {
+            const { result } = renderHook(() =>
+                useSfnDiagram({
+                    before: DIFF_BEFORE,
+                    customColors: CUSTOM_COLORS,
+                    definition: DIFF_AFTER_UNCHANGED_PASS,
+                    format: 'mermaid',
+                })
+            )
+
+            if (result.current.type !== 'mermaid') {
+                throw new Error('expected mermaid result')
+            }
+            expect(result.current.code).toContain('class StateA passState')
+            expect(result.current.code).toContain('classDef passState fill:#123456,stroke:#abcdef')
+        })
+
+        // These prove the option reaches core. In the diff case (StateA modified) and
+        // the execution case (every state takes a run-status class) no state is drawn
+        // with the Pass classDef.
         it.each(MERMAID_COLOR_CASES)(
             'sets the state-type classDef in the $label Mermaid output',
             ({ params }) => {

@@ -50,8 +50,8 @@ export interface UseSfnDiagramParams
      * is an error, since core's SVG and Mermaid diff functions take no history.
      *
      * The Mermaid diff honours the options Mermaid output supports (`catchHandling`,
-     * `collapse`, `customColors`, `layout`, `showVariables`, `theme`); the SVG-only ones (`edgeStyle`,
-     * `showIcons`, ...) apply only to the SVG diff.
+     * `collapse`, `customColors`, `layout`, `showVariables`, `theme`); the SVG-only
+     * ones (`edgeStyle`, `showIcons`, ...) apply only to the SVG diff.
      */
     before?: AslDefinition | string
     /**
