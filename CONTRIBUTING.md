@@ -67,11 +67,15 @@ three-project Vitest run and the docs site's suite.
 Run `pnpm run build:viewer-script` after touching anything the viewer bundles. That
 is `src/renderers/viewer/`, but **also** the modules the in-browser relayout bundle
 inlines: `src/config/`, `src/constants/`, `src/graph/`, `src/layout/`, `src/styles/`,
-`src/types/`, `src/renderers/SvgRenderer.ts`, `src/renderers/svgBuilder.ts` and three
+`src/types/`, `src/renderers/SvgRenderer.ts`, `src/renderers/svgBuilder.ts` and five
 files under `src/utils/`. `RELAYOUT_ALLOWED_PREFIXES` in
 `scripts/build-viewer-script.mjs` is the authoritative list. The bundled output is
 committed, so editing (say) `src/layout/DagreLayout.ts` and skipping the rebuild makes
 `pnpm test` fail in its first step with a stale-bundle error rather than a test failure.
+The bundle is minified without legal comments, so any third-party code it carries (a
+package, or code ported into one of those modules) needs its licence file listed in
+`RELAYOUT_LICENCES` in the same script. `tests/viewer/licenceNotices.test.ts` checks
+that the notices reach generated HTML.
 
 ### Making Changes
 

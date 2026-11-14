@@ -19,7 +19,8 @@
 // graph transforms, dagre layout and SVG renderer the viewer needs to re-lay the
 // diagram out in the browser for per-container collapse. That one deliberately
 // reaches outside the viewer directory (and into @dagrejs/dagre), so it
-// is minified, kept to an explicit allow-list of modules, and inlined only into
+// is minified with its third-party licence notices written into a banner
+// (RELAYOUT_LICENCES), kept to an explicit allow-list of modules, and inlined only into
 // documents that ship a relayout model - the plain viewer never pays for it.
 //
 // Run via `pnpm run build:viewer-script`. CI (`test:viewer-script`) regenerates and
@@ -145,8 +146,51 @@ const fileContents = `${banner}
 export const VIEWER_CONTROLLER_BUNDLE = ${JSON.stringify(body)};
 `;
 
+/**
+ * Third-party code the relayout bundle carries, and the licence file whose notice
+ * every copy must reproduce. dagre's dist inlines graphlib, which has the same MIT
+ * notice. src/utils/linePath.ts is ported from d3-shape and d3-path, which share one
+ * ISC notice. Adding a package to RELAYOUT_ALLOWED_PACKAGES, or porting third-party
+ * code into a module the bundle inlines, needs an entry here: the build can't see a port.
+ */
+const RELAYOUT_LICENCES = [
+    { code: '@dagrejs/dagre and @dagrejs/graphlib', file: 'node_modules/@dagrejs/dagre/LICENSE' },
+    { code: 'code ported from d3-shape and d3-path', file: 'node_modules/d3-shape/LICENSE' },
+];
+
+/**
+ * A licence file's text, refusing anything that would break out of the banner: `*\/`
+ * ends the block comment early, and the bundle is inlined raw into a `<script>`
+ * element, where `</script` or `<!--` would end or corrupt it.
+ */
+function readLicenceText(file) {
+    const text = readFileSync(path.join(repoRoot, file), 'utf8').replace(/\r\n/g, '\n').trim();
+    for (const unsafe of ['*/', '</script', '<!--']) {
+        if (text.toLowerCase().includes(unsafe)) {
+            throw new Error(`${file} contains "${unsafe}", which can't go in the relayout licence banner`);
+        }
+    }
+    return text;
+}
+
+// The minifier keeps no legal comments of its own (dagre's points at a LEGAL.txt that
+// a generated document doesn't have), so the notices go in one banner instead.
+const relayoutBanner = [
+    '/*!',
+    ...RELAYOUT_LICENCES.flatMap(({ code, file }) => [
+        ` * Includes ${code}:`,
+        ' *',
+        ...readLicenceText(file)
+            .split('\n')
+            .map((line) => (line ? ` * ${line}` : ' *')),
+        ' *',
+    ]),
+    ' */',
+].join('\n');
+
 const relayoutResult = await build({
     absWorkingDir: repoRoot,
+    banner: { js: relayoutBanner },
     bundle: true,
     entryPoints: [relayoutSourcePath],
     // An IIFE assigning `sfnRelayout`, so the controller script can inline it and
