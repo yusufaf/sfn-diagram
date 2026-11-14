@@ -30,6 +30,7 @@ export interface UseSfnDiagramParams
         DiagramOptions,
         | 'catchHandling'
         | 'collapse'
+        | 'customColors'
         | 'edgeOverrides'
         | 'edgeStyle'
         | 'iconPosition'
@@ -49,8 +50,8 @@ export interface UseSfnDiagramParams
      * is an error, since core's SVG and Mermaid diff functions take no history.
      *
      * The Mermaid diff honours the options Mermaid output supports (`catchHandling`,
-     * `collapse`, `layout`, `showVariables`, `theme`); the SVG-only ones (`edgeStyle`,
-     * `showIcons`, ...) apply only to the SVG diff.
+     * `collapse`, `customColors`, `layout`, `showVariables`, `theme`); the SVG-only
+     * ones (`edgeStyle`, `showIcons`, ...) apply only to the SVG diff.
      */
     before?: AslDefinition | string
     /**
@@ -167,6 +168,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
         cache,
         catchHandling,
         collapse,
+        customColors,
         definition,
         edgeOverrides,
         edgeStyle,
@@ -193,6 +195,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
             const diagramOptions = omitUndefinedValues({
                 catchHandling,
                 collapse,
+                customColors,
                 edgeOverrides,
                 edgeStyle,
                 iconPosition,
@@ -269,6 +272,7 @@ export function useSfnDiagram(params: UseSfnDiagramParams): SfnDiagramResult {
         cache,
         catchHandling,
         collapse,
+        customColors,
         edgeOverrides,
         edgeStyle,
         format,

@@ -538,6 +538,22 @@ describe('SfnDiagram', () => {
             expect(getSrcDoc(withoutToggle)).not.toContain('data-sfn="collapse-toggle"')
         })
 
+        it('applies customColors inside the viewer document', () => {
+            const { container } = render(
+                <SfnDiagram
+                    customColors={{ Pass: { fill: '#123456', stroke: '#abcdef' } }}
+                    definition={HELLO_WORLD}
+                    format="html"
+                />
+            )
+            const iframe = container.querySelector('iframe')
+            const srcDoc = iframe?.getAttribute('srcDoc') ?? iframe?.getAttribute('srcdoc')
+
+            // Attribute forms: the bare hex also sits in the viewer's embedded Mermaid copy.
+            expect(srcDoc).toContain('fill="#123456"')
+            expect(srcDoc).toContain('stroke="#abcdef"')
+        })
+
         it('renders the execution overlay in the viewer when combined with history', () => {
             const onError = vi.fn()
             const { container } = render(
