@@ -124,6 +124,19 @@ describe('resolvePngFontOptions', () => {
         expect(result.fontFiles).toEqual([LINUX_LIBERATION]);
     });
 
+    it("probes Alpine's Liberation Sans path on linux", () => {
+        const alpineLiberation = '/usr/share/fonts/liberation/LiberationSans-Regular.ttf';
+        const result = resolvePngFontOptions({
+            platform: 'linux',
+            dirExists: () => false,
+            isFile: (path) => path === alpineLiberation,
+        });
+
+        expect(result.fontFiles).toEqual([alpineLiberation]);
+        expect(result.loadSystemFonts).toBe(false);
+        expect(result.sansSerifFamily).toBe('Liberation Sans');
+    });
+
     it('probes for Arial on win32', () => {
         const result = resolvePngFontOptions({
             platform: 'win32',

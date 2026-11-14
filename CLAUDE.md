@@ -172,7 +172,7 @@ Examples: `feat/map-state-retry`, `fix/svg-edge-path`, `chore/release-0.3.0`
 
 **To ship a release:** merge the open release PR. Nothing else needed.
 
-**If a core publish job fails after the tag exists** (binaries, SHA256SUMS, Homebrew formula, or a flaky verify step): run the `release-please` workflow manually with `publish_tag` set to the core tag (e.g. `sfn-diagram-v1.6.0`). Every core job is idempotent there: npm and JSR skip versions that already exist, binaries and checksums are re-uploaded with `--clobber`, and the formula is overwritten. Never re-publish by hand and never cut a new release just to retry.
+**If a core publish job fails after the tag exists** (binaries, SHA256SUMS, Homebrew formula, or a flaky verify step): run the `release-please` workflow manually with `publish_tag` set to the core tag (e.g. `sfn-diagram-v1.6.0`). Every core job is idempotent there: npm and JSR skip versions that already exist, binaries and checksums are re-uploaded with `--clobber`, and the formula is overwritten. If that run also released React, a failed or cancelled core `npm-publish` held `react-npm-publish` back: once core is on npm, run the workflow again with `publish_tag` set to the React tag (e.g. `sfn-diagram-react-v1.0.0`). Only `react-npm-publish` runs, and it skips a version already on npm. Never re-publish by hand and never cut a new release just to retry.
 
 Commit types that increment the version:
 - `feat` → MINOR bump
@@ -182,7 +182,7 @@ Commit types that increment the version:
 **Four packages are release-managed** (see `release-please-config.json`), each with its own version, changelog, and tag:
 - `.` — the `sfn-diagram` npm package. Merging the release PR publishes to npm.
 - `packages/github-action-sfn-diagram` — the GitHub Action (versioned independently, `private`, not on npm). Commits under that path — including a rebuilt `dist/` bundle from a core change — attribute to it. Merging the release PR runs the `mirror-sync` job, which syncs `scripts/sync-action-mirror.sh` to the Marketplace mirror repo (`yusufaf/sfn-diagram-action`), tags it, and publishes the Release automatically. No manual version bump or `sync:action` run is needed.
-- `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job.
+- `packages/sfn-diagram-react` — the React wrapper on npm (versioned independently). Merging the release PR runs the `react-npm-publish` job, which waits for core's `npm-publish` and runs only if it succeeded or was skipped, so React never reaches npm before the core version its `sfn-diagram` peer range needs.
 - `packages/vscode-sfn-diagram` — the VS Code extension (versioned independently). Merging the release PR runs the `openvsx-publish` job, which auto-publishes to Open VSX. The Microsoft Marketplace is published by the separate `vscode-marketplace.yml` workflow, on the published release, using Entra workload identity federation — no PAT. It is a separate workflow file on purpose: npm and JSR trusted publishing are keyed on the *workflow filename*, so an `id-token: write` job inside `release-please.yml` could mint a token good enough to publish to npm. Run `vscode-marketplace-identity.yml` to get the profile ID if the publishing identity is ever rotated.
 
 release-please emits **one combined release PR** covering all four. The `mirror-sync` job requires the release GitHub App to be installed on the mirror repo with **Contents: write** (one-time setup). `sync:action` remains available for manual recovery.
@@ -233,15 +233,16 @@ into one commit. Split it into separate PRs instead.
 - Once a `!` commit is on `main`, the combined release PR proposes the next core major, and
   merging it to ship *any* component ships that major too. Ship pending subpackage
   releases first.
-- **Action held on 1.x (2.0 window, #529):** the Action package has
-  `"versioning": "always-bump-minor"` in `release-please-config.json`. Every core PR that
-  changes code the Action bundles commits the rebuilt bundle, so the Action inherits core
-  `!` commits. Without the override it would release as 2.0.0, and `sync-action-mirror.sh`
-  would cut and move a `v2` tag, leaving `@v1` users on old code. Its inputs don't change.
-  The Action's CHANGELOG still lists the core breaking notes under "⚠ BREAKING CHANGES".
+- **Holding the Action on its major across a core major:** every core PR that changes
+  code the Action bundles commits the rebuilt bundle, so the Action inherits core `!`
+  commits. Left alone it would release as a new major, and `sync-action-mirror.sh` would
+  cut and move a new `v<major>` tag, leaving users of the old tag on old code. Before the
+  first `!` merge of a core major, set `"versioning": "always-bump-minor"` on
+  `packages/github-action-sfn-diagram` in `release-please-config.json`, and remove it
+  once that core major ships (added in #591 for 2.0, removal tracked in #529). The
+  Action's CHANGELOG still lists the core breaking notes under "⚠ BREAKING CHANGES".
   Don't force a core version with a `Release-As:` footer on a commit that touches the
-  Action's `dist/`: the footer beats the override and applies to the Action too. Remove
-  the override after `sfn-diagram` 2.0.0 ships.
+  Action's `dist/`: the footer beats the override and applies to the Action too.
 
 ### Milestones
 

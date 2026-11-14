@@ -54,8 +54,9 @@ Worth knowing before reporting:
   out of a definition.
 
 What is out of scope: vulnerabilities in a dependency with no exploitable path
-through this project's own code — report those upstream. Dependabot and a weekly
-`pnpm audit` sweep already track advisories in the lockfile.
+through this project's own code — report those upstream. Renovate (working from
+Dependabot alerts) and a weekly `pnpm audit` gate already track advisories in the
+lockfile.
 
 ## What this project already does
 

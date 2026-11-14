@@ -4,14 +4,95 @@ import { describe, expect, it } from 'vitest';
 
 const repoRoot = join(__dirname, '..');
 
-const UPCOMING_PAGE = 'site/src/content/docs/upgrading-to-v2.md';
+const MIGRATION_PAGE = 'site/src/content/docs/upgrading-to-v2.md';
 
 /**
- * Read a repo file. Called inside each test rather than at module scope, so a missing
- * page fails only the tests that need it.
+ * The 1.x names 2.0 removed. The `@deprecated` tags that named them are gone from
+ * `src/`, so the list is fixed here.
+ */
+const REMOVED_IN_2 = [
+    'ConvertParams.height',
+    'DiagramOptions.height',
+    'DiagramOptions.pngQuality',
+    'DiagramOptions.width',
+    'LayoutCache.get',
+    'LayoutCache.keyFor',
+    'LayoutCache.set',
+    'RelayoutModel.callerOverrides',
+    'RelayoutModel.collapseTargets',
+    'RelayoutModel.diffChangedIds',
+    'RelayoutModel.edges',
+    'RelayoutModel.executionStatusByNodeId',
+    'RelayoutModel.nodes',
+    'RelayoutModel.options',
+    'buildViewerContent',
+    'html-to-image',
+    'node-html-to-image',
+    'resolveViewerTheme',
+];
+
+/** One issue per `BREAKING CHANGE:` commit since `sfn-diagram-v1.10.0`. */
+const BREAKING_ISSUES = [285, 309, 321, 408, 524, 525, 526, 527, 528, 555, 615];
+
+/**
+ * Read a repo file with its line endings normalised to `\n`, since Windows checkouts
+ * are CRLF. Called inside each test rather than at module scope, so a missing page
+ * fails only the tests that need it.
  */
 function readRepoFile(relativePath: string): string {
-    return readFileSync(join(repoRoot, relativePath), 'utf8');
+    return readFileSync(join(repoRoot, relativePath), 'utf8').replace(/\r\n/g, '\n');
+}
+
+/** Parameters for {@link collectBreakingSections}. */
+interface CollectBreakingSectionsParams {
+    /** The migration guide's Markdown, with `\n` line endings. */
+    page: string;
+}
+
+/** One `###` section under the guide's `## Breaking changes` heading. */
+interface BreakingSection {
+    /** Everything after the heading line, up to the next `###` or `##`. */
+    body: string;
+    /** The heading line, without the leading `### `. */
+    heading: string;
+    /** The issue numbers linked from the heading. */
+    issues: number[];
+}
+
+/**
+ * Splits the guide's `## Breaking changes` section into its `###` sections. Fenced code
+ * blocks are dropped first, so a `#` comment line inside one can't start or end a section.
+ *
+ * @param params - The page to read.
+ * @returns The sections in page order.
+ * @throws When the page has no line that is exactly `## Breaking changes`, so a renamed
+ * heading fails loudly instead of leaving nothing to check.
+ * @example
+ * collectBreakingSections({ page: '## Breaking changes\n\n### A ([#1](https://github.com/o/r/issues/1))\nBody\n' });
+ * // [{ body: 'Body\n', heading: 'A ([#1](https://github.com/o/r/issues/1))', issues: [1] }]
+ */
+function collectBreakingSections(params: CollectBreakingSectionsParams): BreakingSection[] {
+    const { page } = params;
+    const prose = page.replace(/^ *(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ *\1[`~]* *$/gm, '');
+    const start = /^## Breaking changes$/m.exec(prose);
+    if (!start) {
+        throw new Error('migration guide has no "## Breaking changes" section');
+    }
+    const rest = prose.slice(start.index + start[0].length);
+    const end = rest.indexOf('\n## ');
+    const section = end === -1 ? rest : rest.slice(0, end);
+    return section
+        .split(/^### /m)
+        .slice(1)
+        .map((chunk) => {
+            const newline = chunk.indexOf('\n');
+            const heading = newline === -1 ? chunk : chunk.slice(0, newline);
+            return {
+                body: newline === -1 ? '' : chunk.slice(newline + 1),
+                heading,
+                issues: [...heading.matchAll(/issues\/(\d+)/g)].map((match) => Number(match[1])),
+            };
+        });
 }
 
 /** Parameters for {@link extractRemovedIn2Declarations}. */
@@ -170,21 +251,37 @@ describe('versioning docs', () => {
         ).toThrow(/unrecognised declaration/);
     });
 
-    it('lists every declaration removed in 2.0 on the Upcoming in 2.0 page', () => {
-        const page = readRepoFile(UPCOMING_PAGE);
-        const missing = collectRemovedIn2Declarations({
-            sourceRoot: join(repoRoot, 'src'),
-        }).filter((name) => !page.includes(`\`${name}\``));
+    it('leaves no @deprecated tag promising a 2.0 removal', () => {
+        expect(collectRemovedIn2Declarations({ sourceRoot: join(repoRoot, 'src') })).toEqual([]);
+    });
+
+    it('names every 1.x API that 2.0 removed on the migration guide', () => {
+        const page = readRepoFile(MIGRATION_PAGE);
+        const missing = REMOVED_IN_2.filter((name) => !page.includes(`\`${name}\``));
         expect(missing).toEqual([]);
     });
 
-    it('lists the deprecated html-to-image engine', () => {
-        const page = readRepoFile(UPCOMING_PAGE);
-        expect(page).toContain('`html-to-image`');
-        expect(page).toContain('`node-html-to-image`');
+    it('gives every breaking change a before and after', () => {
+        const sections = collectBreakingSections({ page: readRepoFile(MIGRATION_PAGE) });
+        const incomplete = sections
+            .filter(
+                (section) =>
+                    !section.body.includes('**Before (1.x):**') ||
+                    !section.body.includes('**After (2.0):**'),
+            )
+            .map((section) => section.heading);
+        expect(incomplete).toEqual([]);
     });
 
-    it('links both pages from the README', () => {
+    it('has a breaking-change section for every 2.0 breaking change', () => {
+        const sections = collectBreakingSections({ page: readRepoFile(MIGRATION_PAGE) });
+        const issues = [...new Set(sections.flatMap((section) => section.issues))].sort(
+            (left, right) => left - right,
+        );
+        expect(issues).toEqual(BREAKING_ISSUES);
+    });
+
+    it('links the compatibility policy and the migration guide from the README', () => {
         const readme = readRepoFile('README.md');
         expect(readme).toContain('https://sfn.yusufaf.dev/compatibility/');
         expect(readme).toContain('https://sfn.yusufaf.dev/upgrading-to-v2/');

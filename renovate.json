@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Every dependency PR touches the root pnpm-lock.yaml, so release-please attributes it to the core sfn-diagram package. The shared preset types bot commits chore/ci (never fix/feat) so they can't cut a release; retitle a PR to fix(deps) by hand when a shipped dependency should trigger a patch release",
+  "extends": ["github>yusufaf/renovate-config"],
+  "gitIgnoredAuthors": [
+    "yusufaf-release-bot[bot]@users.noreply.github.com",
+    "291411979+yusufaf-release-bot[bot]@users.noreply.github.com"
+  ],
+  "packageRules": [
+    {
+      "description": "typedoc (0.28.20, the latest) needs minimatch ^10 and throws in expandGlobs on 11 (#644), while GHSA-g3hv-75wg-m249 has no patched 10.x. The site's typedoc step reads only repo-controlled globs, so the advisory is accepted in pnpm.auditConfig.ignoreGhsas. A packageRule with enabled=false also stops vulnerability-fix PRs. Drop this and the ignore entry once typedoc accepts minimatch 11",
+      "matchDepTypes": ["pnpm.overrides"],
+      "matchDepNames": ["typedoc>minimatch"],
+      "enabled": false
+    },
+    {
+      "description": "TypeScript 7's npm package has no classic compiler API (it exports only ./unstable/*), and typescript-eslint and @astrojs/check don't accept it. Drop this once those tools support 7",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "@types/vscode must not exceed the extension's engines.vscode floor: vsce refuses to package when it does. Bump both by hand, in one commit",
+      "matchPackageNames": ["@types/vscode"],
+      "enabled": false
+    },
+    {
+      "description": "Which Node line the image tracks is an LTS decision, not a version bump: odd majors are never LTS and Node 25+ dropped corepack from the image",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Container image bumps are typed build and labeled docker, as they were under Dependabot",
+      "matchCategories": ["docker"],
+      "semanticCommitType": "build",
+      "addLabels": ["docker"]
+    },
+    {
+      "description": "react-dom reads React internals, so a React major moves the whole family, types included, in one PR",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "react (major)"
+    }
+  ]
+}

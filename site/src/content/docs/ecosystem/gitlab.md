@@ -9,7 +9,7 @@ Comment a Step Functions diagram on every merge request that touches an ASL file
 # .gitlab-ci.yml
 sfn-preview:
   stage: test
-  image: ghcr.io/yusufaf/sfn-diagram:1
+  image: ghcr.io/yusufaf/sfn-diagram:2
   variables:
     GIT_DEPTH: 0   # needed to diff the merge request's base commit
   rules:

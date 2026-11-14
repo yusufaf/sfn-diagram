@@ -1,5 +1,42 @@
 # Changelog
 
+## [1.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.1.0...sfn-diagram-react-v1.2.0) (2026-11-14)
+
+
+### Features
+
+* **react:** add a customColors prop ([#646](https://github.com/yusufaf/sfn-diagram/issues/646)) ([1247f7d](https://github.com/yusufaf/sfn-diagram/commit/1247f7de2007a166bf74f0950182a9f962015182))
+
+## [1.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.1...sfn-diagram-react-v1.1.0) (2026-11-13)
+
+
+### Features
+
+* **react:** render history and diffs in the html viewer and add a cache prop ([#637](https://github.com/yusufaf/sfn-diagram/issues/637)) ([50392fd](https://github.com/yusufaf/sfn-diagram/commit/50392fd92513ad8ccef32265a8050eccf9ce8b5b))
+
+## [1.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v1.0.0...sfn-diagram-react-v1.0.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **react:** forward diagram options to the Mermaid diff ([#635](https://github.com/yusufaf/sfn-diagram/issues/635)) ([70342a5](https://github.com/yusufaf/sfn-diagram/commit/70342a5168999bd2e6d21cd2d88da503f98c7121))
+
+## [1.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.7.0...sfn-diagram-react-v1.0.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **react:** sfn-diagram-react needs sfn-diagram ^2.0.0 and Node >= 22.12, ships ES modules only, and types `definition` and `before` as `AslDefinition | string`. Install sfn-diagram@2 and annotate object definitions as `AslDefinition`, or pass a JSON string.
+
+### Features
+
+* **react:** target sfn-diagram 2 ([9de5a6a](https://github.com/yusufaf/sfn-diagram/commit/9de5a6a5fd402ae8fa2097391efd9002d2711163))
+
+
+### Bug Fixes
+
+* **react:** give each diagram its own marker ids ([9de5a6a](https://github.com/yusufaf/sfn-diagram/commit/9de5a6a5fd402ae8fa2097391efd9002d2711163))
+
 ## [0.7.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-react-v0.6.0...sfn-diagram-react-v0.7.0) (2026-10-31)
 
 

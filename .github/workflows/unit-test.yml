@@ -48,13 +48,13 @@ jobs:
             primary: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node ${{ matrix.node }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -206,30 +206,112 @@ jobs:
 
       - name: Upload coverage
         if: matrix.primary && always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-lcov
           path: coverage/lcov.info
           if-no-files-found: warn
+
+  # sfn-diagram-react's peer range is "^18.0.0 || ^19.0.0" and its docs promise
+  # React 18, but its dev dependencies are React 19, so nothing else here ever runs
+  # it on 18 (#495). Swap the latest 18.x in on the runner only - the lockfile
+  # change is never committed.
+  react-18:
+    name: React 18 Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Set node LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      # The wrapper resolves sfn-diagram through workspace:* to the root dist/.
+      - name: Build core
+        run: pnpm run build
+
+      - name: Install React 18
+        run: pnpm --filter sfn-diagram-react add -D react@^18 react-dom@^18 @types/react@^18 @types/react-dom@^18
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+      # Testing Library is checked too: if it kept resolving React 19, the tests
+      # would mix two Reacts and prove nothing about 18.
+      - name: Assert React 18 is what the wrapper and Testing Library resolve
+        id: assert-react-18
+        working-directory: packages/sfn-diagram-react
+        run: |
+          node -e '
+            const { createRequire } = require("node:module")
+            const fromTestingLibrary = createRequire(require.resolve("@testing-library/react"))
+            const resolved = {
+              "@types/react": require("@types/react/package.json").version,
+              "@types/react-dom": require("@types/react-dom/package.json").version,
+              react: require("react/package.json").version,
+              "react (via @testing-library/react)": fromTestingLibrary("react/package.json").version,
+              "react-dom": require("react-dom/package.json").version,
+              "react-dom (via @testing-library/react)": fromTestingLibrary("react-dom/package.json").version,
+            }
+            console.log(resolved)
+            const wrong = Object.entries(resolved).filter(([, version]) => !version.startsWith("18."))
+            if (wrong.length > 0) {
+              console.log(`::error::expected React 18, got ${JSON.stringify(Object.fromEntries(wrong))}`)
+              process.exit(1)
+            }
+          '
+
+      - name: Typecheck
+        working-directory: packages/sfn-diagram-react
+        run: pnpm run typecheck
+
+      # Also after a Typecheck failure, so one red run reports both verdicts.
+      - name: Test
+        if: ${{ !cancelled() && steps.assert-react-18.outcome == 'success' }}
+        working-directory: packages/sfn-diagram-react
+        run: pnpm test
 
   # The Dockerfile (docker.yml) is otherwise only ever exercised for real at
   # release time - a broken build stage (the missing `scripts/` COPY that broke
   # every image from v1.4.0 through v1.5.0) went unnoticed for three releases
   # because nothing built it until then. Build - never push - on every PR so
   # Dockerfile/build-script drift fails here instead of at release time.
+  #
+  # arm64 runs on a native arm64 runner: since 2.0 the image loads a per-architecture
+  # musl resvg binary, and only running it proves PNG text renders there. Native, not
+  # QEMU, so it costs about what the amd64 leg does. The amd64 leg keeps the bare
+  # name the branch ruleset requires.
   docker-build-check:
-    name: Docker Build Check
-    runs-on: ubuntu-latest
+    name: ${{ matrix.arch == 'amd64' && 'Docker Build Check' || format('Docker Build Check ({0})', matrix.arch) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            os: ubuntu-latest
+          - arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # buildx rather than plain `docker build`, for the GitHub Actions layer cache:
       # this job runs on every PR, and most PRs change nothing the image depends on.
       # `load: true` keeps the image in the runner's daemon so the smoke test below
       # can run it - which is also why this build stays single-platform.
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # scope= per build variant: a type=gha export replaces the whole index for its
       # scope, so builds that share one evict each other instead of sharing. mode=min
@@ -237,17 +319,23 @@ jobs:
       # jobs keep their pnpm caches in it; exporting every intermediate layer of a
       # three-stage image on every PR would evict them.
       - name: Build image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          cache-from: type=gha,scope=docker-check-amd64
-          cache-to: type=gha,mode=min,scope=docker-check-amd64
+          cache-from: type=gha,scope=docker-check-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=docker-check-${{ matrix.arch }}
           context: .
           load: true
           tags: sfn-diagram-ci-check
 
+      - name: Check the image's architecture
+        env:
+          WANT: ${{ matrix.arch }}
+        run: |
+          got="$(docker image inspect sfn-diagram-ci-check --format '{{.Architecture}}')"
+          [ "$got" = "$WANT" ] || { echo "::error::built a $got image on the $WANT leg"; exit 1; }
+
       # Same script docker.yml runs against the published image, so the two cannot
-      # drift (#230). It takes the font path from scripts/font-probes.mjs rather
-      # than restating it.
+      # drift (#230).
       - name: Smoke test the built image
         run: bash scripts/docker-smoke.sh --image sfn-diagram-ci-check --png-out docker-smoke/diagram.png
 
@@ -255,9 +343,9 @@ jobs:
       # Keep the render downloadable so a human can eyeball text rendering.
       - name: Upload the Docker PNG smoke output
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-png-smoke
+          name: docker-png-smoke-${{ matrix.arch }}
           path: docker-smoke/diagram.png
           if-no-files-found: warn
 
@@ -291,13 +379,13 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -311,7 +399,7 @@ jobs:
         run: pnpm run build
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Build ${{ matrix.binary }}
         run: pnpm run build:binary --target ${{ matrix.target }}

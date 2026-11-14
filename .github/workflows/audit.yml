@@ -1,0 +1,78 @@
+name: Audit
+
+# Weekly `pnpm audit` against the advisory database. Renovate fixes a vulnerable
+# direct dependency, and lock file maintenance picks up a transitive one whose
+# patched release still fits its parent's range. What neither can fix is a
+# transitive dependency whose patch lies outside that range. That needs a
+# hand-written entry in package.json's `pnpm.overrides`, or a deliberate
+# acceptance in `pnpm.auditConfig.ignoreGhsas`. This run fails while such an
+# advisory is open and prints the override to write.
+#
+# It does not run `pnpm audit --fix`. This repo pins pnpm 9.15.9, but on pnpm
+# 10.34 `--fix` writes an override for every advisory, ignoring `ignoreGhsas`
+# and `--ignore`, and can force a major onto a parent that pins an older one,
+# so it would break the moment Renovate's pnpm major lands. A plain
+# `pnpm audit` honors the ignore list on both.
+
+on:
+  schedule:
+    - cron: '0 15 * * 1' # Mondays 08:00 America/Los_Angeles (15:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: pnpm audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Set node LTS
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: lts/*
+
+      # `pnpm audit` reads only the lockfile, so no install is needed. Its exit
+      # code mixes "advisories found" with registry failures, so classify the
+      # JSON instead: a report that does not parse, or has no
+      # metadata.vulnerabilities, is a tooling failure rather than a clean result.
+      - name: Fail on advisories that are not ignored
+        run: |
+          pnpm audit --json > "$RUNNER_TEMP/audit.json" || true
+          node --input-type=commonjs - "$RUNNER_TEMP/audit.json" <<'EOS'
+          const fs = require("fs");
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          } catch (error) {
+            console.error("::error::pnpm audit did not produce a JSON report (registry or network failure?):", error.message);
+            process.exit(1);
+          }
+          // A clean report still carries an empty `advisories` object, so a
+          // missing one means pnpm did not finish the audit.
+          if (!report.metadata?.vulnerabilities || typeof report.advisories !== "object" || report.advisories === null) {
+            console.error("::error::pnpm audit report is missing metadata.vulnerabilities or advisories:", JSON.stringify(report).slice(0, 500));
+            process.exit(1);
+          }
+          // `advisories` excludes pnpm.auditConfig.ignoreGhsas entries;
+          // metadata.vulnerabilities still counts them.
+          const advisories = Object.values(report.advisories);
+          if (advisories.length === 0) {
+            console.log("No advisories outside pnpm.auditConfig.ignoreGhsas.");
+            process.exit(0);
+          }
+          for (const advisory of advisories) {
+            const head = `${advisory.module_name} ${advisory.github_advisory_id} (${advisory.severity}), vulnerable ${advisory.vulnerable_versions}`;
+            const action = advisory.patched_versions === "<0.0.0"
+              ? "No patched release exists: replace the parent, or accept it in pnpm.auditConfig.ignoreGhsas."
+              : `Bump the parent, or add a pnpm.overrides entry in package.json, e.g. "${advisory.module_name}": "${advisory.patched_versions}". Bound it below the next major if that would force a new major onto a parent that pins an older one.`;
+            console.log(`::error::${head}. ${action}`);
+          }
+          process.exit(1);
+          EOS

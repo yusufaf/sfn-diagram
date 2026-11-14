@@ -1,29 +1,22 @@
 {
     "name": "sfn-diagram-react",
-    "version": "0.7.0",
+    "version": "1.2.0",
     "description": "React component for AWS Step Functions ASL diagrams",
     "type": "module",
     "sideEffects": false,
-    "main": "./dist/index.cjs",
     "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
         ".": {
-            "import": {
-                "types": "./dist/index.d.ts",
-                "default": "./dist/index.js"
-            },
-            "require": {
-                "types": "./dist/index.d.cts",
-                "default": "./dist/index.cjs"
-            }
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
         }
     },
     "files": [
         "dist"
     ],
     "engines": {
-        "node": ">=20"
+        "node": ">=22.12.0"
     },
     "scripts": {
         "build": "tsdown",
@@ -34,7 +27,7 @@
         "prepublishOnly": "pnpm run build && pnpm run validate",
         "validate": "pnpm run validate:publint && pnpm run validate:types",
         "validate:publint": "publint",
-        "validate:types": "attw --pack ."
+        "validate:types": "attw --pack . --profile node16 --ignore-rules cjs-resolves-to-esm"
     },
     "keywords": [
         "aws",
@@ -64,7 +57,7 @@
     "homepage": "https://sfn.yusufaf.dev/ecosystem/react/",
     "peerDependencies": {
         "react": "^18.0.0 || ^19.0.0",
-        "sfn-diagram": "^1.7.0"
+        "sfn-diagram": "^2.0.0"
     },
     "devDependencies": {
         "@arethetypeswrong/cli": "^0.18.5",

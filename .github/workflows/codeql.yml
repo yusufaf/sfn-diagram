@@ -7,7 +7,7 @@ on:
     branches: [main]
   schedule:
     # Thursdays 08:00 America/Los_Angeles (15:00 UTC). Deliberately not Monday:
-    # Dependabot (06:00) and `pnpm audit --fix` (08:00) already run that day, and
+    # Renovate (overnight) and the `pnpm audit` gate (08:00) already run that day, and
     # a weekly scan exists to catch queries added *after* the code stopped
     # changing, so it does not need to sit next to the dependency sweep.
     - cron: '0 15 * * 4'
@@ -41,17 +41,17 @@ jobs:
         language: [actions, javascript-typescript]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # No build step: CodeQL extracts TypeScript from source directly, so the
       # scan does not depend on `pnpm install` or a dist/ tree existing.
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ matrix.language }}
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           category: /language:${{ matrix.language }}

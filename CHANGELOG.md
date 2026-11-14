@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.0...sfn-diagram-v2.0.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency minimatch to v11 [security] ([#633](https://github.com/yusufaf/sfn-diagram/issues/633)) ([3815766](https://github.com/yusufaf/sfn-diagram/commit/381576647a6a5fb2a517dcfed41a2890fa57a73b))
+
+## [2.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.10.0...sfn-diagram-v2.0.0) (2026-11-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* see https://sfn.yusufaf.dev/upgrading-to-v2/ for before-and-after code for every change in this release.
+* **docker:** the Docker image is based on node:24-alpine; Dockerfiles built FROM it install packages with apk instead of apt-get, and glibc-only binaries no longer run in it.
+* **html:** import generateHtml, generateHtmlAsync, generateViewerUpdate and the execution-HTML wrappers from sfn-diagram/html. generateDiagram, generateFromAwsResponse and SfnDiagramGenerator.generate throw for format 'html'.
+* `buildViewerContent` and `resolveViewerTheme` are no longer exported from `sfn-diagram`, and `ViewerUpdate.relayoutModel` is typed `unknown`; use `generateViewerUpdate` for viewer content and pass `relayoutModel` through unchanged.
+* **svg:** SVG marker ids are prefixed by default (`sfn-<hash>-arrowhead-<type>`), so CSS or scripts that reference `#arrowhead-*` stop matching. Pass `idPrefix: ''` for bare ids.
+* **execution:** `ExecutionStateStatus` and `TimelineEntryStatus` gain `aborted`, and `ExecutionMetadataSummary` gains a required `aborted` list. A branch or iteration stopped by another's failure, and every state still open when an execution is stopped, now report `aborted` instead of `failed`. Add a case or a `default:` branch to exhaustive switches.
+* **layout:** `LayoutCache` exposes only `clear()` and `stats()`; `get`, `set` and `keyFor` are gone, and an SVG, HTML or PNG render rejects a cache `createLayoutCache` did not make. `StateNode.type` is now `NodeType` and `GraphEdge.type` is required.
+* `DiagramOptions.pngQuality` is removed, so `exportPng` and `PngExporter` no longer accept it; it never affected PNG output. Use `PngExportOptions.scale` to control PNG resolution.
+* `DiagramOptions.width` and `height` are removed; they never affected output. Size the SVG with CSS (its `viewBox` scales freely), or use `PngExportOptions.scale` for PNG resolution.
+* **png:** the html-to-image PNG engine and its node-html-to-image peer are removed. Drop engine: 'html-to-image' and ConvertParams.height and uninstall node-html-to-image; resvg renders every PNG.
+* sfn-diagram ships ES modules only and drops main and typesVersions. CommonJS callers on Node 22.12+ keep calling require(); Jest users add sfn-diagram to transformIgnorePatterns; TypeScript projects need moduleResolution node16/nodenext/bundler, and CommonJS output needs TS 5.8+ with module nodenext or node20.
+* sfn-diagram requires Node.js >= 22.12.0; upgrade from Node 20.
+
+### Features
+
+* **execution:** distinguish an aborted state from a failed one ([#606](https://github.com/yusufaf/sfn-diagram/issues/606)) ([a5626f0](https://github.com/yusufaf/sfn-diagram/commit/a5626f0f9ccbdcf90af671a2fbc8d66ec7a23ffe))
+* **html:** add the sfn-diagram/html subpath ([#616](https://github.com/yusufaf/sfn-diagram/issues/616)) ([b79be1c](https://github.com/yusufaf/sfn-diagram/commit/b79be1c51ad178b055eaf92cc49d368980f25acf))
+* **html:** move the interactive viewer out of the root entry ([#619](https://github.com/yusufaf/sfn-diagram/issues/619)) ([af42f4c](https://github.com/yusufaf/sfn-diagram/commit/af42f4caefad24529571d9bea264cf10a381759e))
+* **svg:** prefix marker ids uniquely by default ([#612](https://github.com/yusufaf/sfn-diagram/issues/612)) ([d87e2dd](https://github.com/yusufaf/sfn-diagram/commit/d87e2dd8815b59db72a8b621b52dcf0eb65e9788))
+
+
+### Performance Improvements
+
+* **viewer:** minify the inlined viewer controller ([#620](https://github.com/yusufaf/sfn-diagram/issues/620)) ([ffc2988](https://github.com/yusufaf/sfn-diagram/commit/ffc2988d8395a5fb64c54a9feef774d51371c739))
+
+
+### Documentation
+
+* publish the 2.0 migration guide and compatibility policy ([#624](https://github.com/yusufaf/sfn-diagram/issues/624)) ([4adf9bf](https://github.com/yusufaf/sfn-diagram/commit/4adf9bf79eeb2f7207e749327610fd2ea07465ae))
+
+
+### Code Refactoring
+
+* **layout:** narrow LayoutCache and define the layout engine contract ([#604](https://github.com/yusufaf/sfn-diagram/issues/604)) ([ee5a254](https://github.com/yusufaf/sfn-diagram/commit/ee5a254fb91c6006d97b732fc36c064e251bd689))
+* **png:** remove the html-to-image engine ([#601](https://github.com/yusufaf/sfn-diagram/issues/601)) ([aca9c8b](https://github.com/yusufaf/sfn-diagram/commit/aca9c8b9788de809a69090b4e2a6a8d4354810d7))
+* remove the deprecated DiagramOptions.width and height ([#602](https://github.com/yusufaf/sfn-diagram/issues/602)) ([65ad4e1](https://github.com/yusufaf/sfn-diagram/commit/65ad4e1c26586fae14e1217bdb901b3fd4ac0d0a))
+* remove the no-op DiagramOptions.pngQuality ([#603](https://github.com/yusufaf/sfn-diagram/issues/603)) ([c141123](https://github.com/yusufaf/sfn-diagram/commit/c141123097f071ba861558f36a42cfac67abd372))
+* stop exporting viewer internals from the package root ([#614](https://github.com/yusufaf/sfn-diagram/issues/614)) ([5906a16](https://github.com/yusufaf/sfn-diagram/commit/5906a16600ec6574fa4ba069e5a495227d0a720c))
+
+
+### Build System
+
+* **docker:** move the image to Alpine Linux ([#622](https://github.com/yusufaf/sfn-diagram/issues/622)) ([6aceba8](https://github.com/yusufaf/sfn-diagram/commit/6aceba83ef12bd096026320d790bb903236ddc54))
+* raise engines.node to &gt;=22.12.0 ([#598](https://github.com/yusufaf/sfn-diagram/issues/598)) ([18ebc93](https://github.com/yusufaf/sfn-diagram/commit/18ebc93c04cc17afbbfa7dd9e9187793aa5d37bb))
+* ship ESM only ([#600](https://github.com/yusufaf/sfn-diagram/issues/600)) ([0c1762f](https://github.com/yusufaf/sfn-diagram/commit/0c1762fc9c995a3f860ba218440ba193269a1102))
+
 ## [1.10.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.9.1...sfn-diagram-v1.10.0) (2026-10-31)
 
 

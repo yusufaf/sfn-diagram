@@ -31,7 +31,7 @@ concurrency:
 on:
   release:
     types: [published]
-  # Rebuilds the newest core release every week, so base-image and Debian security
+  # Rebuilds the newest core release every week, so base-image and OS security
   # fixes reach the image without waiting for a release. Its tags move to a new
   # digest each time; pin `@sha256:` to freeze an image.
   schedule:
@@ -95,7 +95,7 @@ jobs:
           [[ "$TAG" =~ $shape ]] || { echo "::error::the tag is not a core release tag (sfn-diagram-v<semver>)"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.tag.outputs.tag }}
 
@@ -119,13 +119,13 @@ jobs:
       # QEMU for the linux/arm64 leg, buildx because the default docker driver
       # cannot emit a multi-platform image or use the GitHub Actions cache.
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -133,7 +133,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ env.GHCR_IMAGE }}
           tags: |
@@ -145,19 +145,17 @@ jobs:
             type=raw,value=${{ steps.version.outputs.minor }}
             type=raw,value=latest
 
-      # arm64 is built here and nowhere else: unit-test.yml's docker-build-check
-      # *runs* the image it builds, and a multi-platform build cannot be loaded into
-      # the runner's daemon at all. arm64 under QEMU costs several minutes, which is
-      # worth paying a few times a year rather than on every PR - the price is that
-      # a cross-arch build break surfaces at release time, which is what the
-      # manifest assertion and the report-failure job below exist to make loud.
+      # arm64 is built here under QEMU for the push, because a multi-platform build
+      # cannot be loaded into the runner's daemon to run it. unit-test.yml's
+      # docker-build-check builds and runs arm64 natively on every PR, and
+      # verify-arm64 below runs the pushed arm64 image.
       #
       # provenance/sbom describe a published artifact, so they belong on this push
       # and would attest nothing in the PR check.
       #
       # No layer cache here, deliberately, though docker-build-check uses one. Two
       # reasons, both about publishing rather than speed: a restored layer would pin
-      # `apt-get install ca-certificates ...` to whenever that layer was first built,
+      # the OS package install to whenever that layer was first built,
       # so a release could ship base packages months stale; and this workflow runs on
       # a tag ref, whose cache scope is not the one the PR check writes, so the
       # restore would likely miss while still exporting multi-GB against the repo's
@@ -165,7 +163,7 @@ jobs:
       # uncached minutes a handful of times a year is the cheaper side of that trade.
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           labels: ${{ steps.meta.outputs.labels }}
@@ -218,7 +216,7 @@ jobs:
       # the render downloadable so a human can eyeball text rendering.
       - name: Upload the published image's PNG smoke output
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: docker-published-png-smoke
           path: /tmp/published.png
@@ -259,9 +257,8 @@ jobs:
             exit 1
           fi
 
-      # The tag, not main, so docker-smoke.sh and the font probes it reads match the
-      # image being checked.
-      - uses: actions/checkout@v7
+      # The tag, not main, so docker-smoke.sh matches the image being checked.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.docker.outputs.tag || inputs.tag }}
 
@@ -273,10 +270,10 @@ jobs:
         run: node scripts/resolve-docker-tag.mjs --tag "$TAG"
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           username: ${{ env.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -373,11 +370,54 @@ jobs:
             --expect-version "$VERSION"
           docker pull --platform linux/arm64 "$DOCKERHUB_IMAGE:$VERSION"
 
+  # The `docker` job's smoke test runs the amd64 image only: its runner is amd64, and node
+  # plus resvg under QEMU is slow and flaky. The arm64 image loads its own musl resvg
+  # binary (#555), so run the same smoke script against the pushed digest on an arm64
+  # runner. Parallel to `dockerhub` and `scan`, like them reporting through report-failure.
+  verify-arm64:
+    name: Verify the published arm64 image
+    runs-on: ubuntu-24.04-arm
+    needs: docker
+    permissions:
+      contents: read
+    steps:
+      # The tag, not main, for the same reason as in `dockerhub`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.docker.outputs.tag }}
+
+      - name: Resolve version and derived tags
+        id: version
+        env:
+          TAG: ${{ needs.docker.outputs.tag }}
+        run: node scripts/resolve-docker-tag.mjs --tag "$TAG"
+
+      - name: Verify the published image
+        env:
+          IMAGE: ${{ env.GHCR_IMAGE }}@${{ needs.docker.outputs.digest }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE"
+          arch="$(docker image inspect "$IMAGE" --format '{{.Architecture}}')"
+          [ "$arch" = arm64 ] || { echo "::error::pulled a $arch image on the arm64 runner"; exit 1; }
+          bash scripts/docker-smoke.sh --image "$IMAGE" --png-out /tmp/published-arm64.png \
+            --expect-version "$VERSION"
+
+      - name: Upload the published arm64 image's PNG smoke output
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docker-published-png-smoke-arm64
+          path: /tmp/published-arm64.png
+          if-no-files-found: warn
+
   # Notify-only by design: it scans what `docker` already pushed and does not gate
   # `dockerhub`, so an advisory filed the day of a release can't hold back that
   # release's image. A failure reaches report-failure. Scans the pushed digest on
-  # both platforms. `--ignore-unfixed` because Debian's will_not_fix/fix_deferred
-  # residue has no fix to take (that is #555). Trivy is pinned by digest because
+  # both platforms. `--ignore-unfixed` because an unfixed finding has no fix a rebuild
+  # could take, and until 2.0 ships the weekly run still rebuilds the Debian-based 1.x
+  # image, whose unfixed residue would fail every run. Trivy is pinned by digest because
   # trivy-action and trivy v0.69.4 were compromised in March 2026, and pulled from
   # ghcr.io rather than Docker Hub for its anonymous-pull limit.
   scan:
@@ -424,13 +464,13 @@ jobs:
               --comment "The scan of \`$TAG\` passed on both platforms: $RUN_URL"
           fi
 
-  # `docker` or `dockerhub` failing (or a verification step catching a broken image)
-  # has no human "actor" to notify - it's triggered by a release event or the weekly
-  # schedule, not a click. File an issue so a broken image can't silently sit
-  # unnoticed the way it did for three releases in a row.
+  # `docker`, `dockerhub` or `verify-arm64` failing (or a verification step catching
+  # a broken image) has no human "actor" to notify - it's triggered by a release
+  # event or the weekly schedule, not a click. File an issue so a broken image can't
+  # silently sit unnoticed the way it did for three releases in a row.
   report-failure:
     name: Report Docker publish failure
-    needs: [docker, dockerhub, scan]
+    needs: [docker, dockerhub, scan, verify-arm64]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
@@ -452,12 +492,13 @@ jobs:
           DOCKER_RESULT: ${{ needs.docker.result }}
           DOCKERHUB_RESULT: ${{ needs.dockerhub.result }}
           SCAN_RESULT: ${{ needs.scan.result }}
+          VERIFY_ARM64_RESULT: ${{ needs.verify-arm64.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          if [ "$DOCKER_RESULT" = failure ] || [ "$DOCKERHUB_RESULT" = failure ]; then
+          if [ "$DOCKER_RESULT" = failure ] || [ "$DOCKERHUB_RESULT" = failure ] || [ "$VERIFY_ARM64_RESULT" = failure ]; then
             TITLE="Docker publish failed for $TAG"
-            BODY="A Docker publish job failed for \`$TAG\` ($EVENT; docker: $DOCKER_RESULT, dockerhub: $DOCKERHUB_RESULT, scan: $SCAN_RESULT). \`docker\` builds, pushes and verifies the ghcr.io image; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set and the same tag.
+            BODY="A Docker publish job failed for \`$TAG\` ($EVENT; docker: $DOCKER_RESULT, dockerhub: $DOCKERHUB_RESULT, verify-arm64: $VERIFY_ARM64_RESULT, scan: $SCAN_RESULT). \`docker\` builds, pushes and verifies the ghcr.io image; \`verify-arm64\` runs the pushed arm64 image on an arm64 runner; \`dockerhub\` copies it to Docker Hub - if only that one failed, check whether the \`DOCKERHUB_TOKEN\` secret expired, then re-run with \`dockerhub_only\` set and the same tag.
 
           Run: $RUN_URL"
           else

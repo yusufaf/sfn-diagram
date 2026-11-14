@@ -1,14 +1,11 @@
 ---
 title: Compatibility policy
-description: "What sfn-diagram's version numbers promise from 2.0 on: which APIs, CLI behaviour and output hooks semver covers, and which it does not."
+description: "What sfn-diagram's version numbers promise: which APIs, CLI behaviour and output hooks semver covers, and which it does not."
 ---
 
-:::note[Takes effect in 2.0]
-This policy is drafted in 1.10 and becomes the contract with 2.0.0
-([#523](https://github.com/yusufaf/sfn-diagram/issues/523)). Until then, 1.x keeps
-following semver as it has. For what 2.0 changes, see
-[Upcoming in 2.0](/upgrading-to-v2/).
-:::
+This policy applies from sfn-diagram 2.0.0 on
+([#523](https://github.com/yusufaf/sfn-diagram/issues/523)). Upgrading from 1.x? See
+[Migrating to 2.0](/upgrading-to-v2/).
 
 sfn-diagram follows [semantic versioning](https://semver.org/). A breaking change to
 anything covered below ships only in a major release, with the exceptions listed under
@@ -89,7 +86,8 @@ for what each entry point needs today.
 ## Deprecations
 
 An API is marked `@deprecated` in at least one minor release before a major release
-removes it, and listed on [Upcoming in 2.0](/upgrading-to-v2/) or its successor.
+removes it, and the removal is listed in that major's migration guide
+([Migrating to 2.0](/upgrading-to-v2/) for 2.0).
 
 ## Other packages
 

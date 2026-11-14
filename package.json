@@ -1,6 +1,6 @@
 {
   "name": "sfn-diagram",
-  "version": "1.10.0",
+  "version": "2.0.1",
   "description": "Generate SVG, Mermaid, HTML, and PNG diagrams from AWS Step Functions ASL definitions, CloudFormation/CDK templates, Terraform configs, or live AWS state machines",
   "type": "module",
   "packageManager": "pnpm@9.15.9",
@@ -151,7 +151,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^2.0.0",
-    "minimatch": "^10.0.1",
+    "minimatch": "^11.0.1",
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
@@ -167,6 +167,11 @@
     }
   },
   "pnpm": {
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-g3hv-75wg-m249"
+      ]
+    },
     "overrides": {
       "@humanfs/node": ">=0.16.8",
       "brace-expansion": ">=5.0.9",
@@ -177,16 +182,17 @@
       "fast-uri": ">=3.1.9 <4.0.0",
       "fast-xml-parser": ">=5.7.0",
       "flatted": ">=3.4.2",
-      "follow-redirects": ">=1.16.1 <2.0.0",
+      "follow-redirects": ">=1.16.2 <2.0.0",
       "handlebars": ">=4.7.10 <5.0.0",
       "js-yaml": ">=4.3.2 <5.0.0",
       "linkify-it": ">=5.0.2 <6.0.0",
       "markdown-it": ">=14.3.3 <15.0.0",
-      "minimatch": ">=9.0.7",
+      "minimatch": ">=11.0.1 <12.0.0",
+      "typedoc>minimatch": "^10.2.5",
       "nanoid": ">=3.3.17 <4.0.0",
       "picomatch": ">=4.0.4",
       "postcss": ">=8.5.18 <9.0.0",
-      "qs": ">=6.16.0",
+      "qs": ">=6.16.1 <7.0.0",
       "source-map-js": ">=1.2.2 <2.0.0",
       "undici": ">=7.30.1 <8.0.0",
       "vite": ">=8.0.16",

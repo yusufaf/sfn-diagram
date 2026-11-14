@@ -48,6 +48,7 @@ function buildLegendHtml(executionMetadata: ExecutionMetadata): string {
     ${item('#2e7d32', 'Succeeded', executionMetadata.succeeded.length)}
     ${item('#c62828', 'Failed', executionMetadata.failed.length)}
     ${item('#ef6c00', 'Caught', executionMetadata.caught.length)}
+    ${item('#455a64', 'Aborted', executionMetadata.aborted.length)}
     ${item('#9e9e9e', 'Not reached', executionMetadata.notReached.length)}
     <button data-host="clear-execution" type="button">Clear overlay</button>
   </span>`

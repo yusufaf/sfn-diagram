@@ -9,10 +9,13 @@ on:
   # idempotently. npm and JSR skip when the version is already there; the
   # binaries, SHA256SUMS, and Homebrew formula are rebuilt and overwritten.
   # Use it when a release tag exists but one of those jobs failed.
+  # A React tag (sfn-diagram-react-v*) runs only react-npm-publish, which skips a
+  # version already on npm. Use it once core is on npm after a core failure held
+  # React back.
   workflow_dispatch:
     inputs:
       publish_tag:
-        description: 'Core release tag to (re)publish, e.g. sfn-diagram-v1.6.0'
+        description: 'Release tag to (re)publish: a core tag (sfn-diagram-v2.0.0) or a React tag (sfn-diagram-react-v1.0.0)'
         required: true
         type: string
 
@@ -33,12 +36,12 @@ jobs:
       vscode_release_created: ${{ steps.release.outputs['packages/vscode-sfn-diagram--release_created'] }}
       vscode_tag_name: ${{ steps.release.outputs['packages/vscode-sfn-diagram--tag_name'] }}
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_KEY }}
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -84,16 +87,16 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
@@ -221,15 +224,15 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -264,24 +267,36 @@ jobs:
   # Publish the React wrapper to npm when release-please cut a release for it.
   # Versioned independently of the core package, so it gets its own tag and its
   # own job. Same Trusted Publisher (OIDC) setup as npm-publish — no NPM_TOKEN.
+  #
+  # It waits for npm-publish, so a run that ships both never lists a React version
+  # whose sfn-diagram peer can't resolve (2.0.0 and React 1.0.0 went out about 94 s
+  # apart, React first). A skipped npm-publish (a React-only release, or a React
+  # publish_tag dispatch) lets it run. A failed one holds it back, and
+  # report-publish-failure says how to recover. A cancelled one holds it back too,
+  # but files no issue; recover with a React-tag publish_tag dispatch.
   react-npm-publish:
-    needs: release-please
-    if: needs.release-please.outputs.react_release_created == 'true'
+    needs: [release-please, npm-publish]
+    if: |
+      !cancelled() &&
+      (needs.npm-publish.result == 'success' || needs.npm-publish.result == 'skipped') &&
+      (needs.release-please.outputs.react_release_created == 'true' ||
+       (github.event_name == 'workflow_dispatch' &&
+        startsWith(github.event.inputs.publish_tag, 'sfn-diagram-react-v')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release-please.outputs.react_tag_name }}
+          ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.react_tag_name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
@@ -325,6 +340,27 @@ jobs:
               process.exit(1);
             }
           "
+
+      # The ordering above covers a run that also ships core. A publish_tag dispatch
+      # for a React tag has no core job to wait for, so check the peer directly.
+      # Poll like the verify steps: right after core publishes, a stale packument can
+      # briefly hide the new version (the 1.7.0 false failure), so force revalidation.
+      - name: Assert the sfn-diagram peer resolves on npm
+        run: |
+          RANGE="$(node -p "require('./packages/sfn-diagram-react/package.json').peerDependencies['sfn-diagram']")"
+          export npm_config_prefer_online=true
+          ATTEMPTS=10
+          for i in $(seq 1 "$ATTEMPTS"); do
+            if npm view "sfn-diagram@$RANGE" version >/dev/null; then
+              exit 0
+            fi
+            if [ "$i" -lt "$ATTEMPTS" ]; then
+              echo "No sfn-diagram satisfies '$RANGE' yet (attempt $i/$ATTEMPTS); retrying in 15s"
+              sleep 15
+            fi
+          done
+          echo "::error::No sfn-diagram on npm satisfies the React peer range '$RANGE'. Publish core first."
+          exit 1
 
       # Skip when already published so "Re-run failed jobs" after a verify
       # timeout doesn't die on "cannot publish over previously published version".
@@ -376,15 +412,15 @@ jobs:
       contents: read
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.vscode_tag_name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -448,7 +484,7 @@ jobs:
       # A token scoped to the mirror repo. The release GitHub App must be
       # installed on yusufaf/sfn-diagram-action with Contents: write.
       - name: Mint mirror-scoped token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: mirror-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -457,16 +493,16 @@ jobs:
           repositories: sfn-diagram-action
 
       - name: Checkout released action tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release-please.outputs.action_tag_name }}
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -529,15 +565,15 @@ jobs:
       contents: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -551,7 +587,7 @@ jobs:
         run: pnpm run build
 
       - name: Install bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Build binaries
         run: pnpm run build:binary ${{ matrix.targets }}
@@ -622,15 +658,15 @@ jobs:
       contents: read
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set node LTS
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: lts/*
           cache: pnpm
@@ -676,7 +712,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
@@ -700,7 +736,7 @@ jobs:
       # Verify a download with:
       #   gh attestation verify sfn-diagram-linux-x64 --repo ${{ github.repository }}
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: binaries/sfn-diagram-*
 
@@ -714,7 +750,7 @@ jobs:
           gh release upload "$TAG" binaries/SHA256SUMS --clobber
 
       - name: Keep SHA256SUMS for the Homebrew job
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sha256sums
           path: binaries/SHA256SUMS
@@ -732,7 +768,7 @@ jobs:
       contents: read
     steps:
       - name: Mint tap-scoped token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: tap-token
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
@@ -741,12 +777,12 @@ jobs:
           repositories: ${{ vars.HOMEBREW_TAP_REPO }}
 
       - name: Checkout released tag
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.inputs.publish_tag || needs.release-please.outputs.tag_name }}
 
       - name: Download SHA256SUMS
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sha256sums
           path: binaries
@@ -852,6 +888,8 @@ jobs:
             --title "Release publish failure: ${{ needs.release-please.outputs.tag_name || github.event.inputs.publish_tag }}" \
             --label bug \
             --body "A publish job failed (or its post-publish verification did), or HOMEBREW_TAP_REPO is unset so no Homebrew formula was published.
+
+          ${{ needs.release-please.outputs.react_release_created == 'true' && needs.react-npm-publish.result == 'skipped' && format('sfn-diagram-react was held back because core did not publish. Once core is on npm, run this workflow with publish_tag={0}.', needs.release-please.outputs.react_tag_name) || '' }}
 
           | Job | Result |
           |---|---|
