@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.0...sfn-diagram-v2.0.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** update dependency minimatch to v11 [security] ([#633](https://github.com/yusufaf/sfn-diagram/issues/633)) ([3815766](https://github.com/yusufaf/sfn-diagram/commit/381576647a6a5fb2a517dcfed41a2890fa57a73b))
+
 ## [2.0.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v1.10.0...sfn-diagram-v2.0.0) (2026-11-09)
 
 
