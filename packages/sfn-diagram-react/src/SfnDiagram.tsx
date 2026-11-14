@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useActionState, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react'
 import { useSfnDiagram } from './useSfnDiagram'
 import type { SfnDiagramResult, UseSfnDiagramParams } from './useSfnDiagram'
 
@@ -55,7 +55,6 @@ export const SfnDiagram = forwardRef<SfnDiagramHandle, SfnDiagramProps>(function
     },
     ref
 ) {
-    useActionState(async (state: null) => state, null)
     const result = useSfnDiagram(diagramParams)
 
     useImperativeHandle(
