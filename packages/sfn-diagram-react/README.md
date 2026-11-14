@@ -5,7 +5,7 @@
 
 React component for rendering [AWS Step Functions](https://aws.amazon.com/step-functions/) ASL definitions as diagrams, built on top of [`sfn-diagram`](https://www.npmjs.com/package/sfn-diagram).
 
-The core is DOM-free, so `<SfnDiagram>` renders the SVG (or Mermaid code) with no browser-only dependencies. Not on React (or on React 18, which can't set object props on custom elements)? [`<sfn-diagram>`](https://sfn.yusufaf.dev/ecosystem/web-component/) is a framework-agnostic custom element shipped from `sfn-diagram/element` — no extra package.
+The core is DOM-free, so `<SfnDiagram>` renders the SVG, Mermaid code, or the interactive HTML viewer (in an `<iframe>`) with no browser-only dependencies. Not on React (or on React 18, which can't set object props on custom elements)? [`<sfn-diagram>`](https://sfn.yusufaf.dev/ecosystem/web-component/) is a framework-agnostic custom element shipped from `sfn-diagram/element` — no extra package.
 
 ## Installation
 
@@ -222,7 +222,7 @@ ones (`className`, `onError`, `onStateClick`, `style`, `title`). Errors are retu
 | `cache` | `LayoutCache` | — | svg, html | Layout cache from `createLayoutCache()`. See [Layout cache](#layout-cache). |
 | `catchHandling` | `'hide' \| 'show'` | `'show'` | all | `'hide'` drops Catch error edges and handler-only nodes. |
 | `className` | `string` | — | all | Applied to the wrapper element (`div`, `pre`, or `iframe`). |
-| `collapse` | `string[] \| boolean` | — | all | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. The html viewer starts expanded and sets what its collapse toggle collapses (every container by default); `false` or `[]` removes the toggle. |
+| `collapse` | `string[] \| boolean` | — (html: `true`) | all | Collapse Parallel/Map containers into a placeholder node. `true` collapses every container; an array collapses only the named ones. The html viewer starts expanded and sets what its collapse toggle collapses (every container by default); `false` or `[]` removes the toggle. |
 | `customColors` | `Partial<Record<StateType, Partial<NodeStyle>>>` | — | all | Per-state-type `fill` and `stroke` on top of `theme`; other `NodeStyle` fields are ignored (use `nodeOverrides`). An execution overlay paints every state its run-status colour instead, and a diff shows it only on unchanged states. |
 | `definition` | `AslDefinition \| string` | — (required) | all | ASL definition as an object or JSON string. |
 | `edgeOverrides` | `Record<string, EdgeStyleOverride>` | — | svg, html | Per-edge style overrides keyed by `GraphEdge.id` (preferred, e.g. `Route->Work#choice#1`) or the legacy bare `${from}->${to}` (broad-matches every edge between that pair). |
