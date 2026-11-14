@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.9.1...github-action-sfn-diagram-v1.9.2) (2026-11-14)
+
+
+### Performance Improvements
+
+* **svg:** draw edge paths without d3-shape ([#621](https://github.com/yusufaf/sfn-diagram/issues/621)) ([922d1af](https://github.com/yusufaf/sfn-diagram/commit/922d1afeabe470f717a2cfad2dda8c5e4300560b))
+
 ## [1.9.1](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.9.0...github-action-sfn-diagram-v1.9.1) (2026-11-14)
 
 
