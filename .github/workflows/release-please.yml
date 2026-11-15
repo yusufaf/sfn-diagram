@@ -199,7 +199,7 @@ jobs:
           # few times before calling it a failure. With the tarball already
           # served, the retries cover only that packument lag, so a failure that
           # outlasts them most likely means the package itself is broken (a bad
-          # bin, a crash on start); the npx output above the error says which.
+          # bin, a crash on start); npx's stderr in the job log says which.
           # A failed attempt caches the stale packument (the registry
           # serves it with max-age=300), so force a revalidation on every
           # attempt or the retries would just re-read the cache and fail the
