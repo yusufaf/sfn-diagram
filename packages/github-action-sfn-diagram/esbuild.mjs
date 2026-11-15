@@ -1,5 +1,5 @@
 import { build } from 'esbuild'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 // The Action ships one committed file, dist/index.js, with every dependency inlined
@@ -48,9 +48,10 @@ function inlinedPackages({ metafile }) {
             const files = [...subdirs]
                 .filter((subdir) => existsSync(path.join(dir, subdir)))
                 .flatMap((subdir) =>
-                    readdirSync(path.join(dir, subdir), { withFileTypes: true })
-                        .filter((entry) => entry.isFile() && LICENCE_FILE.test(entry.name))
-                        .map((entry) => (subdir ? `${subdir}/${entry.name}` : entry.name))
+                    readdirSync(path.join(dir, subdir))
+                        // statSync follows symlinks: a symlinked LICENSE counts, a directory doesn't.
+                        .filter((file) => LICENCE_FILE.test(file) && statSync(path.join(dir, subdir, file)).isFile())
+                        .map((file) => (subdir ? `${subdir}/${file}` : file))
                 )
                 .sort(byCodeUnit)
             const text = files

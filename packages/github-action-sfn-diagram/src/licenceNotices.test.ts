@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -75,9 +75,9 @@ function inlinedPackages(): InlinedPackage[] {
             const licenceFiles = [...dirs]
                 .filter((dir) => existsSync(dir))
                 .flatMap((dir) =>
-                    readdirSync(dir, { withFileTypes: true })
-                        .filter((entry) => entry.isFile() && LICENCE_FILE.test(entry.name))
-                        .map((entry) => join(dir, entry.name))
+                    readdirSync(dir)
+                        .filter((file) => LICENCE_FILE.test(file) && statSync(join(dir, file)).isFile())
+                        .map((file) => join(dir, file))
                 )
             return { id: `${manifest.name}@${manifest.version}`, licence: manifest.license, licenceFiles, root }
         })
