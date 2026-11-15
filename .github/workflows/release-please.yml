@@ -198,8 +198,9 @@ jobs:
           # and filed a false "publish failure" issue. Retry the npx probe a
           # few times before calling it a failure. With the tarball already
           # served, the retries cover only that packument lag, so a failure that
-          # outlasts them means the package itself is broken (a bad bin, a crash
-          # on start). A failed attempt caches the stale packument (the registry
+          # outlasts them most likely means the package itself is broken (a bad
+          # bin, a crash on start); the npx output above the error says which.
+          # A failed attempt caches the stale packument (the registry
           # serves it with max-age=300), so force a revalidation on every
           # attempt or the retries would just re-read the cache and fail the
           # same way.

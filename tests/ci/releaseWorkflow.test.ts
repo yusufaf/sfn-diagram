@@ -91,10 +91,15 @@ describe('release workflow: react-npm-publish', () => {
 });
 
 describe('release workflow: npm-publish verify', () => {
-    const verifyRun =
+    // Comment lines are dropped so a commented-out command can't satisfy a check.
+    const verifyRun = (
         (workflow.jobs['npm-publish'].steps ?? []).find(
             (step) => step.name === 'Verify the published version on npm',
-        )?.run ?? '';
+        )?.run ?? ''
+    )
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('#'))
+        .join('\n');
     const tokens = [
         'npm view sfn-diagram@"$VERSION" version',
         'npm view sfn-diagram@"$VERSION" dist.tarball',
