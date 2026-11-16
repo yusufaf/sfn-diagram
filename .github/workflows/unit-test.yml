@@ -406,3 +406,8 @@ jobs:
 
       - name: Smoke test
         run: bash scripts/smoke-test-binary.sh binaries/${{ matrix.binary }}
+
+      - name: Check the binary's licence notices
+        env:
+          SFN_DIAGRAM_BINARY: binaries/${{ matrix.binary }}
+        run: pnpm exec vitest run --project unit tests/binaryLicenceNotices.test.ts

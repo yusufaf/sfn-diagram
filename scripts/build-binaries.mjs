@@ -18,12 +18,22 @@
 // in (there is no package.json next to a compiled binary), and `--format png`
 // is disabled because the native rasterizer it needs cannot be bundled into a
 // single-file executable.
+//
+// The binary inlines third-party packages (dagre, minimatch, yaml, …) whose
+// licences require their notice in every copy, and most carry it only in a
+// LICENSE file that bun leaves behind. So a quick non-compile bun pass first
+// lists what gets bundled, and the entry module then opens with a `/*!` comment
+// holding every one of those notices, which bun keeps in the executable. A
+// package with no licence file fails the build. tests/binaryLicenceNotices.test.ts
+// checks a built binary (CI runs it on every binary it builds).
 import { spawnSync } from 'node:child_process';
 import {
     existsSync,
     mkdirSync,
+    readdirSync,
     readFileSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +45,16 @@ const root = path.join(here, '..');
 const binPath = path.join(root, 'dist/bin.js');
 const outDir = path.join(root, 'binaries');
 const entryPath = path.join(outDir, 'entry.generated.mjs');
+const analysisJs = path.join(outDir, 'notices.analysis.js');
+const analysisJson = path.join(outDir, 'notices.analysis.json');
+
+// LICENSE, LICENCE.md, LICENSE-MIT, NOTICE, COPYING, …; never a source file such
+// as license.js.
+const LICENCE_FILE =
+    /^(licen[cs]e|copying|notice)(-[a-z0-9]+)?(\.(md|markdown|txt))?$/i;
+const MARKER = 'node_modules/';
+
+const byCodeUnit = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 
 /** bun `--target` name -> release asset name (without the Windows extension). */
 const TARGETS = {
@@ -98,6 +118,163 @@ function readVersion() {
     return JSON.parse(readFileSync(packageJsonPath, 'utf8')).version;
 }
 
+/**
+ * Each third-party package bun's metafile shows was bundled, with its licence
+ * text: the licence files in the package root and in every directory between an
+ * inlined file and that root. Keyed by the full path through the last
+ * node_modules/, so two copies of one package stay apart. bun writes the input
+ * paths relative to the directory it ran in, which is `root`.
+ *
+ * @param {{ metafile: { inputs: Record<string, unknown> } }} params - The parsed bun metafile.
+ * @returns {{ files: string[], id: string, text: string }[]} One entry per bundled package, sorted by id.
+ * @throws if a package ships no licence file, or its licence would end the notice comment early.
+ */
+function bundledPackages({ metafile }) {
+    const subdirsByRoot = new Map();
+    for (const input of Object.keys(metafile.inputs)) {
+        const index = input.lastIndexOf(MARKER);
+        if (index === -1) {
+            continue;
+        }
+        const segments = input.slice(index + MARKER.length).split('/');
+        const nameLength = segments[0].startsWith('@') ? 2 : 1;
+        const packageRoot =
+            input.slice(0, index + MARKER.length) +
+            segments.slice(0, nameLength).join('/');
+        const subdirs = subdirsByRoot.get(packageRoot) ?? new Set(['']);
+        const inner = segments.slice(nameLength, -1);
+        for (let depth = 1; depth <= inner.length; depth++) {
+            subdirs.add(inner.slice(0, depth).join('/'));
+        }
+        subdirsByRoot.set(packageRoot, subdirs);
+    }
+    return [...subdirsByRoot]
+        .map(([packageRoot, subdirs]) => {
+            const dir = path.join(root, packageRoot);
+            const manifest = JSON.parse(
+                readFileSync(path.join(dir, 'package.json'), 'utf8'),
+            );
+            const id = `${manifest.name}@${manifest.version}`;
+            const files = [...subdirs]
+                .filter((subdir) => existsSync(path.join(dir, subdir)))
+                .flatMap((subdir) =>
+                    readdirSync(path.join(dir, subdir))
+                        // statSync follows symlinks: a symlinked LICENSE counts, a directory doesn't.
+                        .filter(
+                            (file) =>
+                                LICENCE_FILE.test(file) &&
+                                statSync(path.join(dir, subdir, file)).isFile(),
+                        )
+                        .map((file) => (subdir ? `${subdir}/${file}` : file)),
+                )
+                .sort(byCodeUnit);
+            const text = files
+                .map((file) =>
+                    readFileSync(path.join(dir, file), 'utf8')
+                        .replace(/\r\n/g, '\n')
+                        .trim(),
+                )
+                .join('\n\n');
+            if (!text) {
+                throw new Error(`${id} ships no licence file`);
+            }
+            if (text.includes('*/')) {
+                throw new Error(
+                    `${id}'s licence contains "*/", which would end the notice comment early`,
+                );
+            }
+            return { files, id, text };
+        })
+        .sort((left, right) => byCodeUnit(left.id, right.id));
+}
+
+/**
+ * One block comment with every package's notice, packages sharing identical
+ * licence text listed together.
+ *
+ * @param {{ packages: { id: string, text: string }[] }} params - The bundled packages.
+ * @returns {string} The `/*! … *\/` comment, or '' when nothing third party is bundled.
+ */
+function thirdPartyNotice({ packages }) {
+    if (packages.length === 0) {
+        return '';
+    }
+    const idsByText = new Map();
+    for (const pkg of packages) {
+        idsByText.set(pkg.text, [...(idsByText.get(pkg.text) ?? []), pkg.id]);
+    }
+    const lines = [
+        '/*! Third-party software bundled into this file, with the notices their licences require.',
+        ' *',
+    ];
+    for (const [text, ids] of idsByText) {
+        lines.push(` * ${[...new Set(ids)].join(', ')}:`, ' *');
+        lines.push(
+            ...text
+                .split('\n')
+                .map((line) =>
+                    line.trimEnd() ? ` * ${line.trimEnd()}` : ' *',
+                ),
+        );
+        lines.push(' *');
+    }
+    lines.push(' */');
+    return lines.join('\n');
+}
+
+// The build constant is injected through a tiny entry module rather than bun's
+// `--define`, so the JSON value never has to survive shell quoting (this script
+// runs on Windows too). A dynamic import keeps the assignment ahead of the bin
+// entry's module body, which runs immediately on import; a static import would
+// be hoisted above it. The licence notice rides at the top of the same module.
+function writeEntry({ notice, version }) {
+    writeFileSync(
+        entryPath,
+        [
+            ...(notice ? [notice, ''] : []),
+            '// GENERATED by scripts/build-binaries.mjs - not committed.',
+            `globalThis.__SFN_DIAGRAM_BUILD__ = ${JSON.stringify({ standalone: true, version })};`,
+            "await import('../dist/bin.js');",
+            '',
+        ].join('\n'),
+    );
+}
+
+/**
+ * Run bun from the repo root.
+ *
+ * @param {{ args: string[], label: string }} params - bun's arguments, and what the run is for in error messages.
+ * @returns {boolean} Whether bun ran and exited 0.
+ */
+function runBun({ args, label }) {
+    // Windows resolves the npm-installed `bun` through a .cmd shim, which
+    // needs a shell. With `shell: true` Node joins the arguments without
+    // quoting, so the absolute paths are quoted by hand in case the checkout
+    // lives under a directory with a space in its name.
+    const useShell = process.platform === 'win32';
+    const shellArgs = useShell
+        ? args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg))
+        : args;
+    const result = spawnSync('bun', shellArgs, {
+        cwd: root,
+        shell: useShell,
+        stdio: 'inherit',
+    });
+    if (result.error) {
+        console.error(
+            `build-binaries: could not run bun: ${result.error.message}`,
+        );
+        return false;
+    }
+    if (result.status !== 0) {
+        console.error(
+            `build-binaries: bun exited with ${result.status} for ${label}`,
+        );
+        return false;
+    }
+    return true;
+}
+
 const { values } = parseArgs({
     options: {
         target: { multiple: true, short: 't', type: 'string' },
@@ -117,66 +294,67 @@ const version = readVersion();
 
 mkdirSync(outDir, { recursive: true });
 
-// The build constant is injected through a tiny entry module rather than bun's
-// `--define`, so the JSON value never has to survive shell quoting (this script
-// runs on Windows too). A dynamic import keeps the assignment ahead of the bin
-// entry's module body, which runs immediately on import; a static import would
-// be hoisted above it.
-writeFileSync(
-    entryPath,
-    [
-        '// GENERATED by scripts/build-binaries.mjs - not committed.',
-        `globalThis.__SFN_DIAGRAM_BUILD__ = ${JSON.stringify({ standalone: true, version })};`,
-        "await import('../dist/bin.js');",
-        '',
-    ].join('\n'),
-);
+const externalArgs = EXTERNALS.flatMap((name) => ['--external', name]);
 
 let failed = false;
 try {
-    for (const target of targets) {
-        const assetName =
-            TARGETS[target] + (target.startsWith('bun-windows') ? '.exe' : '');
-        const outfile = path.join(outDir, assetName);
-        const args = [
-            'build',
-            '--compile',
-            `--target=${target}`,
-            ...EXTERNALS.flatMap((name) => ['--external', name]),
-            entryPath,
-            `--outfile=${outfile}`,
-        ];
-        console.log(`build-binaries: ${target} -> binaries/${assetName}`);
-        // Windows resolves the npm-installed `bun` through a .cmd shim, which
-        // needs a shell. With `shell: true` Node joins the arguments without
-        // quoting, so the two absolute paths are quoted by hand in case the
-        // checkout lives under a directory with a space in its name.
-        const useShell = process.platform === 'win32';
-        const shellArgs = useShell
-            ? args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg))
-            : args;
-        const result = spawnSync('bun', shellArgs, {
-            cwd: root,
-            shell: useShell,
-            stdio: 'inherit',
+    // A stale metafile from an interrupted run must never stand in for this one.
+    rmSync(analysisJs, { force: true });
+    rmSync(analysisJson, { force: true });
+    writeEntry({ notice: '', version });
+    if (
+        !runBun({
+            args: [
+                'build',
+                '--target=bun',
+                ...externalArgs,
+                entryPath,
+                `--outfile=${analysisJs}`,
+                `--metafile=${analysisJson}`,
+            ],
+            label: 'the notice analysis pass',
+        })
+    ) {
+        failed = true;
+    } else {
+        const metafile = JSON.parse(readFileSync(analysisJson, 'utf8'));
+        writeEntry({
+            notice: thirdPartyNotice({
+                packages: bundledPackages({ metafile }),
+            }),
+            version,
         });
-        if (result.error) {
-            console.error(
-                `build-binaries: could not run bun: ${result.error.message}`,
-            );
-            failed = true;
-            break;
-        }
-        if (result.status !== 0) {
-            console.error(
-                `build-binaries: bun exited with ${result.status} for ${target}`,
-            );
-            failed = true;
-            break;
+    }
+
+    if (!failed) {
+        for (const target of targets) {
+            const assetName =
+                TARGETS[target] +
+                (target.startsWith('bun-windows') ? '.exe' : '');
+            const outfile = path.join(outDir, assetName);
+            console.log(`build-binaries: ${target} -> binaries/${assetName}`);
+            if (
+                !runBun({
+                    args: [
+                        'build',
+                        '--compile',
+                        `--target=${target}`,
+                        ...externalArgs,
+                        entryPath,
+                        `--outfile=${outfile}`,
+                    ],
+                    label: target,
+                })
+            ) {
+                failed = true;
+                break;
+            }
         }
     }
 } finally {
     rmSync(entryPath, { force: true });
+    rmSync(analysisJs, { force: true });
+    rmSync(analysisJson, { force: true });
 }
 
 process.exit(failed ? 1 : 0);
