@@ -7,10 +7,6 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs as parseArgsFromNode } from 'node:util';
-import { extractAslFromTemplate } from './cfn';
-import { STATE_MACHINE_TYPES } from './cfn/extract';
-import { extractAslFromTerraform } from './terraform';
-import { TERRAFORM_EXTENSIONS, isTerraformConfig } from './terraform/extract';
 import type { SFNClient } from '@aws-sdk/client-sfn';
 import {
     CliAwsError,
@@ -45,21 +41,14 @@ import {
 } from './cliInputs';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
-import { buildCliRedact } from './cliRedact';
+import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
-import { generateDiff, generateMermaidDiff } from './diff';
-import { generateExecution, generateMermaidExecution } from './execution';
 import { renameSync, rmSync } from 'node:fs';
-import { generateHtmlAsync } from './html';
-import { generateMermaid, generateSvg } from './index';
 import { createLayoutCache } from './layout';
 import type { LayoutCache } from './layout';
-import { lintAsl } from './lint';
-import { exportPng } from './png';
 import { stripBom } from './utils/bom';
 import type {
-    AslDefinition,
     CatchHandling,
     CatchLabelStyle,
     CustomTheme,
@@ -1309,28 +1298,6 @@ function readPackageVersion(): string {
     }
 }
 
-function isCfnTemplate(source: string): boolean {
-    try {
-        const parsed = JSON.parse(source) as {
-            Resources?: Record<string, unknown>;
-        };
-        const resources = parsed?.Resources;
-        return (
-            !!resources &&
-            Object.values(resources).some(
-                (resource) =>
-                    STATE_MACHINE_TYPES.includes(
-                        (resource as { Type?: string })?.Type ?? '',
-                    ),
-            )
-        );
-    } catch {
-        // Non-JSON (e.g. YAML template or raw ASL) — auto-detect stays a no-op;
-        // users pass --resolve-cfn for YAML templates.
-        return false;
-    }
-}
-
 /**
  * Where one render's ASL definition comes from.
  *
@@ -1378,23 +1345,14 @@ async function loadSource(source: CliInputSource): Promise<string> {
                 arn: source.arn,
                 flag: '--from-aws',
             });
-        // Stripped here as well as in the parsers, because isCfnTemplate parses this
-        // text itself to decide whether it is a template at all.
+        // Stripped here as well as in the parsers, because the render service's
+        // template detection (src/cliRender.ts) parses this text itself to decide
+        // whether it is a template at all.
         case 'file':
             return stripBom(readFileSync(resolve(source.path), 'utf-8'));
         case 'stdin':
             return stripBom(await readStdin());
     }
-}
-
-interface ResolveDefinitionSourceParams {
-    /** The input file's path, or null for stdin and live sources. */
-    path: string | null;
-    /** Whether to write extraction warnings to stderr. */
-    reportWarnings: boolean;
-    resolveCfn: boolean;
-    resource: string | null;
-    source: string;
 }
 
 interface WriteExtractionWarningsParams {
@@ -1407,61 +1365,6 @@ function writeExtractionWarnings(params: WriteExtractionWarningsParams): void {
         process.stderr.write(`warning: ${warning}\n`);
     }
 }
-
-interface IsTerraformInputParams {
-    /** The input file's path, or null for stdin and live sources. */
-    path: string | null;
-    source: string;
-}
-
-/**
- * Whether the input is Terraform: a `.tf` or `.tf.json` file by extension, or any input whose
- * contents declare an `aws_sfn_state_machine` (stdin and extensionless files).
- */
-function isTerraformInput(params: IsTerraformInputParams): boolean {
-    const { path, source } = params;
-    const lowerPath = path?.toLowerCase();
-    return (
-        (lowerPath !== undefined &&
-            TERRAFORM_EXTENSIONS.some((extension) => lowerPath.endsWith(extension))) ||
-        isTerraformConfig({ source })
-    );
-}
-
-/**
- * Turn a raw file body into something the generators accept: a Terraform configuration or a
- * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
- * through as-is. Terraform is checked first, so `--resolve-cfn` on a `.tf` file still reads it
- * as Terraform. Extraction warnings go to stderr.
- */
-function resolveDefinitionSource(
-    params: ResolveDefinitionSourceParams,
-): AslDefinition | string {
-    const { path, reportWarnings, resolveCfn, resource, source } = params;
-    if (isTerraformInput({ path, source })) {
-        const { aslDefinition, warnings } = extractAslFromTerraform({
-            config: source,
-            resourceId: resource ?? undefined,
-        });
-        if (reportWarnings) writeExtractionWarnings({ warnings });
-        return aslDefinition;
-    }
-    if (!resolveCfn && !isCfnTemplate(source)) {
-        return source;
-    }
-    const { aslDefinition, warnings } = extractAslFromTemplate({
-        resourceId: resource ?? undefined,
-        template: source,
-    });
-    if (reportWarnings) writeExtractionWarnings({ warnings });
-    return aslDefinition;
-}
-
-/**
- * Formats that have a diff / execution-overlay renderer. `html` qualifies because
- * the overlay SVG is wrapped in the interactive viewer; `png` still does not.
- */
-const OVERLAY_FORMATS: DiagramFormat[] = ['html', 'mermaid', 'svg'];
 
 /** Parameters for {@link combinedOverlayRefusal}. */
 interface CombinedOverlayRefusalParams {
@@ -1915,7 +1818,9 @@ interface RenderOneInputParams {
 }
 
 /**
- * Read one input, then lint it or render it and write the result.
+ * Read one input, hand it to the render service ({@link handleRenderRequest}) to lint or
+ * render, then report to stderr and write the result. This is the CLI adapter over that
+ * service: input detection, option building and the render dispatch live there.
  *
  * Split out of {@link run} so a batch can call it per input. Everything shared across a
  * batch — parsing, the config file, the option merge, the resolved theme, the `--diff`
@@ -1966,223 +1871,64 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         return EXIT_FAILURE;
     }
 
-    let definitionSource: AslDefinition | string;
-    let baselineDefinition: AslDefinition | string | null = null;
-    try {
-        definitionSource = resolveDefinitionSource({
+    const response = await handleRenderRequest({
+        baseline:
+            baselineSource === null
+                ? null
+                : {
+                      path: baselineIsLive ? null : args.diff,
+                      // A live baseline is already ASL; only the head can be a template.
+                      resolveCfn: args.resolveCfn && !baselineIsLive,
+                      resource: baselineIsLive ? null : args.resource,
+                      source: baselineSource,
+                  },
+        cache,
+        definition: {
             path: source.kind === 'file' ? source.path : null,
-            reportWarnings: reportStatic,
             resolveCfn: args.resolveCfn,
             resource: args.resource,
             source: aslSource,
-        });
-        if (baselineSource !== null) {
-            baselineDefinition = resolveDefinitionSource({
-                path: baselineIsLive ? null : args.diff,
-                reportWarnings: reportStatic,
-                // A live baseline is already ASL; only the head can be a template.
-                resolveCfn: args.resolveCfn && !baselineIsLive,
-                resource: baselineIsLive ? null : args.resource,
-                source: baselineSource,
-            });
-        }
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        },
+        history: historySource,
+        mode: args.check ? 'lint' : 'render',
+        options: { ...options, theme },
+    });
+    if (reportStatic) writeExtractionWarnings({ warnings: response.warnings });
+
+    /** Every per-input failure after the read is reported the same way. */
+    const fail = (message: string): number => {
         process.stderr.write(
             `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
         );
         return EXIT_FAILURE;
-    }
+    };
+    if (response.kind === 'error') return fail(response.message);
 
-    if (args.check) {
-        const diagnostics = lintAsl({ definition: definitionSource });
+    if (response.kind === 'lint') {
         // A batch's lint output is unreadable without saying which file each
         // diagnostic came from.
         if (inputLabel !== '') process.stderr.write(`${inputLabel}:\n`);
-        writeLintReport(diagnostics);
+        writeLintReport(response.diagnostics);
         // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
         // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
         // itself was wrong".
-        return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+        return response.diagnostics.some(
+            (diagnostic) => diagnostic.severity === 'error',
+        )
             ? EXIT_FAILURE
             : EXIT_OK;
     }
 
-    const sharedOptions = {
-        catchHandling: options.catchHandling,
-        ...(options.catchLabelStyle !== null
-            ? { catchLabelStyle: options.catchLabelStyle }
-            : {}),
-        ...(options.collapse !== null ? { collapse: options.collapse } : {}),
-        ...(options.customColors !== null
-            ? { customColors: options.customColors }
-            : {}),
-        ...(options.includeComments !== null
-            ? { includeComments: options.includeComments }
-            : {}),
-        ...(options.showVariables !== null
-            ? { showVariables: options.showVariables }
-            : {}),
-    };
-    const svgOptions = {
-        ...sharedOptions,
-        cache,
-        layout: options.layout,
-        theme,
-        ...(options.backgroundColor !== null
-            ? { backgroundColor: options.backgroundColor }
-            : {}),
-        ...(options.diagramDescription !== null
-            ? { diagramDescription: options.diagramDescription }
-            : {}),
-        ...(options.diagramTitle !== null
-            ? { diagramTitle: options.diagramTitle }
-            : {}),
-        // Clickable edges are only wanted where a viewer is wired up. `--format svg`
-        // must stay byte-identical, and generateHtmlAsync forces this on regardless.
-        ...(options.format === 'html' ? { edgeHitAreas: true } : {}),
-        ...(options.edgeOverrides !== null
-            ? { edgeOverrides: options.edgeOverrides }
-            : {}),
-        ...(options.edgeStyle !== null ? { edgeStyle: options.edgeStyle } : {}),
-        ...(options.iconPosition !== null
-            ? { iconPosition: options.iconPosition }
-            : {}),
-        ...(options.iconSize !== null ? { iconSize: options.iconSize } : {}),
-        ...(options.nodeHeight !== null
-            ? { nodeHeight: options.nodeHeight }
-            : {}),
-        ...(options.nodeOverrides !== null
-            ? { nodeOverrides: options.nodeOverrides }
-            : {}),
-        ...(options.nodeSeparation !== null
-            ? { nodeSeparation: options.nodeSeparation }
-            : {}),
-        ...(options.nodeWidth !== null ? { nodeWidth: options.nodeWidth } : {}),
-        ...(options.padding !== null ? { padding: options.padding } : {}),
-        ...(options.rankSeparation !== null
-            ? { rankSeparation: options.rankSeparation }
-            : {}),
-        ...(options.showIcons !== null ? { showIcons: options.showIcons } : {}),
-        ...(options.showStateTypes !== null
-            ? { showStateTypes: options.showStateTypes }
-            : {}),
-        ...(options.stylePreset !== null
-            ? { stylePreset: options.stylePreset }
-            : {}),
-    };
-
     try {
-        if (options.format === 'html') {
-            // The viewer applies either overlay, or both at once, itself; icons are
-            // inlined so the document stays offline.
-            const redact = buildCliRedact({
-                fields: options.redactFields,
-                includeRawState: options.includeRawState,
-            });
-            const result = await generateHtmlAsync({
-                aslDefinition: definitionSource,
-                ...(baselineDefinition !== null
-                    ? { diff: { before: baselineDefinition } }
-                    : {}),
-                ...(historySource !== null ? { history: historySource } : {}),
-                ...(redact ? { redact } : {}),
-                ...svgOptions,
-            });
-            if (result.metadata.diff && reportStatic) writeDiffSummary(result.metadata.diff);
-            if (result.metadata.execution)
-                writeExecutionSummary(result.metadata.execution);
-            emit(result.html);
-            return 0;
-        }
-
-        if (baselineDefinition !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidDiff({
-                    after: definitionSource,
-                    before: baselineDefinition,
-                    ...sharedOptions,
-                    layout: options.layout,
-                    theme,
-                });
-                if (reportStatic) writeDiffSummary(result.metadata);
-                emit(result.code);
-                return 0;
-            }
-
-            const result = generateDiff({
-                after: definitionSource,
-                before: baselineDefinition,
-                ...svgOptions,
-            });
-            if (reportStatic) writeDiffSummary(result.metadata);
-            emit(result.svg);
-            return 0;
-        }
-
-        if (historySource !== null) {
-            if (options.format === 'mermaid') {
-                const result = generateMermaidExecution({
-                    aslDefinition: definitionSource,
-                    history: historySource,
-                    ...sharedOptions,
-                    layout: options.layout,
-                    theme,
-                });
-                writeExecutionSummary(result.metadata);
-                emit(result.code);
-                return 0;
-            }
-
-            const result = generateExecution({
-                aslDefinition: definitionSource,
-                history: historySource,
-                ...svgOptions,
-            });
-            writeExecutionSummary(result.metadata);
-            emit(result.svg);
-            return 0;
-        }
-
-        if (options.format === 'mermaid') {
-            const result = generateMermaid({
-                aslDefinition: definitionSource,
-                ...sharedOptions,
-                layout: options.layout,
-                theme,
-            });
-            emit(result.code);
-            return 0;
-        }
-
-        if (options.format === 'svg') {
-            const result = generateSvg({
-                aslDefinition: definitionSource,
-                ...svgOptions,
-            });
-            emit(result.svg);
-            return 0;
-        }
-
-        // Left out rather than passed as undefined when unset: the library falls back to
-        // SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS only when loadSystemFonts is absent.
-        const result = await exportPng({
-            aslDefinition: definitionSource,
-            ...svgOptions,
-            ...(options.loadSystemFonts !== null
-                ? { loadSystemFonts: options.loadSystemFonts }
-                : {}),
-            ...(options.scale !== null ? { scale: options.scale } : {}),
-        });
-        writeFileSync(resolve(outputPath as string), result.buffer);
-        return 0;
+        if (response.diff !== null && reportStatic) writeDiffSummary(response.diff);
+        if (response.execution !== null)
+            writeExecutionSummary(response.execution);
+        if (typeof response.output === 'string') emit(response.output);
+        else writeFileSync(resolve(outputPath as string), response.output);
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        process.stderr.write(
-            `Error${inputLabel === '' ? '' : ` in ${inputLabel}`}: ${message}\n`,
-        );
-        return EXIT_FAILURE;
+        return fail(error instanceof Error ? error.message : String(error));
     }
+    return EXIT_OK;
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -2362,7 +2108,7 @@ export async function run(argv: string[]): Promise<number> {
     }
     // DescribeStateMachine returns an ASL definition, never a template, so both
     // template flags are contradictions rather than no-ops. Left unchecked,
-    // --resolve-cfn sent live ASL through extractAslFromTemplate and failed with a
+    // --resolve-cfn sent live ASL through the template extractor and failed with a
     // message about templates that named nothing the caller typed.
     if (
         args.fromAws.length > 0 &&
