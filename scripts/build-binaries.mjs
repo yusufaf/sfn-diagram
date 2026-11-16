@@ -193,11 +193,15 @@ function bundledPackages({ metafile }) {
  * licence text listed together.
  *
  * @param {{ packages: { id: string, text: string }[] }} params - The bundled packages.
- * @returns {string} The `/*! … *\/` comment, or '' when nothing third party is bundled.
+ * @returns {string} The `/*! … *\/` comment.
+ * @throws if `packages` is empty: the binary always inlines dagre, so finding
+ * nothing means the metafile's format changed, not that there is nothing to credit.
  */
 function thirdPartyNotice({ packages }) {
     if (packages.length === 0) {
-        return '';
+        throw new Error(
+            "bun's metafile lists no node_modules packages, but the binary inlines dagre at least; has bun's metafile format changed?",
+        );
     }
     const idsByText = new Map();
     for (const pkg of packages) {
