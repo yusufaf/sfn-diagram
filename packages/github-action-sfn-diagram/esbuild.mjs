@@ -5,8 +5,10 @@ import path from 'node:path'
 // The Action ships one committed file, dist/index.js, with every dependency inlined
 // (there is no node_modules at run time). Their licences (MIT, ISC, BlueOak, Apache-2.0)
 // require the notice in every copy, and most packages carry it only in a LICENSE file,
-// so the build appends those notices to the end of the bundle. src/licenceNotices.test.ts
-// checks that every inlined package's notice is there.
+// so the build appends those notices to the end of the bundle. Code a package vendors
+// without shipping its licence (undici's llhttp) gets a licence file committed under
+// licences/ instead. src/licenceNotices.test.ts checks that every inlined package's
+// notice is there.
 
 const packageDir = import.meta.dirname
 // LICENSE, LICENCE.md, LICENSE-MIT, LICENSE-APACHE.txt, NOTICE, COPYING, …; never a
@@ -66,6 +68,54 @@ function inlinedPackages({ metafile }) {
 }
 
 /**
+ * Code a package vendors and bundles without shipping that code's licence, so its text
+ * can't be read from node_modules. Each entry's licence is committed under licences/,
+ * copied verbatim from `source`. An entry applies whenever the bundle inlines one of its
+ * `files` from `packageName`.
+ *
+ * - llhttp: undici inlines it as base64 WASM (lib/llhttp/llhttp-wasm.js and
+ *   llhttp_simd-wasm.js). undici 7.30.2 vendors llhttp 9.3.0, and its package carries
+ *   no licence for it (nor does undici 8).
+ */
+const VENDORED_WITHOUT_LICENCE = [
+    {
+        files: ['lib/llhttp/llhttp-wasm.js', 'lib/llhttp/llhttp_simd-wasm.js'],
+        licenceFile: 'licences/llhttp-LICENSE',
+        name: 'llhttp 9.3.0',
+        packageName: 'undici',
+        source: 'https://github.com/nodejs/llhttp/blob/v9.3.0/LICENSE',
+    },
+]
+
+/**
+ * The VENDORED_WITHOUT_LICENCE entries this bundle needs, shaped like inlinedPackages'
+ * results so thirdPartyNotice lists them alongside, once per installed copy of the
+ * vendoring package.
+ */
+function vendoredPackages({ metafile }) {
+    const vendored = []
+    for (const entry of VENDORED_WITHOUT_LICENCE) {
+        const suffixes = entry.files.map((file) => `${MARKER}${entry.packageName}/${file}`)
+        const roots = new Set(
+            Object.keys(metafile.inputs)
+                .filter((input) => suffixes.some((suffix) => input.endsWith(suffix)))
+                .map((input) => input.slice(0, input.lastIndexOf(MARKER) + MARKER.length) + entry.packageName)
+        )
+        for (const root of [...roots].sort(byCodeUnit)) {
+            const manifest = JSON.parse(readFileSync(path.join(packageDir, root, 'package.json'), 'utf8'))
+            const licence = readFileSync(path.join(packageDir, entry.licenceFile), 'utf8').replace(/\r\n/g, '\n').trim()
+            const text = `Source: ${entry.source}\n\n${licence}`
+            const id = `${entry.name} (inlined by ${manifest.name}@${manifest.version})`
+            if (text.includes('*/')) {
+                throw new Error(`${id}'s licence contains "*/", which would end the notice comment early`)
+            }
+            vendored.push({ files: [], id, licence: 'MIT', text })
+        }
+    }
+    return vendored
+}
+
+/**
  * One block comment with every package's notice, packages sharing identical licence text
  * listed together. A package with no licence file is accepted only under Apache-2.0,
  * whose full text another package already carries.
@@ -120,7 +170,12 @@ const [output] = result.outputFiles
 mkdirSync(path.join(packageDir, 'dist'), { recursive: true })
 writeFileSync(
     path.join(packageDir, 'dist/index.js'),
-    `${output.text}${thirdPartyNotice({ packages: inlinedPackages({ metafile: result.metafile }) })}\n`
+    `${output.text}${thirdPartyNotice({
+        packages: [
+            ...inlinedPackages({ metafile: result.metafile }),
+            ...vendoredPackages({ metafile: result.metafile }),
+        ],
+    })}\n`
 )
 
 console.log('✔ Action bundle complete')

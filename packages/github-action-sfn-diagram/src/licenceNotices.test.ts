@@ -111,6 +111,16 @@ describe('third-party licence notices in the Action bundle', () => {
         expect(files).toContain('lib/web/fetch/LICENSE')
     })
 
+    it("includes llhttp's licence, which undici inlines without one", () => {
+        expect(inlinedInputs().some((input) => input.endsWith('undici/lib/llhttp/llhttp-wasm.js'))).toBe(true)
+        expect(notice).toContain('Copyright Fedor Indutny, 2018.')
+        expect(notice).toContain('This software is licensed under the MIT License.')
+        expect(notice).toContain('https://github.com/nodejs/llhttp/blob/v9.3.0/LICENSE')
+        for (const line of licenceLines(join(packageDir, 'licences', 'llhttp-LICENSE'))) {
+            expect(notice).toContain(line)
+        }
+    })
+
     it('keeps the legal comments esbuild collects', () => {
         expect(bundle).toContain('Copyright 2010-2022 Mike Bostock')
         expect(bundle).toContain('formdata-polyfill. MIT License')
