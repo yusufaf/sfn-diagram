@@ -613,6 +613,21 @@ jobs:
       - name: Build binaries
         run: pnpm run build:binary ${{ matrix.targets }}
 
+      # bun is unpinned, so the release bun may differ from the one the PR's
+      # binary smoke test ran: check the notices on every binary that ships.
+      # A publish_tag recovery of a tag cut before this check existed has no
+      # test file to run, so it warns instead of failing the recovery.
+      - name: Check the binaries' licence notices
+        run: |
+          set -euo pipefail
+          if [ -f tests/binaryLicenceNotices.test.ts ]; then
+            for binary in binaries/sfn-diagram-*; do
+              SFN_DIAGRAM_BINARY="$binary" pnpm exec vitest run --project unit tests/binaryLicenceNotices.test.ts
+            done
+          else
+            echo "::warning::tests/binaryLicenceNotices.test.ts is not in this tag; skipping the licence-notice check"
+          fi
+
       # bun ad-hoc signs the Mach-O it emits, but the signature it wrote for
       # the cross-architecture darwin-x64 target failed `codesign --verify` on
       # the 1.6.0 release ("code or signature have been modified"), which
