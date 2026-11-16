@@ -74,14 +74,22 @@ function inlinedPackages({ metafile }) {
  * `files` from `packageName`.
  *
  * - llhttp: undici inlines it as base64 WASM (lib/llhttp/llhttp-wasm.js and
- *   llhttp_simd-wasm.js). undici 7.30.2 vendors llhttp 9.3.0, and its package carries
- *   no licence for it (nor does undici 8).
+ *   llhttp_simd-wasm.js) plus the constants.js and utils.js generated from it. undici
+ *   7.30.2 vendors llhttp 9.3.0, and its package carries no licence for it (nor does
+ *   undici 8). The entry names no llhttp version, so an undici bump can't leave a stale
+ *   one in the notice; `source` pins where the committed text came from.
  */
 const VENDORED_WITHOUT_LICENCE = [
     {
-        files: ['lib/llhttp/llhttp-wasm.js', 'lib/llhttp/llhttp_simd-wasm.js'],
+        files: [
+            'lib/llhttp/constants.js',
+            'lib/llhttp/llhttp-wasm.js',
+            'lib/llhttp/llhttp_simd-wasm.js',
+            'lib/llhttp/utils.js',
+        ],
+        licence: 'MIT',
         licenceFile: 'licences/llhttp-LICENSE',
-        name: 'llhttp 9.3.0',
+        name: 'llhttp',
         packageName: 'undici',
         source: 'https://github.com/nodejs/llhttp/blob/v9.3.0/LICENSE',
     },
@@ -101,15 +109,18 @@ function vendoredPackages({ metafile }) {
                 .filter((input) => suffixes.some((suffix) => input.endsWith(suffix)))
                 .map((input) => input.slice(0, input.lastIndexOf(MARKER) + MARKER.length) + entry.packageName)
         )
+        if (roots.size === 0) {
+            continue
+        }
+        const licenceText = readFileSync(path.join(packageDir, entry.licenceFile), 'utf8').replace(/\r\n/g, '\n').trim()
+        const text = `Source: ${entry.source}\n\n${licenceText}`
+        if (text.includes('*/')) {
+            throw new Error(`${entry.licenceFile} contains "*/", which would end the notice comment early`)
+        }
         for (const root of [...roots].sort(byCodeUnit)) {
             const manifest = JSON.parse(readFileSync(path.join(packageDir, root, 'package.json'), 'utf8'))
-            const licence = readFileSync(path.join(packageDir, entry.licenceFile), 'utf8').replace(/\r\n/g, '\n').trim()
-            const text = `Source: ${entry.source}\n\n${licence}`
             const id = `${entry.name} (inlined by ${manifest.name}@${manifest.version})`
-            if (text.includes('*/')) {
-                throw new Error(`${id}'s licence contains "*/", which would end the notice comment early`)
-            }
-            vendored.push({ files: [], id, licence: 'MIT', text })
+            vendored.push({ files: [], id, licence: entry.licence, text })
         }
     }
     return vendored
