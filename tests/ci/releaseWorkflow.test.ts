@@ -89,3 +89,37 @@ describe('release workflow: react-npm-publish', () => {
         expect(reactSteps[peerIndex]?.run).toContain('npm view "sfn-diagram@$RANGE" version');
     });
 });
+
+describe('release workflow: npm-publish verify', () => {
+    // Comment lines are dropped so a commented-out command can't satisfy a check.
+    const verifyRun = (
+        (workflow.jobs['npm-publish'].steps ?? []).find(
+            (step) => step.name === 'Verify the published version on npm',
+        )?.run ?? ''
+    )
+        .split('\n')
+        .filter((line) => !line.trimStart().startsWith('#'))
+        .join('\n');
+    const tokens = [
+        'npm view sfn-diagram@"$VERSION" version',
+        'npm view sfn-diagram@"$VERSION" dist.tarball',
+        'node scripts/wait-for-npm-tarball.mjs --url "$TARBALL" --timeout-minutes 15',
+        'cd "$(mktemp -d)"',
+        'npx --yes',
+    ];
+
+    it('waits for the tarball after npm view sees the version and before npx runs', () => {
+        const positions = tokens.map((token) => verifyRun.indexOf(token));
+        tokens.forEach((token, index) => {
+            expect(positions[index], token).toBeGreaterThanOrEqual(0);
+        });
+        // The script path is relative to the checkout, so it must run before the cd.
+        for (let index = 1; index < positions.length; index++) {
+            expect(positions[index], tokens[index]).toBeGreaterThan(positions[index - 1]);
+        }
+    });
+
+    it('reports an npx failure separately from a tarball that never appeared', () => {
+        expect(verifyRun).toContain('::error::tarball is served, but npx');
+    });
+});

@@ -159,10 +159,14 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           FOUND=""
+          TARBALL=""
           for i in $(seq 1 20); do
             if [ "$(npm view sfn-diagram@"$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
               FOUND=1
-              break
+              TARBALL="$(npm view sfn-diagram@"$VERSION" dist.tarball 2>/dev/null || true)"
+              if [ -n "$TARBALL" ]; then
+                break
+              fi
             fi
             sleep 15
           done
@@ -170,6 +174,19 @@ jobs:
             echo "::error::npm registry never showed sfn-diagram@$VERSION after publish"
             exit 1
           fi
+          if [ -z "$TARBALL" ]; then
+            echo "::error::npm view showed sfn-diagram@$VERSION but never a dist.tarball"
+            exit 1
+          fi
+          # The packument can list a version long before its tarball is served:
+          # 2.0.2's tarball URL returned 404 for about 8 minutes after `npm view`
+          # saw the version, outlasting every npx retry below (#659). Wait for
+          # the tarball itself first. The script requests the exact URL npx
+          # fetches: a cache-busting query string is a different CDN cache key,
+          # and the CDN ignores a `Cache-Control: no-cache` request header, so
+          # neither would test what npx sees. It runs before the `cd` below
+          # because its path is relative to the checkout.
+          node scripts/wait-for-npm-tarball.mjs --url "$TARBALL" --timeout-minutes 15
           # Compare stdout only (stderr stays on the job log): npm writes a
           # deprecation warning for the runner's .npmrc `always-auth` key to
           # stderr, which failed the 1.6.1 check although the CLI printed the
@@ -179,10 +196,14 @@ jobs:
           # the registry's CDN, which can lag it by a minute or so — the 1.7.0
           # check got ETARGET 12s after the version was visible to `npm view`
           # and filed a false "publish failure" issue. Retry the npx probe a
-          # few times before calling it a failure. A failed attempt caches the
-          # stale packument (the registry serves it with max-age=300), so force
-          # a revalidation on every attempt or the retries would just re-read
-          # the cache and fail the same way.
+          # few times before calling it a failure. With the tarball already
+          # served, the retries cover only that packument lag, so a failure that
+          # outlasts them most likely means the package itself is broken (a bad
+          # bin, a crash on start); npx's stderr in the job log says which.
+          # A failed attempt caches the stale packument (the registry
+          # serves it with max-age=300), so force a revalidation on every
+          # attempt or the retries would just re-read the cache and fail the
+          # same way.
           cd "$(mktemp -d)"
           export npm_config_prefer_online=true
           ATTEMPTS=6
@@ -202,7 +223,7 @@ jobs:
             fi
           done
           if [ "$STATUS" -ne 0 ] || [ "$OUTPUT" != "$VERSION" ]; then
-            echo "::error::npx sfn-diagram@$VERSION --version exited $STATUS with stdout '$OUTPUT', expected '$VERSION'"
+            echo "::error::tarball is served, but npx sfn-diagram@$VERSION --version exited $STATUS with stdout '$OUTPUT', expected '$VERSION'"
             exit 1
           fi
 
