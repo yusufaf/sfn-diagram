@@ -135,7 +135,7 @@
         }
     },
     "scripts": {
-        "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap",
+        "build": "node esbuild.mjs",
         "dev": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --platform=node --format=cjs --sourcemap --watch",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",

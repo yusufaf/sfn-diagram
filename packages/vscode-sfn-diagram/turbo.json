@@ -2,11 +2,12 @@
     // From turbo 2.11, no edge is derived to the root workspace member (`.`, which is
     // the sfn-diagram package), so `^build` alone does not build core first and this
     // package's build/test/typecheck would start before dist/ exists. Name it explicitly.
+    // `test` also needs this package's own build: src/licenceNotices.test.ts reads out/.
     "$schema": "https://turbo.build/schema.json",
     "extends": ["//"],
     "tasks": {
         "build": { "dependsOn": ["^build", "sfn-diagram#build"], "outputs": ["out/**"] },
-        "test": { "dependsOn": ["^build", "sfn-diagram#build"] },
+        "test": { "dependsOn": ["^build", "sfn-diagram#build", "build"] },
         "typecheck": { "dependsOn": ["^build", "sfn-diagram#build"] }
     }
 }
