@@ -1919,9 +1919,10 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
             : EXIT_OK;
     }
 
-    if (response.diff !== null && reportStatic) writeDiffSummary(response.diff);
-    if (response.execution !== null) writeExecutionSummary(response.execution);
     try {
+        if (response.diff !== null && reportStatic) writeDiffSummary(response.diff);
+        if (response.execution !== null)
+            writeExecutionSummary(response.execution);
         if (typeof response.output === 'string') emit(response.output);
         else writeFileSync(resolve(outputPath as string), response.output);
     } catch (error) {
