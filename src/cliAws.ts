@@ -282,7 +282,7 @@ export interface FetchStateMachineDefinitionParams {
  * `@aws-sdk/client-sfn` is loaded with a dynamic import so that neither the core
  * entry nor `dist/bin.js` carries AWS code: an install that never uses
  * `--from-aws` never pays for the SDK. The definition is returned as the JSON
- * string AWS sends, unparsed, because that is what `resolveDefinitionSource`
+ * string AWS sends, unparsed, because that is what `handleRenderRequest`
  * already accepts.
  *
  * @param params - The parsed ARN to describe.
