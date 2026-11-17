@@ -42,6 +42,7 @@ import {
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
+import type { RenderErrorResponse, RenderLintResponse } from './cliRender';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { renameSync, rmSync } from 'node:fs';
@@ -73,6 +74,8 @@ export interface CliArgs {
     catchHandling: CatchHandling | null;
     catchLabelStyle: CatchLabelStyle | null;
     check: boolean;
+    /** `--check-format`, or `null` when absent (text). Only valid with `--check`. */
+    checkFormat: CheckFormat | null;
     collapse: string[] | boolean | null;
     /** Path from `--config`, or `null` to search for a config file. */
     config: string | null;
@@ -275,6 +278,8 @@ Options:
                                    exits 0: a development loop, not a CI gate.
   --check                          Lint the definition instead of drawing it: print every
                                    diagnostic and exit 1 if any is an error
+  --check-format <text|json>       With --check: json prints one JSON document to
+                                   stdout; text (default) prints lines to stderr
   -h, --help                       Show this help and exit
   -v, --version                    Show version and exit
 
@@ -468,6 +473,7 @@ const OPTION_SPEC = {
     'background-color': { type: 'string' },
     'catch-label-style': { type: 'string' },
     check: { type: 'boolean' },
+    'check-format': { type: 'string' },
     collapse: { type: 'string' },
     config: { type: 'string' },
     'diagram-description': { type: 'string' },
@@ -516,10 +522,14 @@ const OPTION_SPEC = {
     watch: { type: 'boolean' },
 } as const;
 
+/** How `--check` reports: human-readable lines on stderr, or one JSON document on stdout. */
+type CheckFormat = 'json' | 'text';
+
 const VALID_CATCH_LABEL_STYLES: readonly CatchLabelStyle[] = [
     'error-type',
     'catch-number',
 ];
+const VALID_CHECK_FORMATS: readonly CheckFormat[] = ['text', 'json'];
 const VALID_EDGE_STYLES: readonly EdgePathStyle[] = [
     'straight',
     'curved',
@@ -1015,6 +1025,14 @@ export function parseArgs(argv: string[]): CliArgs {
                       value: values['catch-label-style'] as string,
                   }),
         check: values.check === true,
+        checkFormat:
+            values['check-format'] === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_CHECK_FORMATS,
+                      flag: '--check-format',
+                      value: values['check-format'] as string,
+                  }),
         collapse: readCollapse(),
         config:
             values.config === undefined
@@ -1463,6 +1481,42 @@ function writeLintReport(diagnostics: LintDiagnostic[]): void {
     process.stderr.write(`${lines.join('\n')}\n`);
 }
 
+/**
+ * One input's entry in the `--check-format json` document: the render service's lint
+ * or error response, unchanged, with the input it came from. `file` is the path as
+ * given (or as a glob expanded it), the ARN for `--from-aws`, and `null` for stdin.
+ */
+type CheckFileReport = (RenderErrorResponse | RenderLintResponse) & {
+    file: string | null;
+};
+
+interface CheckFileNameParams {
+    source: CliInputSource;
+}
+
+/** The `file` value a `--check-format json` entry carries for this source. */
+function checkFileName(params: CheckFileNameParams): string | null {
+    const { source } = params;
+    return source.kind === 'stdin' ? null : describeSource(source);
+}
+
+interface LintExitCodeParams {
+    diagnostics: LintDiagnostic[];
+}
+
+/**
+ * The exit code for one input's lint findings: `EXIT_FAILURE` when any is an error.
+ * A diagnostic is a finding, not a malfunction. Exiting 1 for one matches what a
+ * linter does, and keeps `EXIT_USAGE` free to mean "the invocation itself was wrong".
+ */
+function lintExitCode(params: LintExitCodeParams): number {
+    return params.diagnostics.some(
+        (diagnostic) => diagnostic.severity === 'error',
+    )
+        ? EXIT_FAILURE
+        : EXIT_OK;
+}
+
 /** Print the added/modified/removed breakdown of a `--diff` run to stderr. */
 function writeDiffSummary(metadata: DiffStateSummary): void {
     const { added, modified, removed, unchanged } = metadata;
@@ -1786,6 +1840,11 @@ interface RenderOneInputParams {
      * cache per call would never hit. Mermaid paths ignore it.
      */
     cache: LayoutCache;
+    /**
+     * Where `--check-format json` collects this input's entry instead of writing to
+     * stderr, or `null` for text output.
+     */
+    checkReport: CheckFileReport[] | null;
     /** Contents of `--execution`'s history, already read, or `null`. */
     historySource: string | null;
     /**
@@ -1820,7 +1879,10 @@ interface RenderOneInputParams {
 /**
  * Read one input, hand it to the render service ({@link handleRenderRequest}) to lint or
  * render, then report to stderr and write the result. This is the CLI adapter over that
- * service: input detection, option building and the render dispatch live there.
+ * service: input detection, option building and the render dispatch live there. Under
+ * `--check-format json` the lint or error response goes into
+ * {@link RenderOneInputParams.checkReport} instead, and nothing about this input is
+ * written to stderr.
  *
  * Split out of {@link run} so a batch can call it per input. Everything shared across a
  * batch — parsing, the config file, the option merge, the resolved theme, the `--diff`
@@ -1838,6 +1900,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         baselineIsLive,
         baselineSource,
         cache,
+        checkReport,
         definitionText,
         historySource,
         labelInput,
@@ -1862,12 +1925,21 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         // An AWS failure already reads "Failed to fetch state machine <arn> from
         // AWS: ..." and names the ARN itself; prefixing it with "Failed to read
         // input" would contradict it. A batch's stderr is useless if a file failure
-        // does not say which file.
-        const prefix =
+        // does not say which file; a JSON entry names it in `file` instead.
+        const readFailure = (label: string): string =>
             source.kind === 'aws'
-                ? ''
-                : `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: `;
-        process.stderr.write(`${prefix}${message}\n`);
+                ? message
+                : `Failed to read input${label === '' ? '' : ` ${label}`}: ${message}`;
+        if (checkReport !== null) {
+            checkReport.push({
+                file: checkFileName({ source }),
+                kind: 'error',
+                message: readFailure(''),
+                warnings: [],
+            });
+        } else {
+            process.stderr.write(`${readFailure(inputLabel)}\n`);
+        }
         return EXIT_FAILURE;
     }
 
@@ -1893,6 +1965,12 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         mode: args.check ? 'lint' : 'render',
         options: { ...options, theme },
     });
+    if (checkReport !== null && response.kind !== 'render') {
+        checkReport.push({ file: checkFileName({ source }), ...response });
+        return response.kind === 'error'
+            ? EXIT_FAILURE
+            : lintExitCode({ diagnostics: response.diagnostics });
+    }
     if (reportStatic) writeExtractionWarnings({ warnings: response.warnings });
 
     /** Every per-input failure after the read is reported the same way. */
@@ -1909,14 +1987,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         // diagnostic came from.
         if (inputLabel !== '') process.stderr.write(`${inputLabel}:\n`);
         writeLintReport(response.diagnostics);
-        // A diagnostic is a finding, not a malfunction. Exiting 1 for one matches
-        // what a linter does, and keeps EXIT_USAGE free to mean "the invocation
-        // itself was wrong".
-        return response.diagnostics.some(
-            (diagnostic) => diagnostic.severity === 'error',
-        )
-            ? EXIT_FAILURE
-            : EXIT_OK;
+        return lintExitCode({ diagnostics: response.diagnostics });
     }
 
     try {
@@ -2118,6 +2189,10 @@ export async function run(argv: string[]): Promise<number> {
             '--resolve-cfn and --resource cannot be combined with --from-aws: ' +
                 "a live state machine's definition is already ASL\n",
         );
+        return EXIT_USAGE;
+    }
+    if (args.checkFormat !== null && !args.check) {
+        process.stderr.write('--check-format only applies with --check\n');
         return EXIT_USAGE;
     }
     if (
@@ -2950,6 +3025,8 @@ async function renderResolvedBatch(
         };
     }
 
+    const checkReport: CheckFileReport[] | null =
+        args.check && args.checkFormat === 'json' ? [] : null;
     let worstCode = EXIT_OK;
     for (const item of selected) {
         // A failing input does not stop the batch: stopping at the first would hide the
@@ -2959,6 +3036,7 @@ async function renderResolvedBatch(
             baselineIsLive,
             baselineSource,
             cache,
+            checkReport,
             definitionText: null,
             historySource,
             labelInput,
@@ -2970,6 +3048,9 @@ async function renderResolvedBatch(
             writeAtomically: false,
         });
         if (code !== EXIT_OK) worstCode = code;
+    }
+    if (checkReport !== null) {
+        process.stdout.write(`${JSON.stringify({ files: checkReport })}\n`);
     }
     return { code: worstCode, configPath, watchTargets };
 }
@@ -3072,6 +3153,8 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     baselineIsLive,
                     baselineSource,
                     cache,
+                    // --follow cannot run under --check, so there is no lint report.
+                    checkReport: null,
                     definitionText,
                     historySource: JSON.stringify({ events }),
                     // One source, and the reader chose the ARN, so there is nothing

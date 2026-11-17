@@ -67,6 +67,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
 | `--resource <id>` | State machine to extract when a template or Terraform config has several (CloudFormation logical id or Terraform resource name) |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
+| `--check-format <text\|json>` | With `--check`, `json` writes one JSON document to stdout — see [Machine-readable output](#machine-readable-output) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |
 
 ## Configuration file
@@ -984,6 +985,73 @@ warning /States/Audit  State "Audit" is unreachable from StartAt "Validate"  [un
 Each line is `severity`, a JSON Pointer to the offending value, the message, and the
 rule code. `--resolve-cfn` / `--resource` work the same way they do for rendering;
 `--check` cannot be combined with `--diff`, `--execution` or `--output`.
+
+### Machine-readable output
+
+`--check-format json` writes the findings as one JSON document on stdout instead of
+lines on stderr, for CI annotations, editors and other tools. `--check-format text` is
+the default. The flag only applies with `--check`; without it the run exits `2`.
+
+```bash
+npx sfn-diagram 'machines/*.asl.json' --check --check-format json
+```
+
+The document is a single line; here it is pretty-printed:
+
+```json
+{
+  "files": [
+    {
+      "file": "machines/order.asl.json",
+      "diagnostics": [
+        {
+          "code": "end-with-next",
+          "message": "State \"Ship\" sets both \"End: true\" and \"Next\"",
+          "path": "/States/Ship/Next",
+          "severity": "error"
+        }
+      ],
+      "kind": "lint",
+      "warnings": []
+    },
+    {
+      "file": "machines/missing.asl.json",
+      "kind": "error",
+      "message": "Failed to read input: ENOENT: no such file or directory, open '/work/machines/missing.asl.json'",
+      "warnings": []
+    }
+  ]
+}
+```
+
+There is one entry per input, in the order the inputs were read:
+
+- `file` is the path as given (or as a glob expanded it), the ARN for `--from-aws`, and
+  `null` for stdin.
+- `kind` is `"lint"` when the input was linted, or `"error"` when it could not be read
+  or a state machine could not be extracted from it; `message` then says why.
+- `diagnostics` holds the linter's findings, each with the rule `code`, the `message`,
+  a JSON Pointer `path` to the offending value (`""` for the whole definition) and a
+  `severity` of `"error"` or `"warning"`.
+- `warnings` holds template and Terraform extraction warnings, the ones a render prints
+  as `warning: …`. They are not lint findings and never affect the exit code.
+
+The exit codes are the same as in text mode: `1` when any input has an error-severity
+diagnostic or a `kind: "error"` entry, `0` otherwise. Nothing about individual inputs
+goes to stderr. A failure before any input is read, such as an invalid config file or a
+glob that matches nothing, prints its message to stderr and writes no document.
+
+Under `--watch`, each pass writes its own document on its own line (JSON Lines), and
+each one covers only the inputs that pass re-linted.
+
+To print one line per finding, pipe the document to `jq`. Set `pipefail` first:
+without it the pipeline's exit code is `jq`'s, and the `1` from a failed check is lost.
+
+```bash
+set -o pipefail
+npx sfn-diagram 'machines/*.asl.json' --check --check-format json |
+  jq -r '.files[] | .file as $f | .diagnostics[]? | "\($f): \(.severity) \(.path) \(.code)"'
+```
 
 ### Rules
 
