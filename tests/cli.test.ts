@@ -33,6 +33,7 @@ import {
     run,
 } from '../src/cli';
 import { DagreLayout } from '../src/layout';
+import { lintAsl } from '../src/lint';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
@@ -474,6 +475,84 @@ describe('run', () => {
         }
     });
 
+    it('--check --check-format json reports a clean definition as one JSON line on stdout', async () => {
+        const code = await run([
+            simpleFixture,
+            '--check',
+            '--check-format',
+            'json',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toBe('');
+        expect(stdoutData.endsWith('\n')).toBe(true);
+        expect(stdoutData.trim().split('\n')).toHaveLength(1);
+        expect(JSON.parse(stdoutData)).toEqual({
+            files: [
+                {
+                    diagnostics: [],
+                    file: simpleFixture,
+                    kind: 'lint',
+                    warnings: [],
+                },
+            ],
+        });
+    });
+
+    it("--check --check-format json exits 1 on an error and carries the service's diagnostic unchanged", async () => {
+        const inputPath = join(tempDir, 'bad.asl.json');
+        const definition = JSON.stringify({
+            StartAt: 'A',
+            States: { A: { Type: 'Pass', End: true, Next: 'A' } },
+        });
+        writeFileSync(inputPath, definition);
+        const code = await run([inputPath, '--check', '--check-format', 'json']);
+        expect(code).toBe(1);
+        expect(stderrData).toBe('');
+        const { diagnostics } = JSON.parse(stdoutData).files[0];
+        expect(diagnostics).toEqual(lintAsl({ definition }));
+        expect(diagnostics).toContainEqual({
+            code: 'end-with-next',
+            message: 'State "A" sets both "End: true" and "Next"',
+            path: '/States/A/Next',
+            severity: 'error',
+        });
+    });
+
+    it('--check --check-format json exits 0 on warnings only', async () => {
+        const inputPath = join(tempDir, 'warn.asl.json');
+        writeFileSync(
+            inputPath,
+            JSON.stringify({
+                StartAt: 'A',
+                States: {
+                    A: { Type: 'Pass', End: true },
+                    Orphan: { Type: 'Pass', End: true },
+                },
+            }),
+        );
+        const code = await run([inputPath, '--check', '--check-format', 'json']);
+        expect(code).toBe(0);
+        const { diagnostics } = JSON.parse(stdoutData).files[0];
+        expect(diagnostics).toHaveLength(1);
+        expect(diagnostics[0]).toMatchObject({
+            code: 'unreachable-state',
+            severity: 'warning',
+        });
+    });
+
+    it('--check --check-format json reports an unreadable input as a kind: error entry', async () => {
+        const missing = join(tempDir, 'gone.asl.json');
+        const code = await run([missing, '--check', '--check-format', 'json']);
+        expect(code).toBe(1);
+        expect(stderrData).toBe('');
+        expect(JSON.parse(stdoutData).files[0]).toEqual({
+            file: missing,
+            kind: 'error',
+            message: expect.stringContaining('Failed to read input'),
+            warnings: [],
+        });
+    });
+
     it('refuses --check-format without --check', async () => {
         const code = await run([simpleFixture, '--check-format', 'json']);
         expect(code).toBe(2);
@@ -731,6 +810,22 @@ describe('stdin handling', () => {
 
         expect(code).toBe(0);
         expect(stdoutData).toContain('<svg');
+    });
+
+    it('reports a piped definition with file: null in --check-format json', async () => {
+        const asl = readFileSync(simpleFixture, 'utf-8');
+        Object.defineProperty(process, 'stdin', {
+            value: Readable.from([Buffer.from(asl)]),
+            configurable: true,
+        });
+
+        const code = await run(['-', '--check', '--check-format', 'json']);
+
+        expect(code).toBe(0);
+        expect(JSON.parse(stdoutData).files[0]).toMatchObject({
+            file: null,
+            kind: 'lint',
+        });
     });
 
     it('auto-detects a piped template that starts with a byte order mark', async () => {
@@ -1579,6 +1674,19 @@ describe('Terraform input', () => {
         const code = await run([terraformFixture('jsonencode.tf'), '--format', 'mermaid']);
         expect(code).toBe(0);
         expect(stderrData).toContain('warning: Expression format(');
+    });
+
+    it('puts extraction warnings in the --check-format json document, not on stderr', async () => {
+        await run([
+            terraformFixture('jsonencode.tf'),
+            '--check',
+            '--check-format',
+            'json',
+        ]);
+        expect(JSON.parse(stdoutData).files[0].warnings).toContainEqual(
+            expect.stringMatching(/Expression format\(/),
+        );
+        expect(stderrData).not.toContain('warning:');
     });
 
     it('extracts a --diff baseline written in Terraform', async () => {
@@ -4216,6 +4324,35 @@ describe('run: multiple inputs', () => {
         expect(await run(['one.asl.json', 'two.asl.json', '--check'])).toBe(0);
     });
 
+    it('writes one --check-format json document for the whole batch', async () => {
+        touch('good.asl.json');
+        touch(
+            'bad.asl.json',
+            JSON.stringify({
+                StartAt: 'Start',
+                States: { Start: { Next: 'Nowhere', Type: 'Pass' } },
+            }),
+        );
+        process.chdir(tempDir);
+
+        expect(
+            await run([
+                'good.asl.json',
+                'bad.asl.json',
+                '--check',
+                '--check-format',
+                'json',
+            ]),
+        ).toBe(1);
+        expect(stdoutData.trim().split('\n')).toHaveLength(1);
+        const { files } = JSON.parse(stdoutData);
+        expect(files.map((entry: { file: string }) => entry.file)).toEqual([
+            'good.asl.json',
+            'bad.asl.json',
+        ]);
+        expect(stderrData).not.toContain('bad.asl.json:');
+    });
+
     describe('usage errors', () => {
         it('rejects -o with more than one input', async () => {
             touch('a.asl.json');
@@ -4759,6 +4896,13 @@ describe('run --from-aws', () => {
     it('lints a live definition with --check', async () => {
         expect(await run(['--from-aws', arn, '--check'])).toBe(0);
         expect(sfnSendMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('names a live definition by its ARN in --check-format json', async () => {
+        expect(
+            await run(['--from-aws', arn, '--check', '--check-format', 'json']),
+        ).toBe(0);
+        expect(JSON.parse(output.join('')).files[0].file).toBe(arn);
     });
 
     it('diffs a live definition against a local baseline', async () => {
@@ -5833,6 +5977,52 @@ describe('--watch', () => {
         process.emit('SIGINT');
         expect(await watching).toBe(0);
         expect(errors.join('')).toContain('watching');
+    }, 20_000);
+
+    it('writes one --check-format json line per pass, covering only re-linted inputs', async () => {
+        const stable = join(tempDir, 'stable.asl.json');
+        const live = join(tempDir, 'live.asl.json');
+        const clean = JSON.stringify({
+            StartAt: 'A',
+            States: { A: { End: true, Type: 'Pass' } },
+        });
+        writeFileSync(stable, clean, 'utf-8');
+        writeFileSync(live, clean, 'utf-8');
+        const documents = (): { files: { diagnostics?: { code: string }[]; file: string }[] }[] =>
+            stdoutSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
+
+        const watching = run([
+            stable,
+            live,
+            '--watch',
+            '--check',
+            '--check-format',
+            'json',
+        ]);
+        await waitFor(() => errors.join('').includes('watching'));
+        expect(documents()).toHaveLength(1);
+        expect(documents()[0].files.map((entry) => entry.file)).toEqual([
+            stable,
+            live,
+        ]);
+
+        writeFileSync(
+            live,
+            JSON.stringify({
+                StartAt: 'A',
+                States: { A: { End: true, Next: 'A', Type: 'Pass' } },
+            }),
+            'utf-8',
+        );
+        await waitFor(() => stdoutSpy.mock.calls.length >= 2);
+        const second = documents()[1];
+        expect(second.files.map((entry) => entry.file)).toEqual([live]);
+        expect(second.files[0].diagnostics).toContainEqual(
+            expect.objectContaining({ code: 'end-with-next' }),
+        );
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
     }, 20_000);
 
     it('reuses the layout across passes when an edit cannot move it', async () => {
