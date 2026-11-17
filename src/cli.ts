@@ -73,6 +73,8 @@ export interface CliArgs {
     catchHandling: CatchHandling | null;
     catchLabelStyle: CatchLabelStyle | null;
     check: boolean;
+    /** `--check-format`, or `null` when absent (text). Only valid with `--check`. */
+    checkFormat: CheckFormat | null;
     collapse: string[] | boolean | null;
     /** Path from `--config`, or `null` to search for a config file. */
     config: string | null;
@@ -275,7 +277,9 @@ Options:
                                    exits 0: a development loop, not a CI gate.
   --check                          Lint the definition instead of drawing it: print every
                                    diagnostic and exit 1 if any is an error
-  -h, --help                       Show this help and exit
+  --check-format <text|json>       With --check: json prints one JSON document to
+                                   stdout; text (default) prints lines to stderr
+  -h, --help                      Show this help and exit
   -v, --version                    Show version and exit
 
 Notes:
@@ -468,6 +472,7 @@ const OPTION_SPEC = {
     'background-color': { type: 'string' },
     'catch-label-style': { type: 'string' },
     check: { type: 'boolean' },
+    'check-format': { type: 'string' },
     collapse: { type: 'string' },
     config: { type: 'string' },
     'diagram-description': { type: 'string' },
@@ -516,10 +521,14 @@ const OPTION_SPEC = {
     watch: { type: 'boolean' },
 } as const;
 
+/** How `--check` reports: human-readable lines on stderr, or one JSON document on stdout. */
+type CheckFormat = 'json' | 'text';
+
 const VALID_CATCH_LABEL_STYLES: readonly CatchLabelStyle[] = [
     'error-type',
     'catch-number',
 ];
+const VALID_CHECK_FORMATS: readonly CheckFormat[] = ['text', 'json'];
 const VALID_EDGE_STYLES: readonly EdgePathStyle[] = [
     'straight',
     'curved',
@@ -1015,6 +1024,14 @@ export function parseArgs(argv: string[]): CliArgs {
                       value: values['catch-label-style'] as string,
                   }),
         check: values.check === true,
+        checkFormat:
+            values['check-format'] === undefined
+                ? null
+                : expectEnum({
+                      allowed: VALID_CHECK_FORMATS,
+                      flag: '--check-format',
+                      value: values['check-format'] as string,
+                  }),
         collapse: readCollapse(),
         config:
             values.config === undefined
@@ -2118,6 +2135,10 @@ export async function run(argv: string[]): Promise<number> {
             '--resolve-cfn and --resource cannot be combined with --from-aws: ' +
                 "a live state machine's definition is already ASL\n",
         );
+        return EXIT_USAGE;
+    }
+    if (args.checkFormat !== null && !args.check) {
+        process.stderr.write('--check-format only applies with --check\n');
         return EXIT_USAGE;
     }
     if (

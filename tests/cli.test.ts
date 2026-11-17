@@ -178,6 +178,20 @@ describe('parseArgs', () => {
         expect(parseArgs(['in.json', '--check']).check).toBe(true);
     });
 
+    it('parses --check-format', () => {
+        expect(parseArgs(['in.json']).checkFormat).toBeNull();
+        expect(
+            parseArgs(['in.json', '--check', '--check-format', 'json'])
+                .checkFormat,
+        ).toBe('json');
+        expect(
+            parseArgs(['in.json', '--check', '--check-format=text']).checkFormat,
+        ).toBe('text');
+        expect(() =>
+            parseArgs(['in.json', '--check', '--check-format', 'xml']),
+        ).toThrowError(/Invalid --check-format: xml/);
+    });
+
     it('parses --diff and --execution', () => {
         expect(parseArgs(['head.json', '--diff', 'base.json']).diff).toBe(
             'base.json',
@@ -458,6 +472,15 @@ describe('run', () => {
             expect(code).toBe(2);
             expect(stderrData).toContain('--check lints the input only');
         }
+    });
+
+    it('refuses --check-format without --check', async () => {
+        const code = await run([simpleFixture, '--check-format', 'json']);
+        expect(code).toBe(2);
+        expect(stderrData).toContain(
+            '--check-format only applies with --check',
+        );
+        expect(stdoutData).toBe('');
     });
 
     it('returns exit code 2 for an invalid flag value', async () => {
