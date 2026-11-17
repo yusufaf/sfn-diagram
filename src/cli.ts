@@ -280,7 +280,7 @@ Options:
                                    diagnostic and exit 1 if any is an error
   --check-format <text|json>       With --check: json prints one JSON document to
                                    stdout; text (default) prints lines to stderr
-  -h, --help                      Show this help and exit
+  -h, --help                       Show this help and exit
   -v, --version                    Show version and exit
 
 Notes:
