@@ -1922,27 +1922,24 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         aslSource = definitionText ?? (await loadSource(source));
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        // An AWS failure already reads "Failed to fetch state machine <arn> from
+        // AWS: ..." and names the ARN itself; prefixing it with "Failed to read
+        // input" would contradict it. A batch's stderr is useless if a file failure
+        // does not say which file; a JSON entry names it in `file` instead.
+        const readFailure = (label: string): string =>
+            source.kind === 'aws'
+                ? message
+                : `Failed to read input${label === '' ? '' : ` ${label}`}: ${message}`;
         if (checkReport !== null) {
             checkReport.push({
                 file: checkFileName({ source }),
                 kind: 'error',
-                message:
-                    source.kind === 'aws'
-                        ? message
-                        : `Failed to read input: ${message}`,
+                message: readFailure(''),
                 warnings: [],
             });
-            return EXIT_FAILURE;
+        } else {
+            process.stderr.write(`${readFailure(inputLabel)}\n`);
         }
-        // An AWS failure already reads "Failed to fetch state machine <arn> from
-        // AWS: ..." and names the ARN itself; prefixing it with "Failed to read
-        // input" would contradict it. A batch's stderr is useless if a file failure
-        // does not say which file.
-        const prefix =
-            source.kind === 'aws'
-                ? ''
-                : `Failed to read input${inputLabel === '' ? '' : ` ${inputLabel}`}: `;
-        process.stderr.write(`${prefix}${message}\n`);
         return EXIT_FAILURE;
     }
 
