@@ -196,8 +196,9 @@ describe('render tool', () => {
         const written = join(workDir, 'out.svg');
         expect(summary.outputPath).toBe(written);
         expect(isAbsolute(summary.outputPath as string)).toBe(true);
-        expect(summary.bytes).toBe(statSync(written).size);
-        expect(readFileSync(written, 'utf-8')).toContain('<svg');
+        const contents = readFileSync(written);
+        expect(summary.bytes).toBe(contents.byteLength);
+        expect(contents.toString('utf-8')).toContain('<svg');
     });
 
     it('counts bytes, not characters, for non-ASCII output', async () => {
@@ -209,10 +210,11 @@ describe('render tool', () => {
             args: { format: 'svg', outputPath: 'umlaut.svg', source },
             name: 'render',
         });
-        const written = join(workDir, 'umlaut.svg');
-        const size = statSync(written).size;
-        expect(summaryOf(result).bytes).toBe(size);
-        expect(size).toBeGreaterThan(readFileSync(written, 'utf-8').length);
+        const contents = readFileSync(join(workDir, 'umlaut.svg'));
+        expect(summaryOf(result).bytes).toBe(contents.byteLength);
+        expect(contents.byteLength).toBeGreaterThan(
+            contents.toString('utf-8').length,
+        );
     });
 
     it('refuses html without outputPath and writes it with one', async () => {
