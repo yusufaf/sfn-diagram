@@ -39,6 +39,7 @@ import {
     planOutputPaths,
     toPosix,
 } from './cliInputs';
+import { runMcp } from './cliMcp';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
@@ -188,6 +189,8 @@ Usage:
   sfn-diagram - [options]            (read ASL from stdin)
   sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
                                           request from CI — see --help there)
+  sfn-diagram mcp [--config <path>]      (serve render/diff/lint to AI agents over
+                                          MCP on stdio — see --help there)
 
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
@@ -2003,6 +2006,13 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
 }
 
 export async function run(argv: string[]): Promise<number> {
+    if (argv[0] === 'mcp') {
+        return runMcp({
+            argv: argv.slice(1),
+            standalone: readBuildInfo()?.standalone ?? false,
+            version: readPackageVersion(),
+        });
+    }
     if (argv[0] === 'comment' && argv[1] === 'gitlab') {
         return runCommentGitlab(argv.slice(2));
     }
