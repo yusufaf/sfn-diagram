@@ -276,6 +276,47 @@ describe('createMcpMessageHandler: malformed messages', () => {
     });
 });
 
+describe('createMcpMessageHandler: robustness', () => {
+    it('reads a request preceded by a UTF-8 byte order mark', async () => {
+        const reply = JSON.parse(
+            (await handle(
+                String.fromCharCode(0xfeff) +
+                    JSON.stringify({ id: 1, jsonrpc: '2.0', method: 'ping' }),
+            )) as string,
+        ) as RpcReply;
+        expect(reply).toEqual({ id: 1, jsonrpc: '2.0', result: {} });
+    });
+
+    it('reports a result that cannot be serialized as a tool error, not a crash', async () => {
+        const unserializable: McpTool = {
+            ...echoTool,
+            call: async () => ({
+                content: [],
+                structuredContent: { count: BigInt(1) },
+            }),
+            name: 'bigint',
+        };
+        const guarded = createMcpMessageHandler({
+            instructions: '',
+            serverInfo: { name: 'test-server', title: 'Test', version: '1' },
+            tools: [unserializable],
+        });
+        const reply = JSON.parse(
+            (await guarded(
+                JSON.stringify({
+                    id: 8,
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'bigint' },
+                }),
+            )) as string,
+        ) as RpcReply;
+        expect(reply.id).toBe(8);
+        expect(reply.result?.isError).toBe(true);
+        expect(JSON.stringify(reply.result?.content)).toContain('BigInt');
+    });
+});
+
 describe('serveMcp', () => {
     it('answers each line in order, one line per message', async () => {
         const input = new PassThrough();

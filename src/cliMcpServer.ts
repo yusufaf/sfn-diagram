@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { stripBom } from './utils/bom';
 
 /**
  * The MCP protocol versions this server speaks, newest first. `initialize` echoes the
@@ -141,7 +142,9 @@ export function createMcpMessageHandler(
         return definition;
     });
 
-    return async (line) => {
+    return async (rawLine) => {
+        // A client may put a byte order mark before its first line.
+        const line = stripBom(rawLine);
         if (line.trim() === '') return null;
 
         let message: unknown;
