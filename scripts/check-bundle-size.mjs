@@ -47,7 +47,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * growth eats the headroom, the right move is to re-measure and restate the budget in
  * the same commit — not to leave it at 2% and let an unrelated PR take the blame.
  *
- * `bin.js` was last restated at 908,000 / 265,000 when the config file gained the style
+ * `bin.js` was last restated at 935,000 / 282,000 when the CLI gained `sfn-diagram mcp`
+ * (#288), measuring 849,827 raw and 256,047 gzip. That change added 36,601 bytes raw and
+ * 11,018 gzip to a build at 813,226 / 245,029, leaving 3.4% gzip headroom. The MCP
+ * protocol layer is hand-rolled: bundling the official SDK measured 604-820 KB raw on
+ * its own.
+ *
+ * That previous budget, 908,000 / 265,000, was set when the config file gained the style
  * maps (`customColors`, `nodeOverrides`, `edgeOverrides`) and every field gained a schema
  * fragment and description (#381), measuring 826,239 raw and 241,184 gzip. That change
  * added 11,142 bytes raw and 3,020 gzip, but the build was already at 815,097 / 238,164,
@@ -150,7 +156,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
-    'bin.js': { gzip: 265000, raw: 908000 },
+    'bin.js': { gzip: 282000, raw: 935000 },
     'cfn.js': { gzip: 4900, raw: 14600 },
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 143000, raw: 492000 },
