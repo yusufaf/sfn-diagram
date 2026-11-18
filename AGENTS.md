@@ -82,6 +82,9 @@ npx sfn-diagram my-workflow.asl.json --format svg -o diagram.svg
 Supports diffs between two revisions and execution overlays from a run's
 history. See <https://sfn.yusufaf.dev/guides/cli/>.
 
+`sfn-diagram mcp` serves `render`, `diff` and `lint` as MCP tools over stdio; see
+<https://sfn.yusufaf.dev/guides/mcp/>.
+
 ## Working in this repository
 
 Conventions, build commands, and release process are documented in

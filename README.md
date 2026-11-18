@@ -113,6 +113,18 @@ AWS call — and `2` when the invocation itself was wrong, so a CI job can tell 
 from a bad definition. See
 [Exit codes](https://sfn.yusufaf.dev/guides/cli/#exit-codes).
 
+### MCP server for AI agents
+
+`sfn-diagram mcp` serves `render`, `diff` and `lint` as
+[Model Context Protocol](https://modelcontextprotocol.io/) tools over stdio, so a coding
+agent can draw and check state machines without shelling out to the CLI:
+
+```bash
+claude mcp add sfn-diagram -- npx -y sfn-diagram mcp
+```
+
+See [Using sfn-diagram from AI agents](https://sfn.yusufaf.dev/guides/mcp/).
+
 ## Features
 
 - **Multiple Output Formats**: SVG, Mermaid syntax, a self-contained interactive HTML viewer, and PNG
