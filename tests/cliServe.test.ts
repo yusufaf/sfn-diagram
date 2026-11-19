@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Agent, createServer, request as httpRequest } from 'node:http';
 import type { Server } from 'node:http';
+import { connect } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import Ajv from 'ajv';
@@ -161,6 +162,41 @@ describe('sfn-diagram serve over HTTP', () => {
         expect(justOver.headers.get('connection')).not.toBe('close');
         const huge = await post('/render', Buffer.alloc(10 * 1024 * 1024, 0x20));
         expect(huge.status).toBe(413);
+    });
+
+    it('answers a malformed request target with 400', async () => {
+        const { port } = server.address() as AddressInfo;
+        const raw = await new Promise<string>((resolveRaw, reject) => {
+            const socket = connect(port, '127.0.0.1', () => {
+                socket.end('GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
+            });
+            let data = '';
+            socket.on('data', (chunk) => (data += chunk.toString()));
+            socket.on('end', () => resolveRaw(data));
+            socket.on('error', reject);
+        });
+        expect(raw.startsWith('HTTP/1.1 400')).toBe(true);
+        expect(raw).toContain('Malformed request target');
+    });
+
+    it('survives a client that disconnects mid-upload', async () => {
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+        try {
+            const { port } = server.address() as AddressInfo;
+            await new Promise<void>((resolveSent) => {
+                const socket = connect(port, '127.0.0.1', () => {
+                    socket.write('POST /render HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\n\r\n{"StartAt"', () => {
+                        socket.destroy();
+                        resolveSent();
+                    });
+                });
+            });
+            await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+            expect((await fetch(`${base}/healthz`)).status).toBe(200);
+            expect(stderr).not.toHaveBeenCalled();
+        } finally {
+            stderr.mockRestore();
+        }
     });
 
     it('answers a wrong method with 405 and a wrong path with 404', async () => {
@@ -377,6 +413,8 @@ describe('runServe', () => {
     it.each([
         [['--port', '70000'], 2],
         [['--port', 'abc'], 2],
+        [['--port', '1e3'], 2],
+        [['--port', '0x50'], 2],
         [['--bogus'], 2],
         [['--config', 'missing-serve-config.json'], 1],
     ])('exits with the right code for %j', async (argv, code) => {

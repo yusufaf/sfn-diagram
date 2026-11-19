@@ -27,6 +27,8 @@ docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/yusufaf/sfn-diagram:latest serve 
 
 The server prints `sfn-diagram serve: listening on http://…` to stderr once it is ready, and stops cleanly on `SIGINT` or `SIGTERM`. It gives in-flight requests up to five seconds to finish.
 
+One process renders one diagram at a time, on one thread. A large diagram, or a big PNG, holds up the requests behind it, `/healthz` included. For more throughput, run several instances behind a load balancer, and give liveness probes a timeout longer than your slowest render.
+
 | Option | Default | |
 | --- | --- | --- |
 | `--port <n>` | `8080` | `0` picks a free port |

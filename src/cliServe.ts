@@ -215,7 +215,7 @@ export function svgPixelSize(svg: string): { height: number; width: number } | n
     return { height: Number(match[2]), width: Number(match[1]) };
 }
 
-type ReadBodyResult = { kind: 'ok'; text: string } | { kind: 'tooLarge' };
+type ReadBodyResult = { kind: 'aborted' } | { kind: 'ok'; text: string } | { kind: 'tooLarge' };
 
 interface ReadBodyParams {
     limit: number;
@@ -229,15 +229,21 @@ interface ReadBodyParams {
  */
 function readBody(params: ReadBodyParams): Promise<ReadBodyResult> {
     const { limit, request } = params;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const chunks: Buffer[] = [];
         let received = 0;
         let tooLarge = false;
+        let ended = false;
         const giveUp = (): void => {
             tooLarge = true;
             chunks.length = 0;
             resolve({ kind: 'tooLarge' });
         };
+        // A client that disconnects mid-upload may not produce an 'error' (bun's
+        // node:http, for one), so 'close' before 'end' settles the read too.
+        request.on('close', () => {
+            if (!ended && !tooLarge) resolve({ kind: 'aborted' });
+        });
 
         const declared = Number(request.headers['content-length']);
         if (Number.isFinite(declared) && declared > limit) giveUp();
@@ -255,11 +261,13 @@ function readBody(params: ReadBodyParams): Promise<ReadBodyResult> {
             chunks.push(chunk);
         });
         request.on('end', () => {
+            ended = true;
             if (!tooLarge) {
                 resolve({ kind: 'ok', text: stripBom(Buffer.concat(chunks).toString('utf-8')) });
             }
         });
-        request.on('error', reject);
+        // An error on the request stream is the client going away, not a server fault.
+        request.on('error', () => resolve({ kind: 'aborted' }));
     });
 }
 
@@ -270,7 +278,13 @@ interface HandleParams extends CreateServeServerParams {
 
 async function handle(params: HandleParams): Promise<void> {
     const { cache, config, parseQuery, request, response, standalone, version } = params;
-    const url = new URL(request.url ?? '/', 'http://localhost');
+    let url: URL;
+    try {
+        url = new URL(request.url ?? '/', 'http://localhost');
+    } catch {
+        sendError({ message: 'Malformed request target', response, status: 400, warnings: [] });
+        return;
+    }
     const methods = ROUTES[url.pathname];
     if (methods === undefined) {
         sendError({
@@ -298,6 +312,10 @@ async function handle(params: HandleParams): Promise<void> {
     }
 
     const body = await readBody({ limit: MAX_BODY_BYTES, request });
+    if (body.kind === 'aborted') {
+        response.destroy();
+        return;
+    }
     if (body.kind === 'tooLarge') {
         sendError({
             message: `Request body exceeds ${MAX_BODY_BYTES / 1024 / 1024} MiB (${MAX_BODY_BYTES} bytes)`,
@@ -343,21 +361,29 @@ async function handle(params: HandleParams): Promise<void> {
             return;
         }
         const size = probe.kind === 'render' && typeof probe.output === 'string' ? svgPixelSize(probe.output) : null;
-        if (size !== null) {
-            const scale = options.scale ?? 1;
-            const width = Math.ceil(size.width * scale);
-            const height = Math.ceil(size.height * scale);
-            if (width * height > MAX_PNG_PIXELS) {
-                sendError({
-                    message:
-                        `PNG would be ${width} x ${height} pixels, above this server's limit of ` +
-                        `${MAX_PNG_PIXELS / 1_000_000} million; use a smaller scale or sizes, or format=svg`,
-                    response,
-                    status: 422,
-                    warnings: probe.warnings,
-                });
-                return;
-            }
+        // Fail closed: a diagram whose size cannot be read is not rasterized.
+        if (size === null) {
+            sendError({
+                message: 'Could not measure the diagram to check it against the PNG size limit',
+                response,
+                status: 422,
+                warnings: probe.warnings,
+            });
+            return;
+        }
+        const scale = options.scale ?? 1;
+        const width = Math.ceil(size.width * scale);
+        const height = Math.ceil(size.height * scale);
+        if (width * height > MAX_PNG_PIXELS) {
+            sendError({
+                message:
+                    `PNG would be ${width} x ${height} pixels, above this server's limit of ` +
+                    `${MAX_PNG_PIXELS / 1_000_000} million; use a smaller scale or sizes, or format=svg`,
+                response,
+                status: 422,
+                warnings: probe.warnings,
+            });
+            return;
         }
     }
 
@@ -482,7 +508,7 @@ export async function runServe(params: RunServeParams): Promise<number> {
     }
 
     const port = values.port === undefined ? DEFAULT_SERVE_PORT : Number(values.port);
-    if (values.port?.trim() === '' || !Number.isInteger(port) || port < 0 || port > 65535) {
+    if ((values.port !== undefined && !/^\d+$/.test(values.port)) || port > 65535) {
         process.stderr.write(`Invalid --port: ${values.port}. Expected a whole number from 0 to 65535\n`);
         return 2;
     }
