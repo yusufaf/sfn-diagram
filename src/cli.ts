@@ -44,6 +44,7 @@ import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
 import type { RenderErrorResponse, RenderLintResponse } from './cliRender';
+import { runServe } from './cliServe';
 import type { ParseServeQueryParams, ServeQueryResult } from './cliServe';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
@@ -192,6 +193,9 @@ Usage:
                                           request from CI — see --help there)
   sfn-diagram mcp [--config <path>]      (serve render/diff/lint to AI agents over
                                           MCP on stdio — see --help there)
+  sfn-diagram serve [--port <n>] [--host <addr>] [--config <path>]
+                                         (render over HTTP: POST /render, POST /lint,
+                                          GET /healthz — see --help there)
 
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
@@ -2135,6 +2139,14 @@ export async function run(argv: string[]): Promise<number> {
     if (argv[0] === 'mcp') {
         return runMcp({
             argv: argv.slice(1),
+            standalone: readBuildInfo()?.standalone ?? false,
+            version: readPackageVersion(),
+        });
+    }
+    if (argv[0] === 'serve') {
+        return runServe({
+            argv: argv.slice(1),
+            parseQuery: parseServeQuery,
             standalone: readBuildInfo()?.standalone ?? false,
             version: readPackageVersion(),
         });
