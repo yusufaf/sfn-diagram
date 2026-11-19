@@ -1,5 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { arrayBufferToBase64, embedIcons } from '../src/utils/iconEmbedder';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { generateHtmlAsync } from '../src/html';
+import { exportPng } from '../src/png';
+import type { AslDefinition } from '../src/types';
+import {
+    arrayBufferToBase64,
+    collectIconUrls,
+    embedIcons,
+    replaceIconUrls,
+} from '../src/utils/iconEmbedder';
 
 interface FakeFetchParams {
     /** Bytes returned for every URL, keyed by URL; unknown URLs get a 404 */
@@ -125,5 +135,102 @@ describe('embedIcons', () => {
         const svg = '<svg><image href="data:image/png;base64,AAAA"/></svg>';
         expect(await embedIcons({ svg })).toBe(svg);
         expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    });
+});
+
+describe('icon URLs come only from rendered <image> elements', () => {
+    const injected = 'href="http://127.0.0.1:1/x"';
+
+    it('ignores an href written as text', () => {
+        const svg = `<text>${injected}</text><image x="0" href="https://a/b.svg"/>`;
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/b.svg']);
+    });
+
+    it('rewrites only the image href and leaves the text byte-identical', () => {
+        const svg = `<text>${injected}</text><image x="0" href="https://a/b.svg"/>`;
+        const urlToDataUri = new Map([
+            ['https://a/b.svg', 'data:image/svg+xml;base64,AAAA'],
+            ['http://127.0.0.1:1/x', 'data:text/plain;base64,BBBB'],
+        ]);
+        expect(replaceIconUrls({ svg, urlToDataUri })).toBe(
+            `<text>${injected}</text><image x="0" href="data:image/svg+xml;base64,AAAA"/>`,
+        );
+    });
+});
+
+describe('text in a definition cannot make the renderer fetch a URL', () => {
+    const secret = 'TOP-SECRET';
+    let bait: Server;
+    let hits = 0;
+    let baitHref = '';
+
+    beforeAll(async () => {
+        bait = createServer((_request, response) => {
+            hits += 1;
+            response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+            response.end(secret);
+        });
+        await new Promise<void>((resolve) => bait.listen(0, '127.0.0.1', resolve));
+        const { port } = bait.address() as AddressInfo;
+        baitHref = `href="http://127.0.0.1:${port}/secret"`;
+    });
+
+    afterAll(async () => {
+        await new Promise<void>((resolve) => bait.close(() => resolve()));
+    });
+
+    afterEach(() => {
+        hits = 0;
+    });
+
+    function poisoned(): AslDefinition {
+        const stateName = `Step ${baitHref}`;
+        return {
+            Comment: `See ${baitHref}`,
+            StartAt: stateName,
+            States: {
+                [stateName]: { Comment: `Note ${baitHref}`, End: true, Type: 'Pass' },
+            },
+        };
+    }
+
+    const secretBase64 = Buffer.from(secret).toString('base64');
+
+    it.each([false, true])('html with showIcons=%s', async (showIcons) => {
+        const { html } = await generateHtmlAsync({
+            aslDefinition: poisoned(),
+            diagramTitle: `Title ${baitHref}`,
+            showIcons,
+        });
+        expect(hits).toBe(0);
+        expect(html).not.toContain(secretBase64);
+    });
+
+    it('png with showIcons', async () => {
+        await exportPng({ aslDefinition: poisoned(), diagramTitle: `Title ${baitHref}`, showIcons: true });
+        expect(hits).toBe(0);
+    });
+
+    it('still embeds the icon the renderer drew for a Lambda task', async () => {
+        const iconBytes = new TextEncoder().encode('<svg>lambda</svg>');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => new Response(iconBytes, { status: 200 })),
+        );
+        const { html } = await generateHtmlAsync({
+            aslDefinition: {
+                StartAt: 'Invoke',
+                States: {
+                    Invoke: {
+                        End: true,
+                        Resource: 'arn:aws:states:::lambda:invoke',
+                        Type: 'Task',
+                    },
+                },
+            },
+            showIcons: true,
+        });
+        expect(vi.mocked(fetch)).toHaveBeenCalled();
+        expect(html).toContain(`data:image/svg+xml;base64,${Buffer.from(iconBytes).toString('base64')}`);
     });
 });
