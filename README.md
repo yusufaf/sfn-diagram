@@ -125,6 +125,18 @@ claude mcp add sfn-diagram -- npx -y sfn-diagram mcp
 
 See [Using sfn-diagram from AI agents](https://sfn.yusufaf.dev/guides/mcp/).
 
+### HTTP server
+
+`sfn-diagram serve` renders and lints over HTTP, so a service in any language can draw a
+diagram with one `POST`:
+
+```bash
+docker run --rm -p 127.0.0.1:8080:8080 ghcr.io/yusufaf/sfn-diagram:latest serve --host 0.0.0.0
+curl --data-binary @state.asl.json 'http://127.0.0.1:8080/render?format=svg' -o diagram.svg
+```
+
+See [Render diagrams over HTTP](https://sfn.yusufaf.dev/guides/serve/).
+
 ## Features
 
 - **Multiple Output Formats**: SVG, Mermaid syntax, a self-contained interactive HTML viewer, and PNG

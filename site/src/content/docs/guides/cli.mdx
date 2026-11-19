@@ -1088,6 +1088,18 @@ options, and the Mermaid size limit it works around.
 sfn-diagram comment gitlab --help
 ```
 
+## `serve`
+
+`sfn-diagram serve` renders and lints over HTTP: `POST` a definition to `/render` with
+these flags (minus the `--`) as query parameters, and get the diagram back. See
+[Render diagrams over HTTP](/guides/serve/) for the endpoints, the status codes, and
+examples in curl, Python and Go.
+
+```bash
+sfn-diagram serve --port 8080
+curl --data-binary @state.asl.json 'http://127.0.0.1:8080/render?format=svg&layout=LR'
+```
+
 ## Docker
 
 A prebuilt image is published to GitHub Container Registry with the PNG rasterizer preinstalled, so `--format png` works out of the box — no browser, no extra install:

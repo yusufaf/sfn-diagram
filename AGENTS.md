@@ -85,6 +85,9 @@ history. See <https://sfn.yusufaf.dev/guides/cli/>.
 `sfn-diagram mcp` serves `render`, `diff` and `lint` as MCP tools over stdio; see
 <https://sfn.yusufaf.dev/guides/mcp/>.
 
+`sfn-diagram serve` renders and lints over HTTP (`POST /render`, `POST /lint`,
+`GET /healthz`); see <https://sfn.yusufaf.dev/guides/serve/>.
+
 ## Working in this repository
 
 Conventions, build commands, and release process are documented in

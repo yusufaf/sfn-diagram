@@ -44,6 +44,8 @@ import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
 import type { RenderErrorResponse, RenderLintResponse } from './cliRender';
+import { runServe } from './cliServe';
+import type { ParseServeQueryParams, ServeQueryResult } from './cliServe';
 import { runGitlabComment } from './ci/gitlab';
 import type { ExecutionMode } from './ci/execution';
 import { renameSync, rmSync } from 'node:fs';
@@ -191,6 +193,9 @@ Usage:
                                           request from CI — see --help there)
   sfn-diagram mcp [--config <path>]      (serve render/diff/lint to AI agents over
                                           MCP on stdio — see --help there)
+  sfn-diagram serve [--port <n>] [--host <addr>] [--config <path>]
+                                         (render over HTTP: POST /render, POST /lint,
+                                          GET /healthz — see --help there)
 
 Options:
   --format <svg|mermaid|png|html>  Output format (default: svg)
@@ -1216,6 +1221,131 @@ export function parseArgs(argv: string[]): CliArgs {
 }
 
 /**
+ * The flags `sfn-diagram serve` accepts as `POST /render` query parameters. Everything
+ * else the CLI takes reads or writes the server's files, reaches AWS, scans system
+ * fonts per request, or changes how the process runs, so a client cannot ask for it.
+ */
+const SERVE_RENDER_QUERY_FLAGS: readonly (keyof typeof OPTION_SPEC)[] = [
+    'background-color',
+    'catch-label-style',
+    'collapse',
+    'diagram-description',
+    'diagram-title',
+    'edge-style',
+    'format',
+    'hide-catch',
+    'hide-comments',
+    'hide-icons',
+    'hide-state-types',
+    'hide-variables',
+    'icon-position',
+    'icon-size',
+    'layout',
+    'no-collapse',
+    'no-raw-state',
+    'node-height',
+    'node-separation',
+    'node-width',
+    'padding',
+    'rank-separation',
+    'redact-fields',
+    'resolve-cfn',
+    'resource',
+    'scale',
+    'show-catch',
+    'show-comments',
+    'show-icons',
+    'show-state-types',
+    'show-variables',
+    'style-preset',
+    'theme',
+];
+
+/** The `POST /lint` query parameters: only the flags that pick the definition. */
+const SERVE_LINT_QUERY_FLAGS: readonly (keyof typeof OPTION_SPEC)[] = [
+    'resolve-cfn',
+    'resource',
+];
+
+/**
+ * Parse one `sfn-diagram serve` request's query string with the CLI's own flag parser.
+ *
+ * Each parameter is a CLI flag without its `--`: `?layout=LR` is `--layout=LR`, and a
+ * switch is `?hide-catch` or `?hide-catch=true`. Going through {@link parseArgs} and
+ * {@link resolveCliOptions} keeps names, validation, error wording and the config-file
+ * merge identical to the CLI's.
+ *
+ * @param params - The query, the request's mode and the server's config
+ * @param params.config - The server's config file, applied under every request
+ * @param params.mode - `render` for `POST /render`, `lint` for `POST /lint`
+ * @param params.query - The request's query string
+ *
+ * @returns The resolved options, or the message for a 400.
+ *
+ * @example
+ * ```typescript
+ * parseServeQuery({ config: null, mode: 'render', query: new URLSearchParams('layout=LR') });
+ * // { kind: 'ok', options: { layout: 'LR', ... }, resolveCfn: false, resource: null }
+ * ```
+ */
+export function parseServeQuery(params: ParseServeQueryParams): ServeQueryResult {
+    const { config, mode, query } = params;
+    const allowed = mode === 'render' ? SERVE_RENDER_QUERY_FLAGS : SERVE_LINT_QUERY_FLAGS;
+
+    const argv: string[] = [];
+    for (const [key, value] of query) {
+        if (!(allowed as readonly string[]).includes(key)) {
+            return {
+                kind: 'error',
+                message: `Unknown query parameter: ${key}. Allowed: ${allowed.join(', ')}`,
+            };
+        }
+        const spec = OPTION_SPEC[key as keyof typeof OPTION_SPEC];
+        if (spec.type === 'boolean') {
+            if (value !== '' && value !== 'true') {
+                return {
+                    kind: 'error',
+                    message: `${key} is a switch: give it with no value or as ${key}=true`,
+                };
+            }
+            argv.push(`--${key}`);
+        } else {
+            argv.push(value === '' ? `--${key}` : `--${key}=${value}`);
+        }
+    }
+
+    let args: CliArgs;
+    try {
+        args = parseArgs(argv);
+    } catch (error) {
+        if (error instanceof CliError) return { kind: 'error', message: error.message };
+        throw error;
+    }
+    if (args.themeFile !== null) {
+        return {
+            kind: 'error',
+            message: "theme must be light, dark or auto; a custom theme comes from the server's config file",
+        };
+    }
+
+    const options = resolveCliOptions({ args, config });
+    if (mode === 'render') {
+        for (const [flags, only] of [
+            [pngOnlyFlagsGiven(args), 'png'],
+            [htmlOnlyFlagsGiven(args), 'html'],
+        ] as const) {
+            if (flags.length > 0 && options.format !== only) {
+                return {
+                    kind: 'error',
+                    message: formatOnlyRefusal({ flags, format: options.format, only }).trimEnd(),
+                };
+            }
+        }
+    }
+    return { kind: 'ok', options, resolveCfn: args.resolveCfn, resource: args.resource };
+}
+
+/**
  * Translate `node:util.parseArgs`'s errors (thrown for an unrecognized flag or a
  * string flag with no value) into the `CliError` shape/wording this CLI has always
  * used, so `run()`'s error output and its tests don't need to know the parser changed.
@@ -2009,6 +2139,14 @@ export async function run(argv: string[]): Promise<number> {
     if (argv[0] === 'mcp') {
         return runMcp({
             argv: argv.slice(1),
+            standalone: readBuildInfo()?.standalone ?? false,
+            version: readPackageVersion(),
+        });
+    }
+    if (argv[0] === 'serve') {
+        return runServe({
+            argv: argv.slice(1),
+            parseQuery: parseServeQuery,
             standalone: readBuildInfo()?.standalone ?? false,
             version: readPackageVersion(),
         });

@@ -130,6 +130,13 @@ if (process.waitFor() != 0) {
 }
 ```
 
+## Long-running services: render over HTTP
+
+A service that renders many diagrams can skip the process per call: run
+`sfn-diagram serve` (from npm, a standalone binary, or the Docker image) next to it and
+`POST` definitions to `/render`. See [Render diagrams over HTTP](/guides/serve/), which
+has Python and Go clients.
+
 ## Pull requests and CI
 
 For diagrams on pull requests you do not need any of the above: the

@@ -5,7 +5,8 @@
 # Checks that the binary reports the package.json version, renders the same
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
 # `--format png` and every route to the AWS SDK with the standalone pointer
-# instead of a missing-module error.
+# instead of a missing-module error. With curl on PATH it also starts
+# `sfn-diagram serve` and checks the same SVG parity over HTTP and the png 501.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only, and only when
 # the host CPU matches the binary - an arm64 binary cannot run in an x64
@@ -34,7 +35,19 @@ fixture="$repo_root/tests/fixtures/simple.asl.json"
 cfn_fixture="$repo_root/tests/fixtures/cfn/cdk-synth.json"
 expected_version="$(cd "$repo_root" && node -p "require('./package.json').version")"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+serve_pid=""
+# One EXIT trap for everything: bash keeps only the last one set. The server has to
+# be gone before rm, or Windows keeps serve.log open and the removal fails. Every
+# step tolerates failure, because under set -e a non-zero `wait` (143 after kill)
+# would abort the trap and turn a passing run into a failure.
+cleanup() {
+    if [ -n "${serve_pid:-}" ]; then
+        kill "$serve_pid" 2>/dev/null || true
+        wait "$serve_pid" 2>/dev/null || true
+    fi
+    rm -rf "$tmp" || true
+}
+trap cleanup EXIT
 
 fail() {
     echo "::error::$1"
@@ -141,6 +154,30 @@ set -e
     fail "expected exit 2 for an unknown flag, got $usage_status"
 [ "$failure_status" -eq 1 ] ||
     fail "expected exit 1 for a missing input file, got $failure_status"
+
+# `sfn-diagram serve` runs on bun's node:http inside the binary, which no other test
+# exercises. It must render the same bytes as the CLI and refuse png with a 501.
+if command -v curl >/dev/null 2>&1; then
+    echo "== serve over HTTP"
+    "$binary" serve --port 0 2> "$tmp/serve.log" &
+    serve_pid=$!
+    serve_url=""
+    for _ in $(seq 1 50); do
+        serve_url="$(grep -o 'listening on http://127\.0\.0\.1:[0-9]*' "$tmp/serve.log" | sed 's/^listening on //' || true)"
+        [ -n "$serve_url" ] && break
+        sleep 0.2
+    done
+    [ -n "$serve_url" ] || fail "serve did not start: $(cat "$tmp/serve.log")"
+    curl -fsS --data-binary @"$fixture" "$serve_url/render?format=svg" | cmp - "$tmp/node.svg" ||
+        fail "serve SVG differs from node dist/bin.js SVG"
+    png_code="$(curl -s -o /dev/null -w '%{http_code}' --data-binary @"$fixture" "$serve_url/render?format=png")"
+    [ "$png_code" = "501" ] || fail "expected 501 for format=png over HTTP, got $png_code"
+    kill "$serve_pid" 2>/dev/null || true
+    wait "$serve_pid" 2>/dev/null || true
+    serve_pid=""
+else
+    echo "== curl not available, skipping the serve check"
+fi
 
 # Map the binary's architecture suffix and the host CPU onto the same names so
 # the container check only runs when the binary can execute natively here.
