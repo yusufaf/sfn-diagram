@@ -193,16 +193,18 @@ export async function embedIconsBatch(params: EmbedIconsBatchParams): Promise<st
 }
 
 /**
- * Matches the remote `href` of an `<image>` start tag (never a data URI). Group 1 is
- * everything up to and including `href="`, group 2 the URL.
+ * Matches the remote `href` (or `xlink:href`) of an `<image>` start tag, never a data
+ * URI. Group 1 is everything up to and including the opening quote, group 2 the URL.
  *
  * Anchored to `<image` because text from the definition (a state name, a `Comment`,
  * a title) can contain `href="http://…"`, and matching that would make the renderer
- * fetch whatever URL the definition names and embed the response. Text content
- * escapes `<`, and attribute values escape `"`, `<` and `>`, so neither can forge an
- * `<image … href="` sequence.
+ * fetch whatever URL the definition names and embed the response. In this package's
+ * own SVG output, text content escapes `<` and attribute values escape `"`, `<` and
+ * `>`, so neither can forge an `<image … href="` sequence. An SVG built elsewhere and
+ * passed to {@link embedIcons} gets no such guarantee: every `<image>` href in it is
+ * fetched.
  */
-const ICON_HREF_PATTERN = /(<image\b[^>]*?\shref=")(https?:\/\/[^"]+)"/g;
+const ICON_HREF_PATTERN = /(<image\b[^>]*?\s(?:xlink:)?href=")(https?:\/\/[^"]+)"/g;
 
 /** Parameters for {@link collectIconUrls}. */
 export interface CollectIconUrlsParams {

@@ -146,6 +146,14 @@ describe('icon URLs come only from rendered <image> elements', () => {
         expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/b.svg']);
     });
 
+    it('still matches xlink:href on an image', () => {
+        const svg = '<image width="16" xlink:href="https://a/c.svg"/>';
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/c.svg']);
+        expect(
+            replaceIconUrls({ svg, urlToDataUri: new Map([['https://a/c.svg', 'data:x']]) }),
+        ).toBe('<image width="16" xlink:href="data:x"/>');
+    });
+
     it('rewrites only the image href and leaves the text byte-identical', () => {
         const svg = `<text>${injected}</text><image x="0" href="https://a/b.svg"/>`;
         const urlToDataUri = new Map([

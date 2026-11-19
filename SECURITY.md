@@ -50,10 +50,13 @@ Worth knowing before reporting:
 - **`sfn-diagram --from-aws`, `--diff <arn>`, and `--execution <arn>` read from
   AWS** using the caller's own credentials via the AWS SDK's standard chain. The
   tool never stores or transmits them anywhere else.
-- **The CLI does not execute a state machine** or run code out of a definition. The
-  only network requests it makes on its own are for AWS service icons, and only with
-  `--show-icons` and `--format html` or `png`: the icon URLs come from the icon CDN
-  (or a library caller's `iconResolver`), never from text in a definition.
+- **`sfn-diagram` does not execute a state machine** or run code out of a
+  definition. The only network requests rendering makes are for AWS service icons,
+  and only with show-icons and HTML or PNG output (the CLI's `--show-icons`, the MCP
+  server's `showIcons`, or the library's `generateHtmlAsync` and `exportPng`). The
+  icon URLs come from the icon CDN, or from a library caller's `iconResolver`, which
+  receives the service name taken from a Task's `Resource`. Text in a definition
+  never becomes a URL on its own.
 
 What is out of scope: vulnerabilities in a dependency with no exploitable path
 through this project's own code — report those upstream. Renovate (working from
