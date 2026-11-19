@@ -2,8 +2,8 @@
 #
 # Smoke-test a sfn-diagram container image: that it runs, renders an SVG from
 # stdin, lets the PNG engine find a probed font without scanning, ships no package
-# manager, and produces real PNG bytes. Optionally that it reports an expected
-# --version.
+# manager, and produces real PNG bytes, both from the CLI and from `sfn-diagram serve`
+# over HTTP (when curl is on PATH). Optionally that it reports an expected --version.
 #
 # One copy of this used to live in .github/workflows/docker.yml (against the pushed
 # ghcr.io image) and another in .github/workflows/unit-test.yml (against the image
@@ -79,6 +79,17 @@ fail() {
     exit 1
 }
 
+# The serve check runs a detached container; stop it however the script ends.
+# Every step tolerates failure, so a container that is already gone (it runs with
+# --rm) cannot turn a passing run into exit 1 under set -e.
+cid=""
+cleanup() {
+    if [ -n "${cid:-}" ]; then
+        "$docker" stop "$cid" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
+
 # Always run it, even with nothing to compare against: `--version` reads the
 # version out of the image, so it fails if the entrypoint cannot start or the
 # runtime stage is missing package.json - breakage that renders fine and would
@@ -126,5 +137,36 @@ head -c 8 "$png_out" | od -An -tx1 | tr -d ' \n' | grep -qx "$png_signature" ||
     fail "image did not render a valid PNG (bad signature)"
 [ "$(wc -c < "$png_out")" -gt "$png_min_bytes" ] ||
     fail "PNG from the image is implausibly small (under $png_min_bytes bytes)"
+
+# The documented container invocation for `sfn-diagram serve`, with no Dockerfile
+# change: ENTRYPOINT forwards the arguments. PNG is the format the image adds over
+# the standalone binary, so that is what goes over HTTP here.
+if command -v curl >/dev/null 2>&1; then
+    echo "== serve: png over HTTP"
+    cid="$("$docker" run -d --rm -p 127.0.0.1::8080 "$image" serve --host 0.0.0.0)"
+    serve_port="$("$docker" port "$cid" 8080 | head -n 1 | sed 's/.*://')"
+    [ -n "$serve_port" ] || fail "could not read the published port of the serve container"
+    serve_url="http://127.0.0.1:$serve_port"
+    serve_up=""
+    for _ in $(seq 1 75); do
+        if curl -fsS "$serve_url/healthz" >/dev/null 2>&1; then
+            serve_up="yes"
+            break
+        fi
+        sleep 0.2
+    done
+    [ -n "$serve_up" ] || fail "serve in the image never answered /healthz"
+    serve_png="${png_out%.png}-serve.png"
+    curl -fsS --data-binary @"$fixture" "$serve_url/render?format=png" -o "$serve_png" ||
+        fail "serve in the image did not render a PNG"
+    head -c 8 "$serve_png" | od -An -tx1 | tr -d ' \n' | grep -qx "$png_signature" ||
+        fail "serve in the image returned a bad PNG signature"
+    [ "$(wc -c < "$serve_png")" -gt "$png_min_bytes" ] ||
+        fail "PNG from serve in the image is implausibly small (under $png_min_bytes bytes)"
+    "$docker" stop "$cid" >/dev/null 2>&1 || true
+    cid=""
+else
+    echo "== curl not available, skipping the serve check"
+fi
 
 echo "docker-smoke: ok ($image)"
