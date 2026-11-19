@@ -58,6 +58,11 @@ Worth knowing before reporting:
   receives the service name taken from a Task's `Resource`. The built-in resolver
   only ever points at the icon CDN; a custom resolver that builds a URL from that
   service name should validate it, since it comes from the definition.
+- **`sfn-diagram serve` has no authentication, TLS or CORS handling.** It binds to
+  `127.0.0.1` unless `--host` says otherwise; exposing it beyond a trusted network
+  is expected to go through a reverse proxy that does access control. A request
+  cannot use the flags that read or write the server's files or reach AWS, its body
+  is capped at 2 MiB, and PNG output at 40 million pixels.
 
 What is out of scope: vulnerabilities in a dependency with no exploitable path
 through this project's own code — report those upstream. Renovate (working from
