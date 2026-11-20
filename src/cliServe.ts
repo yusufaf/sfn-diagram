@@ -241,7 +241,7 @@ export function allowedHostHeaders(address: AddressInfo | string | null): Set<st
     return allowed;
 }
 
-type ReadBodyResult ={ kind: 'aborted' } | { kind: 'ok'; text: string } | { kind: 'tooLarge' };
+type ReadBodyResult = { kind: 'aborted' } | { kind: 'ok'; text: string } | { kind: 'tooLarge' };
 
 interface ReadBodyParams {
     limit: number;
