@@ -6,7 +6,8 @@
 # SVG byte-for-byte as `node dist/bin.js`, reads ASL from stdin, and refuses
 # `--format png` and every route to the AWS SDK with the standalone pointer
 # instead of a missing-module error. With curl on PATH it also starts
-# `sfn-diagram serve` and checks the same SVG parity over HTTP and the png 501.
+# `sfn-diagram serve` and checks the same SVG parity over HTTP, the png 501, and
+# the 403 for a foreign Host or an Origin.
 # When docker is available it also runs the binary inside a bare Debian image
 # to prove it needs no Node.js on the host (Linux binaries only, and only when
 # the host CPU matches the binary - an arm64 binary cannot run in an x64
@@ -156,7 +157,8 @@ set -e
     fail "expected exit 1 for a missing input file, got $failure_status"
 
 # `sfn-diagram serve` runs on bun's node:http inside the binary, which no other test
-# exercises. It must render the same bytes as the CLI and refuse png with a 501.
+# exercises. It must render the same bytes as the CLI, refuse png with a 501, and
+# refuse a foreign Host or an Origin with a 403.
 if command -v curl >/dev/null 2>&1; then
     echo "== serve over HTTP"
     "$binary" serve --port 0 2> "$tmp/serve.log" &
@@ -172,6 +174,10 @@ if command -v curl >/dev/null 2>&1; then
         fail "serve SVG differs from node dist/bin.js SVG"
     png_code="$(curl -s -o /dev/null -w '%{http_code}' --data-binary @"$fixture" "$serve_url/render?format=png")"
     [ "$png_code" = "501" ] || fail "expected 501 for format=png over HTTP, got $png_code"
+    host_code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' "$serve_url/healthz")"
+    [ "$host_code" = "403" ] || fail "expected 403 for a foreign Host header, got $host_code"
+    origin_code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: https://evil.example' --data-binary @"$fixture" "$serve_url/render")"
+    [ "$origin_code" = "403" ] || fail "expected 403 for a request with an Origin header, got $origin_code"
     kill "$serve_pid" 2>/dev/null || true
     wait "$serve_pid" 2>/dev/null || true
     serve_pid=""

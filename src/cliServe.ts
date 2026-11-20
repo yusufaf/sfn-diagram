@@ -88,7 +88,10 @@ Options:
   --port <n>         Port to listen on (default: ${DEFAULT_SERVE_PORT}; 0 picks a free one)
   --host <addr>      Address to bind (default: ${DEFAULT_SERVE_HOST}). Use 0.0.0.0 in a
                      container, behind a trusted network or a reverse proxy: the server
-                     has no authentication.
+                     has no authentication. On a loopback address it answers only
+                     requests for 127.0.0.1, localhost or [::1] on its port, and refuses
+                     requests that carry an Origin header (web pages). Off on any other
+                     address (0.0.0.0 in a container): put a reverse proxy in front.
   --config <path>    Settings file applied under every request (default: search upward
                      from the working directory, as the CLI does)
   -h, --help         Show this help
@@ -215,7 +218,30 @@ export function svgPixelSize(svg: string): { height: number; width: number } | n
     return { height: Number(match[2]), width: Number(match[1]) };
 }
 
-type ReadBodyResult = { kind: 'aborted' } | { kind: 'ok'; text: string } | { kind: 'tooLarge' };
+function isLoopbackAddress(address: string): boolean {
+    return address.startsWith('127.') || address === '::1' || address.startsWith('::ffff:127.');
+}
+
+/**
+ * The `Host` header values a server bound to `address` answers, lowercased: `127.0.0.1`,
+ * `localhost`, `[::1]` and the bound address itself, each with the port, plus the bare
+ * names on port 80, where clients leave the port out.
+ *
+ * @param address - What `server.address()` returned once the server was listening
+ *
+ * @returns The allowed values, or `null` when the bind is not a loopback address and no
+ * check applies.
+ */
+export function allowedHostHeaders(address: AddressInfo | string | null): Set<string> | null {
+    if (address === null || typeof address === 'string' || !isLoopbackAddress(address.address)) return null;
+    const bound = address.family === 'IPv6' ? `[${address.address}]` : address.address;
+    const names = ['127.0.0.1', 'localhost', '[::1]', bound.toLowerCase()];
+    const allowed = new Set(names.map((name) => `${name}:${address.port}`));
+    if (address.port === 80) for (const name of names) allowed.add(name);
+    return allowed;
+}
+
+type ReadBodyResult ={ kind: 'aborted' } | { kind: 'ok'; text: string } | { kind: 'tooLarge' };
 
 interface ReadBodyParams {
     limit: number;
@@ -272,12 +298,40 @@ function readBody(params: ReadBodyParams): Promise<ReadBodyResult> {
 }
 
 interface HandleParams extends CreateServeServerParams {
+    /** The address the server bound, captured when it started listening. */
+    address: AddressInfo | string | null;
     request: IncomingMessage;
     response: ServerResponse;
 }
 
 async function handle(params: HandleParams): Promise<void> {
-    const { cache, config, parseQuery, request, response, standalone, version } = params;
+    const { address, cache, config, parseQuery, request, response, standalone, version } = params;
+    // A web page can reach a loopback server: a cross-origin POST needs no preflight, and
+    // DNS rebinding lets it read the answer. Refuse both before any route runs.
+    const allowed = allowedHostHeaders(address);
+    if (allowed !== null) {
+        const port = (address as AddressInfo).port;
+        const host = request.headers.host;
+        if (host === undefined || !allowed.has(host.toLowerCase())) {
+            sendError({
+                message: `Refused Host ${JSON.stringify(host ?? '')}: a server bound to a loopback address only answers requests for 127.0.0.1:${port}, localhost:${port} or [::1]:${port}`,
+                response,
+                status: 403,
+                warnings: [],
+            });
+            return;
+        }
+        const origin = request.headers.origin;
+        if (origin !== undefined) {
+            sendError({
+                message: `Refused a request with an Origin header (${origin}): a server bound to a loopback address does not answer requests from web pages`,
+                response,
+                status: 403,
+                warnings: [],
+            });
+            return;
+        }
+    }
     let url: URL;
     try {
         url = new URL(request.url ?? '/', 'http://localhost');
@@ -414,7 +468,8 @@ async function handle(params: HandleParams): Promise<void> {
  * `POST /render` and `POST /lint` take the definition as the raw request body and the
  * CLI's flags (without `--`) as query parameters, and answer through the same render
  * service the CLI uses. `GET /healthz` reports the version. Every error is JSON
- * `{ kind: 'error', message, warnings }`: 400 for a bad query, 404 and 405 for a wrong
+ * `{ kind: 'error', message, warnings }`: 400 for a bad query, 403 (only when bound to a
+ * loopback address) for a request with a foreign `Host` or any `Origin`, 404 and 405 for a wrong
  * path or method, 413 for a body over {@link MAX_BODY_BYTES}, 422 when the definition
  * cannot be rendered, 501 for png in the standalone binary, 500 for anything unexpected.
  *
@@ -435,8 +490,11 @@ async function handle(params: HandleParams): Promise<void> {
  * ```
  */
 export function createServeServer(params: CreateServeServerParams): Server {
-    return createServer((request, response) => {
-        handle({ ...params, request, response }).catch((error: unknown) => {
+    // Captured once: `server.address()` is null after close(), which would turn the
+    // loopback checks off for requests still arriving during the shutdown grace.
+    let boundAddress: AddressInfo | string | null = null;
+    const server = createServer((request, response) => {
+        handle({ ...params, address: boundAddress, request, response }).catch((error: unknown) => {
             const message = error instanceof Error ? error.message : String(error);
             process.stderr.write(`sfn-diagram serve: ${request.method} ${request.url}: ${message}\n`);
             if (!response.headersSent && !response.destroyed) {
@@ -446,6 +504,10 @@ export function createServeServer(params: CreateServeServerParams): Server {
             }
         });
     });
+    server.on('listening', () => {
+        boundAddress = server.address();
+    });
+    return server;
 }
 
 /** Parameters for {@link runServe}. */

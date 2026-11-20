@@ -113,6 +113,7 @@ Every error is JSON, `{"kind":"error","message":"…","warnings":[…]}`:
 | Status | When |
 | --- | --- |
 | `400` | An unknown or invalid option, a switch given a value other than `true`, or a format-only option with another format |
+| `403` | On a loopback bind: a `Host` other than `127.0.0.1`, `localhost` or `[::1]` with the server's port, or any `Origin` header (see [Security](#security)) |
 | `404` | An unknown path |
 | `405` | A wrong method; the `Allow` header lists the right one |
 | `413` | A body over 2 MiB |
@@ -151,6 +152,8 @@ A PNG over 40 million pixels (width × height × `scale`²) is refused with a `4
 ## Security
 
 - **It binds to `127.0.0.1` by default.** Only use `--host 0.0.0.0` on a trusted network, or behind a reverse proxy that does the access control. The server has no authentication, TLS or CORS handling.
+- **On a loopback address it refuses web pages.** A page open in your browser could otherwise `POST` to `127.0.0.1:8080` (a `text/plain` body needs no CORS preflight), or read the answers through DNS rebinding. So a request whose `Host` is not `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>`, or that carries an `Origin` header, gets a `403`. curl, Python `requests`, Go and Node clients send neither, so they are unaffected. Reaching the server through another hostname, such as an `/etc/hosts` alias, is refused too.
+- **On any other address both checks are off.** With `--host 0.0.0.0` the expected setup is a reverse proxy, which rewrites `Host`. That includes a container whose port is published only on `127.0.0.1`: the server inside binds `0.0.0.0`, so a browser page can reach it.
 - **Requests cannot reach the server's files or AWS credentials.** The flags that would are refused (see [Options](#options)).
 - **Each request is bounded:** the body is capped at 2 MiB, and PNG output at 40 million pixels.
 - **The only outbound requests are for AWS service icons**, with `show-icons` and `format=html` or `png`. The server fetches them from `cdn.jsdelivr.net`, with a five-second timeout each. Nothing in a request can choose what is fetched. Without network access, an icon stays a link in HTML (the browser loads it) and is left out of a PNG.
