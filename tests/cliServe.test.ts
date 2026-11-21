@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { Agent, createServer, request as httpRequest } from 'node:http';
 import type { Server } from 'node:http';
@@ -12,6 +13,7 @@ import { LINT_OUTPUT_SCHEMA } from '../src/cliMcp';
 import {
     MAX_BODY_BYTES,
     SERVE_HELP_TEXT,
+    allowedHostHeaders,
     createServeServer,
     runServe,
     svgPixelSize,
@@ -27,6 +29,7 @@ const cdkSynthText = readFileSync(join(fixtures, 'cfn', 'cdk-synth.json'), 'utf-
 
 interface StartParams {
     config?: CliConfig | null;
+    host?: string;
     standalone?: boolean;
 }
 
@@ -36,7 +39,7 @@ interface Started {
 }
 
 async function start(params: StartParams = {}): Promise<Started> {
-    const { config = null, standalone = false } = params;
+    const { config = null, host = '127.0.0.1', standalone = false } = params;
     const server = createServeServer({
         cache: createLayoutCache(),
         config,
@@ -44,7 +47,7 @@ async function start(params: StartParams = {}): Promise<Started> {
         standalone,
         version: 'test',
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>((resolve) => server.listen(0, host, resolve));
     const { port } = server.address() as AddressInfo;
     return { base: `http://127.0.0.1:${port}`, server };
 }
@@ -168,7 +171,7 @@ describe('sfn-diagram serve over HTTP', () => {
         const { port } = server.address() as AddressInfo;
         const raw = await new Promise<string>((resolveRaw, reject) => {
             const socket = connect(port, '127.0.0.1', () => {
-                socket.end('GET //[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
+                socket.end(`GET //[ HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`);
             });
             let data = '';
             socket.on('data', (chunk) => (data += chunk.toString()));
@@ -185,7 +188,8 @@ describe('sfn-diagram serve over HTTP', () => {
             const { port } = server.address() as AddressInfo;
             await new Promise<void>((resolveSent) => {
                 const socket = connect(port, '127.0.0.1', () => {
-                    socket.write('POST /render HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\n\r\n{"StartAt"', () => {
+                    const head = `POST /render HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Length: 1000\r\n\r\n`;
+                    socket.write(`${head}{"StartAt"`, () => {
                         socket.destroy();
                         resolveSent();
                     });
@@ -295,6 +299,202 @@ describe('server options', () => {
         } finally {
             await stop(server);
         }
+    });
+});
+
+interface RawRequestParams {
+    body?: string;
+    headers: Record<string, string>;
+    method: string;
+    path: string;
+    port: number;
+}
+
+interface RawResponse {
+    body: string;
+    status: number;
+}
+
+/** A request through `node:http`, which sends the `Host` given; `fetch` ignores one. */
+function rawRequest(params: RawRequestParams): Promise<RawResponse> {
+    const { body, headers, method, path, port } = params;
+    return new Promise((resolve, reject) => {
+        const request = httpRequest({ agent: false, headers, host: '127.0.0.1', method, path, port }, (response) => {
+            let text = '';
+            response.on('data', (chunk: Buffer) => (text += chunk.toString()));
+            response.on('end', () => resolve({ body: text, status: response.statusCode ?? 0 }));
+            response.on('error', reject);
+        });
+        request.on('error', reject);
+        request.end(body);
+    });
+}
+
+/** Write `text` on a raw socket and collect everything until the server closes it. */
+function rawExchange(port: number, text: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const socket = connect(port, '127.0.0.1', () => socket.end(text));
+        let data = '';
+        socket.on('data', (chunk) => (data += chunk.toString()));
+        socket.on('end', () => resolve(data));
+        socket.on('error', reject);
+    });
+}
+
+describe('request checks on a loopback bind', () => {
+    let base: string;
+    let port: number;
+    let server: Server;
+
+    beforeAll(async () => {
+        ({ base, server } = await start());
+        ({ port } = server.address() as AddressInfo);
+    });
+
+    afterAll(async () => {
+        await stop(server);
+    });
+
+    it('refuses a foreign Host on every route with 403', async () => {
+        const render = await rawRequest({
+            body: simpleText,
+            headers: { Host: 'evil.example' },
+            method: 'POST',
+            path: '/render',
+            port,
+        });
+        expect(render.status).toBe(403);
+        const error = JSON.parse(render.body) as { kind: string; message: string };
+        expect(error.kind).toBe('error');
+        expect(error.message).toContain('"evil.example"');
+        expect(error.message).toContain(`localhost:${port}`);
+
+        const health = await rawRequest({ headers: { Host: 'evil.example' }, method: 'GET', path: '/healthz', port });
+        expect(health.status).toBe(403);
+    });
+
+    it('refuses a foreign name on the right port and a loopback name on the wrong port', async () => {
+        for (const host of [`evil.example:${port}`, `127.0.0.1:${port + 1}`, '127.0.0.1', 'localhost']) {
+            const response = await rawRequest({ headers: { Host: host }, method: 'GET', path: '/healthz', port });
+            expect(response.status, host).toBe(403);
+        }
+    });
+
+    it('answers every loopback name with the port, in any case', async () => {
+        for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, `LOCALHOST:${port}`]) {
+            const response = await rawRequest({ headers: { Host: host }, method: 'GET', path: '/healthz', port });
+            expect(response.status, host).toBe(200);
+        }
+    });
+
+    it('refuses a request with no Host', async () => {
+        const raw = await rawExchange(port, 'GET /healthz HTTP/1.0\r\n\r\n');
+        expect(raw.startsWith('HTTP/1.1 403')).toBe(true);
+    });
+
+    it('refuses any Origin with 403', async () => {
+        for (const origin of ['https://evil.example', 'null', `http://127.0.0.1:${port}`]) {
+            const response = await fetch(`${base}/render`, {
+                body: simpleText,
+                headers: { Origin: origin },
+                method: 'POST',
+            });
+            expect(response.status, origin).toBe(403);
+            const error = (await response.json()) as { message: string };
+            expect(error.message, origin).toContain('Origin');
+        }
+    });
+
+    it('answers a client that sends neither, as curl does', async () => {
+        const response = await fetch(`${base}/render`, { body: simpleText, method: 'POST' });
+        expect(response.status).toBe(200);
+    });
+
+    it('keeps refusing on an open connection after close() starts', async () => {
+        const own = await start();
+        const ownPort = (own.server.address() as AddressInfo).port;
+        try {
+            const half = Math.floor(simpleText.length / 2);
+            const seen = once(own.server, 'request');
+            const raw = new Promise<string>((resolve, reject) => {
+                const socket = connect(ownPort, '127.0.0.1', () => {
+                    socket.write(
+                        `POST /lint HTTP/1.1\r\nHost: 127.0.0.1:${ownPort}\r\nContent-Length: ${Buffer.byteLength(simpleText)}\r\n\r\n${simpleText.slice(0, half)}`,
+                    );
+                    seen.then(() => {
+                        own.server.close();
+                        socket.end(
+                            `${simpleText.slice(half)}GET /healthz HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n`,
+                        );
+                    }, reject);
+                });
+                let data = '';
+                socket.on('data', (chunk) => (data += chunk.toString()));
+                socket.on('end', () => resolve(data));
+                socket.on('error', reject);
+            });
+            const statuses = [...(await raw).matchAll(/HTTP\/1\.1 (\d{3})/g)].map((match) => match[1]);
+            expect(statuses).toEqual(['200', '403']);
+        } finally {
+            own.server.closeAllConnections();
+        }
+    });
+});
+
+describe('request checks on a non-loopback bind', () => {
+    it('stays off, so a reverse proxy can rewrite Host', async () => {
+        const { base, server } = await start({ host: '0.0.0.0' });
+        const { port } = server.address() as AddressInfo;
+        try {
+            const foreignHost = await rawRequest({
+                body: simpleText,
+                headers: { Host: 'evil.example' },
+                method: 'POST',
+                path: '/render',
+                port,
+            });
+            expect(foreignHost.status).toBe(200);
+            const withOrigin = await fetch(`${base}/render`, {
+                body: simpleText,
+                headers: { Origin: 'https://evil.example' },
+                method: 'POST',
+            });
+            expect(withOrigin.status).toBe(200);
+        } finally {
+            await stop(server);
+        }
+    });
+});
+
+describe('allowedHostHeaders', () => {
+    const loopbackNames = ['127.0.0.1:8080', 'localhost:8080', '[::1]:8080'];
+
+    it('allows the loopback names with the port on 127.0.0.1 and ::1', () => {
+        expect(allowedHostHeaders({ address: '127.0.0.1', family: 'IPv4', port: 8080 })).toEqual(new Set(loopbackNames));
+        expect(allowedHostHeaders({ address: '::1', family: 'IPv6', port: 8080 })).toEqual(new Set(loopbackNames));
+    });
+
+    it('also allows the bound address itself', () => {
+        expect(allowedHostHeaders({ address: '127.0.0.2', family: 'IPv4', port: 8080 })).toEqual(
+            new Set([...loopbackNames, '127.0.0.2:8080']),
+        );
+        expect(allowedHostHeaders({ address: '::ffff:127.0.0.1', family: 'IPv6', port: 8080 })).toEqual(
+            new Set([...loopbackNames, '[::ffff:127.0.0.1]:8080']),
+        );
+    });
+
+    it('allows the bare names on port 80', () => {
+        expect(allowedHostHeaders({ address: '127.0.0.1', family: 'IPv4', port: 80 })).toEqual(
+            new Set(['127.0.0.1:80', 'localhost:80', '[::1]:80', '127.0.0.1', 'localhost', '[::1]']),
+        );
+    });
+
+    it('is null for any other bind', () => {
+        expect(allowedHostHeaders({ address: '0.0.0.0', family: 'IPv4', port: 8080 })).toBeNull();
+        expect(allowedHostHeaders({ address: '::', family: 'IPv6', port: 8080 })).toBeNull();
+        expect(allowedHostHeaders({ address: '192.168.1.5', family: 'IPv4', port: 8080 })).toBeNull();
+        expect(allowedHostHeaders('/tmp/serve.sock')).toBeNull();
+        expect(allowedHostHeaders(null)).toBeNull();
     });
 });
 

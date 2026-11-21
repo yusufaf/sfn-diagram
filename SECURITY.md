@@ -62,7 +62,10 @@ Worth knowing before reporting:
   `127.0.0.1` unless `--host` says otherwise; exposing it beyond a trusted network
   is expected to go through a reverse proxy that does access control. A request
   cannot use the flags that read or write the server's files or reach AWS, its body
-  is capped at 2 MiB, and PNG output at 40 million pixels.
+  is capped at 2 MiB, and PNG output at 40 million pixels. On a loopback bind it
+  refuses a request whose `Host` is not the loopback address and port, and any
+  request with an `Origin` header, which keeps web pages (cross-origin `POST`s, DNS
+  rebinding) out; on any other bind those checks are off.
 
 What is out of scope: vulnerabilities in a dependency with no exploitable path
 through this project's own code — report those upstream. Renovate (working from
