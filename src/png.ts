@@ -17,9 +17,7 @@
  * writeFileSync('diagram.png', buffer);
  * ```
  */
-import { generateSvg } from './index';
-import { PngExporter } from './exporters';
-import { embedIcons } from './utils/iconEmbedder';
+import { renderPng } from './exporters';
 import type { ExportPngParams, PngOutput } from './types';
 
 export { PngExporter } from './exporters';
@@ -46,35 +44,6 @@ export type { ExportPngParams, PngOutput } from './types';
  * ```
  */
 export async function exportPng(params: ExportPngParams): Promise<PngOutput> {
-    const {
-        aslDefinition,
-        backgroundColor,
-        cache,
-        engine,
-        fontDirs,
-        fontFamily,
-        fontFiles,
-        loadSystemFonts,
-        scale,
-        ...svgOptions
-    } = params;
-    const theme = svgOptions.theme === 'auto' ? 'light' : svgOptions.theme;
-    const svgOutput = generateSvg({ aslDefinition, cache, ...svgOptions, theme });
-
-    // Built before embedIcons so an invalid engine throws before any icon fetch.
-    const exporter = new PngExporter({
-        backgroundColor,
-        engine,
-        fontDirs,
-        fontFamily,
-        fontFiles,
-        loadSystemFonts,
-        scale,
-        theme,
-    });
-
-    // resvg does not fetch remote <image href> icons, so inline them as data URIs first.
-    const svg = svgOptions.showIcons ? await embedIcons({ svg: svgOutput.svg }) : svgOutput.svg;
-
-    return exporter.convert({ svg, width: svgOutput.width });
+    // The pixel ceiling is internal, so an untyped caller's maxPixels key is dropped.
+    return renderPng({ ...params, maxPixels: undefined });
 }
