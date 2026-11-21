@@ -147,7 +147,7 @@ npx --package sfn-diagram --package @resvg/resvg-js sfn-diagram serve
 
 Without `@resvg/resvg-js`, a PNG request gets a `422` that names the package. The standalone binary cannot rasterize, so it answers `501`.
 
-A PNG over 40 million pixels (width × height × `scale`²) is refused with a `422` before rendering. Lower `scale`, `padding` or the node sizes, or ask for `svg`.
+A PNG over 40 million pixels (width × height × `scale`²) is refused with a `422` before it is rasterized. Lower `scale`, `padding` or the node sizes, or ask for `svg`.
 
 ## Security
 

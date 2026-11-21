@@ -4,11 +4,11 @@ import type { ResolvedCliOptions } from './cliOptions';
 import { buildCliRedact } from './cliRedact';
 import { generateDiff, generateMermaidDiff } from './diff';
 import { generateExecution, generateMermaidExecution } from './execution';
+import { renderPng } from './exporters/renderPng';
 import { generateHtmlAsync } from './html';
 import { generateMermaid, generateSvg } from './index';
 import type { LayoutCache } from './layout';
 import { lintAsl } from './lint';
-import { exportPng } from './png';
 import { extractAslFromTerraform } from './terraform';
 import { TERRAFORM_EXTENSIONS, isTerraformConfig } from './terraform/extract';
 import type {
@@ -60,6 +60,12 @@ export interface HandleRenderRequestParams {
     definition: RenderDefinitionInput;
     /** Execution history JSON text, or `null` for no execution overlay. */
     history: string | null;
+    /**
+     * PNG only: the largest image to rasterize, width x height in pixels after scale.
+     * Over it the request comes back as `kind: 'error'` before icons are fetched or the
+     * rasterizer runs. Omitted, there is no limit, as for the CLI and MCP.
+     */
+    maxPngPixels?: number;
     /** `'lint'` runs the linter instead of rendering; `'render'` produces a diagram. */
     mode: 'lint' | 'render';
     /** The effective diagram options, with the theme already resolved. */
@@ -112,6 +118,7 @@ interface RenderResolvedParams {
     cache: LayoutCache;
     definition: AslDefinition | string;
     history: string | null;
+    maxPngPixels?: number;
     options: ResolvedCliOptions;
 }
 
@@ -199,7 +206,7 @@ function errorMessage(error: unknown): string {
 async function renderResolved(
     params: RenderResolvedParams,
 ): Promise<Omit<RenderOutputResponse, 'warnings'>> {
-    const { baseline, cache, definition, history, options } = params;
+    const { baseline, cache, definition, history, maxPngPixels, options } = params;
     const { theme } = options;
 
     const sharedOptions = {
@@ -378,12 +385,13 @@ async function renderResolved(
 
     // Left out rather than passed as undefined when unset: the library falls back to
     // SFN_DIAGRAM_PNG_LOAD_SYSTEM_FONTS only when loadSystemFonts is absent.
-    const result = await exportPng({
+    const result = await renderPng({
         aslDefinition: definition,
         ...svgOptions,
         ...(options.loadSystemFonts !== null
             ? { loadSystemFonts: options.loadSystemFonts }
             : {}),
+        ...(maxPngPixels !== undefined ? { maxPixels: maxPngPixels } : {}),
         ...(options.scale !== null ? { scale: options.scale } : {}),
     });
     return {
@@ -401,7 +409,8 @@ async function renderResolved(
  * HTTP `serve` mode would adapt over too: one plain request in, the output, warnings and
  * lint findings out. The module does no argv, process or filesystem access of its own.
  * The caller reads the inputs, reports the warnings and writes the output. One exception
- * sits below it: `format: 'png'` goes through `exportPng`, which may read the
+ * sits below it: `format: 'png'` goes through `renderPng` (the implementation behind
+ * `sfn-diagram/png`'s `exportPng`), which may read the
  * `SFN_DIAGRAM_PNG_*` font environment variables and probe system font files
  * (`src/exporters/pngFonts.ts`).
  *
@@ -429,7 +438,7 @@ async function renderResolved(
 export async function handleRenderRequest(
     params: HandleRenderRequestParams,
 ): Promise<RenderResponse> {
-    const { baseline, cache, definition, history, mode, options } = params;
+    const { baseline, cache, definition, history, maxPngPixels, mode, options } = params;
     const { format } = options;
 
     // Unreachable from the CLI, whose flag-worded refusals run first. They stop another
@@ -484,6 +493,7 @@ export async function handleRenderRequest(
             cache,
             definition: head,
             history,
+            maxPngPixels,
             options,
         });
         return { ...rendered, warnings };

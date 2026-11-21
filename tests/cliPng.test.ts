@@ -1,24 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// A pass-through spy, so a test can read the options the CLI handed to exportPng while
+// A pass-through spy, so a test can read the options the CLI handed to renderPng while
 // every other test in this file still renders a real PNG. Kept out of cli.test.ts so
 // the module mock cannot leak into its other suites.
-vi.mock('../src/png', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../src/png')>();
-    return { ...actual, exportPng: vi.fn(actual.exportPng) };
+vi.mock('../src/exporters/renderPng', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/exporters/renderPng')>();
+    return { ...actual, renderPng: vi.fn(actual.renderPng) };
 });
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run } from '../src/cli';
-import { exportPng } from '../src/png';
+import { renderPng } from '../src/exporters/renderPng';
 import { decodePng } from './decodePng';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
 
 const simpleFixture = join(__dirname, 'fixtures', 'simple.asl.json');
 
-/** Skips the real render where only the options passed to exportPng matter. */
+/** Skips the real render where only the options passed to renderPng matter. */
 const STUB_PNG = {
     buffer: Buffer.from(''),
     height: 1,
@@ -53,7 +53,7 @@ describe('run: --format png options', () => {
         vi.unstubAllEnvs();
         // mockReset, not mockClear: mockClear leaves an unconsumed
         // mockResolvedValueOnce queued for the next test's real render.
-        vi.mocked(exportPng).mockReset();
+        vi.mocked(renderPng).mockReset();
         rmSync(tempDir, { recursive: true, force: true });
     });
 
@@ -64,7 +64,7 @@ describe('run: --format png options', () => {
     };
 
     const lastCallParams = (): Record<string, unknown> =>
-        vi.mocked(exportPng).mock.lastCall?.[0] as unknown as Record<
+        vi.mocked(renderPng).mock.lastCall?.[0] as unknown as Record<
             string,
             unknown
         >;
@@ -140,8 +140,8 @@ describe('run: --format png options', () => {
     it.each([
         ['--load-system-fonts', true],
         ['--no-load-system-fonts', false],
-    ])('passes %s to exportPng', async (flag, expected) => {
-        vi.mocked(exportPng).mockResolvedValueOnce(STUB_PNG);
+    ])('passes %s to renderPng', async (flag, expected) => {
+        vi.mocked(renderPng).mockResolvedValueOnce(STUB_PNG);
         expect(
             await run([
                 simpleFixture,
@@ -158,7 +158,7 @@ describe('run: --format png options', () => {
     it('leaves both options out when neither flag nor config sets them', async () => {
         // An absent key, not an explicit undefined: the library reads the env var only
         // when loadSystemFonts is missing.
-        vi.mocked(exportPng).mockResolvedValueOnce(STUB_PNG);
+        vi.mocked(renderPng).mockResolvedValueOnce(STUB_PNG);
         expect(
             await run([
                 simpleFixture,
