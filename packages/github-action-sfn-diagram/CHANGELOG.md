@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.3](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.9.2...github-action-sfn-diagram-v1.9.3) (2026-11-21)
+
+
+### Bug Fixes
+
+* **action:** ship llhttp's licence notice with the action bundle ([#663](https://github.com/yusufaf/sfn-diagram/issues/663)) ([56544c7](https://github.com/yusufaf/sfn-diagram/commit/56544c7bedfe5c133c61bca5d19a7838f02847cc))
+
 ## [1.9.2](https://github.com/yusufaf/sfn-diagram/compare/github-action-sfn-diagram-v1.9.1...github-action-sfn-diagram-v1.9.2) (2026-11-15)
 
 
