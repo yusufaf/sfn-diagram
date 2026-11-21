@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { generateSvg } from '../src';
 import { generateHtmlAsync } from '../src/html';
 import { exportPng } from '../src/png';
 import type { AslDefinition } from '../src/types';
@@ -163,6 +164,110 @@ describe('icon URLs come only from rendered <image> elements', () => {
         expect(replaceIconUrls({ svg, urlToDataUri })).toBe(
             `<text>${injected}</text><image x="0" href="data:image/svg+xml;base64,AAAA"/>`,
         );
+    });
+});
+
+describe('icon hrefs are read as attribute values', () => {
+    it('decodes entities and numeric references before collecting', () => {
+        const svg = '<image href="https://a/x.svg?a=1&amp;b=2&#160;&quot;&lt;&gt;"/>';
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/x.svg?a=1&b=2 "<>']);
+    });
+
+    it('decodes in a single pass', () => {
+        const svg = '<image href="https://a/x?q=&amp;lt;"/>';
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/x?q=&lt;']);
+    });
+
+    it('treats named and numeric spellings of one URL as the same URL', () => {
+        const svg = [
+            '<image href="https://a/x?a=1&amp;b=2"/>',
+            '<image href="https://a/x?a=1&#38;b=2"/>',
+            '<image href="https://a/x?a=1&#x26;b=2"/>',
+        ].join('');
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/x?a=1&b=2']);
+    });
+
+    it('looks the decoded URL up in the map', () => {
+        const svg = '<image href="https://a/x.svg?a=1&amp;b=2"/>';
+        const urlToDataUri = new Map([['https://a/x.svg?a=1&b=2', 'data:image/svg+xml;base64,AAAA']]);
+        expect(replaceIconUrls({ svg, urlToDataUri })).toBe('<image href="data:image/svg+xml;base64,AAAA"/>');
+    });
+
+    it('escapes the data URI it writes back', () => {
+        const svg = '<image href="https://a/x.svg"/>';
+        const urlToDataUri = new Map([['https://a/x.svg', 'data:text/plain,a&b"c']]);
+        expect(replaceIconUrls({ svg, urlToDataUri })).toBe('<image href="data:text/plain,a&amp;b&quot;c"/>');
+    });
+
+    it('leaves the href byte-identical when its fetch failed', () => {
+        // The numeric reference matters: re-escaping the decoded URL would write `&amp;`.
+        const svg = '<image href="https://a/x.svg?a=1&#38;b=2"/>';
+        const urlToDataUri = new Map([['https://a/x.svg?a=1&b=2', 'https://a/x.svg?a=1&b=2']]);
+        expect(replaceIconUrls({ svg, urlToDataUri })).toBe(svg);
+    });
+
+    it('labels an .svg URL with a query string as SVG', async () => {
+        installFakeFetch({ bodies: new Map([['https://icons.example/x.svg?a=1', new TextEncoder().encode('<svg/>')]]) });
+        const embedded = await embedIcons({ svg: '<image href="https://icons.example/x.svg?a=1"/>' });
+        expect(embedded).toContain('data:image/svg+xml;base64,');
+    });
+
+    describe('with a custom iconResolver returning a query-string URL', () => {
+        const icon = 'https://icons.example/x.svg?a=1&b=2';
+        const iconResolver = (): string => icon;
+        const expectedUri = `data:image/svg+xml;base64,${Buffer.from('<svg>q</svg>').toString('base64')}`;
+        const lambdaInvokeState = {
+            End: true,
+            Resource: 'arn:aws:states:::lambda:invoke',
+            Type: 'Task',
+        } as const;
+        const lambdaTask: AslDefinition = { StartAt: 'Invoke', States: { Invoke: lambdaInvokeState } };
+
+        function installIcon(): void {
+            installFakeFetch({ bodies: new Map([[icon, new TextEncoder().encode('<svg>q</svg>')]]) });
+        }
+
+        it('embeds the icon in the SVG', async () => {
+            installIcon();
+            const { svg } = generateSvg({ aslDefinition: lambdaTask, iconResolver, showIcons: true });
+            expect(svg).toContain('x.svg?a=1&amp;b=2');
+
+            const embedded = await embedIcons({ svg });
+
+            expect(embedded).toContain(expectedUri);
+            expect(embedded).not.toContain('icons.example');
+            expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(fetch).mock.calls[0][0]).toBe(icon);
+        });
+
+        it('embeds it in the HTML views and the relayout model', async () => {
+            installIcon();
+            const { html } = await generateHtmlAsync({
+                aslDefinition: {
+                    StartAt: 'Fan',
+                    States: {
+                        Fan: {
+                            Branches: [{ StartAt: 'Invoke', States: { Invoke: lambdaInvokeState } }],
+                            End: true,
+                            Type: 'Parallel',
+                        },
+                    },
+                },
+                iconResolver,
+                showIcons: true,
+            });
+
+            expect(html).not.toContain('icons.example');
+            expect(html).toContain(expectedUri);
+            const modelJson = html.match(
+                /<script type="application\/json" id="sfn-relayout-model">([\s\S]*?)<\/script>/,
+            )?.[1];
+            expect(modelJson).toBeDefined();
+            const model = JSON.parse(modelJson as string) as { nodes: { iconUrl?: string }[] };
+            const iconUrls = model.nodes.flatMap((node) => (node.iconUrl === undefined ? [] : [node.iconUrl]));
+            expect(iconUrls.length).toBeGreaterThan(0);
+            expect(iconUrls.every((iconUrl) => iconUrl === expectedUri)).toBe(true);
+        });
     });
 });
 

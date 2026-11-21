@@ -1,3 +1,5 @@
+import { escapeAttribute } from '../renderers/svgBuilder';
+
 /** Default timeout for icon fetch operations in milliseconds */
 const DEFAULT_FETCH_TIMEOUT_MS = 5000;
 
@@ -121,8 +123,8 @@ async function fetchAsDataUri(params: FetchAsDataUriParams): Promise<string> {
         const buffer = await response.arrayBuffer();
         const base64 = arrayBufferToBase64(buffer);
 
-        // Determine MIME type from URL extension
-        const mimeType = url.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
+        // The path's extension decides, so a query string can't hide `.svg`.
+        const mimeType = new URL(url).pathname.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
 
         return `data:${mimeType};base64,${base64}`;
     } catch (error) {
@@ -194,7 +196,9 @@ export async function embedIconsBatch(params: EmbedIconsBatchParams): Promise<st
 
 /**
  * Matches the remote `href` (or `xlink:href`) of an `<image>` start tag, never a data
- * URI. Group 1 is everything up to and including the opening quote, group 2 the URL.
+ * URI. Group 1 is everything up to and including the opening quote, group 2 the URL
+ * as attribute source text: `&` is still `&amp;` there, so read it through
+ * {@link decodeAttributeValue} before using it as a URL.
  *
  * Anchored to `<image` because text from the definition (a state name, a `Comment`,
  * a title) can contain `href="http://…"`, and matching that would make the renderer
@@ -206,6 +210,36 @@ export async function embedIconsBatch(params: EmbedIconsBatchParams): Promise<st
  */
 const ICON_HREF_PATTERN = /(<image\b[^>]*?\s(?:xlink:)?href=")(https?:\/\/[^"]+)"/g;
 
+const XML_REFERENCE_PATTERN = /&(?:#(\d+)|#x([0-9a-fA-F]+)|(amp|apos|gt|lt|quot));/g;
+
+const XML_PREDEFINED_ENTITIES: Record<string, string> = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    quot: '"',
+};
+
+const MAX_CODE_POINT = 0x10ffff;
+
+/**
+ * The value an XML parser reads from attribute text: the predefined entities and
+ * decimal or hex character references, decoded in one pass so `&amp;lt;` becomes
+ * `&lt;`, not `<`. A reference it doesn't recognise stays as written.
+ */
+function decodeAttributeValue(text: string): string {
+    return text.replace(
+        XML_REFERENCE_PATTERN,
+        (reference, decimal: string | undefined, hex: string | undefined, name: string | undefined) => {
+            if (name !== undefined) {
+                return XML_PREDEFINED_ENTITIES[name];
+            }
+            const codePoint = decimal === undefined ? Number.parseInt(hex as string, 16) : Number(decimal);
+            return codePoint <= MAX_CODE_POINT ? String.fromCodePoint(codePoint) : reference;
+        },
+    );
+}
+
 /** Parameters for {@link collectIconUrls}. */
 export interface CollectIconUrlsParams {
     /** SVG strings to scan. */
@@ -214,6 +248,8 @@ export interface CollectIconUrlsParams {
 
 /**
  * Every distinct remote icon URL referenced by any of the SVGs, in first-seen order.
+ * URLs are the decoded attribute values, which are what gets fetched: an href written
+ * `x.svg?a=1&amp;b=2` comes back as `x.svg?a=1&b=2`.
  *
  * @param params - The SVGs to scan
  * @returns The unique remote `href` URLs
@@ -222,7 +258,9 @@ export function collectIconUrls(params: CollectIconUrlsParams): string[] {
     const { svgs } = params;
     return [
         ...new Set(
-            svgs.flatMap((svg) => Array.from(svg.matchAll(ICON_HREF_PATTERN), (match) => match[2])),
+            svgs.flatMap((svg) =>
+                Array.from(svg.matchAll(ICON_HREF_PATTERN), (match) => decodeAttributeValue(match[2])),
+            ),
         ),
     ];
 }
@@ -263,20 +301,24 @@ export async function resolveIconDataUris(
 export interface ReplaceIconUrlsParams {
     /** The SVG whose remote icon `href`s to rewrite. */
     svg: string;
-    /** URL → data URI, from {@link resolveIconDataUris}. */
+    /** Decoded URL (as {@link collectIconUrls} returns it) → data URI, from {@link resolveIconDataUris}. */
     urlToDataUri: Map<string, string>;
 }
 
 /**
  * Rewrite every remote icon `href` the map knows about to its data URI, in one pass.
+ * The href is looked up by its decoded value and the data URI is written back
+ * attribute-escaped. An href the map doesn't know, or whose fetch failed, stays
+ * byte-identical.
  *
  * @param params - The SVG and the resolved URLs
  * @returns The SVG with known icon URLs inlined
  */
 export function replaceIconUrls(params: ReplaceIconUrlsParams): string {
     const { svg, urlToDataUri } = params;
-    return svg.replace(ICON_HREF_PATTERN, (match, prefix: string, url: string) => {
+    return svg.replace(ICON_HREF_PATTERN, (match, prefix: string, sourceText: string) => {
+        const url = decodeAttributeValue(sourceText);
         const dataUri = urlToDataUri.get(url);
-        return dataUri === undefined ? match : `${prefix}${dataUri}"`;
+        return dataUri === undefined || dataUri === url ? match : `${prefix}${escapeAttribute(dataUri)}"`;
     });
 }
