@@ -220,15 +220,25 @@ const XML_PREDEFINED_ENTITIES: Record<string, string> = {
     quot: '"',
 };
 
+/** A literal line break (`\r\n` counts as one) or tab, which XML reads as a space. */
+const XML_ATTRIBUTE_WHITESPACE_PATTERN = /\r\n|[\t\n\r]/g;
+
 const MAX_CODE_POINT = 0x10ffff;
 
+interface DecodeAttributeValueParams {
+    /** Attribute source text, as written between the quotes. */
+    text: string;
+}
+
 /**
- * The value an XML parser reads from attribute text: the predefined entities and
- * decimal or hex character references, decoded in one pass so `&amp;lt;` becomes
- * `&lt;`, not `<`. A reference it doesn't recognise stays as written.
+ * The value an XML parser reads from attribute text. Literal tabs and line breaks
+ * become spaces; then the predefined entities and decimal or hex character
+ * references are decoded in one pass, so `&amp;lt;` becomes `&lt;`, not `<`, and
+ * `&#10;` stays a line break. A reference it doesn't recognise stays as written.
  */
-function decodeAttributeValue(text: string): string {
-    return text.replace(
+function decodeAttributeValue(params: DecodeAttributeValueParams): string {
+    const { text } = params;
+    return text.replace(XML_ATTRIBUTE_WHITESPACE_PATTERN, ' ').replace(
         XML_REFERENCE_PATTERN,
         (reference, decimal: string | undefined, hex: string | undefined, name: string | undefined) => {
             if (name !== undefined) {
@@ -259,7 +269,7 @@ export function collectIconUrls(params: CollectIconUrlsParams): string[] {
     return [
         ...new Set(
             svgs.flatMap((svg) =>
-                Array.from(svg.matchAll(ICON_HREF_PATTERN), (match) => decodeAttributeValue(match[2])),
+                Array.from(svg.matchAll(ICON_HREF_PATTERN), (match) => decodeAttributeValue({ text: match[2] })),
             ),
         ),
     ];
@@ -317,7 +327,7 @@ export interface ReplaceIconUrlsParams {
 export function replaceIconUrls(params: ReplaceIconUrlsParams): string {
     const { svg, urlToDataUri } = params;
     return svg.replace(ICON_HREF_PATTERN, (match, prefix: string, sourceText: string) => {
-        const url = decodeAttributeValue(sourceText);
+        const url = decodeAttributeValue({ text: sourceText });
         const dataUri = urlToDataUri.get(url);
         return dataUri === undefined || dataUri === url ? match : `${prefix}${escapeAttribute(dataUri)}"`;
     });

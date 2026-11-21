@@ -178,6 +178,11 @@ describe('icon hrefs are read as attribute values', () => {
         expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/x?q=&lt;']);
     });
 
+    it('reads literal tabs and line breaks as spaces, as XML normalizes them', () => {
+        const svg = '<image href="https://a/x?a=1\t2\r\n3\n4&#10;5"/>';
+        expect(collectIconUrls({ svgs: [svg] })).toEqual(['https://a/x?a=1 2 3 4\n5']);
+    });
+
     it('treats named and numeric spellings of one URL as the same URL', () => {
         const svg = [
             '<image href="https://a/x?a=1&amp;b=2"/>',
@@ -212,8 +217,10 @@ describe('icon hrefs are read as attribute values', () => {
         expect(embedded).toContain('data:image/svg+xml;base64,');
     });
 
-    describe('with a custom iconResolver returning a query-string URL', () => {
-        const icon = 'https://icons.example/x.svg?a=1&b=2';
+    describe.each([
+        'https://icons.example/x.svg?a=1&b=2',
+        'https://icons.example/x.svg?q=&amp;lt;',
+    ])('with a custom iconResolver returning %s', (icon) => {
         const iconResolver = (): string => icon;
         const expectedUri = `data:image/svg+xml;base64,${Buffer.from('<svg>q</svg>').toString('base64')}`;
         const lambdaInvokeState = {
@@ -230,7 +237,7 @@ describe('icon hrefs are read as attribute values', () => {
         it('embeds the icon in the SVG', async () => {
             installIcon();
             const { svg } = generateSvg({ aslDefinition: lambdaTask, iconResolver, showIcons: true });
-            expect(svg).toContain('x.svg?a=1&amp;b=2');
+            expect(svg).toContain(`href="${icon.replaceAll('&', '&amp;')}"`);
 
             const embedded = await embedIcons({ svg });
 
