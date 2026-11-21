@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// A pass-through spy, so a test can read the options the service handed to exportPng
+// A pass-through spy, so a test can read the options the service handed to renderPng
 // while still being able to stub out the real render where only the options matter.
-vi.mock('../src/png', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../src/png')>();
-    return { ...actual, exportPng: vi.fn(actual.exportPng) };
+vi.mock('../src/exporters/renderPng', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../src/exporters/renderPng')>();
+    return { ...actual, renderPng: vi.fn(actual.renderPng) };
 });
 
 import { readFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ import { resolveCliOptions } from '../src/cliOptions';
 import type { CliOptionSource, ResolvedCliOptions } from '../src/cliOptions';
 import { generateMermaid, generateSvg } from '../src/index';
 import { createLayoutCache } from '../src/layout';
-import { exportPng } from '../src/png';
+import { renderPng } from '../src/exporters/renderPng';
 
 const fixtures = join(__dirname, 'fixtures');
 const readFixture = (...segments: string[]): string =>
@@ -48,7 +48,7 @@ const cfnTemplate = (definition: unknown): string =>
         },
     });
 
-/** Skips the real render where only the options passed to exportPng matter. */
+/** Skips the real render where only the options passed to renderPng matter. */
 const STUB_PNG = {
     buffer: Buffer.from('png'),
     height: 1,
@@ -226,7 +226,9 @@ describe('handleRenderRequest: input detection and lint', () => {
 
 describe('handleRenderRequest: render dispatch', () => {
     beforeEach(() => {
-        vi.mocked(exportPng).mockClear();
+        // mockReset, not mockClear: a test below stubs a persistent resolved value, and
+        // reset brings back the pass-through so later tests render for real.
+        vi.mocked(renderPng).mockReset();
     });
 
     it('renders svg byte-identical to generateSvg with the default options', async () => {
@@ -313,15 +315,16 @@ describe('handleRenderRequest: render dispatch', () => {
     });
 
     it('returns png bytes and leaves unset png options out', async () => {
-        vi.mocked(exportPng).mockResolvedValue(STUB_PNG);
+        vi.mocked(renderPng).mockResolvedValue(STUB_PNG);
         const unset = await handleRenderRequest(
             request({ options: { format: 'png' } }),
         );
         expect(unset.kind).toBe('render');
         if (unset.kind !== 'render') return;
         expect(unset.output).toBeInstanceOf(Uint8Array);
-        const unsetCall = vi.mocked(exportPng).mock.lastCall?.[0];
+        const unsetCall = vi.mocked(renderPng).mock.lastCall?.[0];
         expect(unsetCall).not.toHaveProperty('loadSystemFonts');
+        expect(unsetCall).not.toHaveProperty('maxPixels');
         expect(unsetCall).not.toHaveProperty('scale');
 
         await handleRenderRequest(
@@ -329,8 +332,23 @@ describe('handleRenderRequest: render dispatch', () => {
                 options: { format: 'png', loadSystemFonts: false, scale: 2 },
             }),
         );
-        const setCall = vi.mocked(exportPng).mock.lastCall?.[0];
+        const setCall = vi.mocked(renderPng).mock.lastCall?.[0];
         expect(setCall).toMatchObject({ loadSystemFonts: false, scale: 2 });
+    });
+
+    it('passes maxPngPixels to the png render and returns an over-limit png as an error', async () => {
+        const response = await handleRenderRequest(
+            request({ maxPngPixels: 1, options: { format: 'png' } }),
+        );
+        expect(response.kind).toBe('error');
+        if (response.kind !== 'error') return;
+        expect(response.message).toContain('above the limit of 1 pixels');
+        expect(vi.mocked(renderPng).mock.lastCall?.[0]).toMatchObject({ maxPixels: 1 });
+    });
+
+    it('ignores maxPngPixels outside png', async () => {
+        const response = await handleRenderRequest(request({ maxPngPixels: 1 }));
+        expect(response.kind).toBe('render');
     });
 
     it('returns a render failure as an error value that keeps the warnings', async () => {
@@ -391,7 +409,7 @@ describe('handleRenderRequest: render dispatch', () => {
 
 describe('handleRenderRequest: overlay guards', () => {
     beforeEach(() => {
-        vi.mocked(exportPng).mockClear();
+        vi.mocked(renderPng).mockClear();
     });
 
     it('refuses an overlay in a format without an overlay renderer', async () => {
@@ -407,7 +425,7 @@ describe('handleRenderRequest: overlay guards', () => {
                 'diff and execution overlays support svg, mermaid or html output, not png',
             warnings: [],
         });
-        expect(exportPng).not.toHaveBeenCalled();
+        expect(renderPng).not.toHaveBeenCalled();
     });
 
     it('refuses a combined diff and execution overlay outside html', async () => {

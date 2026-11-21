@@ -16,7 +16,6 @@ import {
     allowedHostHeaders,
     createServeServer,
     runServe,
-    svgPixelSize,
     warningsHeaders,
 } from '../src/cliServe';
 import { extractAslFromTemplate } from '../src/cfn';
@@ -232,7 +231,7 @@ describe('sfn-diagram serve over HTTP', () => {
         const response = await post('/render?format=png&padding=20000', simpleText);
         expect(response.status).toBe(422);
         expect(((await response.json()) as { message: string }).message).toContain(
-            "above this server's limit",
+            'above the limit of 40,000,000 pixels',
         );
         const scaled = await post('/render?format=png&scale=4', simpleText);
         expect(scaled.status).toBe(200);
@@ -525,16 +524,6 @@ describe('warningsHeaders', () => {
         const last = list[list.length - 1];
         expect(last).toMatch(/^and \d+ more; POST \/lint returns every warning$/);
         expect(Number(/^and (\d+)/.exec(last)?.[1]) + list.length - 1).toBe(200);
-    });
-});
-
-describe('svgPixelSize', () => {
-    it('reads the root size', () => {
-        expect(svgPixelSize('<svg width="120.5" height="80" xmlns="http://www.w3.org/2000/svg">')).toEqual({
-            height: 80,
-            width: 120.5,
-        });
-        expect(svgPixelSize('<g/>')).toBeNull();
     });
 });
 

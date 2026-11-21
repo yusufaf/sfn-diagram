@@ -205,19 +205,6 @@ export function warningsHeaders(warnings: string[]): Record<string, string> {
     };
 }
 
-/**
- * The root `width` and `height` of an SVG this package rendered.
- *
- * @param svg - The SVG text
- *
- * @returns The size in CSS pixels, or `null` when the root tag has none.
- */
-export function svgPixelSize(svg: string): { height: number; width: number } | null {
-    const match = /<svg\b[^>]*?\swidth="([\d.]+)"[^>]*?\sheight="([\d.]+)"/.exec(svg);
-    if (match === null) return null;
-    return { height: Number(match[2]), width: Number(match[1]) };
-}
-
 function isLoopbackAddress(address: string): boolean {
     return address.startsWith('127.') || address === '::1' || address.startsWith('::ffff:127.');
 }
@@ -389,59 +376,29 @@ async function handle(params: HandleParams): Promise<void> {
     const { options, resolveCfn, resource } = parsed;
     const definition: RenderDefinitionInput = { path: null, resolveCfn, resource, source: body.text };
 
-    if (mode === 'render' && options.format === 'png') {
-        if (standalone) {
-            sendError({
-                message:
-                    'format png is not available in the standalone binary: the native rasterizer ' +
-                    'it needs cannot be bundled into a single-file executable. Use the Docker image, ' +
-                    'or the npm package with @resvg/resvg-js installed.',
-                response,
-                status: 501,
-                warnings: [],
-            });
-            return;
-        }
-        const probe = await handleRenderRequest({
-            baseline: null,
-            cache,
-            definition,
-            history: null,
-            mode: 'render',
-            options: { ...options, format: 'svg' },
+    if (mode === 'render' && options.format === 'png' && standalone) {
+        sendError({
+            message:
+                'format png is not available in the standalone binary: the native rasterizer ' +
+                'it needs cannot be bundled into a single-file executable. Use the Docker image, ' +
+                'or the npm package with @resvg/resvg-js installed.',
+            response,
+            status: 501,
+            warnings: [],
         });
-        if (probe.kind === 'error') {
-            sendError({ message: probe.message, response, status: 422, warnings: probe.warnings });
-            return;
-        }
-        const size = probe.kind === 'render' && typeof probe.output === 'string' ? svgPixelSize(probe.output) : null;
-        // Fail closed: a diagram whose size cannot be read is not rasterized.
-        if (size === null) {
-            sendError({
-                message: 'Could not measure the diagram to check it against the PNG size limit',
-                response,
-                status: 422,
-                warnings: probe.warnings,
-            });
-            return;
-        }
-        const scale = options.scale ?? 1;
-        const width = Math.ceil(size.width * scale);
-        const height = Math.ceil(size.height * scale);
-        if (width * height > MAX_PNG_PIXELS) {
-            sendError({
-                message:
-                    `PNG would be ${width} x ${height} pixels, above this server's limit of ` +
-                    `${MAX_PNG_PIXELS / 1_000_000} million; use a smaller scale or sizes, or format=svg`,
-                response,
-                status: 422,
-                warnings: probe.warnings,
-            });
-            return;
-        }
+        return;
     }
 
-    const result = await handleRenderRequest({ baseline: null, cache, definition, history: null, mode, options });
+    // The service refuses a png over the limit after its one SVG render, before icons or resvg.
+    const result = await handleRenderRequest({
+        baseline: null,
+        cache,
+        definition,
+        history: null,
+        maxPngPixels: MAX_PNG_PIXELS,
+        mode,
+        options,
+    });
     if (result.kind === 'error') {
         sendError({ message: result.message, response, status: 422, warnings: result.warnings });
         return;
