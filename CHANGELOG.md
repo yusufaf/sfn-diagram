@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.2...sfn-diagram-v2.1.0) (2026-11-21)
+
+
+### Features
+
+* **cli:** add sfn-diagram mcp server exposing render, diff and lint tools ([#670](https://github.com/yusufaf/sfn-diagram/issues/670)) ([f917820](https://github.com/yusufaf/sfn-diagram/commit/f9178200b4a6482b07114648c1810f4afd2f6ef6))
+* **cli:** add sfn-diagram serve, an HTTP render server ([#673](https://github.com/yusufaf/sfn-diagram/issues/673)) ([c6a6dff](https://github.com/yusufaf/sfn-diagram/commit/c6a6dffddb8cb2626a1cd009b8dfc30ce15db51f))
+* **cli:** machine-readable output for --check ([#669](https://github.com/yusufaf/sfn-diagram/issues/669)) ([55a388a](https://github.com/yusufaf/sfn-diagram/commit/55a388aa38dc19cf764c7174208c7f971ce09613))
+* **cli:** refuse foreign Host and Origin requests on a loopback serve ([#679](https://github.com/yusufaf/sfn-diagram/issues/679)) ([dd69f5a](https://github.com/yusufaf/sfn-diagram/commit/dd69f5a091e61c32c501bfade02ba3e8e0652285))
+
+
+### Bug Fixes
+
+* **cli:** embed third-party licence notices in the standalone binaries ([#662](https://github.com/yusufaf/sfn-diagram/issues/662)) ([b8b3044](https://github.com/yusufaf/sfn-diagram/commit/b8b30448590a9811028cfa9112e1e80929f99520))
+* **icons:** embed icon urls that contain an ampersand ([#681](https://github.com/yusufaf/sfn-diagram/issues/681)) ([6c238f3](https://github.com/yusufaf/sfn-diagram/commit/6c238f31ddb50f9576b0344e6f574da9ab40393b))
+* **icons:** fetch only rendered &lt;image&gt; hrefs when embedding icons ([#671](https://github.com/yusufaf/sfn-diagram/issues/671)) ([22dde37](https://github.com/yusufaf/sfn-diagram/commit/22dde3782bb1b718cadadc567f972c6cd963c688))
+
+
+### Performance Improvements
+
+* **cli:** render png once per serve request ([#682](https://github.com/yusufaf/sfn-diagram/issues/682)) ([2932d39](https://github.com/yusufaf/sfn-diagram/commit/2932d39dc8e765e83c528d6aa84b1de7c25c20de))
+
 ## [2.0.2](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.1...sfn-diagram-v2.0.2) (2026-11-15)
 
 
