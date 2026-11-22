@@ -174,28 +174,56 @@ You can leave it out if the template has only one state machine.
     Type: AWS::Serverless::StateMachine
     Properties:
       DefinitionUri: statemachine/refund.asl.json
+      DefinitionSubstitutions:
+        ChargeFunctionArn: !GetAtt ChargeFunction.Arn
 ```
 
-Here the definition isn't in the template, so sfn-diagram can't read it from there. It
-refuses and tells you why:
-
-```text
-Error: State machine 'RefundStateMachine' loads its definition from DefinitionUri ('statemachine/refund.asl.json'), which cannot be read from the template alone. Render that ASL file directly (download it first if it is in S3), or inline the definition in the template.
-```
-
-Render the ASL file instead:
+Render the template as usual:
 
 ```bash
-npx sfn-diagram statemachine/refund.asl.json -o refund.svg
+npx sfn-diagram template.yaml --resolve-cfn -o refund.svg
 ```
 
-`sam build` doesn't help here, because it keeps `DefinitionUri` as a file path.
-`DefinitionSubstitutions` entries aren't applied either, so a `${ChargeFunctionArn}`
-placeholder appears as written. To render every definition in the folder in one run, use a
-glob:
+The CLI reads `statemachine/refund.asl.json` relative to the template, not to the
+directory you run it from. It fills in `DefinitionSubstitutions` the way CloudFormation
+does, so a `${ChargeFunctionArn}` placeholder in the file becomes `<ChargeFunction.Arn>`.
+The file can be JSON or YAML. If it's missing, the error names the full path that was
+tried. The same works for each side of a `--diff` and for a template passed to the
+[MCP server](/guides/mcp/) by `path`.
+
+Some cases still can't be read and stop with `… cannot be read from the template alone`:
+
+- an `s3://` URI or an S3 location object, since the file is in S3. Download it and render
+  it directly.
+- a template piped in on stdin, or sent to [`sfn-diagram serve`](/guides/serve/) or to MCP as
+  `source`, since there's no directory to read the file from. Pass the template as a file.
+
+A `DefinitionUri` that starts with `//` or `\\` (a network or device path) is refused too,
+because reading it would make the machine contact that host. Errors about the file
+never quote its contents, so for a syntax error, render the file itself to see the
+parser's message.
+
+To render every definition in the folder in one run, a glob over the ASL files works as
+well:
 
 ```bash
 npx sfn-diagram 'statemachine/*.asl.json' --out-dir diagrams
+```
+
+In your own code, pass a `readFile` callback to
+[`extractAslFromTemplate`](/reference/cfn/functions/extractaslfromtemplate/). Without one, a
+`DefinitionUri` is reported rather than read, which is what browsers and edge runtimes get:
+
+```ts
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { extractAslFromTemplate } from 'sfn-diagram/cfn';
+
+const templatePath = 'template.yaml';
+const { aslDefinition } = extractAslFromTemplate({
+  readFile: ({ path }) => readFileSync(join(dirname(templatePath), path), 'utf-8'),
+  template: readFileSync(templatePath, 'utf-8'),
+});
 ```
 
 ## Plain CloudFormation
@@ -203,8 +231,8 @@ npx sfn-diagram 'statemachine/*.asl.json' --out-dir diagrams
 An `AWS::StepFunctions::StateMachine` resource in a hand-written template works the same
 way. JSON templates are detected automatically; YAML ones need `--resolve-cfn`. The
 definition can be in `DefinitionString` or `Definition`. A definition stored in S3 through
-`DefinitionS3Location` gets the same refusal as SAM's `DefinitionUri`, so download the file
-and render it directly.
+`DefinitionS3Location` can't be read from the template, so download the file and render it
+directly.
 
 ## See what a change does to the graph
 
@@ -266,4 +294,6 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | `Resource '…' matches more than one state machine` | The value, often the end of a path, fits several state machines | Pass a longer path, such as `Orders/Workflow`, or the logical ID |
 | `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Point at the template that declares the machine. A CDK nested stack gets its own `*.nested.template.json` file in `cdk.out/` |
 | `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | The same mistake with `--resolve-cfn` | Same fix |
-| `… loads its definition from DefinitionUri …` | The definition is in a separate file | Render that `.asl.json` file directly |
+| `… loads its definition from DefinitionUri (…), which could not be read: … does not exist` | The `DefinitionUri` path, taken relative to the template, points at no file | Fix the path in the template, or move the template back beside its `statemachine/` folder |
+| `DefinitionUri file '…' … is not valid JSON` (or YAML) | The definition file has a syntax error. The message never quotes the file | Render the file directly to see the parser's message |
+| `… loads its definition from DefinitionUri …, which cannot be read from the template alone` | The definition is in S3, or the template came from stdin, `serve` or MCP `source` | Download and render the file directly, or pass the template as a file |
