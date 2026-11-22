@@ -78,7 +78,8 @@ function buildCfnTags(): Array<CollectionTag | ScalarTag> {
 
 const CFN_TAGS: Array<CollectionTag | ScalarTag> = buildCfnTags();
 
-function looksLikeJson(text: string): boolean {
+/** Whether text reads as JSON rather than YAML: its first non-blank character is `{`. */
+export function looksLikeJson(text: string): boolean {
     return text.trimStart().startsWith('{');
 }
 

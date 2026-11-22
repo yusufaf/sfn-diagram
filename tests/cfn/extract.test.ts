@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -546,5 +546,204 @@ describe('CDK construct paths', () => {
             "Resource 'Flow' matches more than one state machine: AFlowE02A3768 (S/A/Flow), " +
                 'BFlowF1F7FEAE (S/B/Flow). Pass a longer construct path or a logical ID.',
         );
+    });
+});
+
+describe('DefinitionUri files read through readFile', () => {
+    const LOCATION = 'statemachine/order.asl.json';
+
+    const samTemplate = (properties: Record<string, unknown>): Record<string, unknown> => ({
+        Resources: { Machine: { Type: 'AWS::Serverless::StateMachine', Properties: properties } },
+    });
+
+    const extractFile = (
+        text: string,
+        substitutions?: Record<string, unknown>,
+    ): ReturnType<typeof extractAslFromTemplate> =>
+        extractAslFromTemplate({
+            readFile: () => text,
+            template: samTemplate({
+                DefinitionUri: LOCATION,
+                ...(substitutions === undefined ? {} : { DefinitionSubstitutions: substitutions }),
+            }),
+        });
+
+    const thrownMessage = (action: () => unknown): string => {
+        try {
+            action();
+        } catch (error) {
+            return (error as Error).message;
+        }
+        throw new Error('expected the call to throw');
+    };
+
+    it('reads a local DefinitionUri through readFile', () => {
+        const readFile = vi.fn(() => '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}');
+        const { aslDefinition, resourceId } = extractAslFromTemplate({
+            readFile,
+            template: samTemplate({ DefinitionUri: LOCATION }),
+        });
+        expect(readFile).toHaveBeenCalledTimes(1);
+        expect(readFile).toHaveBeenCalledWith({ path: LOCATION });
+        expect(aslDefinition.StartAt).toBe('A');
+        expect(resourceId).toBe('Machine');
+    });
+
+    it('applies DefinitionSubstitutions to a DefinitionUri file as raw text', () => {
+        const { aslDefinition } = extractFile(
+            '{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":${Wait},"Next":"T"},' +
+                '"T":{"Type":"Task","Resource":"${FnArn}","End":true}}}',
+            { FnArn: { 'Fn::GetAtt': ['Fn', 'Arn'] }, Wait: 30 },
+        );
+        expect(aslDefinition.States.W.Seconds).toBe(30);
+        expect(aslDefinition.States.T.Resource).toBe('<Fn.Arn>');
+    });
+
+    it('substitutes an unquoted YAML StartAt in a DefinitionUri file', () => {
+        const { aslDefinition } = extractFile('StartAt: ${First}\nStates:\n  A:\n    Type: Succeed\n', {
+            First: 'A',
+        });
+        expect(aslDefinition.StartAt).toBe('A');
+    });
+
+    it('parses a YAML DefinitionUri file', () => {
+        const { aslDefinition } = extractFile('StartAt: A\nStates:\n  A:\n    Type: Succeed\n');
+        expect(aslDefinition.States.A.Type).toBe('Succeed');
+    });
+
+    it('strips a byte order mark from the DefinitionUri file', () => {
+        const { aslDefinition } = extractFile(
+            `${String.fromCharCode(0xfeff)}{"StartAt":"A","States":{"A":{"Type":"Succeed"}}}`,
+        );
+        expect(aslDefinition.StartAt).toBe('A');
+    });
+
+    it("names the DefinitionUri and the reader's reason when readFile throws", () => {
+        const message = thrownMessage(() =>
+            extractAslFromTemplate({
+                readFile: () => {
+                    throw new Error('/work/statemachine/order.asl.json does not exist');
+                },
+                template: samTemplate({ DefinitionUri: LOCATION }),
+            }),
+        );
+        expect(message).toContain(`DefinitionUri ('${LOCATION}')`);
+        expect(message).toContain('/work/statemachine/order.asl.json does not exist');
+    });
+
+    it('names the DefinitionUri file when it is not valid JSON', () => {
+        expect(() => extractFile('{"StartAt":')).toThrow(
+            `DefinitionUri file '${LOCATION}' of state machine 'Machine' is not valid JSON.`,
+        );
+    });
+
+    it.each(['just text', '[]', '{"auths":{"registry":{"auth":"c2VjcmV0"}}}'])(
+        'rejects a DefinitionUri file that is not an ASL definition: %s',
+        (text) => {
+            const message = thrownMessage(() => extractFile(text));
+            expect(message).toMatch(/is not an ASL definition/);
+            expect(message).toContain(LOCATION);
+            expect(message).not.toContain('c2VjcmV0');
+        },
+    );
+
+    it.each([
+        ['[default]\naws_access_key_id = AKIAEXAMPLE', /not valid YAML \(line 2\)/],
+        ['{"secret": AKIAEXAMPLE}', /not valid JSON\./],
+        ['a: *AKIAEXAMPLE', /not valid YAML\./],
+    ])('does not echo DefinitionUri file contents in a parse error: %j', (text, expected) => {
+        const message = thrownMessage(() => extractFile(text));
+        expect(message).toMatch(expected);
+        // Parser messages quote a truncated excerpt (`AKIAEXAMPL"...`), so check the prefix.
+        expect(message).not.toContain('AKIA');
+        expect(message).not.toContain('column');
+        expect(message).toContain('Render the file directly');
+    });
+
+    it('parses a DefinitionUri YAML file without printing yaml warnings', () => {
+        const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
+        try {
+            const { aslDefinition } = extractFile(
+                'StartAt: A\nStates:\n  A: !secretTag\n    Type: Succeed\n',
+            );
+            expect(aslDefinition.StartAt).toBe('A');
+            expect(JSON.stringify(emitWarning.mock.calls)).not.toContain('secretTag');
+        } finally {
+            emitWarning.mockRestore();
+        }
+    });
+
+    it('rejects a non-ASL file that DefinitionSubstitutions would turn into ASL', () => {
+        const message = thrownMessage(() =>
+            extractFile('db:\n  host: ${Host}\n  password: hunter2-SECRET\n  user: ${User}\n', {
+                Host: 'x\nStartAt: A\nStates: {A: {Type: Pass, End: true, Comment: "',
+                User: '"}}',
+            }),
+        );
+        expect(message).toMatch(/is not an ASL definition/);
+        expect(message).not.toContain('hunter2');
+    });
+
+    it('reports a DefinitionUri file that breaks only after substitution', () => {
+        const message = thrownMessage(() =>
+            extractFile(
+                '{"StartAt":"A","States":{"A":{"Type":"Pass","Comment":"${Note}","End":true}}}',
+                { Note: 'a"b' },
+            ),
+        );
+        expect(message).toMatch(/is not valid JSON after DefinitionSubstitutions are applied/);
+        expect(message).toContain(LOCATION);
+        expect(message).not.toContain('line');
+    });
+
+    it.each(['s3://bucket/order.asl.json', 'S3://bucket/order.asl.json'])(
+        'keeps the diagnostic for an S3 DefinitionUri even with readFile: %s',
+        (location) => {
+            const readFile = vi.fn(() => '{}');
+            expect(() =>
+                extractAslFromTemplate({ readFile, template: samTemplate({ DefinitionUri: location }) }),
+            ).toThrow(/cannot be read from the template alone/);
+            expect(readFile).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['//example.invalid/share/x.json', '\\\\example.invalid\\share\\x.json', '\\\\?\\C:\\x.json'])(
+        'refuses a network or device DefinitionUri without calling readFile: %s',
+        (location) => {
+            const readFile = vi.fn(() => '{}');
+            const message = thrownMessage(() =>
+                extractAslFromTemplate({ readFile, template: samTemplate({ DefinitionUri: location }) }),
+            );
+            expect(message).toMatch(/is a network or device path; only local files are read/);
+            expect(message).toContain(location);
+            expect(readFile).not.toHaveBeenCalled();
+        },
+    );
+
+    it('keeps the diagnostic for an S3Location DefinitionUri and for DefinitionS3Location', () => {
+        const readFile = vi.fn(() => '{}');
+        for (const properties of [
+            { DefinitionUri: { Bucket: 'b', Key: 'k' } },
+            { DefinitionS3Location: { Bucket: 'b', Key: 'k' } },
+            { DefinitionS3Location: 'statemachine/order.asl.json' },
+        ]) {
+            expect(() => extractAslFromTemplate({ readFile, template: samTemplate(properties) })).toThrow(
+                /cannot be read from the template alone/,
+            );
+        }
+        expect(readFile).not.toHaveBeenCalled();
+    });
+
+    it('prefers an inline Definition over DefinitionUri', () => {
+        const readFile = vi.fn(() => '{}');
+        const { aslDefinition } = extractAslFromTemplate({
+            readFile,
+            template: samTemplate({
+                Definition: { StartAt: 'Inline', States: { Inline: { Type: 'Succeed' } } },
+                DefinitionUri: LOCATION,
+            }),
+        });
+        expect(aslDefinition.StartAt).toBe('Inline');
+        expect(readFile).not.toHaveBeenCalled();
     });
 });
