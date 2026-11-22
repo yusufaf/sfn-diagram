@@ -1234,9 +1234,10 @@ export type PngExporterOptions = DiagramOptions & PngExportOptions;
 /** Parameters for the `readFile` callback of `extractAslFromTemplate`. */
 export interface ReadFileParams {
     /**
-     * The path as the template writes it (`statemachine/order.asl.json`). Relative paths
-     * are relative to the template's directory; resolve it against the directory the
-     * template was read from.
+     * A path relative to the template's directory, as the template writes it (a SAM
+     * `DefinitionUri` such as `statemachine/order.asl.json`) or as CDK names it
+     * (`Stack.assets.json`, then the asset's `source.path`). Resolve it against the
+     * directory the template was read from.
      */
     path: string;
 }
@@ -1250,7 +1251,10 @@ export interface ExtractAslFromTemplateParams {
      * Synchronous: return the file's text (for example with `readFileSync`), or throw to
      * report it unreadable; the thrown message is appended to the error, so name the path
      * in it, never the contents. Omitted, a `DefinitionUri` is reported instead of read,
-     * which is what browsers and edge runtimes get. `s3://` URIs, S3Location objects and
+     * which is what browsers and edge runtimes get. A CDK `DefinitionS3Location` is read
+     * from the cloud assembly too, when `templateFileName` names a `<stack>.template.json`
+     * and the `Key` has CDK's asset-hash shape: `readFile` is asked for `<stack>.assets.json`,
+     * then for the asset file it lists. `s3://` URIs, S3Location objects and any other
      * `DefinitionS3Location` are never read, and a value starting with two slashes or
      * backslashes (a network or device path) is refused before `readFile` is called.
      */
@@ -1264,6 +1268,13 @@ export interface ExtractAslFromTemplateParams {
     resourceId?: string;
     /** Raw template string (JSON or YAML) or an already-parsed template object. */
     template: string | Record<string, unknown>;
+    /**
+     * The template's file name as `cdk synth` wrote it (`OrdersStack.template.json`); a
+     * path works too, only its last segment is used. With `readFile`, a CDK
+     * `DefinitionBody.fromFile` definition is read from the `<stack>.assets.json` beside
+     * the template. Nested stack templates (`*.nested.template.json`) are not looked up.
+     */
+    templateFileName?: string;
 }
 
 /** Parameters for `extractAslFromTerraform` (from the `sfn-diagram/terraform` subpath). */

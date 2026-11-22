@@ -3,11 +3,21 @@ import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { extractAslFromTemplate } from '../../src/cfn/extract';
+import type { ReadFileParams } from '../../src/types';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
 const fixture = (name: string): string =>
     readFileSync(join(currentDir, '..', 'fixtures', 'cfn', name), 'utf-8');
+
+const thrownMessage = (action: () => unknown): string => {
+    try {
+        action();
+    } catch (error) {
+        return (error as Error).message;
+    }
+    throw new Error('expected the call to throw');
+};
 
 describe('extractAslFromTemplate', () => {
     it('recovers ASL from a cdk-synth Fn::Join DefinitionString', () => {
@@ -568,15 +578,6 @@ describe('DefinitionUri files read through readFile', () => {
             }),
         });
 
-    const thrownMessage = (action: () => unknown): string => {
-        try {
-            action();
-        } catch (error) {
-            return (error as Error).message;
-        }
-        throw new Error('expected the call to throw');
-    };
-
     it('reads a local DefinitionUri through readFile', () => {
         const readFile = vi.fn(() => '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}');
         const { aslDefinition, resourceId } = extractAslFromTemplate({
@@ -745,5 +746,201 @@ describe('DefinitionUri files read through readFile', () => {
         });
         expect(aslDefinition.StartAt).toBe('Inline');
         expect(readFile).not.toHaveBeenCalled();
+    });
+});
+
+describe('CDK DefinitionS3Location assets read through readFile', () => {
+    const HASH = 'ab'.repeat(32);
+    const KEY = `${HASH}.json`;
+    const ASSET = `asset.${HASH}.json`;
+    const ASL = '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}';
+    const DIAGNOSTIC =
+        "State machine 'Workflow' loads its definition from DefinitionS3Location, which cannot be read " +
+        'from the template alone. Render that ASL file directly (download it first if it is in S3), ' +
+        'or inline the definition in the template.';
+
+    const cdkTemplate = (properties: Record<string, unknown>): Record<string, unknown> => ({
+        Resources: { Workflow: { Type: 'AWS::StepFunctions::StateMachine', Properties: properties } },
+    });
+    const s3Location = (key: unknown = KEY): Record<string, unknown> => ({
+        DefinitionS3Location: {
+            Bucket: { 'Fn::Sub': 'cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}' },
+            Key: key,
+        },
+    });
+    const manifest = ({ key = KEY, path = ASSET }: { key?: string; path?: string } = {}): string =>
+        JSON.stringify({
+            files: {
+                [HASH]: {
+                    destinations: { current: { bucketName: 'b', objectKey: key } },
+                    source: { packaging: 'file', path },
+                },
+            },
+        });
+    const MANIFEST = manifest();
+    const reader = (files: Record<string, string>) =>
+        vi.fn(({ path }: ReadFileParams): string => {
+            if (Object.hasOwn(files, path)) {
+                return files[path];
+            }
+            throw new Error(`${path} does not exist`);
+        });
+    const extractCdk = (
+        readFile: (params: ReadFileParams) => string,
+        properties: Record<string, unknown> = s3Location(),
+    ): ReturnType<typeof extractAslFromTemplate> =>
+        extractAslFromTemplate({
+            readFile,
+            template: cdkTemplate(properties),
+            templateFileName: 'cdk.out/Stack.template.json',
+        });
+
+    it('reads the asset a CDK manifest names for the object key', () => {
+        const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: ASL });
+        const { aslDefinition, resourceId } = extractCdk(readFile);
+        expect(aslDefinition.StartAt).toBe('A');
+        expect(resourceId).toBe('Workflow');
+        expect(readFile.mock.calls).toEqual([[{ path: 'Stack.assets.json' }], [{ path: ASSET }]]);
+    });
+
+    it('applies DefinitionSubstitutions to a CDK asset', () => {
+        const readFile = reader({
+            'Stack.assets.json': MANIFEST,
+            [ASSET]: '{"StartAt":"T","States":{"T":{"Type":"Task","Resource":"${Fn}","End":true}}}',
+        });
+        const { aslDefinition } = extractCdk(readFile, {
+            ...s3Location(),
+            DefinitionSubstitutions: { Fn: { 'Fn::GetAtt': ['Fn', 'Arn'] } },
+        });
+        expect(aslDefinition.States.T.Resource).toBe('<Fn.Arn>');
+    });
+
+    it('rejects a CDK asset that is not an ASL definition', () => {
+        const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: '{"auths":{"x":"c2VjcmV0"}}' });
+        const message = thrownMessage(() => extractCdk(readFile));
+        expect(message).toBe(
+            `CDK asset '${ASSET}' of state machine 'Workflow' is not an ASL definition ` +
+                '(expected an object with StartAt and States).',
+        );
+        expect(message).not.toContain('c2VjcmV0');
+    });
+
+    it('does not echo a CDK asset in a parse error', () => {
+        const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: '{"secret": AKIAEXAMPLE}' });
+        const message = thrownMessage(() => extractCdk(readFile));
+        expect(
+            message.startsWith(
+                `CDK asset '${ASSET}' of state machine 'Workflow' is not valid JSON. Render the file directly`,
+            ),
+        ).toBe(true);
+        expect(message).not.toContain('AKIA');
+    });
+
+    it('reads a Windows-written asset path with forward slashes', () => {
+        const readFile = reader({
+            'Stack.assets.json': manifest({ path: `..\\${ASSET}` }),
+            [`../${ASSET}`]: ASL,
+        });
+        expect(extractCdk(readFile).aslDefinition.StartAt).toBe('A');
+        expect(readFile.mock.calls[1]).toEqual([{ path: `../${ASSET}` }]);
+    });
+
+    it.each(['//example.invalid/s/x.json', '\\\\example.invalid\\s\\x.json'])(
+        'refuses a network or device CDK asset path: %s',
+        (path) => {
+            const readFile = reader({ 'Stack.assets.json': manifest({ path }) });
+            const message = thrownMessage(() => extractCdk(readFile));
+            expect(message).toContain('which is a network or device path; only local files are read');
+            expect(message).toContain(path);
+            expect(readFile).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it("adds the manifest's read error to the diagnostic", () => {
+        expect(thrownMessage(() => extractCdk(reader({})))).toBe(
+            `${DIAGNOSTIC} The CDK asset manifest beside the template could not be read: ` +
+                'Stack.assets.json does not exist.',
+        );
+    });
+
+    it('adds a missing asset entry to the diagnostic', () => {
+        const readFile = reader({ 'Stack.assets.json': manifest({ key: 'other.json' }) });
+        expect(thrownMessage(() => extractCdk(readFile))).toBe(
+            `${DIAGNOSTIC} The CDK asset manifest 'Stack.assets.json' has no file asset with object key '${KEY}'.`,
+        );
+    });
+
+    it('adds the missing asset file to the diagnostic', () => {
+        const readFile = reader({ 'Stack.assets.json': MANIFEST });
+        expect(thrownMessage(() => extractCdk(readFile))).toBe(
+            `${DIAGNOSTIC} Its CDK asset '${ASSET}' could not be read: ${ASSET} does not exist.`,
+        );
+    });
+
+    it.each([undefined, 'template.json', 'Parent.nested.template.json'])(
+        'keeps the plain diagnostic when the template name is not a CDK stack template: %s',
+        (templateFileName) => {
+            const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: ASL });
+            const message = thrownMessage(() =>
+                extractAslFromTemplate({ readFile, template: cdkTemplate(s3Location()), templateFileName }),
+            );
+            expect(message).toBe(DIAGNOSTIC);
+            expect(readFile).not.toHaveBeenCalled();
+        },
+    );
+
+    it('keeps the plain diagnostic for a non-string Key or no readFile', () => {
+        const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: ASL });
+        expect(thrownMessage(() => extractCdk(readFile, s3Location({ 'Fn::Join': ['', ['a', 'b']] })))).toBe(
+            DIAGNOSTIC,
+        );
+        expect(readFile).not.toHaveBeenCalled();
+        expect(
+            thrownMessage(() =>
+                extractAslFromTemplate({
+                    template: cdkTemplate(s3Location()),
+                    templateFileName: 'Stack.template.json',
+                }),
+            ),
+        ).toBe(DIAGNOSTIC);
+    });
+
+    it('keeps the plain diagnostic for a hand-written template named like a CDK one', () => {
+        const readFile = reader({ 'vpc.assets.json': MANIFEST });
+        const message = thrownMessage(() =>
+            extractAslFromTemplate({
+                readFile,
+                template: cdkTemplate(s3Location('templates/workflow.asl.json')),
+                templateFileName: 'vpc.template.json',
+            }),
+        );
+        expect(message).toBe(DIAGNOSTIC);
+        expect(readFile).not.toHaveBeenCalled();
+    });
+
+    it('prefers an inline Definition over DefinitionS3Location', () => {
+        const readFile = reader({});
+        const { aslDefinition } = extractCdk(readFile, {
+            ...s3Location(),
+            Definition: { StartAt: 'Inline', States: { Inline: { Type: 'Succeed' } } },
+        });
+        expect(aslDefinition.StartAt).toBe('Inline');
+        expect(readFile).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['RefundStack.template.json'],
+        ['assembly-Prod', 'ProdRefundStack13B44940.template.json'],
+    ])('reads a synthesized CDK app and Stage from cdk.out: %s', (...segments) => {
+        const templatePath = join(currentDir, '..', 'fixtures', 'cfn', 'cdk-asset', ...segments);
+        const { aslDefinition, resourceId } = extractAslFromTemplate({
+            readFile: ({ path }) => readFileSync(join(dirname(templatePath), path), 'utf-8'),
+            template: readFileSync(templatePath, 'utf-8'),
+            templateFileName: templatePath,
+        });
+        expect(resourceId).toBe('RefundWorkflow9F22E5E9');
+        expect(aslDefinition.States.IssueRefund.Resource).toBe(
+            'arn:aws:lambda:us-east-1:111122223333:function:Refund',
+        );
     });
 });

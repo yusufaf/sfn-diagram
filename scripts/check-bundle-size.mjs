@@ -165,11 +165,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * Reading a file the template's author picked brought a structure check that runs before
  * substitution, parse errors that never quote the file, and a network-path refusal. That took
  * cfn.js from 23,914 to 27,880 raw and from 8,552 to 9,621 gzip.
+ *
+ * `cfn.js` was restated a third time, to about 10% above its measurement, when the same
+ * `readFile` callback learned to read a CDK `DefinitionBody.fromFile` asset through the
+ * `<stack>.assets.json` beside the template (#512): the manifest lookup, its error wording, and
+ * the asset's own path checks. That took cfn.js from 27,880 to 32,524 raw and from 9,621 to
+ * 10,772 gzip; about 1.7 KB raw of the growth is JSDoc.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 282000, raw: 935000 },
-    'cfn.js': { gzip: 10600, raw: 30700 },
+    'cfn.js': { gzip: 11850, raw: 35800 },
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 143000, raw: 492000 },
     'element.js': { gzip: 143000, raw: 491500 },
