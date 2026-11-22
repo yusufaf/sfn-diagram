@@ -97,6 +97,7 @@ const input = (
     overrides: Partial<RenderDefinitionInput> = {},
 ): RenderDefinitionInput => ({
     path: null,
+    readFile: null,
     resolveCfn: false,
     resource: null,
     source,
@@ -119,6 +120,47 @@ const request = (
 });
 
 describe('handleRenderRequest: input detection and lint', () => {
+    // A path alone never opens a file: that is what keeps serve and inline MCP source
+    // reading nothing.
+    it('keeps the DefinitionUri diagnostic when an input has no readFile', async () => {
+        const response = await handleRenderRequest(
+            request({
+                definition: input(readFixture('cfn', 'sam-definition-uri.yaml'), {
+                    path: join(fixtures, 'cfn', 'sam-definition-uri.yaml'),
+                    resolveCfn: true,
+                }),
+            }),
+        );
+        expect(response.kind).toBe('error');
+        expect(response.kind === 'error' ? response.message : '').toMatch(
+            /cannot be read from the template alone/,
+        );
+    });
+
+    it("passes each input's readFile to its own template extraction", async () => {
+        const template = readFixture('cfn', 'sam-definition-uri.yaml');
+        const headReader = vi.fn(
+            () =>
+                '{"StartAt":"A","States":{"A":{"Type":"Pass","Next":"B"},"B":{"Type":"Pass","End":true}}}',
+        );
+        const baselineReader = vi.fn(
+            () => '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}',
+        );
+        const response = await handleRenderRequest(
+            request({
+                baseline: input(template, { readFile: baselineReader, resolveCfn: true }),
+                definition: input(template, { readFile: headReader, resolveCfn: true }),
+                options: { format: 'mermaid' },
+            }),
+        );
+        expect(response.kind).toBe('render');
+        expect(headReader).toHaveBeenCalledTimes(1);
+        expect(headReader).toHaveBeenCalledWith({ path: 'statemachine/order.asl.json' });
+        expect(baselineReader).toHaveBeenCalledTimes(1);
+        expect(baselineReader).toHaveBeenCalledWith({ path: 'statemachine/order.asl.json' });
+        expect(response.kind === 'render' ? String(response.output) : '').toContain('B');
+    });
+
     it('lints plain ASL text with no warnings', async () => {
         const response = await handleRenderRequest(request({ mode: 'lint' }));
         expect(response).toEqual({

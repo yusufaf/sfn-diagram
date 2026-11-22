@@ -43,6 +43,7 @@ import { runMcp } from './cliMcp';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
+import { createTemplateFileReader } from './cliTemplateFiles';
 import type { RenderErrorResponse, RenderLintResponse } from './cliRender';
 import { runServe } from './cliServe';
 import type { ParseServeQueryParams, ServeQueryResult } from './cliServe';
@@ -1994,8 +1995,10 @@ interface RenderOneInputParams {
     /**
      * Whether to print what depends only on the definition and the `--diff` baseline:
      * template and Terraform extraction warnings, and the diff summary. `--follow`
-     * prints them on its first tick only. Both inputs are fixed for the whole follow,
-     * so the output never changes, and every tick would otherwise repeat it on stderr.
+     * prints them on its first tick only, since every tick would otherwise repeat them on
+     * stderr. The template text is fixed for the whole follow, but a local SAM
+     * `DefinitionUri` file is re-read on every tick, so an edit to it shows in the diagram
+     * while its warnings and diff summary are not printed again.
      */
     reportStatic: boolean;
     /** Where this render's definition comes from. */
@@ -2082,6 +2085,10 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ? null
                 : {
                       path: baselineIsLive ? null : args.diff,
+                      readFile:
+                          baselineIsLive || args.diff === null
+                              ? null
+                              : createTemplateFileReader({ templatePath: args.diff }),
                       // A live baseline is already ASL; only the head can be a template.
                       resolveCfn: args.resolveCfn && !baselineIsLive,
                       resource: baselineIsLive ? null : args.resource,
@@ -2090,6 +2097,10 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         cache,
         definition: {
             path: source.kind === 'file' ? source.path : null,
+            readFile:
+                source.kind === 'file'
+                    ? createTemplateFileReader({ templatePath: source.path })
+                    : null,
             resolveCfn: args.resolveCfn,
             resource: args.resource,
             source: aslSource,

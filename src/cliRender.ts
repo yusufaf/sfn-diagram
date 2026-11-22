@@ -17,6 +17,7 @@ import type {
     DiffStateSummary,
     ExecutionSummary,
     LintDiagnostic,
+    ReadFileParams,
 } from './types';
 
 /**
@@ -36,6 +37,13 @@ export interface RenderDefinitionInput {
      * extension is read (`.tf` / `.tf.json` mean Terraform); nothing is opened.
      */
     path: string | null;
+    /**
+     * Reads a local SAM `DefinitionUri` file the template points at, relative to the
+     * template (see `createTemplateFileReader` in `src/cliTemplateFiles.ts`). `null` for
+     * stdin, `serve`, inline MCP `source` and live sources: the `DefinitionUri` is then
+     * reported instead of read. It is the caller's I/O; this module never opens a file.
+     */
+    readFile: ((params: ReadFileParams) => string) | null;
     /**
      * Read the text as a CloudFormation/SAM/CDK template even when auto-detection would
      * not, which is what a YAML template needs.
@@ -169,12 +177,13 @@ function isTerraformInput(params: IsTerraformInputParams): boolean {
  * Turn a raw file body into something the generators accept: a Terraform configuration or a
  * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
  * through as-is. Terraform is checked first, so `resolveCfn` on a `.tf` file still reads it
- * as Terraform.
+ * as Terraform. A template's local SAM `DefinitionUri` is read through the input's
+ * `readFile` when it has one.
  *
  * @throws When a template or configuration has no usable state machine.
  */
 function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
-    const { path, resolveCfn, resource, source } = input;
+    const { path, readFile, resolveCfn, resource, source } = input;
     if (isTerraformInput({ path, source })) {
         const { aslDefinition, warnings } = extractAslFromTerraform({
             config: source,
@@ -186,6 +195,7 @@ function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
         return { definition: source, warnings: [] };
     }
     const { aslDefinition, warnings } = extractAslFromTemplate({
+        ...(readFile === null ? {} : { readFile }),
         resourceId: resource ?? undefined,
         template: source,
     });
@@ -412,7 +422,8 @@ async function renderResolved(
  * sits below it: `format: 'png'` goes through `renderPng` (the implementation behind
  * `sfn-diagram/png`'s `exportPng`), which may read the
  * `SFN_DIAGRAM_PNG_*` font environment variables and probe system font files
- * (`src/exporters/pngFonts.ts`).
+ * (`src/exporters/pngFonts.ts`). An input's `readFile`, called for a template's
+ * `DefinitionUri`, is the caller's own I/O.
  *
  * @param params - The request (see {@link HandleRenderRequestParams}).
  *
