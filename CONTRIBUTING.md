@@ -462,8 +462,10 @@ them:
   `pnpm run build:viewer-script`; `pnpm test` checks both are current. The second one
   bundles the layout/render pipeline, so its inputs reach well outside the viewer
   directory — see the note under [Available Commands](#available-commands).
-- `docs/images/` — rendered README and gallery images. Regenerate with
-  `pnpm run docs:images` and `pnpm run gallery:images`.
+- `docs/images/` and `site/public/gallery/` — rendered README, docs and gallery
+  images. Regenerate with `pnpm run docs:images` and `pnpm run gallery:images`;
+  `pnpm run check:images` (after `pnpm run build`) checks the SVGs and the gallery
+  manifest are current, and CI runs it. PNGs are not checked.
 
 So: nothing generated is committed unless it is on that list, and anything on it must
 be regenerated and committed in the same change.

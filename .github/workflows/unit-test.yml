@@ -107,6 +107,18 @@ jobs:
             *) echo "node $ACTUAL (from $EXPECTED)" ;;
           esac
 
+      # The README and the docs site show these committed SVGs, and nothing
+      # regenerated them between #251 and #685. Needs the Build above: the
+      # generators import dist/. SVG and the gallery manifest only, since PNG
+      # text depends on the runner's fonts. Icons are embedded from the aws-icons
+      # devDependency, so this never reaches jsDelivr. Primary leg only: the
+      # output cannot depend on the platform. Placed before the Action-bundle
+      # check so a renderer change reports its stale images even when the
+      # bundle is stale too.
+      - name: Verify committed doc and gallery images are up to date
+        if: matrix.primary
+        run: pnpm run check:images
+
       # The GitHub Action ships a committed dist bundle (see .gitignore negation).
       # The Build above rebuilds it; fail if the committed copy is stale so the
       # bundled core can never drift from source. Deterministic because pnpm is
