@@ -106,6 +106,8 @@ directly instead:
 - a template piped in on stdin, or sent to `serve` or to MCP as `source`
 - a template copied away from its `.assets.json`
 - a nested stack's `*.nested.template.json`, whose assets are listed in its parent's manifest
+- a template from `Template.fromStack()` in a [CDK test](#render-from-a-cdk-test), which has
+  no `readFile` or `templateFileName`
 
 In your own code, pass `templateFileName` along with `readFile` to
 [`extractAslFromTemplate`](/reference/cfn/functions/extractaslfromtemplate/), as in the
