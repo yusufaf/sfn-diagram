@@ -33,13 +33,15 @@ export const OVERLAY_FORMATS: readonly DiagramFormat[] = [
 /** One definition's raw text and how to read it. */
 export interface RenderDefinitionInput {
     /**
-     * The file name the text came from, or `null` for stdin and live sources. Only its
-     * extension is read (`.tf` / `.tf.json` mean Terraform); nothing is opened.
+     * The file name the text came from, or `null` for stdin and live sources. Only the name
+     * is read (`.tf` / `.tf.json` mean Terraform; a CDK `<stack>.template.json` names the
+     * asset manifest `readFile` is asked for); nothing is opened here.
      */
     path: string | null;
     /**
-     * Reads a local SAM `DefinitionUri` file the template points at, relative to the
-     * template (see `createTemplateFileReader` in `src/cliTemplateFiles.ts`). `null` for
+     * Reads a file a template points at, relative to the template: a local SAM
+     * `DefinitionUri`, or a CDK asset manifest and asset (see `createTemplateFileReader` in
+     * `src/cliTemplateFiles.ts`). `null` for
      * stdin, `serve`, inline MCP `source` and live sources: the `DefinitionUri` is then
      * reported instead of read. It is the caller's I/O; this module never opens a file.
      */
@@ -177,8 +179,8 @@ function isTerraformInput(params: IsTerraformInputParams): boolean {
  * Turn a raw file body into something the generators accept: a Terraform configuration or a
  * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
  * through as-is. Terraform is checked first, so `resolveCfn` on a `.tf` file still reads it
- * as Terraform. A template's local SAM `DefinitionUri` is read through the input's
- * `readFile` when it has one.
+ * as Terraform. A template's local SAM `DefinitionUri` or CDK `DefinitionS3Location` asset
+ * is read through the input's `readFile` when it has one.
  *
  * @throws When a template or configuration has no usable state machine.
  */
@@ -198,6 +200,7 @@ function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
         ...(readFile === null ? {} : { readFile }),
         resourceId: resource ?? undefined,
         template: source,
+        templateFileName: path ?? undefined,
     });
     return { definition: aslDefinition, warnings };
 }
@@ -423,7 +426,7 @@ async function renderResolved(
  * `sfn-diagram/png`'s `exportPng`), which may read the
  * `SFN_DIAGRAM_PNG_*` font environment variables and probe system font files
  * (`src/exporters/pngFonts.ts`). An input's `readFile`, called for a template's
- * `DefinitionUri`, is the caller's own I/O.
+ * `DefinitionUri` or CDK asset, is the caller's own I/O.
  *
  * @param params - The request (see {@link HandleRenderRequestParams}).
  *

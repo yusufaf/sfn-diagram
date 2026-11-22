@@ -14,6 +14,7 @@ vi.mock('@aws-sdk/client-sfn', () => ({
     },
 }));
 import {
+    cpSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -1555,6 +1556,52 @@ describe('CFN template input', () => {
         expect(code).toBe(0);
         expect(stderrData).toContain('Diff summary');
         expect(stderrData).toMatch(/Added:\s+Charge/);
+    });
+
+    const cdkAssetDir = join(__dirname, 'fixtures', 'cfn', 'cdk-asset');
+    const CDK_ASSET = 'asset.30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json';
+
+    it('renders a CDK DefinitionBody.fromFile asset from cdk.out', async () => {
+        const code = await run([join(cdkAssetDir, 'RefundStack.template.json'), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('LookupOrder');
+        expect(stdoutData).toContain('IssueRefund');
+    });
+
+    it('renders a CDK Stage template whose asset sits in the parent assembly', async () => {
+        const code = await run([
+            join(cdkAssetDir, 'assembly-Prod', 'ProdRefundStack13B44940.template.json'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('IssueRefund');
+    });
+
+    it('names the asset path it tried when the CDK asset is missing', async () => {
+        const missingDir = join(__dirname, 'fixtures', 'cfn', 'cdk-asset-missing');
+        const code = await run([join(missingDir, 'RefundStack.template.json'), '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('cannot be read from the template alone');
+        expect(stderrData).toContain(`${join(missingDir, CDK_ASSET)} does not exist`);
+    });
+
+    it("reads each --diff side's CDK asset from its own cloud assembly", async () => {
+        cpSync(cdkAssetDir, join(tempDir, 'base'), { recursive: true });
+        writeFileSync(
+            join(tempDir, 'base', CDK_ASSET),
+            '{"StartAt":"LookupOrder","States":{"LookupOrder":{"Type":"Pass","End":true}}}',
+        );
+        const code = await run([
+            join(cdkAssetDir, 'RefundStack.template.json'),
+            '--diff',
+            join(tempDir, 'base', 'RefundStack.template.json'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Diff summary');
+        expect(stderrData).toMatch(/Added:\s+IssueRefund/);
     });
 
     const cdkTemplate = join(__dirname, 'fixtures', 'cfn', 'cdk-orders-stack.json');
