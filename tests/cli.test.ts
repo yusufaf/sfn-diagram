@@ -1479,16 +1479,82 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('Hello');
     });
 
-    it('reports a SAM DefinitionUri instead of rendering', async () => {
+    // The cwd is the repo root, not the template's directory, so these prove the file is read
+    // relative to the template.
+    it('renders a SAM DefinitionUri file relative to the template', async () => {
         const code = await run([
             join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
             '--resolve-cfn',
             '--format',
             'mermaid',
         ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Validate');
+        expect(stdoutData).toContain('Charge');
+    });
+
+    it('names the path it tried when the DefinitionUri file is missing', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri-missing.yaml'),
+            '--resolve-cfn',
+            '--format',
+            'mermaid',
+        ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('DefinitionUri');
-        expect(stderrData).toContain('statemachine/order.asl.json');
+        expect(stderrData).toContain(
+            `${join(__dirname, 'fixtures', 'cfn', 'missing', 'order.asl.json')} does not exist`,
+        );
+    });
+
+    const samTemplateYaml = (definitionUri: string): string =>
+        [
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::Serverless::StateMachine',
+            '    Properties:',
+            `      DefinitionUri: ${definitionUri}`,
+            '',
+        ].join('\n');
+
+    it('refuses a DefinitionUri that is not a file', async () => {
+        mkdirSync(join(tempDir, 'statemachine'));
+        const templatePath = writeTemplate('template.yaml', samTemplateYaml('statemachine'));
+        const code = await run([templatePath, '--resolve-cfn', '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain(`${join(tempDir, 'statemachine')} is not a file`);
+    });
+
+    it('refuses a network DefinitionUri', async () => {
+        const templatePath = writeTemplate(
+            'template.yaml',
+            samTemplateYaml('//example.invalid/share/x.json'),
+        );
+        const code = await run([templatePath, '--resolve-cfn', '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('is a network or device path; only local files are read');
+    });
+
+    it("reads each --diff side's DefinitionUri beside its own template", async () => {
+        mkdirSync(join(tempDir, 'base', 'statemachine'), { recursive: true });
+        writeFileSync(
+            join(tempDir, 'base', 'statemachine', 'order.asl.json'),
+            '{"StartAt":"Validate","States":{"Validate":{"Type":"Pass","End":true}}}',
+        );
+        const baselinePath = writeTemplate(
+            join('base', 'template.yaml'),
+            samTemplateYaml('statemachine/order.asl.json'),
+        );
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
+            '--resolve-cfn',
+            '--diff',
+            baselinePath,
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Diff summary');
+        expect(stderrData).toMatch(/Added:\s+Charge/);
     });
 
     const cdkTemplate = join(__dirname, 'fixtures', 'cfn', 'cdk-orders-stack.json');

@@ -5,3 +5,5 @@ Resources:
     Type: AWS::Serverless::StateMachine
     Properties:
       DefinitionUri: statemachine/order.asl.json
+      DefinitionSubstitutions:
+        ChargeFunctionArn: !GetAtt ChargeFunction.Arn
