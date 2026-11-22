@@ -40,9 +40,12 @@ const DOC_IMAGES = [
 
 /**
  * Render the vscode README PNGs with the options #251 passed to the CLI:
- * `--format png --layout LR --show-icons --theme <theme>`.
+ * `--format png --layout LR --show-icons --theme <theme>`. Rendered before anything
+ * is written, so a rasteriser or icon failure leaves the tree untouched.
+ *
+ * @returns {Promise<{ buffer: Buffer, height: number, name: string, width: number }[]>}
  */
-async function writeOrderProcessingPngs() {
+async function renderOrderProcessingPngs() {
     const iconsPackage = resolveAwsIconsPackage({ repoRoot });
     const iconFetch = createLocalIconFetch({
         iconsPackageDir: iconsPackage.dir,
@@ -52,15 +55,15 @@ async function writeOrderProcessingPngs() {
         readFileSync(join(repoRoot, 'examples', 'order-processing.asl.json'), 'utf-8'),
     );
 
+    const pngs = [];
     for (const theme of /** @type {const} */ (['light', 'dark'])) {
         const { buffer, height, width } = await withLocalIconFetch({
             iconFetch,
             run: () => exportPng({ aslDefinition, layout: 'LR', showIcons: true, theme }),
         });
-        const name = `order-processing-${theme}.png`;
-        writeFileSync(join(repoRoot, 'docs', 'images', name), buffer);
-        console.log(`✓ docs/images/${name} (${width}x${height}px)`);
+        pngs.push({ buffer, height, name: `order-processing-${theme}.png`, width });
     }
+    return pngs;
 }
 
 await runAsScript({
@@ -74,13 +77,18 @@ await runAsScript({
             expected.set(`docs/images/${name}`, svg);
         }
 
+        const pngs = check ? [] : await renderOrderProcessingPngs();
+
         await writeOrCheckImages({
             check,
             expected,
             regenerateCommand: REGENERATE_COMMAND,
             repoRoot,
         });
-        if (!check) await writeOrderProcessingPngs();
+        for (const { buffer, height, name, width } of pngs) {
+            writeFileSync(join(repoRoot, 'docs', 'images', name), buffer);
+            console.log(`✓ docs/images/${name} (${width}x${height}px)`);
+        }
     },
     options: { check: { type: 'boolean' } },
     usage: 'generate-doc-images.mjs [--check]',
