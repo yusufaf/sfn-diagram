@@ -24,6 +24,11 @@
       "enabled": false
     },
     {
+      "description": "aws-icons is the local copy of the icons the renderer links from jsDelivr (AWS_ICONS_VERSION in src/services/ServiceDetector.ts); the doc-image generators embed from it. Bump both by hand, in one commit",
+      "matchPackageNames": ["aws-icons"],
+      "enabled": false
+    },
+    {
       "description": "Which Node line the image tracks is an LTS decision, not a version bump: odd majors are never LTS and Node 25+ dropped corepack from the image",
       "matchDatasources": ["docker"],
       "matchPackageNames": ["node"],

@@ -80,6 +80,9 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
+      aws-icons:
+        specifier: 3.3.0
+        version: 3.3.0
       d3-shape:
         specifier: ^3.2.0
         version: 3.2.0
@@ -3133,6 +3136,9 @@ packages:
 
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
+
+  aws-icons@3.3.0:
+    resolution: {integrity: sha512-/ukOBw3a0n5cWRLJA75mC2WH/SttpLDfOCe1rgzfTfKaB13PTZp525sp7QDXW2tSH4AIggHzNdk8M8X+YfGKNQ==}
 
   axobject-query@4.1.0:
     resolution: {integrity: sha512-qIj0G9wZbMGNLjLmg1PT6v2mE9AH2zlnADJD/2tC6E00hgmhUOfEB6greHPAfLRSufHqROIUTkw6E+M3lH0PTQ==}
@@ -9470,6 +9476,8 @@ snapshots:
       retry: 0.13.1
 
   asynckit@0.4.0: {}
+
+  aws-icons@3.3.0: {}
 
   axobject-query@4.1.0: {}
 
