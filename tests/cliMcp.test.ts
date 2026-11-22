@@ -494,6 +494,14 @@ describe('lint tool', () => {
         expect(result.structuredContent.kind).toBe('lint');
     });
 
+    it('reads a CDK asset beside a template given by path', async () => {
+        const result = await lint({
+            path: join(fixtures, 'cfn', 'cdk-asset', 'RefundStack.template.json'),
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.kind).toBe('lint');
+    });
+
     it('keeps the DefinitionUri diagnostic for a template sent as source', async () => {
         const result = await lint({
             resolveCfn: true,

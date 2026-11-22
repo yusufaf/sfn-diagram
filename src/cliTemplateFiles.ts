@@ -11,8 +11,9 @@ interface ReadBesideTemplateParams {
 }
 
 /**
- * The largest `DefinitionUri` file read. A Step Functions definition is far smaller; the
- * cap stops a template from pointing at a multi-gigabyte log and loading it into memory.
+ * The largest file read beside a template. A Step Functions definition (or CDK asset
+ * manifest) is far smaller; the cap stops a template from pointing at a multi-gigabyte log
+ * and loading it into memory.
  */
 const MAX_DEFINITION_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -69,10 +70,10 @@ export interface CreateTemplateFileReaderParams {
 }
 
 /**
- * Build the `readFile` callback `extractAslFromTemplate` uses for a SAM `DefinitionUri`:
- * it reads a path the template writes relative to the template's own directory, not the
- * working directory. Front ends hand it over on a `RenderDefinitionInput` for a template
- * that came from a file, and pass `null` for stdin, `serve` and inline text.
+ * Build the `readFile` callback `extractAslFromTemplate` uses for a SAM `DefinitionUri` or
+ * a CDK asset manifest and asset: it reads a path relative to the template's own directory,
+ * not the working directory. Front ends hand it over on a `RenderDefinitionInput` for a
+ * template that came from a file, and pass `null` for stdin, `serve` and inline text.
  *
  * @param params - The template file the paths are relative to.
  * @returns The reader. It throws `<absolute path> does not exist`, `<absolute path> is not

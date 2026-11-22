@@ -72,6 +72,48 @@ A value that fits more than one state machine is an error that lists them, so it
 picks one silently. Inside a nested stack, the path is relative to the nested stack, not to
 its parent.
 
+### A definition in its own file (`DefinitionBody.fromFile`)
+
+A stack can keep the ASL in its own file, such as one exported from Workflow Studio:
+
+```ts
+new sfn.StateMachine(this, 'RefundWorkflow', {
+  definitionBody: sfn.DefinitionBody.fromFile('refund.asl.json'),
+});
+```
+
+`cdk synth` uploads that file as an asset, so the template has only a
+`DefinitionS3Location`, not the definition. It also stages a copy of the file in `cdk.out/`
+and lists it in `RefundStack.assets.json` beside the template. The CLI finds the copy
+through that manifest, fills in `DefinitionSubstitutions`, and renders it, so the usual
+command works:
+
+```bash
+npx sfn-diagram cdk.out/RefundStack.template.json -o refund.svg
+```
+
+This also works for a Stage template in an `assembly-*` subfolder, for each side of a
+`--diff` (copy all of `cdk.out/`, as in [See what a change does to the
+graph](#see-what-a-change-does-to-the-graph)), and for a template passed to the
+[MCP server](/guides/mcp/) by `path`. For a live preview while you edit, watch the ASL file
+itself (`sfn-diagram refund.asl.json --watch`). `--watch` on the template sees only the
+template, not the `.assets.json` that `cdk synth` writes after it, so run the command again
+after `cdk synth` instead.
+
+These cases stop with `… cannot be read from the template alone`. Render the ASL file
+directly instead:
+
+- a template piped in on stdin, or sent to `serve` or to MCP as `source`
+- a template copied away from its `.assets.json`
+- a nested stack's `*.nested.template.json`, whose assets are listed in its parent's manifest
+- a template from `Template.fromStack()` in a [CDK test](#render-from-a-cdk-test), which has
+  no `readFile` or `templateFileName`
+
+In your own code, pass `templateFileName` along with `readFile` to
+[`extractAslFromTemplate`](/reference/cfn/functions/extractaslfromtemplate/), as in the
+[`DefinitionUri` example](#definitionuri-pointing-at-a-file) below, for example
+`templateFileName: 'cdk.out/RefundStack.template.json'`.
+
 ### What the placeholders mean
 
 A template still contains references that only CloudFormation can resolve at deploy time,
@@ -234,7 +276,8 @@ An `AWS::StepFunctions::StateMachine` resource in a hand-written template works 
 way. JSON templates are detected automatically; YAML ones need `--resolve-cfn`. The
 definition can be in `DefinitionString` or `Definition`. A definition stored in S3 through
 `DefinitionS3Location` can't be read from the template, so download the file and render it
-directly.
+directly. A CDK asset in `cdk.out/` is the exception (see
+[A definition in its own file](#a-definition-in-its-own-file-definitionbodyfromfile)).
 
 ## See what a change does to the graph
 
@@ -299,3 +342,5 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | `… loads its definition from DefinitionUri (…), which could not be read: … does not exist` | The `DefinitionUri` path, taken relative to the template, points at no file | Fix the path in the template, or move the template back beside its `statemachine/` folder |
 | `DefinitionUri file '…' … is not valid JSON` (or YAML) | The definition file has a syntax error. The message never quotes the file | Render the file directly to see the parser's message |
 | `… loads its definition from DefinitionUri …, which cannot be read from the template alone` | The definition is in S3, or the template came from stdin, `serve` or MCP `source` | Download and render the file directly, or pass the template as a file |
+| `… DefinitionS3Location, which cannot be read from the template alone. The CDK asset manifest …` or `… Its CDK asset '…' could not be read: …` | The template was copied away from `cdk.out/`, or `cdk.out/` is stale | Render the template inside a fresh `cdk synth` output, or render the ASL file directly |
+| `CDK asset '…' … is not valid JSON` (or YAML, or not an ASL definition) | The staged definition file has a syntax error. The message never quotes the file | Render the source ASL file to see the parser's message |

@@ -20,6 +20,7 @@ import type { CliOptionSource, ResolvedCliOptions } from '../src/cliOptions';
 import { generateMermaid, generateSvg } from '../src/index';
 import { createLayoutCache } from '../src/layout';
 import { renderPng } from '../src/exporters/renderPng';
+import type { ReadFileParams } from '../src/types';
 
 const fixtures = join(__dirname, 'fixtures');
 const readFixture = (...segments: string[]): string =>
@@ -159,6 +160,25 @@ describe('handleRenderRequest: input detection and lint', () => {
         expect(baselineReader).toHaveBeenCalledTimes(1);
         expect(baselineReader).toHaveBeenCalledWith({ path: 'statemachine/order.asl.json' });
         expect(response.kind === 'render' ? String(response.output) : '').toContain('B');
+    });
+
+    it("passes the input's path to template extraction as its file name", async () => {
+        const readFile = vi.fn(({ path }: ReadFileParams) =>
+            path === 'RefundStack.assets.json'
+                ? readFixture('cfn', 'cdk-asset', 'RefundStack.assets.json')
+                : '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}',
+        );
+        const response = await handleRenderRequest(
+            request({
+                definition: input(readFixture('cfn', 'cdk-asset', 'RefundStack.template.json'), {
+                    path: join(fixtures, 'cfn', 'cdk-asset', 'RefundStack.template.json'),
+                    readFile,
+                }),
+                options: { format: 'mermaid' },
+            }),
+        );
+        expect(response.kind).toBe('render');
+        expect(readFile).toHaveBeenNthCalledWith(1, { path: 'RefundStack.assets.json' });
     });
 
     it('lints plain ASL text with no warnings', async () => {
