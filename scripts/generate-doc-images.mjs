@@ -7,29 +7,81 @@
  * from README.md — and therefore from the GitHub page and the npm package page — so
  * they must be tracked by git and regenerated on purpose (see #49).
  *
+ * `--check` writes nothing and fails when a committed SVG differs from what this
+ * script would write (#685); CI runs it through `pnpm run check:images`.
+ *
+ * `order-processing-{light,dark}.png` are the vscode extension README's image. They are
+ * written but never checked, because rasterised text depends on the installed fonts.
+ * Their icons are embedded from the `aws-icons` dev dependency, never from jsDelivr.
+ *
  * Usage: pnpm run docs:images
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateSvg } from '../dist/index.js';
+import { exportPng } from '../dist/png.js';
+import { runAsScript } from './lib/cliScript.mjs';
+import {
+    REGENERATE_COMMAND,
+    createLocalIconFetch,
+    resolveAwsIconsPackage,
+    withLocalIconFetch,
+    writeOrCheckImages,
+} from './lib/docImages.mjs';
 import { readAslFixture, repoRootFrom } from './lib/repo-paths.mjs';
 
 const repoRoot = repoRootFrom(import.meta.url);
-const outputDir = join(repoRoot, 'docs', 'images');
 
-/** Each documentation image: which fixture renders it, and with which options. */
+/** Each documentation SVG: which fixture renders it, and with which options. */
 const DOC_IMAGES = [
     { fixture: 'parallel', name: 'parallel-light.svg', theme: 'light' },
     { fixture: 'parallel', name: 'parallel-dark.svg', theme: 'dark' },
 ];
 
-mkdirSync(outputDir, { recursive: true });
+/**
+ * Render the vscode README PNGs with the options #251 passed to the CLI:
+ * `--format png --layout LR --show-icons --theme <theme>`.
+ */
+async function writeOrderProcessingPngs() {
+    const iconsPackage = resolveAwsIconsPackage({ repoRoot });
+    const iconFetch = createLocalIconFetch({
+        iconsPackageDir: iconsPackage.dir,
+        iconsVersion: iconsPackage.version,
+    });
+    const aslDefinition = JSON.parse(
+        readFileSync(join(repoRoot, 'examples', 'order-processing.asl.json'), 'utf-8'),
+    );
 
-for (const { fixture, name, theme } of DOC_IMAGES) {
-    const aslDefinition = readAslFixture(repoRoot, fixture);
-
-    const { svg, width, height } = generateSvg({ aslDefinition, layout: 'TB', theme });
-
-    writeFileSync(join(outputDir, name), svg, 'utf-8');
-    console.log(`✓ docs/images/${name} (${width}x${height}px, from ${fixture})`);
+    for (const theme of /** @type {const} */ (['light', 'dark'])) {
+        const { buffer, height, width } = await withLocalIconFetch({
+            iconFetch,
+            run: () => exportPng({ aslDefinition, layout: 'LR', showIcons: true, theme }),
+        });
+        const name = `order-processing-${theme}.png`;
+        writeFileSync(join(repoRoot, 'docs', 'images', name), buffer);
+        console.log(`✓ docs/images/${name} (${width}x${height}px)`);
+    }
 }
+
+await runAsScript({
+    importMetaUrl: import.meta.url,
+    main: async ({ check = false }) => {
+        /** @type {Map<string, string>} */
+        const expected = new Map();
+        for (const { fixture, name, theme } of DOC_IMAGES) {
+            const aslDefinition = readAslFixture(repoRoot, fixture);
+            const { svg } = generateSvg({ aslDefinition, layout: 'TB', theme });
+            expected.set(`docs/images/${name}`, svg);
+        }
+
+        await writeOrCheckImages({
+            check,
+            expected,
+            regenerateCommand: REGENERATE_COMMAND,
+            repoRoot,
+        });
+        if (!check) await writeOrderProcessingPngs();
+    },
+    options: { check: { type: 'boolean' } },
+    usage: 'generate-doc-images.mjs [--check]',
+});

@@ -1,0 +1,46 @@
+{
+  "Comment": "Four AWS service integrations, for the gallery's service-icons card",
+  "StartAt": "InvokeLambda",
+  "States": {
+    "InvokeLambda": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ProcessData",
+      "Comment": "Lambda function invocation",
+      "Next": "PutItemDynamoDB"
+    },
+    "PutItemDynamoDB": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "MyTable",
+        "Item": {
+          "id": {
+            "S.$": "$.id"
+          }
+        }
+      },
+      "Comment": "DynamoDB PutItem",
+      "Next": "SendSQSMessage"
+    },
+    "SendSQSMessage": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sqs:sendMessage",
+      "Parameters": {
+        "QueueUrl": "https://sqs.us-east-1.amazonaws.com/123456789012/MyQueue",
+        "MessageBody.$": "$.message"
+      },
+      "Comment": "Send SQS message",
+      "Next": "PublishSNS"
+    },
+    "PublishSNS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:us-east-1:123456789012:MyTopic",
+        "Message.$": "$.notification"
+      },
+      "Comment": "Publish SNS notification",
+      "End": true
+    }
+  }
+}
