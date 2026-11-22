@@ -87,7 +87,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * Most of those entries were already within 3% of their old budget. `bin.js` absorbed the same
  * growth inside the budget set by #287.
  *
- * `cfn.js`/`cfn.cjs` were last restated at 14,600 / 4,900 when `DefinitionSubstitutions` gained
+ * `cfn.js`/`cfn.cjs` were restated at 14,600 / 4,900 when `DefinitionSubstitutions` gained
  * value resolution and a definition-wide pass (#377), which put cfn.cjs at 13,286 raw and
  * 4,480 gzip against the previous 9,800 / 3,600 budget.
  *
@@ -153,11 +153,17 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * instead. Consumers bundle less overall, but the entry file itself grew: element.js
  * went from 443,074 to 446,509 raw and from 128,574 to 129,793 gzip, leaving 1.7% gzip
  * headroom against a budget that had already been at 2.6%.
+ *
+ * `cfn.js` was restated to about 10% above its measurement when `extractAslFromTemplate`
+ * began matching CDK construct paths (#511). Recomputing CDK's hashed logical IDs needs an
+ * MD5, and `sfn-diagram/cfn` can't use `node:crypto`, so an in-house RFC 1321 one ships with
+ * the matcher. The entry keeps its JSDoc, which is most of the growth: cfn.js went from 13,818
+ * to 23,914 raw and from 4,768 to 8,552 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 282000, raw: 935000 },
-    'cfn.js': { gzip: 4900, raw: 14600 },
+    'cfn.js': { gzip: 9400, raw: 26300 },
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 143000, raw: 492000 },
     'element.js': { gzip: 143000, raw: 491500 },

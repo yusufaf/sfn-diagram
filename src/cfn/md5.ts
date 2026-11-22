@@ -1,8 +1,9 @@
-/** Per-round left-rotation amounts (RFC 1321 section 3.4). */
-const SHIFTS: readonly number[] = [
-    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9,
-    14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10, 15, 21,
-    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+/** Left-rotation amounts for each of the four rounds (RFC 1321 section 3.4). */
+const SHIFTS: readonly (readonly number[])[] = [
+    [7, 12, 17, 22],
+    [5, 9, 14, 20],
+    [4, 11, 16, 23],
+    [6, 10, 15, 21],
 ];
 
 /**
@@ -86,7 +87,7 @@ export function md5Hex(params: Md5HexParams): string {
                 wordIndex = (7 * step) % 16;
             }
             const sum = (wordA + mixed + CONSTANTS[step] + words[wordIndex]) | 0;
-            const shift = SHIFTS[step];
+            const shift = SHIFTS[step >> 4][step % 4];
             wordA = wordD;
             wordD = wordC;
             wordC = wordB;
