@@ -13,6 +13,8 @@
  * `order-processing-{light,dark}.png` are the vscode extension README's image. They are
  * written but never checked, because rasterised text depends on the installed fonts.
  * Their icons are embedded from the `aws-icons` dev dependency, never from jsDelivr.
+ * Writing renders them first, so a missing rasteriser or icon stops the run before
+ * any file, SVG included, is rewritten; `--check` never renders them.
  *
  * Usage: pnpm run docs:images
  */
@@ -41,7 +43,7 @@ const DOC_IMAGES = [
 /**
  * Render the vscode README PNGs with the options #251 passed to the CLI:
  * `--format png --layout LR --show-icons --theme <theme>`. Rendered before anything
- * is written, so a rasteriser or icon failure leaves the tree untouched.
+ * is written, so a render failure writes nothing.
  *
  * @returns {Promise<{ buffer: Buffer, height: number, name: string, width: number }[]>}
  */
