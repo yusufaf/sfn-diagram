@@ -47,22 +47,30 @@ exactly one state machine, that's all you need.
 
 ### 3. Pick a state machine when there are several
 
-With two or more state machines, the CLI stops and lists their logical IDs:
+With two or more state machines, the CLI stops and lists each one's logical ID next to its
+construct path:
 
 ```text
-Error: Template has multiple state machines (OrderWorkflow0015CDD9, RefundWorkflow9F22E5E9). Pass resourceId (or --resource) to choose one.
+Error: Template has multiple state machines: OrderWorkflow0015CDD9 (OrdersStack/OrderWorkflow), RefundWorkflow9F22E5E9 (OrdersStack/RefundWorkflow). Pass resourceId (or --resource) to choose one.
 ```
 
-For a `StateMachine` construct, CDK appends a hash to the logical ID, so the construct ID you
-wrote (`OrderWorkflow`) isn't the ID in the template. `--resource` needs the exact ID, so copy it from the error:
+Pass the construct ID you wrote in `new sfn.StateMachine(this, 'OrderWorkflow', …)`:
 
 ```bash
-npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow0015CDD9 -o orders.svg
+npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow -o orders.svg
 ```
 
-The hash comes from the construct's path in your app, not from its contents. It stays the
-same from one synth to the next unless you rename or move the construct, so it's safe to
-put in a script.
+`--resource` takes any of these:
+
+- the construct ID, or for a state machine inside another construct, the path through your
+  constructs (`Orders/Workflow`)
+- the full construct path from the error (`OrdersStack/OrderWorkflow`)
+- the end of a path, such as `Workflow`, when only one state machine's path ends that way
+- the logical ID itself (`OrderWorkflow0015CDD9`), which always wins
+
+A value that fits more than one state machine is an error that lists them, so it never
+picks one silently. Inside a nested stack, the path is relative to the nested stack, not to
+its parent.
 
 ### What the placeholders mean
 
@@ -100,13 +108,15 @@ import { OrdersStack } from '../lib/orders-stack';
 
 const stack = new OrdersStack(new App(), 'OrdersStack');
 const { aslDefinition, warnings } = extractAslFromTemplate({
-  resourceId: 'OrderWorkflow0015CDD9',
+  resourceId: 'OrderWorkflow',
   template: Template.fromStack(stack).toJSON(),
 });
 writeFileSync('orders.svg', generateSvg({ aslDefinition }).svg);
 ```
 
-Leave out `resourceId` when the stack has a single state machine. CDK apps in Python, Java,
+A plain `new App()` in a test writes no `aws:cdk:path` metadata (only the CDK CLI turns it
+on), so only the path relative to the stack (`OrderWorkflow`, `Orders/Workflow`) or the
+logical ID works there. Leave out `resourceId` when the stack has a single state machine. CDK apps in Python, Java,
 C# and Go use the CLI against `cdk.out/` instead. They already need Node to synthesize, so
 `npx` works there too (see [Use from Python, Go, Java, and other languages](/guides/other-languages/)).
 
@@ -208,7 +218,7 @@ rm -rf base.out && cp -r cdk.out base.out
 # ...edit the stack, then synthesize again...
 npx cdk synth --quiet
 npx sfn-diagram cdk.out/OrdersStack.template.json --diff base.out/OrdersStack.template.json \
-  --resource OrderWorkflow0015CDD9 --format mermaid -o orders-diff.mmd
+  --resource OrderWorkflow --format mermaid -o orders-diff.mmd
 ```
 
 The diagram colors added states green, modified states yellow and removed states red. A
@@ -237,7 +247,7 @@ has a tested workflow that synthesizes both sides and comments the diff.
 `--check` runs the same template extraction and then lints the definition:
 
 ```bash
-npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow0015CDD9 --check
+npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow --check
 ```
 
 Findings come in two severities. Errors are mistakes Step Functions would reject, such as a
@@ -251,8 +261,9 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | Message | Cause | Fix |
 |---|---|---|
 | `ASL definition is not valid JSON` | A YAML template without `--resolve-cfn`, or a `cdk synth` printout saved to a file | Add `--resolve-cfn`, or read the file in `cdk.out/` |
-| `Template has multiple state machines (…)` | More than one state machine in the template | Pass one of the listed IDs with `--resource` |
-| `Resource '…' is not a state machine` | The `--resource` value doesn't match exactly. With a CDK `StateMachine`, this is usually the ID without its hash suffix | Copy an ID from the `Found:` list in the message |
+| `Template has multiple state machines: …` | More than one state machine in the template | Pass a listed logical ID or construct path with `--resource` |
+| `Resource '…' is not a state machine` | The `--resource` value matches no state machine's logical ID or construct path | Pick one from the `Found:` list, which shows each construct path next to its logical ID |
+| `Resource '…' matches more than one state machine` | The value, often the end of a path, fits several state machines | Pass a longer path, such as `Orders/Workflow`, or the logical ID |
 | `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Point at the template that declares the machine. A CDK nested stack gets its own `*.nested.template.json` file in `cdk.out/` |
 | `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | The same mistake with `--resolve-cfn` | Same fix |
 | `… loads its definition from DefinitionUri …` | The definition is in a separate file | Render that `.asl.json` file directly |
