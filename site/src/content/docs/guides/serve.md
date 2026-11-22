@@ -69,7 +69,7 @@ livenessProbe:
 
 ### `POST /render`
 
-The body is the raw definition: an ASL JSON document, a CloudFormation/SAM/CDK template, or a Terraform configuration (HCL or JSON). JSON templates and Terraform are detected from the content. A YAML template needs `resolve-cfn`, as on the command line. A leading byte order mark is ignored. A SAM template whose definition is in a separate `DefinitionUri` file is refused, since a request body has no directory to read that file from: send the ASL file itself. The response is the diagram with a matching `Content-Type`:
+The body is the raw definition: an ASL JSON document, a CloudFormation/SAM/CDK template, or a Terraform configuration (HCL or JSON). JSON templates and Terraform are detected from the content. A YAML template needs `resolve-cfn`, as on the command line. A leading byte order mark is ignored. A SAM template whose definition is in a separate `DefinitionUri` file, or a CDK template whose definition is a `DefinitionBody.fromFile` asset, is refused, since a request body has no directory to read that file from: send the ASL file itself. The response is the diagram with a matching `Content-Type`:
 
 | `format` | `Content-Type` |
 | --- | --- |
