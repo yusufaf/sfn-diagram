@@ -277,8 +277,8 @@ Options:
                                    (JSON templates are detected automatically; Terraform
                                    .tf and .tf.json files are detected automatically too)
   --resource <id>                  State machine to extract when a template or Terraform
-                                   config has several (CloudFormation logical id or
-                                   Terraform resource name)
+                                   config has several (CloudFormation logical id, CDK
+                                   construct path, or Terraform resource name)
   --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
                                    directory, so new files count), the config file and

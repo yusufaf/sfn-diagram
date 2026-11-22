@@ -1491,6 +1491,37 @@ describe('CFN template input', () => {
         expect(stderrData).toContain('statemachine/order.asl.json');
     });
 
+    const cdkTemplate = join(__dirname, 'fixtures', 'cfn', 'cdk-orders-stack.json');
+
+    it('selects a state machine by its CDK construct ID with --resource', async () => {
+        const code = await run([cdkTemplate, '--resource', 'OrderWorkflow', '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('P1');
+        expect(stdoutData).not.toContain('P2');
+    });
+
+    it('selects the same construct path on both sides of --diff', async () => {
+        const baselinePath = writeTemplate('base.json', readFileSync(cdkTemplate, 'utf-8'));
+        const code = await run([
+            cdkTemplate,
+            '--diff',
+            baselinePath,
+            '--resource',
+            'Orders/Workflow',
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('P2');
+        expect(stdoutData).not.toContain('P1');
+    });
+
+    it('lists construct paths when --resource matches no state machine', async () => {
+        const code = await run([cdkTemplate, '--resource', 'Nope', '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('OrderWorkflow0015CDD9 (OrdersStack/OrderWorkflow)');
+    });
+
     it('resolves a YAML template with --resolve-cfn', async () => {
         const yamlTemplate = [
             'Resources:',
