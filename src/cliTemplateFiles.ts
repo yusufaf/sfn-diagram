@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { ReadFileParams } from './types';
 
@@ -21,11 +21,17 @@ const MAX_DEFINITION_FILE_BYTES = 10 * 1024 * 1024;
  * file of at most {@link MAX_DEFINITION_FILE_BYTES} is read: a directory, FIFO or device
  * such as `/dev/zero` could hang, and a huge file would exhaust memory. Errors name the path
  * and the reason, never the contents.
+ *
+ * The file is opened once and checked through that descriptor, so the file checked is the
+ * file read, even if the path is swapped in between. The open is non-blocking where the
+ * platform has the flag: opening a FIFO for reading would otherwise wait for a writer.
  */
 function readBesideTemplate(params: ReadBesideTemplateParams): string {
     const absolutePath = resolve(params.directory, params.path);
+    let descriptor: number | undefined;
     try {
-        const stats = statSync(absolutePath);
+        descriptor = openSync(absolutePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+        const stats = fstatSync(descriptor);
         if (!stats.isFile()) {
             throw new Error(`${absolutePath} is not a file`);
         }
@@ -34,17 +40,25 @@ function readBesideTemplate(params: ReadBesideTemplateParams): string {
                 `${absolutePath} is ${stats.size} bytes, over the ${MAX_DEFINITION_FILE_BYTES}-byte limit for a definition file`,
             );
         }
-        return readFileSync(absolutePath, 'utf-8');
+        return readFileSync(descriptor, 'utf-8');
     } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code === 'ENOENT' || code === 'ENOTDIR') {
             throw new Error(`${absolutePath} does not exist`, { cause: error });
+        }
+        // Windows refuses to open a directory at all, rather than opening it for fstat.
+        if (code === 'EISDIR') {
+            throw new Error(`${absolutePath} is not a file`, { cause: error });
         }
         if (code === undefined) {
             throw error;
         }
         const reason = error instanceof Error ? error.message : String(error);
         throw new Error(`cannot read ${absolutePath}: ${reason}`, { cause: error });
+    } finally {
+        if (descriptor !== undefined) {
+            closeSync(descriptor);
+        }
     }
 }
 

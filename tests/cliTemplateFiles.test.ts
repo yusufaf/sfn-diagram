@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +34,14 @@ describe('createTemplateFileReader', () => {
     it('refuses a directory', () => {
         mkdirSync(join(tempDir, 'a', 'dir'));
         expect(() => readFile({ path: 'dir' })).toThrow(`${join(tempDir, 'a', 'dir')} is not a file`);
+    });
+
+    // A blocking open of a FIFO waits for a writer, so a regression hangs until the test
+    // times out. Windows has no FIFOs in the file system.
+    it.skipIf(process.platform === 'win32')('refuses a FIFO without waiting for a writer', () => {
+        const fifoPath = join(tempDir, 'a', 'pipe');
+        execFileSync('mkfifo', [fifoPath]);
+        expect(() => readFile({ path: 'pipe' })).toThrow(`${fifoPath} is not a file`);
     });
 
     it('refuses a file over the size limit without reading it', () => {
