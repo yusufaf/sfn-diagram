@@ -65,7 +65,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
 | `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
-| `--resource <id>` | State machine to extract when a template or Terraform config has several (CloudFormation logical id or Terraform resource name) |
+| `--resource <id>` | State machine to extract when a template or Terraform config has several (CloudFormation logical id, CDK construct path, or Terraform resource name) |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `--check-format <text\|json>` | With `--check`, `json` writes one JSON document to stdout — see [Machine-readable output](#machine-readable-output) |
 | `-h`, `--help` / `-v`, `--version` | Show help / version and exit |

@@ -142,7 +142,9 @@ const DEFINITION_PROPERTIES: Record<string, unknown> = {
     },
     resource: {
         description:
-            'Logical ID of the state machine to extract when the template declares several.',
+            'State machine to extract when a template or Terraform config declares several: ' +
+            'the CloudFormation logical ID, the CDK construct path (such as OrderWorkflow), or ' +
+            'the Terraform resource name.',
         type: 'string',
     },
     source: {

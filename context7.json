@@ -22,6 +22,6 @@
     "generateFromAwsResponse is exported from the root 'sfn-diagram' entry, not from 'sfn-diagram/aws'.",
     "The interactive HTML viewer (generateHtml, generateHtmlAsync, generateViewerUpdate and the execution-HTML wrappers) is imported from 'sfn-diagram/html'.",
     "The extractors return an object: const { aslDefinition } = extractAslFromTemplate({ template }) from 'sfn-diagram/cfn', or extractAslFromTerraform({ config }) from 'sfn-diagram/terraform'.",
-    "When a template or Terraform config defines more than one state machine, also pass resourceId: the CloudFormation logical ID, or the Terraform resource name (e.g. aws_sfn_state_machine.orders)."
+    "When a template or Terraform config defines more than one state machine, also pass resourceId: the CloudFormation logical ID or the CDK construct path, such as OrderWorkflow, or the Terraform resource name (e.g. aws_sfn_state_machine.orders)."
   ]
 }
