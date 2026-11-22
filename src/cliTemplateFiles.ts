@@ -11,15 +11,28 @@ interface ReadBesideTemplateParams {
 }
 
 /**
+ * The largest `DefinitionUri` file read. A Step Functions definition is far smaller; the
+ * cap stops a template from pointing at a multi-gigabyte log and loading it into memory.
+ */
+const MAX_DEFINITION_FILE_BYTES = 10 * 1024 * 1024;
+
+/**
  * Read a file a template points at, relative to the template's directory. Only a regular
- * file is read: a directory, FIFO or device such as `/dev/zero` could hang or exhaust
- * memory. Errors name the path and the reason, never the contents.
+ * file of at most {@link MAX_DEFINITION_FILE_BYTES} is read: a directory, FIFO or device
+ * such as `/dev/zero` could hang, and a huge file would exhaust memory. Errors name the path
+ * and the reason, never the contents.
  */
 function readBesideTemplate(params: ReadBesideTemplateParams): string {
     const absolutePath = resolve(params.directory, params.path);
     try {
-        if (!statSync(absolutePath).isFile()) {
+        const stats = statSync(absolutePath);
+        if (!stats.isFile()) {
             throw new Error(`${absolutePath} is not a file`);
+        }
+        if (stats.size > MAX_DEFINITION_FILE_BYTES) {
+            throw new Error(
+                `${absolutePath} is ${stats.size} bytes, over the ${MAX_DEFINITION_FILE_BYTES}-byte limit for a definition file`,
+            );
         }
         return readFileSync(absolutePath, 'utf-8');
     } catch (error) {

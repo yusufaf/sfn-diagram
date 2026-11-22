@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTemplateFileReader } from '../src/cliTemplateFiles';
@@ -33,6 +33,16 @@ describe('createTemplateFileReader', () => {
     it('refuses a directory', () => {
         mkdirSync(join(tempDir, 'a', 'dir'));
         expect(() => readFile({ path: 'dir' })).toThrow(`${join(tempDir, 'a', 'dir')} is not a file`);
+    });
+
+    it('refuses a file over the size limit without reading it', () => {
+        const hugePath = join(tempDir, 'a', 'huge.log');
+        writeFileSync(hugePath, '');
+        // Sparse, so the test writes no real data.
+        truncateSync(hugePath, 10 * 1024 * 1024 + 1);
+        expect(() => readFile({ path: 'huge.log' })).toThrow(
+            `${hugePath} is 10485761 bytes, over the 10485760-byte limit for a definition file`,
+        );
     });
 
     // ENOTDIR on POSIX, ENOENT on Windows: the same message either way.

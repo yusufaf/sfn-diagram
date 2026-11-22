@@ -189,7 +189,9 @@ directory you run it from. It fills in `DefinitionSubstitutions` the way CloudFo
 does, so a `${ChargeFunctionArn}` placeholder in the file becomes `<ChargeFunction.Arn>`.
 The file can be JSON or YAML. If it's missing, the error names the full path that was
 tried. The same works for each side of a `--diff` and for a template passed to the
-[MCP server](/guides/mcp/) by `path`.
+[MCP server](/guides/mcp/) by `path`. `--watch` re-renders when the template changes but
+doesn't yet notice edits to the `DefinitionUri` file, so save the template too, or watch
+the ASL file directly.
 
 Some cases still can't be read and stop with `… cannot be read from the template alone`:
 
