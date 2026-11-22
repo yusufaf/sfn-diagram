@@ -1235,7 +1235,12 @@ export type PngExporterOptions = DiagramOptions & PngExportOptions;
 export interface ExtractAslFromTemplateParams {
     /** Input format. 'auto' (default) sniffs JSON vs YAML. */
     format?: 'auto' | 'json' | 'yaml';
-    /** Logical id of the state machine to extract when the template has more than one. */
+    /**
+     * State machine to extract when the template has more than one: its logical id, or for a CDK
+     * template its construct path, either the full `aws:cdk:path` (`OrdersStack/OrderWorkflow`),
+     * the path relative to the stack (`OrderWorkflow`, `Orders/Workflow`) or a trailing part of
+     * it. An exact logical id wins; a value that matches more than one state machine throws.
+     */
     resourceId?: string;
     /** Raw template string (JSON or YAML) or an already-parsed template object. */
     template: string | Record<string, unknown>;
@@ -1261,7 +1266,10 @@ export interface ExtractAslFromTerraformParams {
 export interface ExtractAslResult {
     /** The recovered ASL definition, ready for generateSvg/generateMermaid/etc. */
     aslDefinition: AslDefinition;
-    /** CloudFormation logical id, or Terraform resource name, of the state machine that was extracted. */
+    /**
+     * The CloudFormation logical id (even when `resourceId` was a CDK construct path), or the
+     * Terraform resource name, of the state machine that was extracted.
+     */
     resourceId: string;
     /** Non-fatal notes (e.g. unresolved intrinsics replaced with placeholders). */
     warnings: string[];

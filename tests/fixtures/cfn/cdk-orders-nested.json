@@ -1,0 +1,73 @@
+{
+ "Resources": {
+  "NestedWorkflowRole8C624A27": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Condition": {
+        "ArnLike": {
+         "aws:SourceArn": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:",
+            {
+             "Ref": "AWS::Partition"
+            },
+            ":states:",
+            {
+             "Ref": "AWS::Region"
+            },
+            ":",
+            {
+             "Ref": "AWS::AccountId"
+            },
+            ":stateMachine:*"
+           ]
+          ]
+         }
+        },
+        "StringEquals": {
+         "aws:SourceAccount": {
+          "Ref": "AWS::AccountId"
+         }
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "states.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "OrdersStack/Nested/NestedWorkflow/Role/Resource"
+   }
+  },
+  "NestedWorkflowF6BC47A2": {
+   "Type": "AWS::StepFunctions::StateMachine",
+   "Properties": {
+    "DefinitionString": "{\"StartAt\":\"P3\",\"States\":{\"P3\":{\"Type\":\"Pass\",\"End\":true}}}",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "NestedWorkflowRole8C624A27",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "NestedWorkflowRole8C624A27"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "OrdersStack/Nested/NestedWorkflow/Resource"
+   }
+  }
+ }
+}

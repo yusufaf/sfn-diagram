@@ -430,3 +430,121 @@ describe('DefinitionSubstitutions', () => {
         expect(aslDefinition.States.A.Resource).toBe('${B}');
     });
 });
+
+// The cdk-orders-* fixtures are real `cdk synth` output (aws-cdk-lib 2.274.0). OrdersStack holds
+// `OrderWorkflow` (StartAt P1), `Orders/Workflow` (P2) and an L1 `Orders/Raw` (A); the stage puts
+// the same stack under `Prod/`; the nested stack holds `NestedWorkflow` (P3); from-stack is the
+// same stack synthesized by a plain `new App()`, so it has no `aws:cdk:path` metadata.
+describe('CDK construct paths', () => {
+    const extract = (
+        name: string,
+        resourceId?: string,
+    ): { resourceId: string; startAt: string } => {
+        const result = extractAslFromTemplate({ resourceId, template: fixture(name) });
+        return { resourceId: result.resourceId, startAt: result.aslDefinition.StartAt };
+    };
+
+    it.each([
+        ['OrderWorkflow', 'OrderWorkflow0015CDD9', 'P1'],
+        ['OrdersStack/OrderWorkflow', 'OrderWorkflow0015CDD9', 'P1'],
+        ['OrdersStack/OrderWorkflow/Resource', 'OrderWorkflow0015CDD9', 'P1'],
+        ['Orders/Workflow', 'OrdersWorkflow5B5F4FE8', 'P2'],
+        ['Orders/Raw', 'OrdersRawA5B3A6B2', 'A'],
+    ])('selects %s from a cdk synth template', (resourceId, logicalId, startAt) => {
+        expect(extract('cdk-orders-stack.json', resourceId)).toEqual({
+            resourceId: logicalId,
+            startAt,
+        });
+    });
+
+    it.each(['Prod/OrdersStack/OrderWorkflow', 'OrderWorkflow'])(
+        'selects %s from a stack inside a Stage',
+        (resourceId) => {
+            expect(extract('cdk-orders-stage.json', resourceId).resourceId).toBe(
+                'OrderWorkflow0015CDD9',
+            );
+        },
+    );
+
+    it.each(['NestedWorkflow', 'Nested/NestedWorkflow'])(
+        'selects %s from a nested stack template',
+        (resourceId) => {
+            expect(extract('cdk-orders-nested.json', resourceId)).toEqual({
+                resourceId: 'NestedWorkflowF6BC47A2',
+                startAt: 'P3',
+            });
+        },
+    );
+
+    it('selects a stack-relative path from a template without metadata', () => {
+        expect(extract('cdk-orders-from-stack.json', 'OrderWorkflow')).toEqual({
+            resourceId: 'OrderWorkflow0015CDD9',
+            startAt: 'P1',
+        });
+    });
+
+    it('lists construct paths next to logical IDs when nothing matches', () => {
+        expect(() => extract('cdk-orders-stack.json', 'Nope')).toThrow(
+            "Resource 'Nope' is not a state machine (AWS::StepFunctions::StateMachine or " +
+                'AWS::Serverless::StateMachine). Found: OrderWorkflow0015CDD9 (OrdersStack/OrderWorkflow), ' +
+                'OrdersWorkflow5B5F4FE8 (OrdersStack/Orders/Workflow), OrdersRawA5B3A6B2 (OrdersStack/Orders/Raw).',
+        );
+    });
+
+    it('lists bare logical IDs when the template has no metadata', () => {
+        expect(() => extract('cdk-orders-from-stack.json', 'Nope')).toThrow(
+            'Found: OrderWorkflow0015CDD9, OrdersWorkflow5B5F4FE8, OrdersRawA5B3A6B2.',
+        );
+    });
+
+    it('lists construct paths when several machines and none selected', () => {
+        expect(() => extract('cdk-orders-stack.json')).toThrow(
+            'Template has multiple state machines: OrderWorkflow0015CDD9 (OrdersStack/OrderWorkflow), ' +
+                'OrdersWorkflow5B5F4FE8 (OrdersStack/Orders/Workflow), OrdersRawA5B3A6B2 ' +
+                '(OrdersStack/Orders/Raw). Pass resourceId (or --resource) to choose one.',
+        );
+    });
+
+    it('rejects a construct path that leads to a resource other than a state machine', () => {
+        // OrderWorkflow/Role computes the role's logical ID, OrderWorkflowRole8C450098.
+        expect(() => extract('cdk-orders-stack.json', 'OrderWorkflow/Role')).toThrow(
+            /not a state machine/,
+        );
+    });
+
+    const cdkMachine = (logicalId: string, cdkPath?: string): Record<string, unknown> => ({
+        Type: 'AWS::StepFunctions::StateMachine',
+        ...(cdkPath === undefined ? {} : { Metadata: { 'aws:cdk:path': cdkPath } }),
+        Properties: {
+            DefinitionString: JSON.stringify({
+                StartAt: logicalId,
+                States: { [logicalId]: { Type: 'Succeed' } },
+            }),
+        },
+    });
+
+    it('prefers an exact logical ID over a construct path', () => {
+        const template = {
+            Resources: {
+                OrderWorkflow: cdkMachine('OrderWorkflow'),
+                OrderWorkflow0015CDD9: cdkMachine('OrderWorkflow0015CDD9', 'S/OrderWorkflow/Resource'),
+            },
+        };
+        expect(extractAslFromTemplate({ resourceId: 'OrderWorkflow', template }).resourceId).toBe(
+            'OrderWorkflow',
+        );
+    });
+
+    it('throws listing the candidates when a construct path matches more than one machine', () => {
+        const template = {
+            Resources: {
+                AFlowE02A3768: cdkMachine('AFlowE02A3768', 'S/A/Flow/Resource'),
+                BFlowF1F7FEAE: cdkMachine('BFlowF1F7FEAE', 'S/B/Flow/Resource'),
+            },
+        };
+        expect(() => extractAslFromTemplate({ resourceId: 'Flow', template })).toThrow(
+            "Resource 'Flow' matches more than one state machine: AFlowE02A3768 (S/A/Flow), " +
+                'BFlowF1F7FEAE (S/B/Flow). Pass a longer construct path or a logical ID.',
+        );
+    });
+});

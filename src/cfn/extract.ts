@@ -1,5 +1,11 @@
 import type { AslDefinition, ExtractAslFromTemplateParams, ExtractAslResult } from '../types';
 import { parseAslSource } from '../AslParser';
+import {
+    formatMachineLabel,
+    matchStateMachine,
+    readCdkPath,
+    type StateMachineCandidate,
+} from './cdkPath';
 import { applySubstitutions, resolveIntrinsics, resolveSubstitutions } from './intrinsics';
 import { parseTemplate } from './templateParser';
 
@@ -15,14 +21,18 @@ const EXTERNAL_DEFINITION_KEYS: readonly string[] = ['DefinitionUri', 'Definitio
 const STATE_MACHINE_TYPE_LIST = STATE_MACHINE_TYPES.join(' or ');
 
 interface CfnResource {
+    Metadata?: unknown;
     Properties?: Record<string, unknown>;
     Type?: string;
 }
 
-function findStateMachineIds(resources: Record<string, CfnResource>): string[] {
-    return Object.keys(resources).filter((logicalId) =>
-        STATE_MACHINE_TYPES.includes(resources[logicalId]?.Type ?? ''),
-    );
+function findStateMachines(resources: Record<string, CfnResource>): StateMachineCandidate[] {
+    return Object.keys(resources)
+        .filter((logicalId) => STATE_MACHINE_TYPES.includes(resources[logicalId]?.Type ?? ''))
+        .map((logicalId) => {
+            const cdkPath = readCdkPath({ metadata: resources[logicalId].Metadata });
+            return cdkPath === undefined ? { logicalId } : { cdkPath, logicalId };
+        });
 }
 
 /**
@@ -35,14 +45,25 @@ function findStateMachineIds(resources: Record<string, CfnResource>): string[] {
  * string in it (whichever form it takes), and parses the result as ASL. SAM
  * resources share the CloudFormation pipeline.
  *
+ * `resourceId` is a logical ID, or for a CDK template the construct path of
+ * the state machine: the `aws:cdk:path` that `cdk synth` writes (with or
+ * without its trailing `/Resource`), the path relative to the stack
+ * (`OrderWorkflow` for `OrderWorkflow0015CDD9`, worked out from CDK's logical
+ * ID scheme, so it works without that metadata too), or a trailing part of
+ * the path. An exact logical ID wins.
+ *
  * @param params - Template source, optional format, optional resource id.
  * @returns The extracted ASL definition, the logical id used, and any warnings.
- * @throws If no state machine is found, the choice is ambiguous, or the
- * definition is external (`DefinitionUri`/`DefinitionS3Location`).
+ * @throws If no state machine is found, `resourceId` matches none or more
+ * than one, no `resourceId` is given and there are several, or the definition
+ * is external (`DefinitionUri`/`DefinitionS3Location`).
  *
  * @example
  * ```typescript
  * const { aslDefinition } = extractAslFromTemplate({ template: cdkSynthJson });
+ * // Pick one of several by the ID passed to `new sfn.StateMachine(this, 'OrderWorkflow', …)`.
+ * const picked = extractAslFromTemplate({ resourceId: 'OrderWorkflow', template: cdkSynthJson });
+ * // picked.resourceId === 'OrderWorkflow0015CDD9'
  * ```
  */
 export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): ExtractAslResult {
@@ -50,25 +71,28 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
 
     const parsed = parseTemplate({ format, template });
     const resources = (parsed.Resources ?? {}) as Record<string, CfnResource>;
-    const machineIds = findStateMachineIds(resources);
+    const machines = findStateMachines(resources);
 
-    if (machineIds.length === 0) {
+    if (machines.length === 0) {
         throw new Error(`Template contains no ${STATE_MACHINE_TYPE_LIST} resource.`);
     }
+    const labels = (): string =>
+        machines.map((machine) => formatMachineLabel({ machine })).join(', ');
 
     let chosenId: string;
     if (resourceId) {
-        if (!machineIds.includes(resourceId)) {
+        const chosen = matchStateMachine({ machines, resourceId });
+        if (chosen === undefined) {
             throw new Error(
-                `Resource '${resourceId}' is not a state machine (${STATE_MACHINE_TYPE_LIST}). Found: ${machineIds.join(', ')}.`,
+                `Resource '${resourceId}' is not a state machine (${STATE_MACHINE_TYPE_LIST}). Found: ${labels()}.`,
             );
         }
-        chosenId = resourceId;
-    } else if (machineIds.length === 1) {
-        chosenId = machineIds[0];
+        chosenId = chosen.logicalId;
+    } else if (machines.length === 1) {
+        chosenId = machines[0].logicalId;
     } else {
         throw new Error(
-            `Template has multiple state machines (${machineIds.join(', ')}). ` +
+            `Template has multiple state machines: ${labels()}. ` +
                 `Pass resourceId (or --resource) to choose one.`,
         );
     }
