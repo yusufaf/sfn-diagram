@@ -34,7 +34,8 @@ The printed copy is YAML, so `cdk synth > template.json` gives you YAML in a fil
 named `.json`, and that file won't be recognized as a template. Read the file in `cdk.out/`
 instead. If you use CDK Stages, each stage gets an `assembly-*` subfolder named after it,
 such as `cdk.out/assembly-Prod/`. The template's file name inside starts with the stage name
-and ends in a hash, for example `ProdOrdersStack2EDBF9CE.template.json`.
+and ends in a hash, for example `ProdOrdersStack2EDBF9CE.template.json`. To skip hunting for
+it, render `cdk.out` itself (see [Every state machine in `cdk.out`](#every-state-machine-in-cdkout)).
 
 ### 2. Render
 
@@ -72,6 +73,51 @@ A value that fits more than one state machine is an error that lists them, so it
 picks one silently. Inside a nested stack, the path is relative to the nested stack, not to
 its parent.
 
+### Every state machine in `cdk.out`
+
+Point the CLI at the `cdk.out` directory to render every state machine the app defines:
+
+```bash
+npx cdk synth --quiet
+npx sfn-diagram cdk.out --out-dir diagrams
+```
+
+The CLI recognizes the directory by its `manifest.json`. It reads every stack, every Stage's
+`assembly-*` folder (Stages inside Stages too), and every nested stack's
+`*.nested.template.json`, so you don't need to know which hashed file holds which machine.
+Each output is named after the machine's construct path with `/` turned into `.`:
+
+```text
+diagrams/OrdersStack.OrderWorkflow.svg
+diagrams/OrdersStack.Nested.NestedWorkflow.svg
+diagrams/Prod.OrdersStack.OrderWorkflow.svg
+```
+
+The construct path comes from the `aws:cdk:path` metadata the CDK CLI writes by default.
+If path metadata is turned off, the name is the stack's path plus the logical ID instead,
+such as `Prod.OrdersStack.OrderWorkflow0015CDD9.svg`.
+
+`--resource` filters the machines across all stacks:
+
+- a full construct path (`OrdersStack/OrderWorkflow`) or a logical ID picks just the
+  machines it names. `OrdersStack/OrderWorkflow` doesn't also pick
+  `Prod/OrdersStack/OrderWorkflow`.
+- a shorter path keeps each stack's match, so `OrderWorkflow` picks the machine in both
+  `OrdersStack` and `Prod/OrdersStack`.
+- any name the CLI lists in an error is accepted, including the fallback names.
+
+When one machine is left, `-o` writes it to that file:
+
+```bash
+npx sfn-diagram cdk.out --resource Prod/OrdersStack/OrderWorkflow -o orders.svg
+```
+
+With several left and no `--out-dir`, the CLI lists them and exits 2. `--check` lints every
+machine and exits 1 if any has an error (see [Lint before you deploy](#lint-before-you-deploy)).
+`--watch` watches the whole directory, so it picks up the next `cdk synth`. `--diff`,
+`--execution` and `--preserve-tree` take a single template, so pass the stack's template
+with `--resource` for those.
+
 ### A definition in its own file (`DefinitionBody.fromFile`)
 
 A stack can keep the ASL in its own file, such as one exported from Workflow Studio:
@@ -105,7 +151,9 @@ directly instead:
 
 - a template piped in on stdin, or sent to `serve` or to MCP as `source`
 - a template copied away from its `.assets.json`
-- a nested stack's `*.nested.template.json`, whose assets are listed in its parent's manifest
+- a nested stack's `*.nested.template.json`, whose assets are listed in its parent's
+  manifest. This includes rendering all of `cdk.out`: that machine fails, and the rest still
+  render
 - a template from `Template.fromStack()` in a [CDK test](#render-from-a-cdk-test), which has
   no `readFile` or `templateFileName`
 
@@ -323,6 +371,12 @@ has a tested workflow that synthesizes both sides and comments the diff.
 npx sfn-diagram cdk.out/OrdersStack.template.json --resource OrderWorkflow --check
 ```
 
+To lint every state machine in the app at once, pass the `cdk.out` directory:
+
+```bash
+npx sfn-diagram cdk.out --check
+```
+
 Findings come in two severities. Errors are mistakes Step Functions would reject, such as a
 Wait state with no duration, a Choice with no rules, or a state with both `End` and `Next`.
 Any error makes `--check` exit 1, so it fails a CI job. Warnings point at likely bugs, such
@@ -337,7 +391,10 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | `Template has multiple state machines: …` | More than one state machine in the template | Pass a listed logical ID or construct path with `--resource` |
 | `Resource '…' is not a state machine` | The `--resource` value matches no state machine's logical ID or construct path | Pick one from the `Found:` list, which shows each construct path next to its logical ID |
 | `Resource '…' matches more than one state machine` | The value, often the end of a path, fits several state machines | Pass a longer path, such as `Orders/Workflow`, or the logical ID |
-| `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Point at the template that declares the machine. A CDK nested stack gets its own `*.nested.template.json` file in `cdk.out/` |
+| `ASL definition missing required field: StartAt` on a `cdk.out/` file | That template has no state machine, so it wasn't detected as one. Often the machine is in a nested stack | Render `cdk.out` itself, which finds nested stacks, or point at the machine's own `*.nested.template.json` |
+| `… is a directory but not a CDK cloud assembly` | The directory has no `manifest.json` with an `artifacts` object | Pass `cdk.out` itself after `cdk synth`, a file, or a quoted glob |
+| `No state machine in cloud assembly … matches --resource '…'` | The `--resource` value names no machine in any stack | Pick one from the `Found:` list of construct paths |
+| `--resource '…' matches N state machines in the cloud assembly` | Several machines are left and there's no `--out-dir` | Pass `--out-dir`, or one of the listed names as `--resource` |
 | `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | The same mistake with `--resolve-cfn` | Same fix |
 | `… loads its definition from DefinitionUri (…), which could not be read: … does not exist` | The `DefinitionUri` path, taken relative to the template, points at no file | Fix the path in the template, or move the template back beside its `statemachine/` folder |
 | `DefinitionUri file '…' … is not valid JSON` (or YAML) | The definition file has a syntax error. The message never quotes the file | Render the file directly to see the parser's message |

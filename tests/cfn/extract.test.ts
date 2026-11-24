@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { extractAslFromTemplate } from '../../src/cfn/extract';
+import { extractAslFromTemplate, listStateMachines } from '../../src/cfn/extract';
 import type { ReadFileParams } from '../../src/types';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -942,5 +942,25 @@ describe('CDK DefinitionS3Location assets read through readFile', () => {
         expect(aslDefinition.States.IssueRefund.Resource).toBe(
             'arn:aws:lambda:us-east-1:111122223333:function:Refund',
         );
+    });
+});
+
+describe('listStateMachines', () => {
+    const assemblyFile = (name: string): string => fixture(join('cdk-assembly', name));
+
+    it('lists a real CDK template’s state machines with their construct paths', () => {
+        expect(listStateMachines({ template: assemblyFile('OrdersStack.template.json') })).toEqual([
+            { cdkPath: 'OrdersStack/OrderWorkflow/Resource', logicalId: 'OrderWorkflow0015CDD9' },
+            { cdkPath: 'OrdersStack/Refund/Resource', logicalId: 'Refund532F98F3' },
+        ]);
+    });
+
+    it('returns [] for a template with no Resources', () => {
+        expect(listStateMachines({ template: assemblyFile('EmptyStack.template.json') })).toEqual([]);
+        expect(listStateMachines({ template: 'null' })).toEqual([]);
+    });
+
+    it('throws on text that is not JSON', () => {
+        expect(() => listStateMachines({ template: 'not json' })).toThrow(SyntaxError);
     });
 });

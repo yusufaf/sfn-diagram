@@ -18,6 +18,8 @@ import {
     parseStateMachineArn,
 } from './cliAws';
 import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
+import { expandCloudAssembly } from './cliCdkAssembly';
+import type { CloudAssemblyMachine } from './cliCdkAssembly';
 import { createAbortableSleep, followExecution } from './cliFollow';
 import { createFsWatchFactory, watchPaths } from './cliWatch';
 import type { CliConfig } from './cliConfig';
@@ -189,6 +191,8 @@ Usage:
   sfn-diagram <input> [options]
   sfn-diagram <input>... --out-dir <dir> [options]
   sfn-diagram '<glob>' --out-dir <dir> [options]
+  sfn-diagram <cdk.out> --out-dir <dir> [options]
+                                     (every state machine in a CDK cloud assembly)
   sfn-diagram - [options]            (read ASL from stdin)
   sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
                                           request from CI — see --help there)
@@ -279,8 +283,10 @@ Options:
                                    .tf and .tf.json files are detected automatically too)
   --resource <id>                  State machine to extract when a template or Terraform
                                    config has several (CloudFormation logical id, CDK
-                                   construct path, or Terraform resource name)
-  --watch                          Re-render whenever a watched file changes, until
+                                   construct path, or Terraform resource name). With
+                                   a cdk.out directory, only the machines it matches
+                                   in each stack
+  --watch                         Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
                                    directory, so new files count), the config file and
                                    any --theme, --diff or --execution file. Always
@@ -341,6 +347,14 @@ Notes:
   take a single input. A failing input does not stop the batch; the run exits 1 if
   any failed.
 
+  A directory with a manifest.json is read as a CDK cloud assembly (cdk.out): every
+  state machine in its stacks, its Stages and their nested stacks becomes one input,
+  written to <out-dir>/<construct path, with / as .>.<ext>, such as
+  Prod.OrdersStack.OrderWorkflow.svg. A full construct path or logical ID given to
+  --resource picks just the machines it names; a shorter path keeps each stack's
+  match. One machine left can go to -o. --watch watches the whole directory. Not
+  with --diff, --execution or --preserve-tree.
+
   Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
   render or write), 2 usage error (unknown flag, invalid value, a combination that
   cannot work, or a required flag left out). --check exits 1 when it finds an
@@ -375,6 +389,8 @@ Examples:
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 -o run.svg
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth --quiet && sfn-diagram cdk.out/MyStack.template.json --format mermaid
+  cdk synth --quiet && sfn-diagram cdk.out --out-dir diagrams
+  sfn-diagram cdk.out --check
   sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
   sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
@@ -1460,8 +1476,17 @@ function readPackageVersion(): string {
  */
 type CliInputSource =
     | { arn: ParsedStateMachineArn; kind: 'aws' }
-    | { kind: 'file'; path: string }
+    | { kind: 'file'; machine?: CloudAssemblyMachine; path: string }
     | { kind: 'stdin' };
+
+/** Whether a path names an existing directory; `false` for anything that cannot be stat'd. */
+function isDirectory(path: string): boolean {
+    try {
+        return statSync(resolve(path)).isDirectory();
+    } catch {
+        return false;
+    }
+}
 
 /**
  * How a source is named in messages: its path, its ARN, or `stdin`.
@@ -1475,7 +1500,9 @@ function describeSource(source: CliInputSource): string {
         case 'aws':
             return source.arn.arn;
         case 'file':
-            return source.path;
+            return source.machine === undefined
+                ? source.path
+                : `${source.path} (${source.machine.name})`;
         case 'stdin':
             return 'stdin';
     }
@@ -1501,7 +1528,17 @@ async function loadSource(source: CliInputSource): Promise<string> {
         // template detection (src/cliRender.ts) parses this text itself to decide
         // whether it is a template at all.
         case 'file':
-            return stripBom(readFileSync(resolve(source.path), 'utf-8'));
+            try {
+                return stripBom(readFileSync(resolve(source.path), 'utf-8'));
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'EISDIR') {
+                    throw new Error(
+                        `${source.path} is a directory but not a CDK cloud assembly (no manifest.json with an artifacts object). Pass a file, a quoted glob such as '${toPosix(source.path)}/**/*.asl.json', or a cdk.out directory.`,
+                        { cause: error },
+                    );
+                }
+                throw error;
+            }
         case 'stdin':
             return stripBom(await readStdin());
     }
@@ -1619,19 +1656,33 @@ function writeLintReport(diagnostics: LintDiagnostic[]): void {
  * One input's entry in the `--check-format json` document: the render service's lint
  * or error response, unchanged, with the input it came from. `file` is the path as
  * given (or as a glob expanded it), the ARN for `--from-aws`, and `null` for stdin.
+ * `resource` is the logical ID of a machine from a cloud assembly, whose `file` is its
+ * template: the two together select it again with `sfn-diagram <file> --resource <id>`.
  */
 type CheckFileReport = (RenderErrorResponse | RenderLintResponse) & {
     file: string | null;
+    resource?: string;
 };
 
-interface CheckFileNameParams {
+interface CheckEntrySourceParams {
     source: CliInputSource;
 }
 
-/** The `file` value a `--check-format json` entry carries for this source. */
-function checkFileName(params: CheckFileNameParams): string | null {
+/** The `file` (and, for a cloud assembly machine, `resource`) a `--check-format json` entry starts with. */
+function checkEntrySource(
+    params: CheckEntrySourceParams,
+): Pick<CheckFileReport, 'file' | 'resource'> {
     const { source } = params;
-    return source.kind === 'stdin' ? null : describeSource(source);
+    switch (source.kind) {
+        case 'aws':
+            return { file: describeSource(source) };
+        case 'file':
+            return source.machine === undefined
+                ? { file: source.path }
+                : { file: source.path, resource: source.machine.logicalId };
+        case 'stdin':
+            return { file: null };
+    }
 }
 
 interface LintExitCodeParams {
@@ -2068,7 +2119,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 : `Failed to read input${label === '' ? '' : ` ${label}`}: ${message}`;
         if (checkReport !== null) {
             checkReport.push({
-                file: checkFileName({ source }),
+                ...checkEntrySource({ source }),
                 kind: 'error',
                 message: readFailure(''),
                 warnings: [],
@@ -2102,7 +2153,10 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                     ? createTemplateFileReader({ templatePath: source.path })
                     : null,
             resolveCfn: args.resolveCfn,
-            resource: args.resource,
+            resource:
+                source.kind === 'file' && source.machine !== undefined
+                    ? source.machine.logicalId
+                    : args.resource,
             source: aslSource,
         },
         history: historySource,
@@ -2110,7 +2164,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         options: { ...options, theme },
     });
     if (checkReport !== null && response.kind !== 'render') {
-        checkReport.push({ file: checkFileName({ source }), ...response });
+        checkReport.push({ ...checkEntrySource({ source }), ...response });
         return response.kind === 'error'
             ? EXIT_FAILURE
             : lintExitCode({ diagnostics: response.diagnostics });
@@ -2626,6 +2680,13 @@ export function collectWatchTargets(
         const root = patternRoot(pattern);
         roots.push(root === '' ? '.' : root);
     }
+    // A cloud assembly is watched whole: its manifests and assets change along with
+    // its templates on every `cdk synth`.
+    for (const source of sources) {
+        if (source.kind === 'file' && source.machine !== undefined) {
+            roots.push(source.machine.assembly);
+        }
+    }
     targets.push(...roots);
 
     // A source already covered by one of those roots is not listed again, or one save
@@ -2634,7 +2695,7 @@ export function collectWatchTargets(
     // `sfn-diagram 'machines/*.asl.json' extra/other.asl.json --watch` silently
     // stopped watching the literal.
     for (const source of sources) {
-        if (source.kind !== 'file') continue;
+        if (source.kind !== 'file' || source.machine !== undefined) continue;
         if (!isUnderAnyRoot({ path: source.path, roots })) {
             targets.push(source.path);
         }
@@ -2890,25 +2951,69 @@ async function renderResolvedBatch(
     } else if (args.inputs.length === 0) {
         sources = [{ kind: 'stdin' as const }];
     } else {
-        let expanded: string[];
+        sources = [];
         try {
-            expanded = expandInputs({
+            const expanded = expandInputs({
                 cwd: process.cwd(),
                 patterns: args.inputs,
             });
+            for (const path of expanded) {
+                if (path === '-') {
+                    sources.push({ kind: 'stdin' });
+                    continue;
+                }
+                // A directory that is not a cloud assembly stays a plain path and fails
+                // on its own, so one stray directory doesn't stop the rest of a batch.
+                const machines = isDirectory(path)
+                    ? expandCloudAssembly({ directory: path, resource: args.resource })
+                    : null;
+                if (machines === null) {
+                    sources.push({ kind: 'file', path });
+                } else {
+                    sources.push(
+                        ...machines.map((machine) => ({
+                            kind: 'file' as const,
+                            machine,
+                            path: machine.templatePath,
+                        })),
+                    );
+                }
+            }
         } catch (error) {
             if (!(error instanceof CliInputError)) throw error;
-            // A pattern that matched nothing is about the filesystem, not the
-            // command line.
+            // A pattern that matched nothing, or a cloud assembly that cannot be read,
+            // is about the filesystem, not the command line.
             process.stderr.write(`Error: ${error.message}\n`);
             return { code: EXIT_FAILURE, configPath, watchTargets };
         }
-        sources = expanded.map((path) =>
-            path === '-'
-                ? ({ kind: 'stdin' } as const)
-                : ({ kind: 'file', path } as const),
-        );
     }
+
+    const machines = sources.flatMap((source) =>
+        source.kind === 'file' && source.machine !== undefined ? [source.machine] : [],
+    );
+    if (machines.length > 0) {
+        const refusal =
+            args.diff !== null
+                ? "--diff takes one template or ASL file, not a cloud assembly directory; pass the stack's template with --resource\n"
+                : args.execution !== null
+                  ? "--execution takes one template or ASL file, not a cloud assembly directory; pass the stack's template with --resource\n"
+                  : args.preserveTree
+                    ? '--preserve-tree mirrors input directories; outputs from a cloud assembly are named by construct path instead\n'
+                    : null;
+        if (refusal !== null) {
+            process.stderr.write(refusal);
+            return { code: EXIT_USAGE, configPath, watchTargets };
+        }
+    }
+    /** Turns a refusal of several inputs into advice on picking one machine of an assembly. */
+    const withMachineHint = (message: string): string => {
+        if (machines.length === 0) return `${message}\n`;
+        if (args.resource === null) {
+            return `${message}; pass --resource to pick one state machine from a cloud assembly\n`;
+        }
+        const names = machines.map((machine) => machine.name).join(', ');
+        return `--resource '${args.resource}' matches ${machines.length} state machines in the cloud assembly: ${names}; pass --out-dir to render them all, or one of those names as --resource to pick one\n`;
+    };
 
     // There is no filename to derive an output name from when the definition arrives
     // on stdin. Left unchecked, a bare `-` wrote a file called `-.svg` and a piped
@@ -2933,13 +3038,15 @@ async function renderResolvedBatch(
         }
         if (args.output !== null) {
             process.stderr.write(
-                '-o takes a single output file; use --out-dir for more than one input\n',
+                withMachineHint(
+                    '-o takes a single output file; use --out-dir for more than one input',
+                ),
             );
             return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.outDir === null && !args.check) {
             process.stderr.write(
-                '--out-dir is required for more than one input\n',
+                withMachineHint('--out-dir is required for more than one input'),
             );
             return { code: EXIT_USAGE, configPath, watchTargets };
         }
@@ -2969,15 +3076,24 @@ async function renderResolvedBatch(
             planned = planOutputPaths({
                 format: options.format,
                 outDir: args.outDir,
-                sources: sources.map((source) => ({
-                    label: describeSource(source),
-                    // A file names its output after its path; an ARN after the
-                    // state machine, since an ARN's colons cannot be a filename.
-                    nameSource:
-                        source.kind === 'aws'
-                            ? source.arn.outputName
-                            : describeSource(source),
-                })),
+                sources: sources.map((source) =>
+                    // A cloud assembly machine is named after its construct path.
+                    source.kind === 'file' && source.machine !== undefined
+                        ? {
+                              label: describeSource(source),
+                              nameSource: source.path,
+                              stem: source.machine.outputStem,
+                          }
+                        : {
+                              label: describeSource(source),
+                              // A file names its output after its path; an ARN after the
+                              // state machine, since an ARN's colons cannot be a filename.
+                              nameSource:
+                                  source.kind === 'aws'
+                                      ? source.arn.outputName
+                                      : describeSource(source),
+                          },
+                ),
                 // Rooted at the command line, not the matches, so `--watch` re-runs
                 // and a newly matched file never move the other outputs.
                 treeRoot: args.preserveTree
@@ -3160,8 +3276,11 @@ async function renderResolvedBatch(
     // caller chose a pattern rather than a path, so which file was selected is
     // exactly what they do not know. A single literal input needs no label - the
     // reader just typed it.
+    // So does a cloud assembly, for the same reason.
     const labelInput =
-        work.length > 1 || args.inputs.some((pattern) => hasGlobMagic(pattern));
+        work.length > 1 ||
+        machines.length > 0 ||
+        args.inputs.some((pattern) => hasGlobMagic(pattern));
 
     // --follow owns its own render loop: one source, one destination, re-rendered
     // until the execution ends. Guards above have already established that
@@ -3196,7 +3315,10 @@ async function renderResolvedBatch(
             baselineSource,
             cache,
             checkReport,
-            definitionText: null,
+            // The template text the assembly was expanded from, so the machine found is
+            // the machine rendered.
+            definitionText:
+                item.source.kind === 'file' ? (item.source.machine?.template ?? null) : null,
             historySource,
             labelInput,
             options,

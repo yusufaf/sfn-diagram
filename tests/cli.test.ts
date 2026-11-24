@@ -5916,6 +5916,31 @@ describe('--watch', () => {
             ).toEqual(['machines']);
         });
 
+        it('watches a cloud assembly directory, not its templates', () => {
+            const machine = (name: string, templatePath: string) => ({
+                kind: 'file' as const,
+                machine: {
+                    assembly: 'cdk.out',
+                    logicalId: name,
+                    name,
+                    outputStem: name,
+                    template: '{}',
+                    templatePath,
+                },
+                path: templatePath,
+            });
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['cdk.out']),
+                    configPath: null,
+                    sources: [
+                        machine('A', 'cdk.out/A.template.json'),
+                        machine('B', 'cdk.out/assembly-Prod/B.template.json'),
+                    ],
+                }),
+            ).toEqual(['cdk.out']);
+        });
+
         it('watches the config file it actually loaded', () => {
             expect(
                 collectWatchTargets({
@@ -6320,4 +6345,180 @@ describe('--watch', () => {
 
         expect(await watching).toBe(0);
     }, 20_000);
+});
+
+describe('run: CDK cloud assembly directory', () => {
+    // Real `cdk synth` output; see tests/cliCdkAssembly.test.ts for what it holds.
+    const assembly = join(__dirname, 'fixtures', 'cfn', 'cdk-assembly');
+    const stems = [
+        'OrdersStack.Nested.Deeper.DeepWorkflow',
+        'OrdersStack.Nested.NestedWorkflow',
+        'OrdersStack.OrderWorkflow',
+        'OrdersStack.Refund',
+        'Prod.Eu.Svc.W',
+        'Prod.OrdersStack.Nested.NestedWorkflow',
+        'Prod.OrdersStack.OrderWorkflow',
+    ];
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-assembly-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const out = (): string => join(tempDir, 'out');
+
+    it('renders every state machine into --out-dir, named by construct path', async () => {
+        expect(await run([assembly, '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out()).sort()).toEqual(stems.map((stem) => `${stem}.svg`));
+    });
+
+    it('renders each machine from its own template, nested stacks and fromFile included', async () => {
+        expect(await run([assembly, '--format', 'mermaid', '--out-dir', out()])).toBe(0);
+        const read = (stem: string): string => readFileSync(join(out(), `${stem}.mmd`), 'utf-8');
+        expect(read('Prod.Eu.Svc.W')).toContain('P5');
+        expect(read('OrdersStack.Refund')).toContain('R');
+        expect(read('OrdersStack.Nested.Deeper.DeepWorkflow')).toContain('P4');
+        expect(read('OrdersStack.OrderWorkflow')).toContain('P1');
+    });
+
+    it('lints every machine with --check, labelled by construct path', async () => {
+        expect(await run([assembly, '--check'])).toBe(0);
+        expect(stderrData).toContain('(Prod/Eu/Svc/W):');
+        expect(stderrData).toContain('(OrdersStack/Nested/Deeper/DeepWorkflow):');
+    });
+
+    it('fails --check when any machine has a lint error', async () => {
+        const copy = join(tempDir, 'cdk.out');
+        cpSync(assembly, copy, { recursive: true });
+        const templatePath = join(copy, 'OrdersStack.template.json');
+        const template = JSON.parse(readFileSync(templatePath, 'utf-8')) as {
+            Resources: Record<string, { Properties: Record<string, unknown> }>;
+        };
+        template.Resources.OrderWorkflow0015CDD9.Properties.DefinitionString =
+            '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true,"Next":"A"}}}';
+        writeFileSync(templatePath, JSON.stringify(template));
+        expect(await run([copy, '--check'])).toBe(1);
+        expect(stderrData).toContain('(OrdersStack/OrderWorkflow):');
+        expect(stderrData).toContain('end-with-next');
+    });
+
+    it('names the template and logical ID in --check-format json', async () => {
+        expect(await run([assembly, '--check', '--check-format', 'json'])).toBe(0);
+        const entries = (JSON.parse(stdoutData) as { files: Array<Record<string, unknown>> }).files;
+        expect(entries).toHaveLength(7);
+        expect(entries).toContainEqual(
+            expect.objectContaining({
+                file: join(assembly, 'assembly-Prod/assembly-Prod-Eu/ProdEuSvc4F47E18E.template.json')
+                    .split('\\')
+                    .join('/'),
+                resource: 'W8F2A5E99',
+            }),
+        );
+    });
+
+    it('writes one machine picked with --resource to -o', async () => {
+        const output = join(tempDir, 'w.svg');
+        expect(await run([assembly, '--resource', 'Prod/Eu/Svc/W', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P5');
+    });
+
+    it('picks one stack’s machine by its full construct path', async () => {
+        const output = join(tempDir, 'x.svg');
+        expect(await run([assembly, '--resource', 'OrdersStack/OrderWorkflow', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P1');
+    });
+
+    it('renders a template that starts with a byte order mark', async () => {
+        const copy = join(tempDir, 'cdk.out');
+        cpSync(assembly, copy, { recursive: true });
+        const templatePath = join(copy, 'assembly-Prod/assembly-Prod-Eu/ProdEuSvc4F47E18E.template.json');
+        writeFileSync(templatePath, String.fromCharCode(0xfeff) + readFileSync(templatePath, 'utf-8'));
+        const output = join(tempDir, 'w.svg');
+        expect(await run([copy, '--resource', 'Prod/Eu/Svc/W', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P5');
+    });
+
+    it('names the matched machines when --resource leaves several and no --out-dir', async () => {
+        expect(await run([assembly, '--resource', 'OrderWorkflow'])).toBe(2);
+        expect(stderrData).toContain('matches 2 state machines');
+        expect(stderrData).toContain('Prod/OrdersStack/OrderWorkflow');
+        expect(stderrData).toContain('one of those names');
+    });
+
+    it('names the matched machines when --resource leaves several and -o', async () => {
+        expect(await run([assembly, '--resource', 'OrderWorkflow', '-o', join(tempDir, 'x.svg')])).toBe(2);
+        expect(stderrData).toContain('matches 2 state machines');
+    });
+
+    it('asks for --out-dir or --resource for a whole assembly', async () => {
+        expect(await run([assembly])).toBe(2);
+        expect(stderrData).toContain('--out-dir is required');
+        expect(stderrData).toContain('--resource');
+    });
+
+    it('asks for --out-dir or --resource for a whole assembly with -o', async () => {
+        expect(await run([assembly, '-o', join(tempDir, 'x.svg')])).toBe(2);
+        expect(stderrData).toContain('-o takes a single output file');
+        expect(stderrData).toContain('--resource');
+    });
+
+    it.each([
+        ['--diff', () => ['--diff', simpleFixture, '--resource', 'Prod/Eu/Svc/W']],
+        [
+            '--execution',
+            () => [
+                '--execution',
+                join(__dirname, 'fixtures', 'execution-failed.json'),
+                '--resource',
+                'Prod/Eu/Svc/W',
+                '--format',
+                'html',
+            ],
+        ],
+        ['--preserve-tree', () => ['--preserve-tree', '--out-dir', join(tempDir, 'out')]],
+    ])('refuses %s with a cloud assembly', async (flag, extra) => {
+        expect(await run([assembly, ...extra()])).toBe(2);
+        expect(stderrData).toContain(flag);
+        expect(stderrData).toContain('cloud assembly');
+    });
+
+    it('fails a directory that is not a cloud assembly on its own', async () => {
+        const plain = join(tempDir, 'plain');
+        mkdirSync(plain);
+        expect(await run([plain, '-o', join(tempDir, 'x.svg')])).toBe(1);
+        expect(stderrData).toContain('is a directory but not a CDK cloud assembly');
+    });
+
+    it('still renders the other inputs when one is a plain directory', async () => {
+        const plain = join(tempDir, 'plain');
+        mkdirSync(plain);
+        expect(await run([plain, simpleFixture, '--out-dir', out()])).toBe(1);
+        expect(existsSync(join(out(), 'simple.svg'))).toBe(true);
+        expect(stderrData).toContain('is a directory but not a CDK cloud assembly');
+    });
+
+    it('renders an assembly alongside a plain file', async () => {
+        expect(await run([assembly, simpleFixture, '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out())).toHaveLength(8);
+    });
 });

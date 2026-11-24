@@ -444,6 +444,41 @@ describe('planOutputPaths', () => {
         ).toContain('--preserve-tree');
     });
 
+    it('uses a stem verbatim, without stripping an input suffix', () => {
+        expect(
+            planOutputPaths({
+                format: 'svg',
+                outDir: 'out',
+                sources: [
+                    {
+                        label: 'cdk.out/OrdersStack.template.json (OrdersStack/Orders.json)',
+                        nameSource: 'cdk.out/OrdersStack.template.json',
+                        stem: 'OrdersStack.Orders.json',
+                    },
+                ],
+            }),
+        ).toEqual([
+            {
+                label: 'cdk.out/OrdersStack.template.json (OrdersStack/Orders.json)',
+                output: join('out', 'OrdersStack.Orders.json.svg'),
+            },
+        ]);
+    });
+
+    it('refuses two equal stems without suggesting --preserve-tree', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: [
+                { label: 'a', nameSource: 'cdk.out/A.template.json', stem: 'A.B.C' },
+                { label: 'b', nameSource: 'cdk.out/assembly-X/B.template.json', stem: 'A.B.C' },
+            ],
+        });
+        expect(message).toContain(join('out', 'A.B.C.svg'));
+        expect(message).toContain('Rename one, or render them in separate runs.');
+        expect(message).not.toContain('--preserve-tree');
+    });
+
     it('does not suggest --preserve-tree when it would not help', () => {
         // Same directory: mirroring the tree changes nothing.
         expect(

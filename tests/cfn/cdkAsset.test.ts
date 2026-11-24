@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { assetManifestName, findCdkAssetPath, isCdkAssetKey } from '../../src/cfn/cdkAsset';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import {
+    assetManifestName,
+    findCdkAssetPath,
+    findNestedStackTemplates,
+    isCdkAssetKey,
+} from '../../src/cfn/cdkAsset';
 
 const HASH = 'ab'.repeat(32);
 
@@ -83,5 +90,34 @@ describe('findCdkAssetPath', () => {
         ['an array of files', '{"files":[]}'],
     ])('finds nothing in %s', (_label, manifest) => {
         expect(findCdkAssetPath({ manifest, objectKey: 'abc.json' })).toBeUndefined();
+    });
+});
+
+describe('findNestedStackTemplates', () => {
+    it('lists every nested stack template in a real asset manifest, in order', () => {
+        const manifest = readFileSync(
+            join(__dirname, '..', 'fixtures', 'cfn', 'cdk-assembly', 'OrdersStack.assets.json'),
+            'utf-8',
+        );
+        expect(findNestedStackTemplates({ manifest })).toEqual([
+            'OrdersStackNestedDeeper95288E24.nested.template.json',
+            'OrdersStackNestedB84F9012.nested.template.json',
+        ]);
+    });
+
+    it('skips zip assets and other files', () => {
+        const manifest = JSON.stringify({
+            files: {
+                a: { source: { packaging: 'zip', path: 'A.nested.template.json' } },
+                b: { source: { path: 'asset.b.json' } },
+                c: { source: { path: 'C.nested.template.json' } },
+            },
+        });
+        expect(findNestedStackTemplates({ manifest })).toEqual(['C.nested.template.json']);
+    });
+
+    it('returns [] for text that is not an asset manifest', () => {
+        expect(findNestedStackTemplates({ manifest: 'not json' })).toEqual([]);
+        expect(findNestedStackTemplates({ manifest: '{"files":[]}' })).toEqual([]);
     });
 });

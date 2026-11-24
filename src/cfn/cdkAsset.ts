@@ -94,3 +94,44 @@ export function findCdkAssetPath(params: FindCdkAssetPathParams): string | undef
     }
     return undefined;
 }
+
+/** Parameters for {@link findNestedStackTemplates}. */
+export interface FindNestedStackTemplatesParams {
+    /** The asset manifest's text. */
+    manifest: string;
+}
+
+/**
+ * Lists the nested stack templates a CDK asset manifest stages. `cdk synth` lists every nested
+ * stack, at any depth, in the asset manifest of the top-level stack that holds it.
+ *
+ * @param params - The manifest's text.
+ * @returns Each `*.nested.template.json` file asset's `source.path`, relative to the manifest,
+ * in manifest order; `[]` when the manifest is not JSON or lists none.
+ */
+export function findNestedStackTemplates(params: FindNestedStackTemplatesParams): string[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(stripBom(params.manifest));
+    } catch {
+        return [];
+    }
+    if (!isPlainObject(parsed) || !isPlainObject(parsed.files)) {
+        return [];
+    }
+    const paths: string[] = [];
+    for (const asset of Object.values(parsed.files)) {
+        if (!isPlainObject(asset) || !isPlainObject(asset.source)) {
+            continue;
+        }
+        const { packaging, path } = asset.source;
+        if (
+            typeof path === 'string' &&
+            path.endsWith(NESTED_SUFFIX) &&
+            (packaging === undefined || packaging === 'file')
+        ) {
+            paths.push(path);
+        }
+    }
+    return paths;
+}
