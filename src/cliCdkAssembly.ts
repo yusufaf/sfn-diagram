@@ -58,13 +58,16 @@ export function cloudAssemblyOutputStem(params: CloudAssemblyOutputStemParams): 
         .split('/')
         .filter((segment) => segment !== '')
         .join('.');
-    return [...dotted]
+    const safe = [...dotted]
         .map((character) =>
             character.charCodeAt(0) < 0x20 || RESERVED_FILENAME_CHARACTERS.includes(character)
                 ? '_'
                 : character,
         )
-        .join('');
+        .join('')
+        // Windows drops trailing dots and spaces from a filename, which could merge two outputs.
+        .replace(/[. ]+$/, '');
+    return safe === '' ? logicalId : safe;
 }
 
 /** Parameters for {@link expandCloudAssembly}. */

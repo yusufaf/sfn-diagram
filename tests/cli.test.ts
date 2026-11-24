@@ -6521,4 +6521,11 @@ describe('run: CDK cloud assembly directory', () => {
         expect(await run([assembly, simpleFixture, '--out-dir', out()])).toBe(0);
         expect(readdirSync(out())).toHaveLength(8);
     });
+
+    it('gives no --resource advice when another input is alongside the assembly', async () => {
+        expect(
+            await run([assembly, simpleFixture, '--resource', 'Prod/Eu/Svc/W', '-o', join(tempDir, 'x.svg')]),
+        ).toBe(2);
+        expect(stderrData).toBe('-o takes a single output file; use --out-dir for more than one input\n');
+    });
 });

@@ -321,4 +321,11 @@ describe('cloudAssemblyOutputStem', () => {
             }),
         ).toBe('App.Stack.Bad_Name__');
     });
+
+    it('drops trailing dots and spaces, and falls back to the logical ID when nothing is left', () => {
+        expect(
+            cloudAssemblyOutputStem({ cdkPath: 'App/Stack/Name. /Resource', logicalId: 'X', stackName: 'S' }),
+        ).toBe('App.Stack.Name');
+        expect(cloudAssemblyOutputStem({ cdkPath: '/Resource', logicalId: 'X1', stackName: 'S' })).toBe('X1');
+    });
 });

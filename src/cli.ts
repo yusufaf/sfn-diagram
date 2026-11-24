@@ -286,7 +286,7 @@ Options:
                                    construct path, or Terraform resource name). With
                                    a cdk.out directory, only the machines it matches
                                    in each stack
-  --watch                         Re-render whenever a watched file changes, until
+  --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
                                    directory, so new files count), the config file and
                                    any --theme, --diff or --execution file. Always
@@ -3007,7 +3007,8 @@ async function renderResolvedBatch(
     }
     /** Turns a refusal of several inputs into advice on picking one machine of an assembly. */
     const withMachineHint = (message: string): string => {
-        if (machines.length === 0) return `${message}\n`;
+        // With another input alongside, picking one machine would not make it one input.
+        if (machines.length === 0 || machines.length !== sources.length) return `${message}\n`;
         if (args.resource === null) {
             return `${message}; pass --resource to pick one state machine from a cloud assembly\n`;
         }
