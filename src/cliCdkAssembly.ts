@@ -64,9 +64,7 @@ export function cloudAssemblyOutputStem(params: CloudAssemblyOutputStemParams): 
                 ? '_'
                 : character,
         )
-        .join('')
-        // Windows drops trailing dots and spaces from a filename, which could merge two outputs.
-        .replace(/[. ]+$/, '');
+        .join('');
     return safe === '' ? logicalId : safe;
 }
 

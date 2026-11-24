@@ -322,10 +322,13 @@ describe('cloudAssemblyOutputStem', () => {
         ).toBe('App.Stack.Bad_Name__');
     });
 
-    it('drops trailing dots and spaces, and falls back to the logical ID when nothing is left', () => {
+    it('keeps a trailing dot, which the extension follows, so two IDs stay apart', () => {
         expect(
-            cloudAssemblyOutputStem({ cdkPath: 'App/Stack/Name. /Resource', logicalId: 'X', stackName: 'S' }),
-        ).toBe('App.Stack.Name');
+            cloudAssemblyOutputStem({ cdkPath: 'App/Stack/Name./Resource', logicalId: 'X', stackName: 'S' }),
+        ).toBe('App.Stack.Name.');
+    });
+
+    it('falls back to the logical ID when the path leaves nothing', () => {
         expect(cloudAssemblyOutputStem({ cdkPath: '/Resource', logicalId: 'X1', stackName: 'S' })).toBe('X1');
     });
 });
