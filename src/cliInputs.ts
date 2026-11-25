@@ -452,7 +452,9 @@ export interface PlanOutputPathsParams {
  * half-populated output directory behind. Every colliding group is reported, not just
  * the first, because a caller fixing one would otherwise have to run again to find the
  * next. With a `treeRoot` collisions are still checked: `order.asl.json` and
- * `order.json` in one directory derive the same name whatever the layout.
+ * `order.json` in one directory derive the same name whatever the layout. Names are
+ * compared ignoring case on every platform, since `Order.svg` and `order.svg` are one
+ * file on Windows and macOS.
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
@@ -509,26 +511,43 @@ export function planOutputPaths(
         return join(relative(treeRoot, inputDir), name);
     });
 
-    const byKey = new Map<string, OutputNamingSource[]>();
+    // Folded on every platform, not only where the file system ignores case: the
+    // platform doesn't say how a given directory behaves (case-sensitive APFS, WSL
+    // mounts, per-directory NTFS), and a batch that passes on Linux CI must not drop a
+    // file on a Mac.
+    const byKey = new Map<
+        string,
+        { groupKeys: string[]; members: OutputNamingSource[] }
+    >();
     sources.forEach((source, index) => {
-        const existing = byKey.get(keys[index]);
+        const foldedKey = keys[index].toLowerCase();
+        const existing = byKey.get(foldedKey);
         if (existing === undefined) {
-            byKey.set(keys[index], [source]);
+            byKey.set(foldedKey, { groupKeys: [keys[index]], members: [source] });
         } else {
-            existing.push(source);
+            existing.groupKeys.push(keys[index]);
+            existing.members.push(source);
         }
     });
 
-    const collisions = [...byKey.entries()].filter(
-        ([, group]) => group.length > 1,
-    );
+    const collisions = [...byKey.values()]
+        .filter(({ members }) => members.length > 1)
+        .map(({ groupKeys, members }): [string[], OutputNamingSource[]] => [
+            groupKeys,
+            members,
+        ]);
     if (collisions.length > 0) {
         const detail = collisions
             .map(
-                ([key, group]) =>
-                    `  ${join(outDir, key)} <- ${group.map((source) => source.label).join(', ')}`,
+                ([groupKeys, group]) =>
+                    `  ${join(outDir, groupKeys[0])} <- ${group.map((source) => source.label).join(', ')}`,
             )
             .join('\n');
+        const caseNote = collisions.some(([groupKeys]) =>
+            groupKeys.some((key) => key !== groupKeys[0]),
+        )
+            ? '\nNames that differ only in case are one file on Windows and macOS.'
+            : '';
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
         // A stem comes from a construct path, not an input directory, so --preserve-tree
@@ -541,14 +560,16 @@ export function planOutputPaths(
                         ([, group]) =>
                             new Set(
                                 group.map((source) =>
-                                    dirname(resolve(source.nameSource)),
+                                    dirname(
+                                        resolve(source.nameSource),
+                                    ).toLowerCase(),
                                 ),
                             ).size === group.length,
                     )
                   ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
                   : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(
-            `Two or more inputs would be written to the same file:\n${detail}\n${hint}`,
+            `Two or more inputs would be written to the same file:\n${detail}${caseNote}\n${hint}`,
         );
     }
 

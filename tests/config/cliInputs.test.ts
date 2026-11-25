@@ -375,6 +375,7 @@ describe('planOutputPaths', () => {
         expect(message).toContain('a/order.asl.json');
         expect(message).toContain('b/order.asl.json');
         expect(message).toContain(join('out', 'order.svg'));
+        expect(message).not.toContain('differ only in case');
     });
 
     it('reports every collision, not only the first', () => {
@@ -583,6 +584,68 @@ describe('planOutputPaths', () => {
                 }),
             ).toContain('cannot place');
         });
+
+        it('refuses names in one directory that differ only in case', () => {
+            const message = refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: treeSources('a/Order.asl.json', 'a/order.json'),
+                treeRoot: root,
+            });
+            expect(message).toContain(join('out', 'a', 'Order.svg'));
+            expect(message).not.toContain('--preserve-tree');
+        });
+    });
+
+    it('refuses two inputs whose names differ only in case', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources('a/Order.asl.json', 'b/order.asl.json'),
+        });
+        expect(message).toContain('a/Order.asl.json');
+        expect(message).toContain('b/order.asl.json');
+        expect(message).toContain(join('out', 'Order.svg'));
+        expect(message).toContain('differ only in case');
+        expect(message).toContain('--preserve-tree');
+    });
+
+    it('refuses two cloud assembly stems that differ only in case', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: [
+                { label: 'a', nameSource: 'cdk.out/A.template.json', stem: 'Prod.Orders.Workflow' },
+                { label: 'b', nameSource: 'cdk.out/A.template.json', stem: 'Prod.Orders.workflow' },
+            ],
+        });
+        expect(message).toContain(join('out', 'Prod.Orders.Workflow.svg'));
+        expect(message).toContain('Rename one, or render them in separate runs.');
+        expect(message).not.toContain('--preserve-tree');
+    });
+
+    it('reports a case-only group alongside an exact one', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources(
+                'a/Order.asl.json',
+                'b/order.asl.json',
+                'a/refund.asl.json',
+                'b/refund.asl.json',
+            ),
+        });
+        expect(message).toContain('Order.svg');
+        expect(message).toContain('refund.svg');
+    });
+
+    it('does not suggest --preserve-tree for directories that differ only in case', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources('a/order.asl.json', 'A/order.asl.json'),
+        });
+        expect(message).not.toContain('--preserve-tree');
     });
 
     it('derives an ARN output name from the state machine name, not the ARN', () => {

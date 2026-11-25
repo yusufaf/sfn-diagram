@@ -11,6 +11,11 @@ const MANIFEST_FILE = 'manifest.json';
 const NESTED_SUFFIX = '.nested.template.json';
 /** Characters Windows refuses in a filename, besides `/`, which separates construct IDs. */
 const RESERVED_FILENAME_CHARACTERS = '<>:"\\|?*';
+/**
+ * Names Windows reads as devices, also when an extension follows (`NUL.Orders.svg` is `NUL`
+ * on Windows 10 and earlier), so a stem whose first `.`-segment is one of them is unusable.
+ */
+const RESERVED_DEVICE_NAME = /^(?:AUX|CON|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
 
 /** One state machine found in a CDK cloud assembly, ready to render as its own input. */
 export interface CloudAssemblyMachine {
@@ -43,7 +48,8 @@ export interface CloudAssemblyOutputStemParams {
  * `Prod/OrdersStack/OrderWorkflow/Resource` becomes `Prod.OrdersStack.OrderWorkflow`.
  *
  * @param params - The machine's construct path, logical ID and stack name.
- * @returns The filename stem, with characters Windows refuses and control characters as `_`.
+ * @returns The filename stem, with characters Windows refuses and control characters as `_`,
+ * and a leading `_` when its first segment is a reserved Windows device name such as `NUL`.
  *
  * @example
  * ```typescript
@@ -65,7 +71,9 @@ export function cloudAssemblyOutputStem(params: CloudAssemblyOutputStemParams): 
                 : character,
         )
         .join('');
-    return safe === '' ? logicalId : safe;
+    const stem = safe === '' ? logicalId : safe;
+    const firstSegment = stem.split('.')[0].replace(/ +$/, '');
+    return RESERVED_DEVICE_NAME.test(firstSegment) ? `_${stem}` : stem;
 }
 
 /** Parameters for {@link expandCloudAssembly}. */

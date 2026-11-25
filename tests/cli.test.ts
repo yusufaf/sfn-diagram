@@ -4372,6 +4372,18 @@ describe('run: multiple inputs', () => {
         return path;
     };
 
+    it('refuses two inputs whose names differ only in case, writing nothing', async () => {
+        touch('a/Order.asl.json');
+        touch('b/order.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run(['a/Order.asl.json', 'b/order.asl.json', '--out-dir', 'out']),
+        ).toBe(2);
+        expect(stderrData).toContain('differ only in case');
+        expect(existsSync(join(tempDir, 'out'))).toBe(false);
+    });
+
     it('renders every positional into --out-dir', async () => {
         touch('order.asl.json');
         touch('refund.asl.json');

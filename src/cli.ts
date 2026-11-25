@@ -340,8 +340,9 @@ Notes:
   Several inputs can be given as separate arguments or as a quoted glob
   ("machines/**/*.asl.json"), which is expanded even where the shell does not.
   Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
-  the same filename are refused before anything is written. With --preserve-tree
-  they are <out-dir>/<directory relative to the inputs' common root>/<basename>.<ext>;
+  the same filename, ignoring case, are refused before anything is written.
+  With --preserve-tree they are
+  <out-dir>/<directory relative to the inputs' common root>/<basename>.<ext>;
   a glob contributes its non-glob prefix, not its matches, so adding a file never
   moves the others. Inputs on different drives are refused. --diff and --execution
   take a single input. A failing input does not stop the batch; the run exits 1 if

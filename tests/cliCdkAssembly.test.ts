@@ -331,4 +331,26 @@ describe('cloudAssemblyOutputStem', () => {
     it('falls back to the logical ID when the path leaves nothing', () => {
         expect(cloudAssemblyOutputStem({ cdkPath: '/Resource', logicalId: 'X1', stackName: 'S' })).toBe('X1');
     });
+
+    const superscriptOne = String.fromCharCode(0xb9);
+
+    it.each([
+        [{ cdkPath: 'NUL/Resource', logicalId: 'X', stackName: 'NUL' }, '_NUL'],
+        [{ logicalId: 'W1', stackName: 'nul' }, '_nul.W1'],
+        [{ cdkPath: 'COM1/Orders/Workflow/Resource', logicalId: 'X', stackName: 'S' }, '_COM1.Orders.Workflow'],
+        [{ cdkPath: 'Lpt9/X/Resource', logicalId: 'X', stackName: 'S' }, '_Lpt9.X'],
+        [{ cdkPath: `COM${superscriptOne}/X/Resource`, logicalId: 'X', stackName: 'S' }, `_COM${superscriptOne}.X`],
+        [{ cdkPath: 'AUX /X/Resource', logicalId: 'X', stackName: 'S' }, '_AUX .X'],
+        [{ cdkPath: '/Resource', logicalId: 'CON', stackName: 'S' }, '_CON'],
+    ])('prefixes a stem whose first segment is a reserved Windows device name: %o', (params, stem) => {
+        expect(cloudAssemblyOutputStem(params)).toBe(stem);
+    });
+
+    it('leaves a device name that is not the first segment, or only a prefix, alone', () => {
+        const stemOf = (cdkPath: string) => cloudAssemblyOutputStem({ cdkPath, logicalId: 'X', stackName: 'S' });
+        expect(stemOf('Prod/NUL/Workflow/Resource')).toBe('Prod.NUL.Workflow');
+        expect(stemOf('Console/X/Resource')).toBe('Console.X');
+        expect(stemOf('COM10/X/Resource')).toBe('COM10.X');
+        expect(stemOf('NULL/X/Resource')).toBe('NULL.X');
+    });
 });
