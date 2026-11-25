@@ -1,0 +1,73 @@
+{
+ "Resources": {
+  "DeepWorkflowRole6A10ABC4": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Condition": {
+        "ArnLike": {
+         "aws:SourceArn": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:",
+            {
+             "Ref": "AWS::Partition"
+            },
+            ":states:",
+            {
+             "Ref": "AWS::Region"
+            },
+            ":",
+            {
+             "Ref": "AWS::AccountId"
+            },
+            ":stateMachine:*"
+           ]
+          ]
+         }
+        },
+        "StringEquals": {
+         "aws:SourceAccount": {
+          "Ref": "AWS::AccountId"
+         }
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "states.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "OrdersStack/Nested/Deeper/DeepWorkflow/Role/Resource"
+   }
+  },
+  "DeepWorkflowBD8A9795": {
+   "Type": "AWS::StepFunctions::StateMachine",
+   "Properties": {
+    "DefinitionString": "{\"StartAt\":\"P4\",\"States\":{\"P4\":{\"Type\":\"Pass\",\"End\":true}}}",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "DeepWorkflowRole6A10ABC4",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "DeepWorkflowRole6A10ABC4"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "OrdersStack/Nested/Deeper/DeepWorkflow/Resource"
+   }
+  }
+ }
+}

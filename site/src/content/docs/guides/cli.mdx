@@ -318,6 +318,11 @@ Quote the glob. Unquoted, your shell expands it first — which works, but only 
 shell supports the pattern; quoted, `sfn-diagram` expands it the same way everywhere,
 including Windows `cmd` and PowerShell.
 
+A CDK `cdk.out` directory works as an input too: `sfn-diagram cdk.out --out-dir diagrams`
+renders every state machine in its stacks, Stages and nested stacks, named by construct
+path. See
+[Every state machine in `cdk.out`](/guides/step-functions-diagrams-from-cdk-and-sam/#every-state-machine-in-cdkout).
+
 ### Output filenames
 
 By default output is flat: `<out-dir>/<input basename with its suffix stripped>.<ext>`, so
@@ -1028,6 +1033,9 @@ There is one entry per input, in the order the inputs were read:
 
 - `file` is the path as given (or as a glob expanded it), the ARN for `--from-aws`, and
   `null` for stdin.
+- `resource` appears only for a state machine from a CDK cloud assembly directory. It is
+  the machine's logical ID, and `file` is its template, so
+  `sfn-diagram <file> --resource <resource>` lints the same machine again.
 - `kind` is `"lint"` when the input was linted, or `"error"` when it could not be read
   or a state machine could not be extracted from it; `message` then says why.
 - `diagnostics` holds the linter's findings, each with the rule `code`, the `message`,

@@ -4,6 +4,8 @@ import {
     formatMachineLabel,
     makeCdkLogicalId,
     matchStateMachine,
+    matchStateMachines,
+    matchStateMachinesInTemplates,
     readCdkPath,
     toConstructPath,
     type StateMachineCandidate,
@@ -169,5 +171,87 @@ describe('matchStateMachine', () => {
         expect(match('OrderWorkflow', machines)).toBe('OrderWorkflow0015CDD9');
         expect(match('Orders/Workflow', machines)).toBe('OrdersWorkflow5B5F4FE8');
         expect(match('OrdersStack/OrderWorkflow', machines)).toBeUndefined();
+    });
+});
+
+/** The seven state machines of the `tests/fixtures/cfn/cdk-assembly` cloud assembly, by template. */
+const ASSEMBLY_TEMPLATES: ReadonlyArray<readonly StateMachineCandidate[]> = [
+    [{ cdkPath: 'OrdersStack/OrderWorkflow/Resource', logicalId: 'OrderWorkflow0015CDD9' }],
+    [{ cdkPath: 'OrdersStack/Nested/NestedWorkflow/Resource', logicalId: 'NestedWorkflowF6BC47A2' }],
+    [{ cdkPath: 'OrdersStack/Nested/Deeper/DeepWorkflow/Resource', logicalId: 'DeepWorkflowBD8A9795' }],
+    [{ cdkPath: 'Prod/OrdersStack/OrderWorkflow/Resource', logicalId: 'OrderWorkflow0015CDD9' }],
+    [
+        {
+            cdkPath: 'Prod/OrdersStack/Nested/NestedWorkflow/Resource',
+            logicalId: 'NestedWorkflowF6BC47A2',
+        },
+    ],
+    [{ cdkPath: 'Prod/Eu/Svc/W/Resource', logicalId: 'W8F2A5E99' }],
+];
+const ASSEMBLY_MACHINES = ASSEMBLY_TEMPLATES.flat();
+
+describe('matchStateMachines', () => {
+    const paths = (resourceId: string, machines = ASSEMBLY_MACHINES): Array<string | undefined> =>
+        matchStateMachines({ machines, resourceId }).map((machine) => machine.cdkPath);
+
+    it('keeps only the best tier across the candidates it is given', () => {
+        expect(paths('OrdersStack/OrderWorkflow')).toEqual(['OrdersStack/OrderWorkflow/Resource']);
+        expect(paths('OrdersStack/Nested/NestedWorkflow')).toEqual([
+            'OrdersStack/Nested/NestedWorkflow/Resource',
+        ]);
+    });
+
+    it('returns every match in the winning tier instead of throwing', () => {
+        expect(paths('OrderWorkflow')).toEqual([
+            'OrdersStack/OrderWorkflow/Resource',
+            'Prod/OrdersStack/OrderWorkflow/Resource',
+        ]);
+        expect(paths('OrderWorkflow0015CDD9')).toHaveLength(2);
+    });
+
+    it('returns [] when nothing matches', () => {
+        expect(paths('Nope')).toEqual([]);
+    });
+
+    it("returns the caller's own objects", () => {
+        const machine = { cdkPath: 'S/A/Resource', extra: 1, logicalId: 'A' };
+        expect(matchStateMachines({ machines: [machine], resourceId: 'A' })[0]).toBe(machine);
+    });
+});
+
+describe('matchStateMachinesInTemplates', () => {
+    const paths = (
+        resourceId: string,
+        templates = ASSEMBLY_TEMPLATES,
+    ): Array<string | undefined> =>
+        matchStateMachinesInTemplates({ resourceId, templates }).map((machine) => machine.cdkPath);
+
+    it('lets an exact construct path win over another stack’s trailing-part match', () => {
+        expect(paths('OrdersStack/OrderWorkflow')).toEqual(['OrdersStack/OrderWorkflow/Resource']);
+        expect(paths('/OrdersStack/OrderWorkflow')).toEqual(['OrdersStack/OrderWorkflow/Resource']);
+        expect(paths('Prod/Eu/Svc/W/Resource')).toEqual(['Prod/Eu/Svc/W/Resource']);
+    });
+
+    it('keeps each stack’s match for a shorter path or a shared logical ID', () => {
+        expect(paths('OrderWorkflow')).toEqual([
+            'OrdersStack/OrderWorkflow/Resource',
+            'Prod/OrdersStack/OrderWorkflow/Resource',
+        ]);
+        expect(paths('OrderWorkflow0015CDD9')).toHaveLength(2);
+        expect(paths('Nope')).toEqual([]);
+    });
+
+    it('keeps machines at different depths in different stacks', () => {
+        const shallow: StateMachineCandidate = {
+            cdkPath: 'OrdersStack/Workflow/Resource',
+            logicalId: makeCdkLogicalId({ components: ['Workflow', 'Resource'] }) ?? '',
+        };
+        const deep: StateMachineCandidate = {
+            cdkPath: 'PaymentsStack/Refunds/Workflow/Resource',
+            logicalId: 'RefundsWorkflow36009061',
+        };
+        expect(paths('Workflow', [[shallow], [deep]])).toEqual([shallow.cdkPath, deep.cdkPath]);
+        expect(paths('Workflow', [[shallow, deep]])).toEqual([shallow.cdkPath]);
+        expect(paths('OrdersStack/Workflow', [[shallow], [deep]])).toEqual([shallow.cdkPath]);
     });
 });

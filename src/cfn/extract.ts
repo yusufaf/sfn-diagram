@@ -43,6 +43,32 @@ function findStateMachines(resources: Record<string, CfnResource>): StateMachine
         });
 }
 
+/** Parameters for {@link listStateMachines}. */
+export interface ListStateMachinesParams {
+    /** A JSON CloudFormation template's text. */
+    template: string;
+}
+
+/**
+ * Lists a JSON template's state machine resources, as `--resource` matching sees them.
+ *
+ * @param params - The template's text.
+ * @returns Each state machine's logical ID and `aws:cdk:path`, in template order; `[]` when the
+ * template has no `Resources` object.
+ * @throws What `JSON.parse` throws when the text is not JSON.
+ */
+export function listStateMachines(params: ListStateMachinesParams): StateMachineCandidate[] {
+    const parsed: unknown = parseTemplate({ format: 'json', template: params.template });
+    if (typeof parsed !== 'object' || parsed === null) {
+        return [];
+    }
+    const resources = (parsed as Record<string, unknown>).Resources;
+    if (typeof resources !== 'object' || resources === null || Array.isArray(resources)) {
+        return [];
+    }
+    return findStateMachines(resources as Record<string, CfnResource>);
+}
+
 interface ParseDefinitionFileParams {
     /** Whether `text` has had `DefinitionSubstitutions` applied, which changes the message. */
     afterSubstitution: boolean;

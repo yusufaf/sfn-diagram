@@ -414,6 +414,12 @@ export interface OutputNamingSource {
      * because an ARN has no basename and its colons cannot be part of a filename.
      */
     nameSource: string;
+    /**
+     * The output filename without its extension, used verbatim: no input suffix is stripped.
+     * Set for a state machine from a CDK cloud assembly, named by its construct path.
+     * {@link OutputNamingSource.nameSource} still places it under a `treeRoot`.
+     */
+    stem?: string;
 }
 
 /** One source and the file its output goes to. */
@@ -484,7 +490,10 @@ export function planOutputPaths(
 ): PlannedOutput[] {
     const { format, outDir, sources, treeRoot } = params;
     const keys = sources.map((source) => {
-        const name = deriveOutputName({ format, input: source.nameSource });
+        const name =
+            source.stem === undefined
+                ? deriveOutputName({ format, input: source.nameSource })
+                : `${source.stem}${OUTPUT_EXTENSIONS[format]}`;
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
@@ -522,8 +531,11 @@ export function planOutputPaths(
             .join('\n');
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
+        // A stem comes from a construct path, not an input directory, so --preserve-tree
+        // (refused for a cloud assembly) would not separate it.
         const hint =
-            treeRoot !== undefined
+            treeRoot !== undefined ||
+            collisions.some(([, group]) => group.some((source) => source.stem !== undefined))
                 ? 'Rename one, or render them in separate runs.'
                 : collisions.every(
                         ([, group]) =>
