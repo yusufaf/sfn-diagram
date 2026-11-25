@@ -430,6 +430,16 @@ export interface PlannedOutput {
     output: string;
 }
 
+/**
+ * The form two output names are compared in. Composed (NFC) because macOS treats
+ * `é` and `e` plus a combining accent as one name; upper case, as NTFS compares, which
+ * also maps every sigma form to `Σ`. Folding more than a file system does only refuses a
+ * batch that would have worked, never loses a file.
+ */
+function foldOutputName(name: string): string {
+    return name.normalize('NFC').toUpperCase();
+}
+
 /** Parameters for {@link planOutputPaths}. */
 export interface PlanOutputPathsParams {
     /** The output format, which decides each extension. */
@@ -520,7 +530,7 @@ export function planOutputPaths(
         { groupKeys: string[]; members: OutputNamingSource[] }
     >();
     sources.forEach((source, index) => {
-        const foldedKey = keys[index].toLowerCase();
+        const foldedKey = foldOutputName(keys[index]);
         const existing = byKey.get(foldedKey);
         if (existing === undefined) {
             byKey.set(foldedKey, { groupKeys: [keys[index]], members: [source] });
@@ -560,9 +570,9 @@ export function planOutputPaths(
                         ([, group]) =>
                             new Set(
                                 group.map((source) =>
-                                    dirname(
-                                        resolve(source.nameSource),
-                                    ).toLowerCase(),
+                                    foldOutputName(
+                                        dirname(resolve(source.nameSource)),
+                                    ),
                                 ),
                             ).size === group.length,
                     )

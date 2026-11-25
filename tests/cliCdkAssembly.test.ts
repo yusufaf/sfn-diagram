@@ -342,6 +342,8 @@ describe('cloudAssemblyOutputStem', () => {
         [{ cdkPath: `COM${superscriptOne}/X/Resource`, logicalId: 'X', stackName: 'S' }, `_COM${superscriptOne}.X`],
         [{ cdkPath: 'AUX /X/Resource', logicalId: 'X', stackName: 'S' }, '_AUX .X'],
         [{ cdkPath: '/Resource', logicalId: 'CON', stackName: 'S' }, '_CON'],
+        [{ cdkPath: 'CONOUT$/X/Resource', logicalId: 'X', stackName: 'S' }, '_CONOUT$.X'],
+        [{ cdkPath: 'conin$/X/Resource', logicalId: 'X', stackName: 'S' }, '_conin$.X'],
     ])('prefixes a stem whose first segment is a reserved Windows device name: %o', (params, stem) => {
         expect(cloudAssemblyOutputStem(params)).toBe(stem);
     });

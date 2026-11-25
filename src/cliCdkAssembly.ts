@@ -15,7 +15,7 @@ const RESERVED_FILENAME_CHARACTERS = '<>:"\\|?*';
  * Names Windows reads as devices, also when an extension follows (`NUL.Orders.svg` is `NUL`
  * on Windows 10 and earlier), so a stem whose first `.`-segment is one of them is unusable.
  */
-const RESERVED_DEVICE_NAME = /^(?:AUX|CON|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
+const RESERVED_DEVICE_NAME = /^(?:AUX|CON|CONIN\$|CONOUT\$|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
 
 /** One state machine found in a CDK cloud assembly, ready to render as its own input. */
 export interface CloudAssemblyMachine {

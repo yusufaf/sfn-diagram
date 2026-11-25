@@ -595,6 +595,34 @@ describe('planOutputPaths', () => {
             expect(message).toContain(join('out', 'a', 'Order.svg'));
             expect(message).not.toContain('--preserve-tree');
         });
+
+        it('refuses directories whose names differ only in a final sigma', () => {
+            const alpha = String.fromCharCode(0x391);
+            const capitalSigma = String.fromCharCode(0x3a3);
+            const smallSigma = String.fromCharCode(0x3c3);
+            const message = refusalMessage({
+                format: 'svg',
+                outDir: 'out',
+                sources: treeSources(
+                    `${alpha}${capitalSigma}/order.asl.json`,
+                    `${alpha}${smallSigma}/order.asl.json`,
+                ),
+                treeRoot: root,
+            });
+            expect(message).toContain('differ only in case');
+        });
+    });
+
+    it('refuses names that differ only in Unicode composition', () => {
+        const composed = `Caf${String.fromCharCode(0xe9)}.asl.json`;
+        const decomposed = `Cafe${String.fromCharCode(0x301)}.asl.json`;
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources(`a/${composed}`, `b/${decomposed}`),
+        });
+        expect(message).toContain(`a/${composed}`);
+        expect(message).toContain(`b/${decomposed}`);
     });
 
     it('refuses two inputs whose names differ only in case', () => {
