@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { extractAslFromTemplate, listStateMachines } from '../../src/cfn/extract';
+import {
+    extractAslFromTemplate,
+    isStateMachineTemplate,
+    listStateMachines,
+} from '../../src/cfn/extract';
 import type { ReadFileParams } from '../../src/types';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -962,5 +966,65 @@ describe('listStateMachines', () => {
 
     it('throws on text that is not JSON', () => {
         expect(() => listStateMachines({ template: 'not json' })).toThrow(SyntaxError);
+    });
+});
+
+describe('isStateMachineTemplate', () => {
+    const jsonTemplate = JSON.stringify({
+        Resources: {
+            Machine: {
+                Properties: { DefinitionString: '{}' },
+                Type: 'AWS::StepFunctions::StateMachine',
+            },
+        },
+    });
+    const byteOrderMark = String.fromCharCode(0xfeff);
+
+    it.each([
+        ['a JSON template', jsonTemplate, true],
+        ['a YAML CloudFormation template', fixture('cfn-template.yaml'), true],
+        ['a YAML SAM template', fixture('sam-template.yaml'), true],
+        ['a JSON template with a byte order mark', `${byteOrderMark}${jsonTemplate}`, true],
+        [
+            'a YAML template with no state machine',
+            'Resources:\n  Fn:\n    Type: AWS::Lambda::Function\n',
+            false,
+        ],
+        ['YAML ASL', 'StartAt: A\nStates:\n  A:\n    Type: Pass\n    End: true\n', false],
+        [
+            'JSON ASL',
+            readFileSync(join(currentDir, '..', 'fixtures', 'simple.asl.json'), 'utf-8'),
+            false,
+        ],
+        ['a Resources list', 'Resources:\n  - Type: AWS::StepFunctions::StateMachine\n', false],
+        ['a scalar resource entry', 'Resources:\n  M: AWS::StepFunctions::StateMachine\n', false],
+        ['a top-level scalar', 'just some words', false],
+        ['an empty string', '', false],
+        ['broken JSON', '{', false],
+        [
+            'YAML with a duplicate key',
+            'Resources:\n  M:\n    Type: AWS::StepFunctions::StateMachine\n  M:\n    Type: X\n',
+            false,
+        ],
+        [
+            'two YAML documents',
+            'Resources:\n  M:\n    Type: AWS::StepFunctions::StateMachine\n---\nb: 2\n',
+            false,
+        ],
+    ])('%s', (_name, source, expected) => {
+        expect(isStateMachineTemplate({ source })).toBe(expected);
+    });
+
+    it('prints no YAML warning for a non-template', () => {
+        const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            expect(isStateMachineTemplate({ source: 'foo: !Bar baz' })).toBe(false);
+            expect(emitWarning).not.toHaveBeenCalled();
+            expect(consoleWarn).not.toHaveBeenCalled();
+        } finally {
+            emitWarning.mockRestore();
+            consoleWarn.mockRestore();
+        }
     });
 });

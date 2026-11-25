@@ -30,9 +30,9 @@ after the stack's construct ID, the second argument to `new Stack(app, 'OrdersSt
 so `cdk.out/OrdersStack.template.json`. A `stackName` you set in the stack's props doesn't
 change the file name. `--quiet` stops synth from also printing the template.
 
-The printed copy is YAML, so `cdk synth > template.json` gives you YAML in a file
-named `.json`, and that file won't be recognized as a template. Read the file in `cdk.out/`
-instead. If you use CDK Stages, each stage gets an `assembly-*` subfolder named after it,
+The printed copy is YAML. It is detected as a template whatever you name it, but read the
+file in `cdk.out/` instead: a definition loaded with `DefinitionBody.fromFile` is found only
+beside the template there. If you use CDK Stages, each stage gets an `assembly-*` subfolder named after it,
 such as `cdk.out/assembly-Prod/`. The template's file name inside starts with the stage name
 and ends in a hash, for example `ProdOrdersStack2EDBF9CE.template.json`. To skip hunting for
 it, render `cdk.out` itself (see [Every state machine in `cdk.out`](#every-state-machine-in-cdkout)).
@@ -43,7 +43,7 @@ it, render `cdk.out` itself (see [Every state machine in `cdk.out`](#every-state
 npx sfn-diagram cdk.out/OrdersStack.template.json -o orders.svg
 ```
 
-JSON templates are detected automatically, so no extra flag is needed. If the stack has
+JSON and YAML templates are detected automatically, so no extra flag is needed. If the stack has
 exactly one state machine, that's all you need.
 
 ### 3. Pick a state machine when there are several
@@ -245,12 +245,10 @@ Resources:
 ```
 
 ```bash
-npx sfn-diagram template.yaml --resolve-cfn --resource OrderStateMachine -o orders.svg
+npx sfn-diagram template.yaml --resource OrderStateMachine -o orders.svg
 ```
 
-Unlike JSON, a YAML template isn't detected automatically, so `--resolve-cfn` is
-required. Without it the CLI tries to read the YAML as ASL and fails with
-`ASL definition is not valid JSON`. Short-form tags such as `!Ref`, `!GetAtt` and `!Sub`
+A YAML template is detected automatically, like a JSON one. Short-form tags such as `!Ref`, `!GetAtt` and `!Sub`
 are understood, and `DefinitionSubstitutions` are filled in. In the example above,
 `FunctionName` becomes `<ChargeFunction.Arn>` and `TopicArn` becomes `<Ref:OrderTopic>`.
 
@@ -271,7 +269,7 @@ You can leave it out if the template has only one state machine.
 Render the template as usual:
 
 ```bash
-npx sfn-diagram template.yaml --resolve-cfn -o refund.svg
+npx sfn-diagram template.yaml -o refund.svg
 ```
 
 The CLI reads `statemachine/refund.asl.json` relative to the template, not to the
@@ -321,7 +319,7 @@ const { aslDefinition } = extractAslFromTemplate({
 ## Plain CloudFormation
 
 An `AWS::StepFunctions::StateMachine` resource in a hand-written template works the same
-way. JSON templates are detected automatically; YAML ones need `--resolve-cfn`. The
+way. JSON and YAML templates are detected automatically. The
 definition can be in `DefinitionString` or `Definition`. A definition stored in S3 through
 `DefinitionS3Location` can't be read from the template, so download the file and render it
 directly. A CDK asset in `cdk.out/` is the exception (see
@@ -387,7 +385,7 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 
 | Message | Cause | Fix |
 |---|---|---|
-| `ASL definition is not valid JSON` | A YAML template without `--resolve-cfn`, or a `cdk synth` printout saved to a file | Add `--resolve-cfn`, or read the file in `cdk.out/` |
+| `ASL definition is not valid JSON` | A file that isn't a template with a state machine resource, or a YAML template that doesn't parse (for example a duplicate key) | Add `--resolve-cfn` to see the template or YAML error, or read the file in `cdk.out/` |
 | `Template has multiple state machines: …` | More than one state machine in the template | Pass a listed logical ID or construct path with `--resource` |
 | `Resource '…' is not a state machine` | The `--resource` value matches no state machine's logical ID or construct path | Pick one from the `Found:` list, which shows each construct path next to its logical ID |
 | `Resource '…' matches more than one state machine` | The value, often the end of a path, fits several state machines | Pass a longer path, such as `Orders/Workflow`, or the logical ID |
@@ -395,7 +393,7 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | `… is a directory but not a CDK cloud assembly` | The directory has no `manifest.json` with an `artifacts` object | Pass `cdk.out` itself after `cdk synth`, a file, or a quoted glob |
 | `No state machine in cloud assembly … matches --resource '…'` | The `--resource` value names no machine in any stack | Pick one from the `Found:` list of construct paths |
 | `--resource '…' matches N state machines in the cloud assembly` | Several machines are left and there's no `--out-dir` | Pass `--out-dir`, or one of the listed names as `--resource` |
-| `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | The same mistake with `--resolve-cfn` | Same fix |
+| `Template contains no AWS::StepFunctions::StateMachine or AWS::Serverless::StateMachine resource` | `--resolve-cfn` on a file with no state machine resource | Same fix |
 | `… loads its definition from DefinitionUri (…), which could not be read: … does not exist` | The `DefinitionUri` path, taken relative to the template, points at no file | Fix the path in the template, or move the template back beside its `statemachine/` folder |
 | `DefinitionUri file '…' … is not valid JSON` (or YAML) | The definition file has a syntax error. The message never quotes the file | Render the file directly to see the parser's message |
 | `… loads its definition from DefinitionUri …, which cannot be read from the template alone` | The definition is in S3, or the template came from stdin, `serve` or MCP `source` | Download and render the file directly, or pass the template as a file |

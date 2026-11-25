@@ -64,7 +64,7 @@ Piped through any runner works the same way — swap `npx` for `pnpm dlx`, `yarn
 | `--no-raw-state` | HTML: inline no state's raw ASL — see [Redacting the HTML document](#redacting-the-html-document) |
 | `--diff <baseline>` | Compare the input (head) against a baseline definition |
 | `--execution <history.json>` | Overlay a `GetExecutionHistory` result on the diagram |
-| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON templates and Terraform `.tf`/`.tf.json` files are detected automatically) |
+| `--resolve-cfn` | Treat the input as a CloudFormation/SAM/CDK template (JSON and YAML templates with a state machine resource, and Terraform `.tf`/`.tf.json` files, are detected automatically) |
 | `--resource <id>` | State machine to extract when a template or Terraform config has several (CloudFormation logical id, CDK construct path, or Terraform resource name) |
 | `--check` | Lint the definition instead of drawing it — see [Linting](#linting) |
 | `--check-format <text\|json>` | With `--check`, `json` writes one JSON document to stdout — see [Machine-readable output](#machine-readable-output) |
@@ -517,7 +517,7 @@ to unwrap. They do still work on the *head* of a diff whose **baseline** is an A
 is the drift check most people want:
 
 ```bash
-sfn-diagram template.yaml --resolve-cfn --diff arn:...:stateMachine:Orders --format mermaid
+sfn-diagram template.yaml --diff arn:...:stateMachine:Orders --format mermaid
 ```
 
 There, the template is unwrapped and the live baseline is left alone.
@@ -872,7 +872,7 @@ or a bare events array. See [generateDiff](/reference/index/functions/generatedi
 and [generateExecution](/reference/index/functions/generateexecution/) for the
 programmatic equivalents.
 
-CloudFormation/SAM/CDK templates work as input too — see [Generate diagrams from CDK and SAM templates](/guides/step-functions-diagrams-from-cdk-and-sam/) for the workflow, and [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/) for the API.
+CloudFormation/SAM/CDK templates work as input too. A JSON or YAML template is detected by a state machine resource under `Resources`, so `--resolve-cfn` is only needed to force it. See [Generate diagrams from CDK and SAM templates](/guides/step-functions-diagrams-from-cdk-and-sam/) for the workflow, and [Extracting ASL from a CDK/CloudFormation template](/reference/cfn/functions/extractaslfromtemplate/) for the API.
 
 ### Terraform
 

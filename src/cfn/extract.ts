@@ -69,6 +69,39 @@ export function listStateMachines(params: ListStateMachinesParams): StateMachine
     return findStateMachines(resources as Record<string, CfnResource>);
 }
 
+/** Parameters for {@link isStateMachineTemplate}. */
+export interface IsStateMachineTemplateParams {
+    /** The input's raw text: JSON or YAML. */
+    source: string;
+}
+
+/**
+ * Whether text is a CloudFormation/SAM/CDK template that declares a state machine: a JSON or
+ * YAML document whose top-level `Resources` map holds a resource of a type in
+ * {@link STATE_MACHINE_TYPES}. Raw ASL has no top-level `Resources`, so it never matches.
+ *
+ * @param params - The input's text.
+ * @returns `false` for text that does not parse; YAML warnings are not printed.
+ *
+ * @example
+ * ```typescript
+ * isStateMachineTemplate({ source: readFileSync('template.yaml', 'utf-8') });
+ * ```
+ */
+export function isStateMachineTemplate(params: IsStateMachineTemplateParams): boolean {
+    let parsed: unknown;
+    try {
+        parsed = parseTemplate({ quiet: true, template: params.source });
+    } catch {
+        return false;
+    }
+    return (
+        isPlainObject(parsed) &&
+        isPlainObject(parsed.Resources) &&
+        findStateMachines(parsed.Resources as Record<string, CfnResource>).length > 0
+    );
+}
+
 interface ParseDefinitionFileParams {
     /** Whether `text` has had `DefinitionSubstitutions` applied, which changes the message. */
     afterSubstitution: boolean;

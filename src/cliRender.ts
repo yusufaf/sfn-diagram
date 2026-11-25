@@ -1,5 +1,5 @@
 import { extractAslFromTemplate } from './cfn';
-import { STATE_MACHINE_TYPES } from './cfn/extract';
+import { isStateMachineTemplate } from './cfn/extract';
 import type { ResolvedCliOptions } from './cliOptions';
 import { buildCliRedact } from './cliRedact';
 import { generateDiff, generateMermaidDiff } from './diff';
@@ -48,7 +48,8 @@ export interface RenderDefinitionInput {
     readFile: ((params: ReadFileParams) => string) | null;
     /**
      * Read the text as a CloudFormation/SAM/CDK template even when auto-detection would
-     * not, which is what a YAML template needs.
+     * not (a template with no state machine resource, or YAML that does not parse), so its
+     * error names the template.
      */
     resolveCfn: boolean;
     /** The resource to extract when the template or configuration declares several. */
@@ -132,27 +133,6 @@ interface RenderResolvedParams {
     options: ResolvedCliOptions;
 }
 
-function isCfnTemplate(source: string): boolean {
-    try {
-        const parsed = JSON.parse(source) as {
-            Resources?: Record<string, unknown>;
-        };
-        const resources = parsed?.Resources;
-        return (
-            !!resources &&
-            Object.values(resources).some((resource) =>
-                STATE_MACHINE_TYPES.includes(
-                    (resource as { Type?: string })?.Type ?? '',
-                ),
-            )
-        );
-    } catch {
-        // Non-JSON (e.g. YAML template or raw ASL) — auto-detect stays a no-op;
-        // users pass --resolve-cfn for YAML templates.
-        return false;
-    }
-}
-
 interface IsTerraformInputParams {
     /** The input file's path, or null for stdin and live sources. */
     path: string | null;
@@ -193,7 +173,7 @@ function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
         });
         return { definition: aslDefinition, warnings };
     }
-    if (!resolveCfn && !isCfnTemplate(source)) {
+    if (!resolveCfn && !isStateMachineTemplate({ source })) {
         return { definition: source, warnings: [] };
     }
     const { aslDefinition, warnings } = extractAslFromTemplate({

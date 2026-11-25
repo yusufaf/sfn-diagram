@@ -69,7 +69,7 @@ Every tool takes the definition as exactly one of:
 | `path` | A file to read, relative to the server's working directory |
 | `source` | The definition text itself |
 
-plus `resolveCfn` (read the input as a template even when it is not detected as one, as YAML templates need) and `resource` (the state machine to extract when a template or Terraform config declares several: its logical ID, its CDK construct path such as `OrderWorkflow`, or its Terraform resource name). Prefer `path` for files on disk: the agent doesn't have to send the text. A SAM template read by `path` also loads a relative `DefinitionUri` file from beside it, and a CDK template its `DefinitionBody.fromFile` asset; one sent as `source` can't, because there's no directory to read from.
+plus `resolveCfn` (read the input as a template even when it is not detected as one; JSON and YAML templates are detected automatically) and `resource` (the state machine to extract when a template or Terraform config declares several: its logical ID, its CDK construct path such as `OrderWorkflow`, or its Terraform resource name). Prefer `path` for files on disk: the agent doesn't have to send the text. A SAM template read by `path` also loads a relative `DefinitionUri` file from beside it, and a CDK template its `DefinitionBody.fromFile` asset; one sent as `source` can't, because there's no directory to read from.
 
 ### `render`
 
