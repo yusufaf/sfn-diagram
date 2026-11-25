@@ -279,8 +279,8 @@ Options:
   --follow-timeout <seconds>       Give up after this long and exit 1, so a CI job
                                    cannot wait forever on a run that never ends
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
-                                   (JSON templates are detected automatically; Terraform
-                                   .tf and .tf.json files are detected automatically too)
+                                   (JSON and YAML templates are detected automatically;
+                                   Terraform .tf and .tf.json files too)
   --resource <id>                  State machine to extract when a template or Terraform
                                    config has several (CloudFormation logical id, CDK
                                    construct path, or Terraform resource name). With
@@ -391,7 +391,7 @@ Examples:
   cdk synth --quiet && sfn-diagram cdk.out/MyStack.template.json --format mermaid
   cdk synth --quiet && sfn-diagram cdk.out --out-dir diagrams
   sfn-diagram cdk.out --check
-  sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+  sfn-diagram template.yaml --resource MyMachine -o diagram.svg
   sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
   sfn-diagram state.asl.json --watch -o diagram.svg

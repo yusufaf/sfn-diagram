@@ -138,7 +138,7 @@ const DEFINITION_PROPERTIES: Record<string, unknown> = {
     },
     resolveCfn: {
         description:
-            'Read the input as a CloudFormation/SAM/CDK template even when it is not detected as one, as YAML templates need.',
+            'Read the input as a CloudFormation/SAM/CDK template even when it is not detected as one. JSON and YAML templates with a state machine resource are detected automatically.',
         type: 'boolean',
     },
     resource: {

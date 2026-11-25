@@ -6,6 +6,11 @@ import { stripBom } from '../utils/bom';
 export interface ParseTemplateParams {
     /** Input format. 'auto' (default) sniffs JSON vs YAML. */
     format?: 'auto' | 'json' | 'yaml';
+    /**
+     * Suppress YAML warnings (unknown tags and the like); parse errors still throw. For
+     * detection, where the text may not be a template.
+     */
+    quiet?: boolean;
     /** Raw template string, or an already-parsed template object. */
     template: string | Record<string, unknown>;
 }
@@ -100,7 +105,7 @@ export function looksLikeJson(text: string): boolean {
  * ```
  */
 export function parseTemplate(params: ParseTemplateParams): Record<string, unknown> {
-    const { format = 'auto', template } = params;
+    const { format = 'auto', quiet = false, template } = params;
 
     if (typeof template !== 'string') {
         return template;
@@ -112,5 +117,8 @@ export function parseTemplate(params: ParseTemplateParams): Record<string, unkno
         return JSON.parse(source) as Record<string, unknown>;
     }
 
-    return parseYaml(source, { customTags: CFN_TAGS }) as Record<string, unknown>;
+    return parseYaml(source, {
+        customTags: CFN_TAGS,
+        ...(quiet ? { logLevel: 'error' as const } : {}),
+    }) as Record<string, unknown>;
 }

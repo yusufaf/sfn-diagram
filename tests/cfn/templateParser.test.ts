@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseTemplate } from '../../src/cfn/templateParser';
 
 describe('parseTemplate', () => {
@@ -43,5 +43,22 @@ describe('parseTemplate', () => {
     it('auto-detects JSON vs YAML', () => {
         expect(parseTemplate({ template: '{"a":1}', format: 'auto' })).toEqual({ a: 1 });
         expect(parseTemplate({ template: 'a: 1', format: 'auto' })).toEqual({ a: 1 });
+    });
+
+    it('parses YAML without printing warnings when quiet', () => {
+        const emitWarning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            expect(parseTemplate({ quiet: true, template: 'a: !Foo b' })).toEqual({ a: 'b' });
+            expect(emitWarning).not.toHaveBeenCalled();
+            expect(consoleWarn).not.toHaveBeenCalled();
+        } finally {
+            emitWarning.mockRestore();
+            consoleWarn.mockRestore();
+        }
+    });
+
+    it('still throws a YAML parse error when quiet', () => {
+        expect(() => parseTemplate({ quiet: true, template: 'a: 1\na: 2' })).toThrow();
     });
 });

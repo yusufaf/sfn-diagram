@@ -69,7 +69,7 @@ livenessProbe:
 
 ### `POST /render`
 
-The body is the raw definition: an ASL JSON document, a CloudFormation/SAM/CDK template, or a Terraform configuration (HCL or JSON). JSON templates and Terraform are detected from the content. A YAML template needs `resolve-cfn`, as on the command line. A leading byte order mark is ignored. A SAM template whose definition is in a separate `DefinitionUri` file, or a CDK template whose definition is a `DefinitionBody.fromFile` asset, is refused, since a request body has no directory to read that file from: send the ASL file itself. The response is the diagram with a matching `Content-Type`:
+The body is the raw definition: an ASL JSON document, a CloudFormation/SAM/CDK template, or a Terraform configuration (HCL or JSON). JSON and YAML templates and Terraform are detected from the content. A leading byte order mark is ignored. A SAM template whose definition is in a separate `DefinitionUri` file, or a CDK template whose definition is a `DefinitionBody.fromFile` asset, is refused, since a request body has no directory to read that file from: send the ASL file itself. The response is the diagram with a matching `Content-Type`:
 
 | `format` | `Content-Type` |
 | --- | --- |
@@ -164,7 +164,7 @@ A PNG over 40 million pixels (width × height × `scale`²) is refused with a `4
 
 ```bash
 curl --data-binary @state.asl.json 'http://127.0.0.1:8080/render?format=svg' -o diagram.svg
-curl --data-binary @template.yaml 'http://127.0.0.1:8080/render?format=png&resolve-cfn' -o diagram.png
+curl --data-binary @template.yaml 'http://127.0.0.1:8080/render?format=png' -o diagram.png
 curl --data-binary @state.asl.json 'http://127.0.0.1:8080/lint'
 ```
 

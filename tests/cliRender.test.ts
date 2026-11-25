@@ -223,27 +223,37 @@ describe('handleRenderRequest: input detection and lint', () => {
         });
     });
 
-    it('reads a YAML template only when resolveCfn is set', async () => {
+    it('auto-detects a YAML template without resolveCfn', async () => {
         const yaml = readFixture('cfn', 'cfn-template.yaml');
-        const resolved = await handleRenderRequest(
-            request({
-                definition: input(yaml, { resolveCfn: true }),
-                mode: 'lint',
-            }),
+        const detected = await handleRenderRequest(
+            request({ definition: input(yaml), mode: 'lint' }),
         );
-        expect(resolved).toEqual({
+        expect(detected).toEqual({
             diagnostics: [],
             kind: 'lint',
             warnings: [],
         });
 
-        const unresolved = await handleRenderRequest(
-            request({ definition: input(yaml), mode: 'lint' }),
+        const forced = await handleRenderRequest(
+            request({
+                definition: input(yaml, { resolveCfn: true }),
+                mode: 'lint',
+            }),
         );
-        expect(unresolved.kind).toBe('lint');
-        if (unresolved.kind !== 'lint') return;
+        expect(forced).toEqual(detected);
+    });
+
+    it('reads YAML ASL-looking text as ASL, not a template', async () => {
+        const response = await handleRenderRequest(
+            request({
+                definition: input('StartAt: A\nStates: {}\n'),
+                mode: 'lint',
+            }),
+        );
+        expect(response.kind).toBe('lint');
+        if (response.kind !== 'lint') return;
         expect(
-            unresolved.diagnostics.map((diagnostic) => diagnostic.code),
+            response.diagnostics.map((diagnostic) => diagnostic.code),
         ).toEqual(['invalid-json']);
     });
 

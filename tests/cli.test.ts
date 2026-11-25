@@ -1655,6 +1655,32 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('Go');
     });
 
+    it('auto-detects a YAML template without --resolve-cfn', async () => {
+        const yamlTemplate = [
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::StepFunctions::StateMachine',
+            '    Properties:',
+            '      DefinitionString: !Sub |',
+            '        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}',
+        ].join('\n');
+        const inputPath = writeTemplate('template.yaml', yamlTemplate);
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Go');
+    });
+
+    it('reads a SAM DefinitionUri file from an auto-detected YAML template', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Validate');
+        expect(stdoutData).toContain('Charge');
+    });
+
     it('errors with resource ids when multiple machines and no --resource', async () => {
         const multi = JSON.stringify({
             Resources: {
