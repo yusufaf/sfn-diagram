@@ -3484,7 +3484,10 @@ interface RunFollowParams {
     options: ResolvedCliOptions;
     /** The single file every tick rewrites. */
     outputPath: string | null;
-    /** Where the definition comes from. Read once, before the loop starts. */
+    /**
+     * Where the definition comes from. Read once, before the loop starts; a file the
+     * template points at is read on the first tick and reused for the rest.
+     */
     source: CliInputSource;
     /** The resolved theme. */
     theme: ThemeOption;
@@ -3524,6 +3527,10 @@ async function runFollow(params: RunFollowParams): Promise<number> {
     // stdin can only be drained once and a live one would otherwise cost a
     // DescribeStateMachine per tick; the client because each one carries its own
     // keep-alive agent, so one per tick reuses no connection and strands sockets.
+    // A file the template points at (a SAM DefinitionUri, a CDK asset) is read on the
+    // first tick and kept in this cache: re-read per tick, one caught mid-save or briefly
+    // missing failed that tick, and a failed tick ends the follow.
+    const templateFileCache = new Map<string, string>();
     let definitionText: string;
     let client: SFNClient;
     try {
@@ -3576,7 +3583,7 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     // A failed render ends the follow, so the first tick always prints them.
                     reportStatic: ticks === 1,
                     source,
-                    templateFileCache: null,
+                    templateFileCache,
                     theme,
                     writeAtomically: true,
                 });

@@ -5775,6 +5775,50 @@ describe('--execution <arn> and --follow', () => {
         expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
     });
 
+    it('keeps following when the DefinitionUri file vanishes mid-run', async () => {
+        // The template's DefinitionUri file used to be re-read on every tick, so one that
+        // was mid-save or briefly missing failed that tick and ended the follow.
+        const template = join(tempDir, 'template.yaml');
+        const definition = join(tempDir, 'simple.asl.json');
+        writeFileSync(
+            template,
+            [
+                'Transform: AWS::Serverless-2016-10-31',
+                'Resources:',
+                '  Machine:',
+                '    Type: AWS::Serverless::StateMachine',
+                '    Properties:',
+                '      DefinitionUri: simple.asl.json',
+                '',
+            ].join('\n'),
+            'utf-8',
+        );
+        writeFileSync(definition, readFileSync(simpleFixture, 'utf-8'), 'utf-8');
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation(() => {
+            historyCalls += 1;
+            if (historyCalls === 1) return Promise.resolve({ events: runningEvents() });
+            rmSync(definition);
+            return Promise.resolve({ events: events() });
+        });
+
+        const target = join(tempDir, 'followed.svg');
+        const code = await run([
+            template,
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            target,
+        ]);
+
+        expect(code).toBe(0);
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
     it('works with --from-aws, fetching both the definition and the history', async () => {
         const machineArn =
             'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
