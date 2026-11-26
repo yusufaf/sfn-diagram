@@ -433,11 +433,12 @@ export interface PlannedOutput {
 /**
  * The form two output names are compared in. Composed (NFC) because macOS treats
  * `é` and `e` plus a combining accent as one name; upper case, as NTFS compares, which
- * also maps every sigma form to `Σ`. Folding more than a file system does only refuses a
- * batch that would have worked, never loses a file.
+ * also maps every sigma form to `Σ`; composed again, since some upper-case mappings
+ * produce a combining mark. Folding more than a file system does (`ß` becomes `SS`) only
+ * refuses a batch that would have worked, never loses a file.
  */
 function foldOutputName(name: string): string {
-    return name.normalize('NFC').toUpperCase();
+    return name.normalize('NFC').toUpperCase().normalize('NFC');
 }
 
 /** Parameters for {@link planOutputPaths}. */
@@ -463,8 +464,8 @@ export interface PlanOutputPathsParams {
  * the first, because a caller fixing one would otherwise have to run again to find the
  * next. With a `treeRoot` collisions are still checked: `order.asl.json` and
  * `order.json` in one directory derive the same name whatever the layout. Names are
- * compared ignoring case on every platform, since `Order.svg` and `order.svg` are one
- * file on Windows and macOS.
+ * compared ignoring case and Unicode composition on every platform, since `Order.svg`
+ * and `order.svg` are one file on Windows and macOS.
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
@@ -556,7 +557,7 @@ export function planOutputPaths(
         const caseNote = collisions.some(([groupKeys]) =>
             groupKeys.some((key) => key !== groupKeys[0]),
         )
-            ? '\nNames that differ only in case are one file on Windows and macOS.'
+            ? '\nNames that differ only in case, or in how accented letters are encoded, are one file on Windows or macOS.'
             : '';
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.

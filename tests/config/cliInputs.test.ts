@@ -623,6 +623,19 @@ describe('planOutputPaths', () => {
         });
         expect(message).toContain(`a/${composed}`);
         expect(message).toContain(`b/${decomposed}`);
+        expect(message).toContain('how accented letters are encoded');
+    });
+
+    it('refuses names whose upper-case forms differ only in composition', () => {
+        // ΐ upper-cases to Ι + two combining marks, which composes to Ϊ + an acute.
+        const iotaWithMarks = `${String.fromCharCode(0x390)}.asl.json`;
+        const capitalIotaThenAcute = `${String.fromCharCode(0x3aa, 0x301)}.asl.json`;
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources(`a/${iotaWithMarks}`, `b/${capitalIotaThenAcute}`),
+        });
+        expect(message).toContain(`b/${capitalIotaThenAcute}`);
     });
 
     it('refuses two inputs whose names differ only in case', () => {
