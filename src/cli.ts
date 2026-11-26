@@ -2034,6 +2034,17 @@ interface RenderOneInputParams {
     /** Contents of `--execution`'s history, already read, or `null`. */
     historySource: string | null;
     /**
+     * Called for each file a template reads from disk (a SAM `DefinitionUri`, a CDK
+     * `.assets.json` or asset), so `--watch` can watch it. `null` when nobody asks.
+     */
+    onTemplateFileRead: ((read: TemplateFileRead) => void) | null;
+    /**
+     * Texts of the files templates read, shared across calls so each is read once.
+     * `--follow` passes one for the whole follow; everything else passes `null` and reads
+     * fresh.
+     */
+    templateFileCache: Map<string, string> | null;
+    /**
      * Whether messages should name the input.
      *
      * True only for a batch of more than one: with a single input the reader
@@ -2048,9 +2059,8 @@ interface RenderOneInputParams {
      * Whether to print what depends only on the definition and the `--diff` baseline:
      * template and Terraform extraction warnings, and the diff summary. `--follow`
      * prints them on its first tick only, since every tick would otherwise repeat them on
-     * stderr. The template text is fixed for the whole follow, but a local SAM
-     * `DefinitionUri` file is re-read on every tick, so an edit to it shows in the diagram
-     * while its warnings and diff summary are not printed again.
+     * stderr. The template text, and any `DefinitionUri` file or CDK asset it reads, is
+     * fixed for the whole follow, so later ticks would print the same thing.
      */
     reportStatic: boolean;
     /** Where this render's definition comes from. */
@@ -2092,13 +2102,24 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         definitionText,
         historySource,
         labelInput,
+        onTemplateFileRead,
         options,
         outputPath,
         reportStatic,
         source,
+        templateFileCache,
         theme,
         writeAtomically,
     } = params;
+    /** A reader for the files a template at `templatePath` points at, reporting each read. */
+    const templateFileReader = (templatePath: string, readBy: string | null) =>
+        createTemplateFileReader({
+            ...(templateFileCache === null ? {} : { cache: templateFileCache }),
+            ...(onTemplateFileRead === null
+                ? {}
+                : { onRead: ({ path }: { path: string }) => onTemplateFileRead({ path, readBy }) }),
+            templatePath,
+        });
     /** Write this render's output, honouring the atomic-write choice once. */
     const emit = (content: string): void =>
         writeOutput({ atomic: writeAtomically, content, outputPath });
@@ -2140,7 +2161,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                       readFile:
                           baselineIsLive || args.diff === null
                               ? null
-                              : createTemplateFileReader({ templatePath: args.diff }),
+                              : templateFileReader(args.diff, null),
                       // A live baseline is already ASL; only the head can be a template.
                       resolveCfn: args.resolveCfn && !baselineIsLive,
                       resource: baselineIsLive ? null : args.resource,
@@ -2151,7 +2172,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
             path: source.kind === 'file' ? source.path : null,
             readFile:
                 source.kind === 'file'
-                    ? createTemplateFileReader({ templatePath: source.path })
+                    ? templateFileReader(source.path, source.path)
                     : null,
             resolveCfn: args.resolveCfn,
             resource:
@@ -2421,7 +2442,17 @@ export async function run(argv: string[]): Promise<number> {
 
     if (args.watch) return runWatch({ args });
     const cache = createLayoutCache();
-    return (await renderResolvedBatch({ args, cache, only: null })).code;
+    return (
+        await renderResolvedBatch({ args, cache, onTemplateFileRead: null, only: null })
+    ).code;
+}
+
+/** One file a template read from disk, and which input's template read it. */
+interface TemplateFileRead {
+    /** The file's absolute path. */
+    path: string;
+    /** The input (`source.path`) whose template read it, or `null` for the `--diff` baseline. */
+    readBy: string | null;
 }
 
 /** How long a burst of filesystem events is allowed to settle before re-rendering. */
@@ -2491,7 +2522,20 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     });
 
     const cache = createLayoutCache();
-    const first = await renderResolvedBatch({ args, cache, only: null });
+    /** Which inputs' templates read each file, keyed by the file's absolute posix path. */
+    const templateFileReaders = new Map<string, Set<string | null>>();
+    const recordRead = ({ path, readBy }: TemplateFileRead): void => {
+        const key = toPosix(path);
+        const readers = templateFileReaders.get(key) ?? new Set<string | null>();
+        readers.add(readBy);
+        templateFileReaders.set(key, readers);
+    };
+    const first = await renderResolvedBatch({
+        args,
+        cache,
+        onTemplateFileRead: recordRead,
+        only: null,
+    });
     // A usage error is about the command line, which watching cannot change. Every
     // other failure is a file problem, and watching is how you fix those - so only
     // this one aborts.
@@ -2516,28 +2560,25 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     try {
         await watchPaths({
             debounceMs: WATCH_DEBOUNCE_MS,
-            onChange: async ({ paths }) => {
-                // A config or theme change re-resolves and re-renders everything;
-                // anything else is an input, so only that input is redrawn. A path
-                // that is no longer an input at all - a file deleted, or one created
-                // under a glob root that does not match the pattern - falls back to a
-                // full pass, which re-expands the globs and sorts it out.
-                const inputPaths = paths.filter(
-                    (path) =>
-                        !isBatchWideTarget({
-                            args,
-                            configPath: first.configPath ?? configPath,
-                            path,
-                        }),
-                );
-                const only =
-                    inputPaths.length === paths.length && inputPaths.length > 0
-                        ? inputPaths
-                        : null;
+            onChange: async ({ addTargets, paths }) => {
+                const only = inputsToRerender({
+                    args,
+                    configPath: first.configPath ?? configPath,
+                    paths,
+                    templateFileReaders,
+                });
                 for (const path of paths) {
                     process.stderr.write(`  ${path} changed\n`);
                 }
-                await renderResolvedBatch({ args, cache, only });
+                const pass = await renderResolvedBatch({
+                    args,
+                    cache,
+                    onTemplateFileRead: recordRead,
+                    only,
+                });
+                // A template edited to point at a new DefinitionUri file read it just
+                // now; watch it from here on. Targets already watched are skipped.
+                addTargets({ targets: pass.watchTargets });
             },
             onWatchError: ({ target }) => {
                 process.stderr.write(`  cannot watch ${target}; skipping it\n`);
@@ -2607,6 +2648,62 @@ function isBatchWideTarget(params: IsBatchWideTargetParams): boolean {
     });
 }
 
+/** Parameters for {@link inputsToRerender}. */
+export interface InputsToRerenderParams {
+    /** The parsed command line. */
+    args: CliArgs;
+    /** The loaded config path, when known. */
+    configPath: string | null;
+    /** The paths one burst reported as changed. */
+    paths: string[];
+    /**
+     * Keyed by `toPosix` of a template file's absolute path: the inputs (`source.path`)
+     * whose templates read it, and `null` for the `--diff` baseline's template.
+     */
+    templateFileReaders: ReadonlyMap<string, ReadonlySet<string | null>>;
+}
+
+/**
+ * Which inputs `--watch` re-renders for one burst of changes.
+ *
+ * A config, `--theme`, `--diff` or `--execution` change, or a file the `--diff` baseline's
+ * template read, invalidates the whole batch. A file an input's template read (a SAM
+ * `DefinitionUri`, a CDK `.assets.json` or asset) re-renders that input. Anything else is
+ * taken to be an input itself; a path that turns out not to be one falls back to a full
+ * pass in {@link renderResolvedBatch}, which re-expands the globs and sorts it out.
+ *
+ * @param params - The command line, the config path, the changed paths and who read what.
+ *
+ * @returns The `only` list for {@link renderResolvedBatch}, or `null` for a full pass.
+ *
+ * @example
+ * ```typescript
+ * inputsToRerender({
+ *     args: parseArgs(['template.yaml', '--watch']),
+ *     configPath: null,
+ *     paths: ['statemachine/order.asl.json'],
+ *     templateFileReaders: new Map([['/repo/statemachine/order.asl.json', new Set(['template.yaml'])]]),
+ * });
+ * // ['statemachine/order.asl.json', 'template.yaml'] when run from /repo
+ * ```
+ */
+export function inputsToRerender(params: InputsToRerenderParams): string[] | null {
+    const { args, configPath, paths, templateFileReaders } = params;
+    const only = new Set<string>();
+    for (const path of paths) {
+        if (isBatchWideTarget({ args, configPath, path })) return null;
+        const readers = templateFileReaders.get(toPosix(resolve(path)));
+        if (readers?.has(null)) return null;
+        // The path itself stays in: it may be an input as well, and an entry that matches
+        // no input is ignored once another entry matches.
+        only.add(path);
+        for (const reader of readers ?? []) {
+            if (reader !== null) only.add(reader);
+        }
+    }
+    return only.size > 0 ? [...only] : null;
+}
+
 /** Parameters for {@link isUnderAnyRoot}. */
 interface IsUnderAnyRootParams {
     /** The candidate path. */
@@ -2640,6 +2737,11 @@ export interface CollectWatchTargetsParams {
     configPath: string | null;
     /** The expanded sources for this pass. */
     sources: CliInputSource[];
+    /**
+     * Absolute paths of the files templates pointed at (a SAM `DefinitionUri`, a CDK
+     * `.assets.json` or asset), as read so far. Omitted before the first render.
+     */
+    templateFiles?: string[];
 }
 
 /**
@@ -2653,9 +2755,11 @@ export interface CollectWatchTargetsParams {
  * The config and `--theme` files are included because `resolveCliOptions` folds them
  * into the options exactly once; without watching them, editing a config mid-watch
  * would silently do nothing. `--diff` and `--execution` are included when they name a
- * path, and skipped when they name an ARN.
+ * path, and skipped when they name an ARN. A file a template read is included unless a
+ * glob root or cloud assembly already being watched recursively covers it.
  *
- * @param params - The command line, the loaded config path, and the expanded sources.
+ * @param params - The command line, the loaded config path, the expanded sources, and the
+ *   files templates read.
  *
  * @returns Targets to watch, de-duplicated, in a stable order.
  *
@@ -2672,7 +2776,7 @@ export interface CollectWatchTargetsParams {
 export function collectWatchTargets(
     params: CollectWatchTargetsParams,
 ): string[] {
-    const { args, configPath, sources } = params;
+    const { args, configPath, sources, templateFiles = [] } = params;
     const targets: string[] = [];
 
     const globPatterns = args.inputs.filter((pattern) => hasGlobMagic(pattern));
@@ -2701,6 +2805,14 @@ export function collectWatchTargets(
             targets.push(source.path);
         }
     }
+    // Template files are absolute, so the roots are compared resolved; a `'.'` root would
+    // otherwise cover a `../` DefinitionUri it does not watch.
+    const resolvedRoots = roots.map((root) => resolve(root));
+    for (const file of templateFiles) {
+        if (!isUnderAnyRoot({ path: resolve(file), roots: resolvedRoots })) {
+            targets.push(file);
+        }
+    }
 
     if (configPath !== null) targets.push(configPath);
     if (args.themeFile !== null) targets.push(args.themeFile);
@@ -2723,6 +2835,8 @@ interface RenderResolvedBatchParams {
      * `--watch` calls this once per pass, and a cache per pass would never hit.
      */
     cache: LayoutCache;
+    /** Passed to every render: see {@link RenderOneInputParams.onTemplateFileRead}. */
+    onTemplateFileRead: ((read: TemplateFileRead) => void) | null;
     /**
      * Render only these inputs, or `null` for all of them.
      *
@@ -2746,7 +2860,8 @@ interface RenderResolvedBatchResult {
     configPath: string | null;
     /**
      * What `--watch` should watch: each literal input, each glob's root directory,
-     * and the config and theme files. Empty when nothing on disk is involved.
+     * the config and theme files, and (once the pass has rendered) each file a template
+     * read. Empty when nothing on disk is involved.
      */
     watchTargets: string[];
 }
@@ -2767,7 +2882,7 @@ interface RenderResolvedBatchResult {
 async function renderResolvedBatch(
     params: RenderResolvedBatchParams,
 ): Promise<RenderResolvedBatchResult> {
-    const { args, cache, only } = params;
+    const { args, cache, onTemplateFileRead, only } = params;
     /** Returned alongside every early exit so a failed pass still says what to watch. */
     const watchTargets: string[] = [];
 
@@ -3307,6 +3422,12 @@ async function renderResolvedBatch(
 
     const checkReport: CheckFileReport[] | null =
         args.check && args.checkFormat === 'json' ? [] : null;
+    /** The files this pass's templates read, to watch along with everything else. */
+    const templateFiles: string[] = [];
+    const recordTemplateFileRead = (read: TemplateFileRead): void => {
+        templateFiles.push(read.path);
+        onTemplateFileRead?.(read);
+    };
     let worstCode = EXIT_OK;
     for (const item of selected) {
         // A failing input does not stop the batch: stopping at the first would hide the
@@ -3323,10 +3444,12 @@ async function renderResolvedBatch(
                 item.source.kind === 'file' ? (item.source.machine?.template ?? null) : null,
             historySource,
             labelInput,
+            onTemplateFileRead: recordTemplateFileRead,
             options,
             outputPath: item.outputPath,
             reportStatic: true,
             source: item.source,
+            templateFileCache: null,
             theme,
             writeAtomically: false,
         });
@@ -3335,7 +3458,11 @@ async function renderResolvedBatch(
     if (checkReport !== null) {
         process.stdout.write(`${JSON.stringify({ files: checkReport })}\n`);
     }
-    return { code: worstCode, configPath, watchTargets };
+    return {
+        code: worstCode,
+        configPath,
+        watchTargets: collectWatchTargets({ args, configPath, sources, templateFiles }),
+    };
 }
 
 /** Parameters for {@link runFollow}. */
@@ -3443,11 +3570,13 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     // One source, and the reader chose the ARN, so there is nothing
                     // ambiguous for a label to disambiguate.
                     labelInput: false,
+                    onTemplateFileRead: null,
                     options,
                     outputPath,
                     // A failed render ends the follow, so the first tick always prints them.
                     reportStatic: ticks === 1,
                     source,
+                    templateFileCache: null,
                     theme,
                     writeAtomically: true,
                 });
