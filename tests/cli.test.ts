@@ -24,15 +24,17 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import {
     CliError,
     collectWatchTargets,
+    inputsToRerender,
     parseArgs,
     reportUnexpectedError,
     run,
 } from '../src/cli';
+import { toPosix } from '../src/cliInputs';
 import { DagreLayout } from '../src/layout';
 import { lintAsl } from '../src/lint';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
@@ -5773,6 +5775,50 @@ describe('--execution <arn> and --follow', () => {
         expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
     });
 
+    it('keeps following when the DefinitionUri file vanishes mid-run', async () => {
+        // The template's DefinitionUri file used to be re-read on every tick, so one that
+        // was mid-save or briefly missing failed that tick and ended the follow.
+        const template = join(tempDir, 'template.yaml');
+        const definition = join(tempDir, 'simple.asl.json');
+        writeFileSync(
+            template,
+            [
+                'Transform: AWS::Serverless-2016-10-31',
+                'Resources:',
+                '  Machine:',
+                '    Type: AWS::Serverless::StateMachine',
+                '    Properties:',
+                '      DefinitionUri: simple.asl.json',
+                '',
+            ].join('\n'),
+            'utf-8',
+        );
+        writeFileSync(definition, readFileSync(simpleFixture, 'utf-8'), 'utf-8');
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation(() => {
+            historyCalls += 1;
+            if (historyCalls === 1) return Promise.resolve({ events: runningEvents() });
+            rmSync(definition);
+            return Promise.resolve({ events: events() });
+        });
+
+        const target = join(tempDir, 'followed.svg');
+        const code = await run([
+            template,
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            target,
+        ]);
+
+        expect(code).toBe(0);
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
     it('works with --from-aws, fetching both the definition and the history', async () => {
         const machineArn =
             'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
@@ -6093,6 +6139,102 @@ describe('--watch', () => {
                 }),
             ).toEqual([]);
         });
+
+        it('watches a file a template read', () => {
+            const definitionFile = resolve('sam', 'statemachine', 'order.asl.json');
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'sam/template.yaml' }],
+                    templateFiles: [definitionFile],
+                }),
+            ).toEqual(['sam/template.yaml', definitionFile]);
+        });
+
+        it('does not watch a template file under a glob root it already watches', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['machines/*.yaml']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'machines/template.yaml' }],
+                    templateFiles: [resolve('machines', 'sm', 'x.asl.json')],
+                }),
+            ).toEqual(['machines']);
+        });
+    });
+
+    describe('inputsToRerender', () => {
+        const key = (path: string) => toPosix(resolve(path));
+        const definitionFile = join('sam', 'statemachine', 'order.asl.json');
+        const readers = (entries: Array<[string, Array<string | null>]>) =>
+            new Map(entries.map(([path, readBy]) => [key(path), new Set(readBy)]));
+
+        it('maps a changed template file to the template that read it', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    paths: [definitionFile],
+                    templateFileReaders: readers([[definitionFile, ['sam/template.yaml']]]),
+                }),
+            ).toEqual([definitionFile, 'sam/template.yaml']);
+        });
+
+        it('matches an absolute event path to the recorded read', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    paths: [resolve(definitionFile)],
+                    templateFileReaders: readers([[definitionFile, ['sam/template.yaml']]]),
+                }),
+            ).toEqual([resolve(definitionFile), 'sam/template.yaml']);
+        });
+
+        it('re-renders everything for a file the --diff baseline read', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml', '--diff', 'base/template.yaml']),
+                    configPath: null,
+                    paths: [definitionFile],
+                    templateFileReaders: readers([[definitionFile, [null]]]),
+                }),
+            ).toBeNull();
+        });
+
+        it('re-renders everything for a config change', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: 'sfn-diagram.config.json',
+                    paths: ['sfn-diagram.config.json'],
+                    templateFileReaders: new Map(),
+                }),
+            ).toBeNull();
+        });
+
+        it('passes an input that changed through as itself', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: null,
+                    paths: ['a.asl.json'],
+                    templateFileReaders: new Map(),
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it('re-renders everything for an empty burst', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: null,
+                    paths: [],
+                    templateFileReaders: new Map(),
+                }),
+            ).toBeNull();
+        });
     });
 
     it('watches even when the config file cannot be parsed', async () => {
@@ -6184,6 +6326,89 @@ describe('--watch', () => {
         process.emit('SIGINT');
         expect(await watching).toBe(0);
         expect(errors.join('')).toContain('watching');
+    }, 20_000);
+
+    /** A one-state ASL definition, so a test can tell which version was rendered. */
+    const passMachine = (state: string): string =>
+        JSON.stringify({ StartAt: state, States: { [state]: { End: true, Type: 'Pass' } } });
+    /** A SAM template whose definition lives in `definitionUri`. */
+    const samTemplate = (definitionUri: string): string =>
+        [
+            'Transform: AWS::Serverless-2016-10-31',
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::Serverless::StateMachine',
+            '    Properties:',
+            `      DefinitionUri: ${definitionUri}`,
+            '',
+        ].join('\n');
+
+    it('re-renders a SAM template when its DefinitionUri file changes', async () => {
+        const template = join(tempDir, 'template.yaml');
+        const definition = join(tempDir, 'statemachine', 'order.asl.json');
+        const output = join(tempDir, 'out.svg');
+        mkdirSync(join(tempDir, 'statemachine'));
+        writeFileSync(template, samTemplate('statemachine/order.asl.json'), 'utf-8');
+        writeFileSync(definition, passMachine('First'), 'utf-8');
+
+        const watching = run([template, '--watch', '-o', output]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('First');
+        expect(errors.join('')).toContain('watching 2 path(s)');
+
+        writeFileSync(definition, passMachine('Second'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Second'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('starts watching a DefinitionUri file the template switches to', async () => {
+        const template = join(tempDir, 'template.yaml');
+        const output = join(tempDir, 'out.svg');
+        writeFileSync(template, samTemplate('a.asl.json'), 'utf-8');
+        writeFileSync(join(tempDir, 'a.asl.json'), passMachine('Alpha'), 'utf-8');
+        writeFileSync(join(tempDir, 'b.asl.json'), passMachine('Beta'), 'utf-8');
+
+        const watching = run([template, '--watch', '-o', output]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('Alpha');
+
+        writeFileSync(template, samTemplate('b.asl.json'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Beta'));
+
+        writeFileSync(join(tempDir, 'b.asl.json'), passMachine('Gamma'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Gamma'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('re-renders a CDK template when its fromFile asset changes', async () => {
+        const cdkDir = join(tempDir, 'cdk');
+        cpSync(join(__dirname, 'fixtures', 'cfn', 'cdk-asset'), cdkDir, { recursive: true });
+        const asset = join(
+            cdkDir,
+            'asset.30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json',
+        );
+        const output = join(tempDir, 'out.mmd');
+
+        const watching = run([
+            join(cdkDir, 'RefundStack.template.json'),
+            '--watch',
+            '--format',
+            'mermaid',
+            '-o',
+            output,
+        ]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('LookupOrder');
+
+        writeFileSync(asset, passMachine('Edited'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Edited'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
     }, 20_000);
 
     it('writes one --check-format json line per pass, covering only re-linted inputs', async () => {

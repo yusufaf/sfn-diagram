@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,5 +59,44 @@ describe('createTemplateFileReader', () => {
         expect(() => readFile({ path: 'sm/x.asl.json/inner' })).toThrow(
             `${join(tempDir, 'a', 'sm', 'x.asl.json', 'inner')} does not exist`,
         );
+    });
+
+    describe('with onRead and a cache', () => {
+        const templatePath = () => join(tempDir, 'a', 'template.yaml');
+
+        it('reports each file it reads by absolute path', () => {
+            const onRead = vi.fn();
+            const reader = createTemplateFileReader({ onRead, templatePath: templatePath() });
+            reader({ path: 'sm/x.asl.json' });
+            expect(onRead).toHaveBeenCalledTimes(1);
+            expect(onRead).toHaveBeenCalledWith({ path: join(tempDir, 'a', 'sm', 'x.asl.json') });
+        });
+
+        it('does not report a read that failed', () => {
+            const onRead = vi.fn();
+            const reader = createTemplateFileReader({ onRead, templatePath: templatePath() });
+            expect(() => reader({ path: 'nope.json' })).toThrow('does not exist');
+            expect(onRead).not.toHaveBeenCalled();
+        });
+
+        it('returns a cached text without reading the file again', () => {
+            const onRead = vi.fn();
+            const reader = createTemplateFileReader({
+                cache: new Map(),
+                onRead,
+                templatePath: templatePath(),
+            });
+            expect(reader({ path: 'sm/x.asl.json' })).toBe('{"StartAt":"A"}');
+            rmSync(join(tempDir, 'a', 'sm', 'x.asl.json'));
+            expect(reader({ path: 'sm/x.asl.json' })).toBe('{"StartAt":"A"}');
+            expect(onRead).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not cache a failed read', () => {
+            const reader = createTemplateFileReader({ cache: new Map(), templatePath: templatePath() });
+            expect(() => reader({ path: 'later.json' })).toThrow('does not exist');
+            writeFileSync(join(tempDir, 'a', 'later.json'), '{"StartAt":"B"}');
+            expect(reader({ path: 'later.json' })).toBe('{"StartAt":"B"}');
+        });
     });
 });
