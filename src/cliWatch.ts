@@ -143,12 +143,24 @@ function statSyncIsDirectory(target: string): boolean {
     }
 }
 
+/** What {@link WatchPathsParams.onChange} receives for one burst. */
+export interface WatchChangeParams {
+    /**
+     * Watch more targets from now on, such as a file a render has just read. Each target
+     * is tried once: one already watched, or one that could not be watched, is skipped.
+     * Ignored once the signal has aborted.
+     */
+    addTargets: (params: { targets: string[] }) => void;
+    /** The de-duplicated paths that changed. */
+    paths: string[];
+}
+
 /** Parameters for {@link watchPaths}. */
 export interface WatchPathsParams {
     /** The quiet period, in milliseconds, before a burst is reported. */
     debounceMs: number;
     /** Called with the de-duplicated paths from one burst. Never called concurrently. */
-    onChange: (params: { paths: string[] }) => Promise<void>;
+    onChange: (params: WatchChangeParams) => Promise<void>;
     /**
      * Called when a target cannot be watched at all, instead of failing the run: a
      * path can vanish between being expanded and being watched, and losing the whole
@@ -233,14 +245,18 @@ export async function watchPaths(params: WatchPathsParams): Promise<void> {
         // every later burst skipped, and the final await rejecting out of watchPaths
         // so `--watch` exited non-zero instead of 0.
         running = running
-            .then(() => onChange({ paths }))
+            .then(() => onChange({ addTargets, paths }))
             .catch(() => {
                 // Reporting is the caller's business; here it only matters that a
                 // failed render does not end the watch.
             });
     };
 
-    for (const target of targets) {
+    /** Every target ever tried, so one added again (or one that failed) is not retried. */
+    const attempted = new Set<string>();
+    const watchTarget = (target: string): void => {
+        if (attempted.has(target)) return;
+        attempted.add(target);
         try {
             handles.push(
                 watch({
@@ -256,7 +272,15 @@ export async function watchPaths(params: WatchPathsParams): Promise<void> {
         } catch (error) {
             onWatchError?.({ error, target });
         }
-    }
+    };
+    const addTargets = (params: { targets: string[] }): void => {
+        // The handles are closed once the signal aborts, so a watch opened after that
+        // would never be closed.
+        if (signal.aborted) return;
+        for (const target of params.targets) watchTarget(target);
+    };
+
+    for (const target of targets) watchTarget(target);
 
     await new Promise<void>((done) => {
         if (signal.aborted) {

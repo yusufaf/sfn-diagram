@@ -146,7 +146,10 @@ describe('watchPaths', () => {
         controller.abort();
         await watching;
 
-        expect(onChange).toHaveBeenCalledWith({ paths: ['a.asl.json'] });
+        expect(onChange).toHaveBeenCalledWith({
+            addTargets: expect.any(Function),
+            paths: ['a.asl.json'],
+        });
     });
 
     it('collapses a burst of events into one call', async () => {
@@ -195,6 +198,7 @@ describe('watchPaths', () => {
         await watching;
 
         expect(onChange).toHaveBeenCalledWith({
+            addTargets: expect.any(Function),
             paths: ['machines/a.asl.json', 'machines/b.asl.json'],
         });
     });
@@ -219,6 +223,7 @@ describe('watchPaths', () => {
         await watching;
 
         expect(onChange).toHaveBeenCalledWith({
+            addTargets: expect.any(Function),
             paths: ['machines/a.asl.json'],
         });
     });
@@ -447,5 +452,114 @@ describe('watchPaths', () => {
         });
 
         expect(problems).toEqual(['gone.asl.json']);
+    });
+
+    describe('addTargets', () => {
+        it('watches a target added from onChange', async () => {
+            const watcher = fakeWatcher();
+            const controller = new AbortController();
+            const seen: string[][] = [];
+
+            const watching = watchPaths({
+                ...immediateDebounce,
+                onChange: async ({ addTargets, paths }) => {
+                    seen.push(paths);
+                    addTargets({ targets: ['b.json'] });
+                },
+                signal: controller.signal,
+                targets: ['a.json'],
+                watch: watcher.watch,
+            });
+
+            watcher.fire('a.json', 'a.json');
+            await settle();
+            expect(watcher.watched).toEqual(['a.json', 'b.json']);
+            watcher.fire('b.json', 'b.json');
+            await settle();
+            controller.abort();
+            await watching;
+
+            expect(seen).toEqual([['a.json'], ['b.json']]);
+        });
+
+        it('does not watch an added target twice', async () => {
+            const watcher = fakeWatcher();
+            const controller = new AbortController();
+
+            const watching = watchPaths({
+                ...immediateDebounce,
+                onChange: async ({ addTargets }) => {
+                    addTargets({ targets: ['a.json', 'b.json', 'b.json'] });
+                },
+                signal: controller.signal,
+                targets: ['a.json'],
+                watch: watcher.watch,
+            });
+
+            watcher.fire('a.json', 'a.json');
+            await settle();
+            watcher.fire('a.json', 'a.json');
+            await settle();
+            controller.abort();
+            await watching;
+
+            expect(watcher.watched).toEqual(['a.json', 'b.json']);
+        });
+
+        it('does not retry a target that could not be watched', async () => {
+            const watcher = fakeWatcher();
+            const controller = new AbortController();
+            const problems: string[] = [];
+
+            const watching = watchPaths({
+                ...immediateDebounce,
+                onChange: async ({ addTargets }) => {
+                    addTargets({ targets: ['bad.json'] });
+                },
+                onWatchError: ({ target }) => problems.push(target),
+                signal: controller.signal,
+                targets: ['a.json', 'bad.json'],
+                watch: (params) => {
+                    if (params.target === 'bad.json') throw new Error('ENOENT');
+                    return watcher.watch(params);
+                },
+            });
+
+            watcher.fire('a.json', 'a.json');
+            await settle();
+            controller.abort();
+            await watching;
+
+            expect(problems).toEqual(['bad.json']);
+        });
+
+        it('ignores targets added after the signal aborted', async () => {
+            const watcher = fakeWatcher();
+            const controller = new AbortController();
+            let release: () => void = () => {};
+            const gate = new Promise<void>((done) => {
+                release = done;
+            });
+
+            const watching = watchPaths({
+                ...immediateDebounce,
+                onChange: async ({ addTargets }) => {
+                    await gate;
+                    addTargets({ targets: ['late.json'] });
+                },
+                signal: controller.signal,
+                targets: ['a.json'],
+                watch: watcher.watch,
+            });
+
+            watcher.fire('a.json', 'a.json');
+            await settle();
+            controller.abort();
+            release();
+            await watching;
+
+            expect(watcher.watched).toEqual(['a.json']);
+            expect(watcher.closed).toEqual(['a.json']);
+        });
     });
 });
