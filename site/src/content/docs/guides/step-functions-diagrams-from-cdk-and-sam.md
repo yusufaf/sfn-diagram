@@ -144,9 +144,8 @@ This also works for a Stage template in an `assembly-*` subfolder, for each side
 `--diff` (copy all of `cdk.out/`, as in [See what a change does to the
 graph](#see-what-a-change-does-to-the-graph)), and for a template passed to the
 [MCP server](/guides/mcp/) by `path`. For a live preview while you edit, watch the ASL file
-itself (`sfn-diagram refund.asl.json --watch`). `--watch` on the template sees only the
-template, not the `.assets.json` that `cdk synth` writes after it, so run the command again
-after `cdk synth` instead.
+itself (`sfn-diagram refund.asl.json --watch`), or watch the template: `--watch` on it also
+watches `.assets.json` and the asset, so the diagram redraws after `cdk synth`.
 
 These cases stop with `… cannot be read from the template alone`. Render the ASL file
 directly instead:
@@ -279,9 +278,8 @@ directory you run it from. It fills in `DefinitionSubstitutions` the way CloudFo
 does, so a `${ChargeFunctionArn}` placeholder in the file becomes `<ChargeFunction.Arn>`.
 The file can be JSON or YAML. If it's missing, the error names the full path that was
 tried. The same works for each side of a `--diff` and for a template passed to the
-[MCP server](/guides/mcp/) by `path`. `--watch` re-renders when the template changes but
-doesn't yet notice edits to the `DefinitionUri` file, so save the template too, or watch
-the ASL file directly.
+[MCP server](/guides/mcp/) by `path`. `--watch` on the template also watches the
+`DefinitionUri` file, so saving either one redraws the diagram.
 
 Some cases still can't be read and stop with `… cannot be read from the template alone`:
 

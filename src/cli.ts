@@ -288,9 +288,10 @@ Options:
                                    in each stack
   --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
-                                   directory, so new files count), the config file and
-                                   any --theme, --diff or --execution file. Always
-                                   exits 0: a development loop, not a CI gate.
+                                   directory, so new files count), the config file,
+                                   any --theme, --diff or --execution file, and any
+                                   DefinitionUri file or CDK asset a template reads.
+                                   Always exits 0: a development loop, not a CI gate.
   --check                          Lint the definition instead of drawing it: print every
                                    diagnostic and exit 1 if any is an error
   --check-format <text|json>       With --check: json prints one JSON document to
@@ -320,16 +321,19 @@ Notes:
   progress - use --watch to re-render when one changes. Each tick
   re-fetches the whole history and rewrites the one output file atomically, so a
   reader never sees a partial document and Ctrl-C leaves the last complete render in
-  place. A browser showing the HTML needs a manual reload; there is no live push.
+  place. The definition, including a DefinitionUri file or CDK asset, is read once
+  for the whole follow. A browser showing the HTML needs a manual reload; there is
+  no live push.
 
   --watch needs file inputs: there is nothing to watch about stdin, --from-aws or an
   execution ARN, and it cannot be combined with --follow since both re-render on
-  their own schedule. A change to an input re-renders that input; a change to the
-  config, a --theme file, a --diff baseline or an --execution history re-resolves and
-  re-renders everything, since those feed every output. A deleted file is not an
-  error, and a render that fails leaves the watch running - the file you are editing
-  is briefly invalid every time you save. --watch --check re-lints on change and still
-  exits 0.
+  their own schedule. A change to an input re-renders that input, and so does a
+  change to a file its template reads (a SAM DefinitionUri, a CDK .assets.json or
+  asset); a change to the config, a --theme file, a --diff baseline or an --execution
+  history re-resolves and re-renders everything, since those feed every output. A
+  deleted file is not an error, and a render that fails leaves the watch running -
+  the file you are editing is briefly invalid every time you save. --watch --check
+  re-lints on change and still exits 0.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
