@@ -95,7 +95,9 @@ diagrams/Prod.OrdersStack.OrderWorkflow.svg
 
 The construct path comes from the `aws:cdk:path` metadata the CDK CLI writes by default.
 If path metadata is turned off, the name is the stack's path plus the logical ID instead,
-such as `Prod.OrdersStack.OrderWorkflow0015CDD9.svg`.
+such as `Prod.OrdersStack.OrderWorkflow0015CDD9.svg`. Characters Windows refuses in a
+filename become `_`, and a name whose first part, before the first `.`, is a device name
+Windows reserves (`CON`, `NUL`, `COM1`, ...) gets a leading `_`.
 
 `--resource` filters the machines across all stacks:
 

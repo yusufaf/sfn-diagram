@@ -343,6 +343,9 @@ $ echo $?
 2
 ```
 
+Names that differ only in case, such as `Order.svg` and `order.svg`, are refused too, on
+every platform, because Windows and macOS treat them as one file.
+
 ### Mirroring the input layout
 
 `--preserve-tree` keeps each input's directory under `--out-dir`, so inputs that share a
