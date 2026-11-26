@@ -4,10 +4,8 @@ import type { ReadFileParams } from './types';
 
 /** Parameters for {@link readBesideTemplate}. */
 interface ReadBesideTemplateParams {
-    /** The directory the template was read from. */
-    directory: string;
-    /** The path as the template writes it. */
-    path: string;
+    /** The file's absolute path, resolved against the template's directory. */
+    absolutePath: string;
 }
 
 /**
@@ -28,7 +26,7 @@ const MAX_DEFINITION_FILE_BYTES = 10 * 1024 * 1024;
  * platform has the flag: opening a FIFO for reading would otherwise wait for a writer.
  */
 function readBesideTemplate(params: ReadBesideTemplateParams): string {
-    const absolutePath = resolve(params.directory, params.path);
+    const { absolutePath } = params;
     let descriptor: number | undefined;
     try {
         descriptor = openSync(absolutePath, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
@@ -65,6 +63,16 @@ function readBesideTemplate(params: ReadBesideTemplateParams): string {
 
 /** Parameters for {@link createTemplateFileReader}. */
 export interface CreateTemplateFileReaderParams {
+    /**
+     * Texts already read, by absolute path. A hit is returned without touching the disk, and
+     * each successful read is stored. Omit to read every time.
+     */
+    cache?: Map<string, string>;
+    /**
+     * Called with the absolute path after each successful read from disk; not on a cache
+     * hit or a failed read.
+     */
+    onRead?: (params: { path: string }) => void;
     /** The template file, absolute or relative to the working directory. */
     templatePath: string;
 }
@@ -75,19 +83,37 @@ export interface CreateTemplateFileReaderParams {
  * not the working directory. Front ends hand it over on a `RenderDefinitionInput` for a
  * template that came from a file, and pass `null` for stdin, `serve` and inline text.
  *
- * @param params - The template file the paths are relative to.
+ * `--watch` passes `onRead` to learn which files to watch; `--follow` passes a `cache` shared
+ * by every tick, so the definition is read once for the whole follow.
+ *
+ * @param params - The template file the paths are relative to, and an optional cache and
+ * read callback.
  * @returns The reader. It throws `<absolute path> does not exist`, `<absolute path> is not
  * a file` or `cannot read <absolute path>: <reason>`.
  *
  * @example
  * ```typescript
- * const readFile = createTemplateFileReader({ templatePath: 'template.yaml' });
+ * const readFile = createTemplateFileReader({
+ *     onRead: ({ path }) => console.log(`read ${path}`),
+ *     templatePath: 'template.yaml',
+ * });
  * readFile({ path: 'statemachine/order.asl.json' }); // reads ./statemachine/order.asl.json
  * ```
  */
 export function createTemplateFileReader(
     params: CreateTemplateFileReaderParams,
 ): (params: ReadFileParams) => string {
-    const directory = dirname(resolve(params.templatePath));
-    return ({ path }) => readBesideTemplate({ directory, path });
+    const { cache, onRead, templatePath } = params;
+    const directory = dirname(resolve(templatePath));
+    return ({ path }) => {
+        const absolutePath = resolve(directory, path);
+        const cached = cache?.get(absolutePath);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const text = readBesideTemplate({ absolutePath });
+        cache?.set(absolutePath, text);
+        onRead?.({ path: absolutePath });
+        return text;
+    };
 }
