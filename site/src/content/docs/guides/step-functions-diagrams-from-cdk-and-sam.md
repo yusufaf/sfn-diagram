@@ -147,14 +147,17 @@ graph](#see-what-a-change-does-to-the-graph)), and for a template passed to the
 itself (`sfn-diagram refund.asl.json --watch`), or watch the template: `--watch` on it also
 watches `.assets.json` and the asset, so the diagram redraws after `cdk synth`.
 
+A nested stack's `*.nested.template.json` works too, on its own or when you render all of
+`cdk.out`. It has no `.assets.json` of its own: its assets are listed in the top-level
+stack's, which the CLI finds through the cloud assembly's `manifest.json` beside the
+template. `--watch` on a nested template also watches `manifest.json`.
+
 These cases stop with `… cannot be read from the template alone`. Render the ASL file
 directly instead:
 
 - a template piped in on stdin, or sent to `serve` or to MCP as `source`
-- a template copied away from its `.assets.json`
-- a nested stack's `*.nested.template.json`, whose assets are listed in its parent's
-  manifest. This includes rendering all of `cdk.out`: that machine fails, and the rest still
-  render
+- a template copied away from its `.assets.json`, or a nested stack template copied away
+  from its `manifest.json`
 - a template from `Template.fromStack()` in a [CDK test](#render-from-a-cdk-test), which has
   no `readFile` or `templateFileName`
 
@@ -397,5 +400,6 @@ own they still exit 0. See [Linting](/guides/cli/#linting) for the full rule lis
 | `… loads its definition from DefinitionUri (…), which could not be read: … does not exist` | The `DefinitionUri` path, taken relative to the template, points at no file | Fix the path in the template, or move the template back beside its `statemachine/` folder |
 | `DefinitionUri file '…' … is not valid JSON` (or YAML) | The definition file has a syntax error. The message never quotes the file | Render the file directly to see the parser's message |
 | `… loads its definition from DefinitionUri …, which cannot be read from the template alone` | The definition is in S3, or the template came from stdin, `serve` or MCP `source` | Download and render the file directly, or pass the template as a file |
-| `… DefinitionS3Location, which cannot be read from the template alone. The CDK asset manifest …` or `… Its CDK asset '…' could not be read: …` | The template was copied away from `cdk.out/`, or `cdk.out/` is stale | Render the template inside a fresh `cdk synth` output, or render the ASL file directly |
+| `… DefinitionS3Location, which cannot be read from the template alone. The CDK asset manifest …`, `… The cloud assembly manifest beside the nested stack template …`, `… is not a CDK cloud assembly manifest` or `… Its CDK asset '…' could not be read: …` | The template was copied away from `cdk.out/` (for a nested stack template, away from its `manifest.json`), or `cdk.out/` is stale | Render the template inside a fresh `cdk synth` output, or render the ASL file directly |
+| `… No stack in 'manifest.json' lists the nested stack template '…' in its asset manifest` | `cdk.out/` is stale or was partly copied, or the nested template was renamed | Run `cdk synth` again and render inside its output |
 | `CDK asset '…' … is not valid JSON` (or YAML, or not an ASL definition) | The staged definition file has a syntax error. The message never quotes the file | Render the source ASL file to see the parser's message |
