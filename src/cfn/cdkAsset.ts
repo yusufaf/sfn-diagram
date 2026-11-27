@@ -35,6 +35,27 @@ export function assetManifestName(params: AssetManifestNameParams): string | und
     return `${name.slice(0, -TEMPLATE_SUFFIX.length)}.assets.json`;
 }
 
+/** Parameters for {@link nestedStackTemplateName}. */
+export interface NestedStackTemplateNameParams {
+    /** The template's file name or path. */
+    templateFileName: string;
+}
+
+/**
+ * Tells whether a template is a nested stack template `cdk synth` wrote, and names it.
+ *
+ * @param params - The template's file name or path.
+ * @returns The file name, such as `ParentChild8B49BB45.nested.template.json`, without its
+ * directory, or `undefined` for any name that does not end in `.nested.template.json`.
+ * @example
+ * nestedStackTemplateName({ templateFileName: 'cdk.out/ParentChild8B49BB45.nested.template.json' });
+ * // 'ParentChild8B49BB45.nested.template.json'
+ */
+export function nestedStackTemplateName(params: NestedStackTemplateNameParams): string | undefined {
+    const name = params.templateFileName.split(/[\\/]/).pop() ?? '';
+    return name.endsWith(NESTED_SUFFIX) && name.length > NESTED_SUFFIX.length ? name : undefined;
+}
+
 /** Parameters for {@link isCdkAssetKey}. */
 export interface IsCdkAssetKeyParams {
     /** The template's `DefinitionS3Location.Key`. */

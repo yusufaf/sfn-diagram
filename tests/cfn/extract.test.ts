@@ -881,7 +881,7 @@ describe('CDK DefinitionS3Location assets read through readFile', () => {
         );
     });
 
-    it.each([undefined, 'template.json', 'Parent.nested.template.json'])(
+    it.each([undefined, 'template.json', '.nested.template.json'])(
         'keeps the plain diagnostic when the template name is not a CDK stack template: %s',
         (templateFileName) => {
             const readFile = reader({ 'Stack.assets.json': MANIFEST, [ASSET]: ASL });
@@ -946,6 +946,158 @@ describe('CDK DefinitionS3Location assets read through readFile', () => {
         expect(aslDefinition.States.IssueRefund.Resource).toBe(
             'arn:aws:lambda:us-east-1:111122223333:function:Refund',
         );
+    });
+
+    describe('in a nested stack template', () => {
+        const NESTED = 'ParentChild8B49BB45.nested.template.json';
+        const assembly = (templateFiles: string[]): string =>
+            JSON.stringify({
+                artifacts: Object.fromEntries(
+                    templateFiles.map((templateFile, index) => [
+                        `Stack${index}`,
+                        { properties: { templateFile }, type: 'aws:cloudformation:stack' },
+                    ]),
+                ),
+            });
+        const ASSEMBLY = assembly(['Other.template.json', 'Parent.template.json']);
+        const parentManifest = ({
+            key = KEY,
+            nested = NESTED,
+            path = ASSET,
+        }: { key?: string; nested?: string; path?: string } = {}): string => {
+            const parsed = JSON.parse(manifest({ key, path })) as { files: Record<string, unknown> };
+            parsed.files.nested = {
+                destinations: { current: { bucketName: 'b', objectKey: 'nested.json' } },
+                source: { packaging: 'file', path: nested },
+            };
+            return JSON.stringify(parsed);
+        };
+        const extractNested = (
+            readFile: (params: ReadFileParams) => string,
+            templateFileName = `cdk.out/${NESTED}`,
+        ): ReturnType<typeof extractAslFromTemplate> =>
+            extractAslFromTemplate({ readFile, template: cdkTemplate(s3Location()), templateFileName });
+
+        it("reads a nested stack's asset through the parent stack's asset manifest", () => {
+            const readFile = reader({
+                'Other.assets.json': manifest({ key: 'other.json' }),
+                'Parent.assets.json': parentManifest(),
+                [ASSET]: ASL,
+                'manifest.json': ASSEMBLY,
+            });
+            expect(extractNested(readFile).aslDefinition.StartAt).toBe('A');
+            expect(readFile.mock.calls).toEqual([
+                [{ path: 'manifest.json' }],
+                [{ path: 'Other.assets.json' }],
+                [{ path: 'Parent.assets.json' }],
+                [{ path: ASSET }],
+            ]);
+        });
+
+        it("reads a Stage nested stack's asset staged in the parent assembly", () => {
+            const readFile = reader({
+                'Parent.assets.json': parentManifest({ path: `..\\${ASSET}` }),
+                [`../${ASSET}`]: ASL,
+                'manifest.json': assembly(['Parent.template.json']),
+            });
+            expect(extractNested(readFile).aslDefinition.StartAt).toBe('A');
+            expect(readFile.mock.calls.at(-1)).toEqual([{ path: `../${ASSET}` }]);
+        });
+
+        it.each([
+            ['missing', {}],
+            ['not JSON', { 'Other.assets.json': 'not json' }],
+        ])('skips a stack whose asset manifest is %s', (_label, other: Record<string, string>) => {
+            const readFile = reader({
+                ...other,
+                'Parent.assets.json': parentManifest(),
+                [ASSET]: ASL,
+                'manifest.json': ASSEMBLY,
+            });
+            expect(extractNested(readFile).aslDefinition.StartAt).toBe('A');
+        });
+
+        it('skips a stack whose template is not beside the manifest', () => {
+            const readFile = reader({
+                'Parent.assets.json': parentManifest(),
+                [ASSET]: ASL,
+                'manifest.json': assembly([
+                    '\\\\host\\s\\X.template.json',
+                    'sub/Y.template.json',
+                    'Parent.template.json',
+                ]),
+            });
+            expect(extractNested(readFile).aslDefinition.StartAt).toBe('A');
+            const paths = readFile.mock.calls.map(([{ path }]) => path);
+            expect(paths.some((path) => /host|X\.assets|Y\.assets/.test(path))).toBe(false);
+        });
+
+        it("adds the cloud assembly manifest's read error to the diagnostic", () => {
+            expect(thrownMessage(() => extractNested(reader({})))).toBe(
+                `${DIAGNOSTIC} The cloud assembly manifest beside the nested stack template could not be read: ` +
+                    'manifest.json does not exist.',
+            );
+        });
+
+        it('reports a manifest.json that is not a cloud assembly manifest', () => {
+            expect(thrownMessage(() => extractNested(reader({ 'manifest.json': '{}' })))).toBe(
+                `${DIAGNOSTIC} 'manifest.json' beside the nested stack template is not a CDK cloud assembly manifest.`,
+            );
+        });
+
+        it('reports a nested template no stack lists', () => {
+            const owner = `${DIAGNOSTIC} No stack in 'manifest.json' lists the nested stack template '${NESTED}' in its asset manifest.`;
+            const others = { 'Parent.assets.json': manifest(), 'manifest.json': ASSEMBLY };
+            expect(
+                thrownMessage(() => extractNested(reader({ ...others, 'Other.assets.json': manifest() }))),
+            ).toBe(owner);
+            expect(thrownMessage(() => extractNested(reader(others)))).toBe(
+                `${owner} These asset manifests could not be read: 'Other.assets.json' (Other.assets.json does not exist).`,
+            );
+        });
+
+        it('names the parent manifest when it lacks the object key', () => {
+            const readFile = reader({
+                'Parent.assets.json': parentManifest({ key: 'other.json' }),
+                'manifest.json': ASSEMBLY,
+            });
+            expect(thrownMessage(() => extractNested(readFile))).toBe(
+                `${DIAGNOSTIC} The CDK asset manifest 'Parent.assets.json' has no file asset with object key '${KEY}'.`,
+            );
+        });
+
+        it('keeps the plain diagnostic for a nested template with no readFile or a non-CDK key', () => {
+            const readFile = reader({ 'manifest.json': ASSEMBLY });
+            expect(
+                thrownMessage(() =>
+                    extractAslFromTemplate({
+                        readFile,
+                        template: cdkTemplate(s3Location('templates/workflow.asl.json')),
+                        templateFileName: NESTED,
+                    }),
+                ),
+            ).toBe(DIAGNOSTIC);
+            expect(readFile).not.toHaveBeenCalled();
+            expect(
+                thrownMessage(() =>
+                    extractAslFromTemplate({ template: cdkTemplate(s3Location()), templateFileName: NESTED }),
+                ),
+            ).toBe(DIAGNOSTIC);
+        });
+
+        it.each([
+            [[NESTED], 'ChildPass'],
+            [['ParentChildDeeper619894AE.nested.template.json'], 'DeeperPass'],
+            [['assembly-Prod', 'ProdParentChild9CEB70C2.nested.template.json'], 'ChildPass'],
+        ])('reads a synthesized nested stack from cdk.out: %s', (segments, startAt) => {
+            const templatePath = join(currentDir, '..', 'fixtures', 'cfn', 'cdk-nested-asset', ...segments);
+            const { aslDefinition } = extractAslFromTemplate({
+                readFile: ({ path }) => readFileSync(join(dirname(templatePath), path), 'utf-8'),
+                template: readFileSync(templatePath, 'utf-8'),
+                templateFileName: templatePath,
+            });
+            expect(aslDefinition.StartAt).toBe(startAt);
+        });
     });
 });
 

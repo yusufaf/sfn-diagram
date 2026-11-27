@@ -558,7 +558,7 @@ stopped watching
 | A glob | the pattern's **root directory**, recursively — so a file added later is picked up, not just the ones that matched at startup |
 | The [config file](#configuration-file) | the one that was actually loaded |
 | `--theme <path>`, `--diff <path>`, `--execution <path>` | each file, when it names a path rather than an ARN |
-| A template's `DefinitionUri` file, or a CDK template's `.assets.json` and `DefinitionBody.fromFile` asset | each file a render read, including one the template is later edited to point at |
+| A template's `DefinitionUri` file, or a CDK template's `manifest.json`, `.assets.json` and `DefinitionBody.fromFile` asset | each file a render read, including one the template is later edited to point at |
 
 ### What a change re-renders
 

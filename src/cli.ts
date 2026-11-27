@@ -328,12 +328,12 @@ Notes:
   --watch needs file inputs: there is nothing to watch about stdin, --from-aws or an
   execution ARN, and it cannot be combined with --follow since both re-render on
   their own schedule. A change to an input re-renders that input, and so does a
-  change to a file its template reads (a SAM DefinitionUri, a CDK .assets.json or
-  asset); a change to the config, a --theme file, a --diff baseline or an --execution
-  history re-resolves and re-renders everything, since those feed every output. A
-  deleted file is not an error, and a render that fails leaves the watch running -
-  the file you are editing is briefly invalid every time you save. --watch --check
-  re-lints on change and still exits 0.
+  change to a file its template reads (a SAM DefinitionUri, a CDK manifest.json,
+  .assets.json or asset); a change to the config, a --theme file, a --diff baseline
+  or an --execution history re-resolves and re-renders everything, since those feed
+  every output. A deleted file is not an error, and a render that fails leaves the
+  watch running - the file you are editing is briefly invalid every time you save.
+  --watch --check re-lints on change and still exits 0.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
@@ -2039,7 +2039,8 @@ interface RenderOneInputParams {
     historySource: string | null;
     /**
      * Called for each file a template reads from disk (a SAM `DefinitionUri`, a CDK
-     * `.assets.json` or asset), so `--watch` can watch it. `null` when nobody asks.
+     * `manifest.json`, `.assets.json` or asset), so `--watch` can watch it. `null` when
+     * nobody asks.
      */
     onTemplateFileRead: ((read: TemplateFileRead) => void) | null;
     /**
@@ -2672,9 +2673,10 @@ export interface InputsToRerenderParams {
  *
  * A config, `--theme`, `--diff` or `--execution` change, or a file the `--diff` baseline's
  * template read, invalidates the whole batch. A file an input's template read (a SAM
- * `DefinitionUri`, a CDK `.assets.json` or asset) re-renders that input. Anything else is
- * taken to be an input itself; a path that turns out not to be one falls back to a full
- * pass in {@link renderResolvedBatch}, which re-expands the globs and sorts it out.
+ * `DefinitionUri`, a CDK `manifest.json`, `.assets.json` or asset) re-renders that input.
+ * Anything else is taken to be an input itself; a path that turns out not to be one falls
+ * back to a full pass in {@link renderResolvedBatch}, which re-expands the globs and sorts
+ * it out.
  *
  * @param params - The command line, the config path, the changed paths and who read what.
  *
@@ -2743,7 +2745,8 @@ export interface CollectWatchTargetsParams {
     sources: CliInputSource[];
     /**
      * Absolute paths of the files templates pointed at (a SAM `DefinitionUri`, a CDK
-     * `.assets.json` or asset), as read so far. Omitted before the first render.
+     * `manifest.json`, `.assets.json` or asset), as read so far. Omitted before the first
+     * render.
      */
     templateFiles?: string[];
 }
