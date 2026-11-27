@@ -485,6 +485,40 @@ describe('lint tool', () => {
         expect(result.structuredContent.message).toContain('StateMachine');
     });
 
+    it('reads a DefinitionUri beside a template given by path', async () => {
+        const result = await lint({
+            path: join(fixtures, 'cfn', 'sam-definition-uri.yaml'),
+            resolveCfn: true,
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.kind).toBe('lint');
+    });
+
+    it('reads a CDK asset beside a template given by path', async () => {
+        const result = await lint({
+            path: join(fixtures, 'cfn', 'cdk-asset', 'RefundStack.template.json'),
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.kind).toBe('lint');
+    });
+
+    it("reads a nested stack's CDK asset through the parent's asset manifest given by path", async () => {
+        const result = await lint({
+            path: join(fixtures, 'cfn', 'cdk-nested-asset', 'ParentChild8B49BB45.nested.template.json'),
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.kind).toBe('lint');
+    });
+
+    it('keeps the DefinitionUri diagnostic for a template sent as source', async () => {
+        const result = await lint({
+            resolveCfn: true,
+            source: readFileSync(join(fixtures, 'cfn', 'sam-definition-uri.yaml'), 'utf-8'),
+        });
+        expect(result.structuredContent.kind).toBe('error');
+        expect(result.structuredContent.message).toMatch(/cannot be read from the template alone/);
+    });
+
     it('reports an unreadable path as kind error naming the path', async () => {
         const result = await lint({ path: 'missing.asl.json' });
         expect(result.isError).toBe(true);

@@ -1,0 +1,8 @@
+{
+  "Comment": "Order workflow loaded through the SAM template's DefinitionUri",
+  "StartAt": "Validate",
+  "States": {
+    "Validate": { "Type": "Pass", "Next": "Charge" },
+    "Charge": { "Type": "Task", "Resource": "${ChargeFunctionArn}", "End": true }
+  }
+}

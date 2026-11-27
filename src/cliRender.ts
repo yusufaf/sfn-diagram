@@ -1,5 +1,5 @@
 import { extractAslFromTemplate } from './cfn';
-import { STATE_MACHINE_TYPES } from './cfn/extract';
+import { isStateMachineTemplate } from './cfn/extract';
 import type { ResolvedCliOptions } from './cliOptions';
 import { buildCliRedact } from './cliRedact';
 import { generateDiff, generateMermaidDiff } from './diff';
@@ -17,6 +17,7 @@ import type {
     DiffStateSummary,
     ExecutionSummary,
     LintDiagnostic,
+    ReadFileParams,
 } from './types';
 
 /**
@@ -32,13 +33,23 @@ export const OVERLAY_FORMATS: readonly DiagramFormat[] = [
 /** One definition's raw text and how to read it. */
 export interface RenderDefinitionInput {
     /**
-     * The file name the text came from, or `null` for stdin and live sources. Only its
-     * extension is read (`.tf` / `.tf.json` mean Terraform); nothing is opened.
+     * The file name the text came from, or `null` for stdin and live sources. Only the name
+     * is read (`.tf` / `.tf.json` mean Terraform; a CDK `<stack>.template.json` names the
+     * asset manifest `readFile` is asked for); nothing is opened here.
      */
     path: string | null;
     /**
+     * Reads a file a template points at, relative to the template: a local SAM
+     * `DefinitionUri`, or a CDK asset manifest and asset (see `createTemplateFileReader` in
+     * `src/cliTemplateFiles.ts`). `null` for
+     * stdin, `serve`, inline MCP `source` and live sources: the `DefinitionUri` is then
+     * reported instead of read. It is the caller's I/O; this module never opens a file.
+     */
+    readFile: ((params: ReadFileParams) => string) | null;
+    /**
      * Read the text as a CloudFormation/SAM/CDK template even when auto-detection would
-     * not, which is what a YAML template needs.
+     * not (a template with no state machine resource, or YAML that does not parse), so its
+     * error names the template.
      */
     resolveCfn: boolean;
     /** The resource to extract when the template or configuration declares several. */
@@ -122,27 +133,6 @@ interface RenderResolvedParams {
     options: ResolvedCliOptions;
 }
 
-function isCfnTemplate(source: string): boolean {
-    try {
-        const parsed = JSON.parse(source) as {
-            Resources?: Record<string, unknown>;
-        };
-        const resources = parsed?.Resources;
-        return (
-            !!resources &&
-            Object.values(resources).some((resource) =>
-                STATE_MACHINE_TYPES.includes(
-                    (resource as { Type?: string })?.Type ?? '',
-                ),
-            )
-        );
-    } catch {
-        // Non-JSON (e.g. YAML template or raw ASL) — auto-detect stays a no-op;
-        // users pass --resolve-cfn for YAML templates.
-        return false;
-    }
-}
-
 interface IsTerraformInputParams {
     /** The input file's path, or null for stdin and live sources. */
     path: string | null;
@@ -169,12 +159,13 @@ function isTerraformInput(params: IsTerraformInputParams): boolean {
  * Turn a raw file body into something the generators accept: a Terraform configuration or a
  * CloudFormation/SAM/CDK template is unwrapped to its ASL definition, anything else is passed
  * through as-is. Terraform is checked first, so `resolveCfn` on a `.tf` file still reads it
- * as Terraform.
+ * as Terraform. A template's local SAM `DefinitionUri` or CDK `DefinitionS3Location` asset
+ * is read through the input's `readFile` when it has one.
  *
  * @throws When a template or configuration has no usable state machine.
  */
 function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
-    const { path, resolveCfn, resource, source } = input;
+    const { path, readFile, resolveCfn, resource, source } = input;
     if (isTerraformInput({ path, source })) {
         const { aslDefinition, warnings } = extractAslFromTerraform({
             config: source,
@@ -182,12 +173,14 @@ function resolveDefinition(input: RenderDefinitionInput): ResolvedDefinition {
         });
         return { definition: aslDefinition, warnings };
     }
-    if (!resolveCfn && !isCfnTemplate(source)) {
+    if (!resolveCfn && !isStateMachineTemplate({ source })) {
         return { definition: source, warnings: [] };
     }
     const { aslDefinition, warnings } = extractAslFromTemplate({
+        ...(readFile === null ? {} : { readFile }),
         resourceId: resource ?? undefined,
         template: source,
+        templateFileName: path ?? undefined,
     });
     return { definition: aslDefinition, warnings };
 }
@@ -412,7 +405,8 @@ async function renderResolved(
  * sits below it: `format: 'png'` goes through `renderPng` (the implementation behind
  * `sfn-diagram/png`'s `exportPng`), which may read the
  * `SFN_DIAGRAM_PNG_*` font environment variables and probe system font files
- * (`src/exporters/pngFonts.ts`).
+ * (`src/exporters/pngFonts.ts`). An input's `readFile`, called for a template's
+ * `DefinitionUri` or CDK asset, is the caller's own I/O.
  *
  * @param params - The request (see {@link HandleRenderRequestParams}).
  *

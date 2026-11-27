@@ -1,0 +1,1 @@
+{"StartAt":"ChildPass","States":{"ChildPass":{"Type":"Pass","End":true}}}

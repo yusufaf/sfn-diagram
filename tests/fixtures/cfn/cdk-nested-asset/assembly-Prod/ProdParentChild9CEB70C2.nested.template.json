@@ -1,0 +1,78 @@
+{
+ "Resources": {
+  "ChildWorkflowRole53160AFC": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Condition": {
+        "ArnLike": {
+         "aws:SourceArn": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:",
+            {
+             "Ref": "AWS::Partition"
+            },
+            ":states:",
+            {
+             "Ref": "AWS::Region"
+            },
+            ":",
+            {
+             "Ref": "AWS::AccountId"
+            },
+            ":stateMachine:*"
+           ]
+          ]
+         }
+        },
+        "StringEquals": {
+         "aws:SourceAccount": {
+          "Ref": "AWS::AccountId"
+         }
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "states.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "Prod/Parent/Child/ChildWorkflow/Role/Resource"
+   }
+  },
+  "ChildWorkflowEDE90DEF": {
+   "Type": "AWS::StepFunctions::StateMachine",
+   "Properties": {
+    "DefinitionS3Location": {
+     "Bucket": {
+      "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+     },
+     "Key": "e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156.json"
+    },
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "ChildWorkflowRole53160AFC",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "ChildWorkflowRole53160AFC"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "Prod/Parent/Child/ChildWorkflow/Resource"
+   }
+  }
+ }
+}

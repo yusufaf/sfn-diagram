@@ -159,11 +159,30 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * MD5, and `sfn-diagram/cfn` can't use `node:crypto`, so an in-house RFC 1321 one ships with
  * the matcher. The entry keeps its JSDoc, which is most of the growth: cfn.js went from 13,818
  * to 23,914 raw and from 4,768 to 8,552 gzip.
+ *
+ * `cfn.js` was restated again, to about 10% above its measurement, when
+ * `extractAslFromTemplate` gained a `readFile` callback for SAM `DefinitionUri` files (#421).
+ * Reading a file the template's author picked brought a structure check that runs before
+ * substitution, parse errors that never quote the file, and a network-path refusal. That took
+ * cfn.js from 23,914 to 27,880 raw and from 8,552 to 9,621 gzip.
+ *
+ * `cfn.js` was restated a third time, to about 10% above its measurement, when the same
+ * `readFile` callback learned to read a CDK `DefinitionBody.fromFile` asset through the
+ * `<stack>.assets.json` beside the template (#512): the manifest lookup, its error wording, and
+ * the asset's own path checks. That took cfn.js from 27,880 to 32,524 raw and from 9,621 to
+ * 10,772 gzip; about 1.7 KB raw of the growth is JSDoc.
+ *
+ * `cfn.js` was restated a fourth time, to about 10% above its measurement, when a nested stack
+ * template's asset began to be found through the cloud assembly `manifest.json` beside it
+ * (#690). That brought in the manifest reader the `cdk.out` directory input already used, the
+ * search for the stack whose asset manifest lists the nested template, and three new error
+ * messages, all with their JSDoc. That took cfn.js from 33,307 to 39,966 raw and from 10,942 to
+ * 12,390 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 282000, raw: 935000 },
-    'cfn.js': { gzip: 9400, raw: 26300 },
+    'cfn.js': { gzip: 13650, raw: 44000 },
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 143000, raw: 492000 },
     'element.js': { gzip: 143000, raw: 491500 },

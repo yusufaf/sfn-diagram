@@ -1,5 +1,20 @@
-import type { AslDefinition, ExtractAslFromTemplateParams, ExtractAslResult } from '../types';
+import { parse as parseYaml, YAMLParseError } from 'yaml';
+import type {
+    AslDefinition,
+    ExtractAslFromTemplateParams,
+    ExtractAslResult,
+    ReadFileParams,
+} from '../types';
 import { parseAslSource } from '../AslParser';
+import { stripBom } from '../utils/bom';
+import {
+    assetManifestName,
+    findCdkAssetPath,
+    findNestedStackTemplates,
+    isCdkAssetKey,
+    nestedStackTemplateName,
+} from './cdkAsset';
+import { readCloudAssemblyManifest } from './cdkAssembly';
 import {
     formatMachineLabel,
     matchStateMachine,
@@ -7,7 +22,7 @@ import {
     type StateMachineCandidate,
 } from './cdkPath';
 import { applySubstitutions, resolveIntrinsics, resolveSubstitutions } from './intrinsics';
-import { parseTemplate } from './templateParser';
+import { looksLikeJson, parseTemplate } from './templateParser';
 
 /** Resource types that declare a Step Functions state machine: CloudFormation's own and SAM's. */
 export const STATE_MACHINE_TYPES: readonly string[] = [
@@ -35,6 +50,336 @@ function findStateMachines(resources: Record<string, CfnResource>): StateMachine
         });
 }
 
+/** Parameters for {@link listStateMachines}. */
+export interface ListStateMachinesParams {
+    /** A JSON CloudFormation template's text. */
+    template: string;
+}
+
+/**
+ * Lists a JSON template's state machine resources, as `--resource` matching sees them.
+ *
+ * @param params - The template's text.
+ * @returns Each state machine's logical ID and `aws:cdk:path`, in template order; `[]` when the
+ * template has no `Resources` object.
+ * @throws What `JSON.parse` throws when the text is not JSON.
+ */
+export function listStateMachines(params: ListStateMachinesParams): StateMachineCandidate[] {
+    const parsed: unknown = parseTemplate({ format: 'json', template: params.template });
+    if (typeof parsed !== 'object' || parsed === null) {
+        return [];
+    }
+    const resources = (parsed as Record<string, unknown>).Resources;
+    if (typeof resources !== 'object' || resources === null || Array.isArray(resources)) {
+        return [];
+    }
+    return findStateMachines(resources as Record<string, CfnResource>);
+}
+
+/** Parameters for {@link isStateMachineTemplate}. */
+export interface IsStateMachineTemplateParams {
+    /** The input's raw text: JSON or YAML. */
+    source: string;
+}
+
+/**
+ * Whether text is a CloudFormation/SAM/CDK template that declares a state machine: a JSON or
+ * YAML document whose top-level `Resources` map holds a resource of a type in
+ * {@link STATE_MACHINE_TYPES}. Raw ASL has no top-level `Resources`, so it never matches.
+ *
+ * @param params - The input's text.
+ * @returns `false` for text that does not parse; YAML warnings are not printed.
+ *
+ * @example
+ * ```typescript
+ * isStateMachineTemplate({ source: readFileSync('template.yaml', 'utf-8') });
+ * ```
+ */
+export function isStateMachineTemplate(params: IsStateMachineTemplateParams): boolean {
+    let parsed: unknown;
+    try {
+        parsed = parseTemplate({ quiet: true, template: params.source });
+    } catch {
+        return false;
+    }
+    return (
+        isPlainObject(parsed) &&
+        isPlainObject(parsed.Resources) &&
+        findStateMachines(parsed.Resources as Record<string, CfnResource>).length > 0
+    );
+}
+
+interface ParseDefinitionFileParams {
+    /** Whether `text` has had `DefinitionSubstitutions` applied, which changes the message. */
+    afterSubstitution: boolean;
+    format: 'json' | 'yaml';
+    /** Names the file in messages, such as `DefinitionUri file 'x' of state machine 'y'`. */
+    subject: string;
+    text: string;
+}
+
+/**
+ * Parses a definition file without ever quoting it: the template's author picks the
+ * path, so the file may be anything on the machine, and parser messages embed source text.
+ */
+function parseDefinitionFile(params: ParseDefinitionFileParams): unknown {
+    const { afterSubstitution, format, subject, text } = params;
+    try {
+        return format === 'json' ? JSON.parse(text) : parseYaml(text, { logLevel: 'error' });
+    } catch (error) {
+        const kind = format === 'json' ? 'JSON' : 'YAML';
+        if (afterSubstitution) {
+            throw new Error(
+                `${subject} is not valid ${kind} after DefinitionSubstitutions are applied.`,
+                { cause: error },
+            );
+        }
+        const line =
+            error instanceof YAMLParseError && error.linePos !== undefined
+                ? ` (line ${error.linePos[0].line})`
+                : '';
+        throw new Error(
+            `${subject} is not valid ${kind}${line}. Render the file directly to see the parser's message.`,
+            { cause: error },
+        );
+    }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+interface ReadDefinitionUriParams {
+    location: string;
+    logicalId: string;
+    readFile: (params: ReadFileParams) => string;
+    substitutions: Record<string, string>;
+}
+
+/** Reads, substitutes and parses a local `DefinitionUri` file through the caller's `readFile`. */
+function readDefinitionUri(params: ReadDefinitionUriParams): AslDefinition {
+    const { location, logicalId, readFile, substitutions } = params;
+    let text: string;
+    try {
+        text = readFile({ path: location });
+    } catch (error) {
+        throw new Error(
+            `State machine '${logicalId}' loads its definition from DefinitionUri ('${location}'), ` +
+                `which could not be read: ${errorReason(error)}`,
+            { cause: error },
+        );
+    }
+    return parseDefinitionText({
+        subject: `DefinitionUri file '${location}' of state machine '${logicalId}'`,
+        substitutions,
+        text,
+    });
+}
+
+function errorReason(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+const CLOUD_ASSEMBLY_MANIFEST = 'manifest.json';
+
+/** A CDK asset manifest's text and the path it was read from. */
+interface CdkAssetManifest {
+    manifest: string;
+    manifestName: string;
+}
+
+interface ReadCdkAssetManifestParams {
+    diagnostic: string;
+    readFile: (params: ReadFileParams) => string;
+    templateFileName: string;
+}
+
+/**
+ * Reads the asset manifest that lists a CDK template's assets: `<stack>.assets.json` beside a
+ * stack template, or for a nested stack template, its top-level stack's, found through the
+ * cloud assembly `manifest.json` beside it.
+ *
+ * @returns `undefined` when the template is named like neither, so no file is read.
+ */
+function readCdkAssetManifest(params: ReadCdkAssetManifestParams): CdkAssetManifest | undefined {
+    const { diagnostic, readFile, templateFileName } = params;
+    const manifestName = assetManifestName({ templateFileName });
+    if (manifestName !== undefined) {
+        try {
+            return { manifest: readFile({ path: manifestName }), manifestName };
+        } catch (error) {
+            throw new Error(
+                `${diagnostic} The CDK asset manifest beside the template could not be read: ${errorReason(error)}.`,
+                { cause: error },
+            );
+        }
+    }
+    const templateName = nestedStackTemplateName({ templateFileName });
+    return templateName === undefined
+        ? undefined
+        : findParentAssetManifest({ diagnostic, readFile, templateName });
+}
+
+interface FindParentAssetManifestParams {
+    diagnostic: string;
+    readFile: (params: ReadFileParams) => string;
+    /** The nested stack template's file name, without its directory. */
+    templateName: string;
+}
+
+/**
+ * Finds the asset manifest of the stack that holds a nested stack. `cdk synth` writes no
+ * manifest for a nested stack: its top-level stack's manifest lists the nested template and
+ * every asset it uses, at any depth. The owner is the first stack in `manifest.json` whose
+ * asset manifest lists the template.
+ */
+function findParentAssetManifest(params: FindParentAssetManifestParams): CdkAssetManifest {
+    const { diagnostic, readFile, templateName } = params;
+    let text: string;
+    try {
+        text = readFile({ path: CLOUD_ASSEMBLY_MANIFEST });
+    } catch (error) {
+        throw new Error(
+            `${diagnostic} The cloud assembly manifest beside the nested stack template could not be read: ` +
+                `${errorReason(error)}.`,
+            { cause: error },
+        );
+    }
+    const assembly = readCloudAssemblyManifest({ manifest: text });
+    if (assembly === undefined) {
+        throw new Error(
+            `${diagnostic} '${CLOUD_ASSEMBLY_MANIFEST}' beside the nested stack template is not a CDK cloud assembly manifest.`,
+        );
+    }
+    const unreadable: string[] = [];
+    for (const stack of assembly.stacks) {
+        // CDK writes a stack's template, asset manifest and nested templates side by side, so a
+        // template with a directory part (or a network path) is not this nested stack's owner.
+        if (/[\\/]/.test(stack.templateFile)) {
+            continue;
+        }
+        const manifestName = assetManifestName({ templateFileName: stack.templateFile });
+        if (manifestName === undefined) {
+            continue;
+        }
+        let manifest: string;
+        try {
+            manifest = readFile({ path: manifestName });
+        } catch (error) {
+            unreadable.push(`'${manifestName}' (${errorReason(error)})`);
+            continue;
+        }
+        const listed = findNestedStackTemplates({ manifest }).some(
+            (path) => path.replace(/\\/g, '/') === templateName,
+        );
+        if (listed) {
+            return { manifest, manifestName };
+        }
+    }
+    const notRead =
+        unreadable.length > 0 ? ` These asset manifests could not be read: ${unreadable.join(', ')}.` : '';
+    throw new Error(
+        `${diagnostic} No stack in '${CLOUD_ASSEMBLY_MANIFEST}' lists the nested stack template ` +
+            `'${templateName}' in its asset manifest.${notRead}`,
+    );
+}
+
+interface ReadCdkAssetParams {
+    /** The plain "cannot be read from the template alone" message, extended on a failed lookup. */
+    diagnostic: string;
+    logicalId: string;
+    /** The text of the asset manifest that lists the asset. */
+    manifest: string;
+    manifestName: string;
+    objectKey: string;
+    readFile: (params: ReadFileParams) => string;
+    substitutions: Record<string, string>;
+}
+
+/** Reads a CDK `DefinitionBody.fromFile` asset that a CDK asset manifest lists. */
+function readCdkAsset(params: ReadCdkAssetParams): AslDefinition {
+    const { diagnostic, logicalId, manifest, manifestName, objectKey, readFile, substitutions } = params;
+    const assetPath = findCdkAssetPath({ manifest, objectKey });
+    if (assetPath === undefined) {
+        throw new Error(
+            `${diagnostic} The CDK asset manifest '${manifestName}' has no file asset with object key '${objectKey}'.`,
+        );
+    }
+    if (/^[\\/]{2}/.test(assetPath)) {
+        throw new Error(
+            `State machine '${logicalId}' loads its definition from CDK asset '${assetPath}', ` +
+                `which is a network or device path; only local files are read. Render that ASL file directly.`,
+        );
+    }
+    let text: string;
+    try {
+        // CDK writes OS-native relative paths; a manifest synthesized on Windows uses `\`.
+        text = readFile({ path: assetPath.replace(/\\/g, '/') });
+    } catch (error) {
+        throw new Error(`${diagnostic} Its CDK asset '${assetPath}' could not be read: ${errorReason(error)}.`, {
+            cause: error,
+        });
+    }
+    return parseDefinitionText({
+        subject: `CDK asset '${assetPath}' of state machine '${logicalId}'`,
+        substitutions,
+        text,
+    });
+}
+
+interface ParseDefinitionTextParams {
+    /** Names the file in messages. */
+    subject: string;
+    substitutions: Record<string, string>;
+    text: string;
+}
+
+/** Substitutes and parses a definition file's text, checking it is ASL without quoting it. */
+function parseDefinitionText(params: ParseDefinitionTextParams): AslDefinition {
+    const { subject, substitutions } = params;
+    const text = stripBom(params.text);
+    // Decided on the file's own text, so a substitution can't switch the parser.
+    const format = looksLikeJson(text) ? 'json' : 'yaml';
+    const notAsl = (): Error =>
+        new Error(`${subject} is not an ASL definition (expected an object with StartAt and States).`);
+    const hasSubstitutions = Object.keys(substitutions).length > 0;
+
+    // Substitution is raw text, so a template's values could rebuild a non-ASL file into ASL
+    // that carries the file's own lines. Check the file's structure first, with each
+    // placeholder replaced by a distinct digit, which keeps `"Seconds":${Wait}` valid JSON and
+    // substituted YAML keys distinct. YAML reads `StartAt: 0` as a number, so only its presence
+    // is checked here.
+    if (hasSubstitutions) {
+        const neutral = Object.fromEntries(
+            Object.keys(substitutions).map((name, index) => [name, String(index)]),
+        );
+        const neutralParsed = parseDefinitionFile({
+            afterSubstitution: false,
+            format,
+            subject,
+            text: applySubstitutions({ substitutions: neutral, value: text }) as string,
+        });
+        if (
+            !isPlainObject(neutralParsed) ||
+            !Object.hasOwn(neutralParsed, 'StartAt') ||
+            !isPlainObject(neutralParsed.States)
+        ) {
+            throw notAsl();
+        }
+    }
+
+    const parsed = parseDefinitionFile({
+        afterSubstitution: hasSubstitutions,
+        format,
+        subject,
+        text: applySubstitutions({ substitutions, value: text }) as string,
+    });
+    if (!isPlainObject(parsed) || typeof parsed.StartAt !== 'string' || !isPlainObject(parsed.States)) {
+        throw notAsl();
+    }
+    return parsed as unknown as AslDefinition;
+}
+
 /**
  * Recovers a renderable ASL definition from a CloudFormation/SAM/CDK template.
  *
@@ -52,11 +397,28 @@ function findStateMachines(resources: Record<string, CfnResource>): StateMachine
  * ID scheme, so it works without that metadata too), or a trailing part of
  * the path. An exact logical ID wins.
  *
- * @param params - Template source, optional format, optional resource id.
+ * A SAM state machine whose definition is a local `DefinitionUri` file is read
+ * through `readFile` when one is given: its `DefinitionSubstitutions` are
+ * applied to the file's text, which is then parsed as JSON or YAML. Errors
+ * about that file never quote it.
+ *
+ * A CDK state machine built with `DefinitionBody.fromFile` has only a
+ * `DefinitionS3Location`; with `readFile` and a `templateFileName` such as
+ * `OrdersStack.template.json`, its staged asset is found through
+ * `OrdersStack.assets.json` beside the template and read the same way. For a
+ * nested stack template (`ParentChild8B49BB45.nested.template.json`), which has
+ * no asset manifest of its own, the cloud assembly `manifest.json` beside it
+ * names the stacks, and the first whose asset manifest lists the template is
+ * used.
+ *
+ * @param params - Template source, optional format, optional resource id,
+ * optional `readFile` and `templateFileName` for definition files.
  * @returns The extracted ASL definition, the logical id used, and any warnings.
  * @throws If no state machine is found, `resourceId` matches none or more
  * than one, no `resourceId` is given and there are several, or the definition
- * is external (`DefinitionUri`/`DefinitionS3Location`).
+ * is external and not readable (no `readFile`, an S3 location, a network
+ * path, or a `DefinitionS3Location` with no CDK asset beside the template, or
+ * for a nested stack template, no stack in `manifest.json` that lists it).
  *
  * @example
  * ```typescript
@@ -64,10 +426,16 @@ function findStateMachines(resources: Record<string, CfnResource>): StateMachine
  * // Pick one of several by the ID passed to `new sfn.StateMachine(this, 'OrderWorkflow', …)`.
  * const picked = extractAslFromTemplate({ resourceId: 'OrderWorkflow', template: cdkSynthJson });
  * // picked.resourceId === 'OrderWorkflow0015CDD9'
+ * // Read a SAM DefinitionUri file relative to the template.
+ * const sam = extractAslFromTemplate({
+ *     readFile: ({ path }) => readFileSync(join(dirname(templatePath), path), 'utf-8'),
+ *     template: readFileSync(templatePath, 'utf-8'),
+ * });
+ * // Pass templateFileName too ('cdk.out/OrdersStack.template.json') to read a CDK asset.
  * ```
  */
 export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): ExtractAslResult {
-    const { format = 'auto', resourceId, template } = params;
+    const { format = 'auto', readFile, resourceId, template, templateFileName } = params;
 
     const parsed = parseTemplate({ format, template });
     const resources = (parsed.Resources ?? {}) as Record<string, CfnResource>;
@@ -98,20 +466,65 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
     }
 
     const properties = resources[chosenId].Properties ?? {};
+    const { substitutions, warnings: substitutionWarnings } = resolveSubstitutions({
+        value: properties.DefinitionSubstitutions,
+    });
     const externalKey = EXTERNAL_DEFINITION_KEYS.find((key) => key in properties);
     if (externalKey && !('DefinitionString' in properties) && !('Definition' in properties)) {
         const location = properties[externalKey];
         const where = typeof location === 'string' ? ` ('${location}')` : '';
-        throw new Error(
+        const diagnostic =
             `State machine '${chosenId}' loads its definition from ${externalKey}${where}, ` +
-                `which cannot be read from the template alone. ` +
-                `Render that ASL file directly (download it first if it is in S3), or inline the definition in the template.`,
-        );
+            `which cannot be read from the template alone. ` +
+            `Render that ASL file directly (download it first if it is in S3), or inline the definition in the template.`;
+        if (
+            readFile !== undefined &&
+            externalKey === 'DefinitionUri' &&
+            typeof location === 'string' &&
+            location !== '' &&
+            !/^s3:\/\//i.test(location)
+        ) {
+            // Checked on the template's own value, before any file access: on Windows a path
+            // starting with two separators is a UNC path, and touching it opens an SMB
+            // connection to a host the template picked.
+            if (/^[\\/]{2}/.test(location)) {
+                throw new Error(
+                    `State machine '${chosenId}' loads its definition from DefinitionUri ('${location}'), ` +
+                        `which is a network or device path; only local files are read. Render that ASL file directly.`,
+                );
+            }
+            const aslDefinition = readDefinitionUri({
+                location,
+                logicalId: chosenId,
+                readFile,
+                substitutions,
+            });
+            return { aslDefinition, resourceId: chosenId, warnings: substitutionWarnings };
+        }
+        if (
+            readFile !== undefined &&
+            externalKey === 'DefinitionS3Location' &&
+            templateFileName !== undefined &&
+            isPlainObject(location) &&
+            typeof location.Key === 'string' &&
+            isCdkAssetKey({ objectKey: location.Key })
+        ) {
+            const assetManifest = readCdkAssetManifest({ diagnostic, readFile, templateFileName });
+            if (assetManifest !== undefined) {
+                const aslDefinition = readCdkAsset({
+                    ...assetManifest,
+                    diagnostic,
+                    logicalId: chosenId,
+                    objectKey: location.Key,
+                    readFile,
+                    substitutions,
+                });
+                return { aslDefinition, resourceId: chosenId, warnings: substitutionWarnings };
+            }
+        }
+        throw new Error(diagnostic);
     }
 
-    const { substitutions, warnings: substitutionWarnings } = resolveSubstitutions({
-        value: properties.DefinitionSubstitutions,
-    });
     const rawDefinition = properties.DefinitionString ?? properties.Definition;
     if (rawDefinition === undefined) {
         throw new Error(`State machine '${chosenId}' has no DefinitionString or Definition.`);

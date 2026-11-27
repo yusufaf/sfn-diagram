@@ -16,4 +16,4 @@
  * ```
  */
 export { extractAslFromTemplate } from './cfn/extract';
-export type { ExtractAslFromTemplateParams, ExtractAslResult } from './types';
+export type { ExtractAslFromTemplateParams, ExtractAslResult, ReadFileParams } from './types';

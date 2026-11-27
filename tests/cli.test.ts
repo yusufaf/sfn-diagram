@@ -14,6 +14,7 @@ vi.mock('@aws-sdk/client-sfn', () => ({
     },
 }));
 import {
+    cpSync,
     existsSync,
     mkdirSync,
     mkdtempSync,
@@ -23,15 +24,17 @@ import {
     writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import {
     CliError,
     collectWatchTargets,
+    inputsToRerender,
     parseArgs,
     reportUnexpectedError,
     run,
 } from '../src/cli';
+import { toPosix } from '../src/cliInputs';
 import { DagreLayout } from '../src/layout';
 import { lintAsl } from '../src/lint';
 import { REAL_PNG_EXPORT_TIMEOUT_MS } from './pngExportTimeout';
@@ -1479,16 +1482,140 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('Hello');
     });
 
-    it('reports a SAM DefinitionUri instead of rendering', async () => {
+    // The cwd is the repo root, not the template's directory, so these prove the file is read
+    // relative to the template.
+    it('renders a SAM DefinitionUri file relative to the template', async () => {
         const code = await run([
             join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
             '--resolve-cfn',
             '--format',
             'mermaid',
         ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Validate');
+        expect(stdoutData).toContain('Charge');
+    });
+
+    it('names the path it tried when the DefinitionUri file is missing', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri-missing.yaml'),
+            '--resolve-cfn',
+            '--format',
+            'mermaid',
+        ]);
         expect(code).toBe(1);
-        expect(stderrData).toContain('DefinitionUri');
-        expect(stderrData).toContain('statemachine/order.asl.json');
+        expect(stderrData).toContain(
+            `${join(__dirname, 'fixtures', 'cfn', 'missing', 'order.asl.json')} does not exist`,
+        );
+    });
+
+    const samTemplateYaml = (definitionUri: string): string =>
+        [
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::Serverless::StateMachine',
+            '    Properties:',
+            `      DefinitionUri: ${definitionUri}`,
+            '',
+        ].join('\n');
+
+    it('refuses a DefinitionUri that is not a file', async () => {
+        mkdirSync(join(tempDir, 'statemachine'));
+        const templatePath = writeTemplate('template.yaml', samTemplateYaml('statemachine'));
+        const code = await run([templatePath, '--resolve-cfn', '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain(`${join(tempDir, 'statemachine')} is not a file`);
+    });
+
+    it('refuses a network DefinitionUri', async () => {
+        const templatePath = writeTemplate(
+            'template.yaml',
+            samTemplateYaml('//example.invalid/share/x.json'),
+        );
+        const code = await run([templatePath, '--resolve-cfn', '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('is a network or device path; only local files are read');
+    });
+
+    it("reads each --diff side's DefinitionUri beside its own template", async () => {
+        mkdirSync(join(tempDir, 'base', 'statemachine'), { recursive: true });
+        writeFileSync(
+            join(tempDir, 'base', 'statemachine', 'order.asl.json'),
+            '{"StartAt":"Validate","States":{"Validate":{"Type":"Pass","End":true}}}',
+        );
+        const baselinePath = writeTemplate(
+            join('base', 'template.yaml'),
+            samTemplateYaml('statemachine/order.asl.json'),
+        );
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
+            '--resolve-cfn',
+            '--diff',
+            baselinePath,
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Diff summary');
+        expect(stderrData).toMatch(/Added:\s+Charge/);
+    });
+
+    const cdkAssetDir = join(__dirname, 'fixtures', 'cfn', 'cdk-asset');
+    const CDK_ASSET = 'asset.30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json';
+
+    it('renders a CDK DefinitionBody.fromFile asset from cdk.out', async () => {
+        const code = await run([join(cdkAssetDir, 'RefundStack.template.json'), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('LookupOrder');
+        expect(stdoutData).toContain('IssueRefund');
+    });
+
+    it('renders a CDK Stage template whose asset sits in the parent assembly', async () => {
+        const code = await run([
+            join(cdkAssetDir, 'assembly-Prod', 'ProdRefundStack13B44940.template.json'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('IssueRefund');
+    });
+
+    const cdkNestedDir = join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset');
+
+    it.each([
+        ['ParentChild8B49BB45.nested.template.json', 'ChildPass'],
+        ['ParentChildDeeper619894AE.nested.template.json', 'DeeperPass'],
+        [join('assembly-Prod', 'ProdParentChild9CEB70C2.nested.template.json'), 'ChildPass'],
+    ])("renders a nested stack's fromFile asset through its parent's asset manifest: %s", async (template, state) => {
+        const code = await run([join(cdkNestedDir, template), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain(state);
+    });
+
+    it('names the asset path it tried when the CDK asset is missing', async () => {
+        const missingDir = join(__dirname, 'fixtures', 'cfn', 'cdk-asset-missing');
+        const code = await run([join(missingDir, 'RefundStack.template.json'), '--format', 'mermaid']);
+        expect(code).toBe(1);
+        expect(stderrData).toContain('cannot be read from the template alone');
+        expect(stderrData).toContain(`${join(missingDir, CDK_ASSET)} does not exist`);
+    });
+
+    it("reads each --diff side's CDK asset from its own cloud assembly", async () => {
+        cpSync(cdkAssetDir, join(tempDir, 'base'), { recursive: true });
+        writeFileSync(
+            join(tempDir, 'base', CDK_ASSET),
+            '{"StartAt":"LookupOrder","States":{"LookupOrder":{"Type":"Pass","End":true}}}',
+        );
+        const code = await run([
+            join(cdkAssetDir, 'RefundStack.template.json'),
+            '--diff',
+            join(tempDir, 'base', 'RefundStack.template.json'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stderrData).toContain('Diff summary');
+        expect(stderrData).toMatch(/Added:\s+IssueRefund/);
     });
 
     const cdkTemplate = join(__dirname, 'fixtures', 'cfn', 'cdk-orders-stack.json');
@@ -1540,6 +1667,32 @@ describe('CFN template input', () => {
         ]);
         expect(code).toBe(0);
         expect(stdoutData).toContain('Go');
+    });
+
+    it('auto-detects a YAML template without --resolve-cfn', async () => {
+        const yamlTemplate = [
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::StepFunctions::StateMachine',
+            '    Properties:',
+            '      DefinitionString: !Sub |',
+            '        {"StartAt":"Go","States":{"Go":{"Type":"Pass","End":true}}}',
+        ].join('\n');
+        const inputPath = writeTemplate('template.yaml', yamlTemplate);
+        const code = await run([inputPath, '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Go');
+    });
+
+    it('reads a SAM DefinitionUri file from an auto-detected YAML template', async () => {
+        const code = await run([
+            join(__dirname, 'fixtures', 'cfn', 'sam-definition-uri.yaml'),
+            '--format',
+            'mermaid',
+        ]);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain('Validate');
+        expect(stdoutData).toContain('Charge');
     });
 
     it('errors with resource ids when multiple machines and no --resource', async () => {
@@ -4233,6 +4386,18 @@ describe('run: multiple inputs', () => {
         return path;
     };
 
+    it('refuses two inputs whose names differ only in case, writing nothing', async () => {
+        touch('a/Order.asl.json');
+        touch('b/order.asl.json');
+        process.chdir(tempDir);
+
+        expect(
+            await run(['a/Order.asl.json', 'b/order.asl.json', '--out-dir', 'out']),
+        ).toBe(2);
+        expect(stderrData).toContain('differ only in case');
+        expect(existsSync(join(tempDir, 'out'))).toBe(false);
+    });
+
     it('renders every positional into --out-dir', async () => {
         touch('order.asl.json');
         touch('refund.asl.json');
@@ -5622,6 +5787,50 @@ describe('--execution <arn> and --follow', () => {
         expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
     });
 
+    it('keeps following when the DefinitionUri file vanishes mid-run', async () => {
+        // The template's DefinitionUri file used to be re-read on every tick, so one that
+        // was mid-save or briefly missing failed that tick and ended the follow.
+        const template = join(tempDir, 'template.yaml');
+        const definition = join(tempDir, 'simple.asl.json');
+        writeFileSync(
+            template,
+            [
+                'Transform: AWS::Serverless-2016-10-31',
+                'Resources:',
+                '  Machine:',
+                '    Type: AWS::Serverless::StateMachine',
+                '    Properties:',
+                '      DefinitionUri: simple.asl.json',
+                '',
+            ].join('\n'),
+            'utf-8',
+        );
+        writeFileSync(definition, readFileSync(simpleFixture, 'utf-8'), 'utf-8');
+        let historyCalls = 0;
+        sfnSendMock.mockImplementation(() => {
+            historyCalls += 1;
+            if (historyCalls === 1) return Promise.resolve({ events: runningEvents() });
+            rmSync(definition);
+            return Promise.resolve({ events: events() });
+        });
+
+        const target = join(tempDir, 'followed.svg');
+        const code = await run([
+            template,
+            '--execution',
+            executionArn,
+            '--follow',
+            '--poll-interval',
+            '1',
+            '-o',
+            target,
+        ]);
+
+        expect(code).toBe(0);
+        expect(historyCalls).toBeGreaterThan(1);
+        expect(readFileSync(target, 'utf-8')).toContain('#c8e6c9');
+    });
+
     it('works with --from-aws, fetching both the definition and the history', async () => {
         const machineArn =
             'arn:aws:states:us-east-1:123456789012:stateMachine:Simple';
@@ -5803,6 +6012,31 @@ describe('--watch', () => {
             ).toEqual(['machines']);
         });
 
+        it('watches a cloud assembly directory, not its templates', () => {
+            const machine = (name: string, templatePath: string) => ({
+                kind: 'file' as const,
+                machine: {
+                    assembly: 'cdk.out',
+                    logicalId: name,
+                    name,
+                    outputStem: name,
+                    template: '{}',
+                    templatePath,
+                },
+                path: templatePath,
+            });
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['cdk.out']),
+                    configPath: null,
+                    sources: [
+                        machine('A', 'cdk.out/A.template.json'),
+                        machine('B', 'cdk.out/assembly-Prod/B.template.json'),
+                    ],
+                }),
+            ).toEqual(['cdk.out']);
+        });
+
         it('watches the config file it actually loaded', () => {
             expect(
                 collectWatchTargets({
@@ -5917,6 +6151,102 @@ describe('--watch', () => {
                 }),
             ).toEqual([]);
         });
+
+        it('watches a file a template read', () => {
+            const definitionFile = resolve('sam', 'statemachine', 'order.asl.json');
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'sam/template.yaml' }],
+                    templateFiles: [definitionFile],
+                }),
+            ).toEqual(['sam/template.yaml', definitionFile]);
+        });
+
+        it('does not watch a template file under a glob root it already watches', () => {
+            expect(
+                collectWatchTargets({
+                    args: parseArgs(['machines/*.yaml']),
+                    configPath: null,
+                    sources: [{ kind: 'file', path: 'machines/template.yaml' }],
+                    templateFiles: [resolve('machines', 'sm', 'x.asl.json')],
+                }),
+            ).toEqual(['machines']);
+        });
+    });
+
+    describe('inputsToRerender', () => {
+        const key = (path: string) => toPosix(resolve(path));
+        const definitionFile = join('sam', 'statemachine', 'order.asl.json');
+        const readers = (entries: Array<[string, Array<string | null>]>) =>
+            new Map(entries.map(([path, readBy]) => [key(path), new Set(readBy)]));
+
+        it('maps a changed template file to the template that read it', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    paths: [definitionFile],
+                    templateFileReaders: readers([[definitionFile, ['sam/template.yaml']]]),
+                }),
+            ).toEqual([definitionFile, 'sam/template.yaml']);
+        });
+
+        it('matches an absolute event path to the recorded read', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml']),
+                    configPath: null,
+                    paths: [resolve(definitionFile)],
+                    templateFileReaders: readers([[definitionFile, ['sam/template.yaml']]]),
+                }),
+            ).toEqual([resolve(definitionFile), 'sam/template.yaml']);
+        });
+
+        it('re-renders everything for a file the --diff baseline read', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['sam/template.yaml', '--diff', 'base/template.yaml']),
+                    configPath: null,
+                    paths: [definitionFile],
+                    templateFileReaders: readers([[definitionFile, [null]]]),
+                }),
+            ).toBeNull();
+        });
+
+        it('re-renders everything for a config change', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: 'sfn-diagram.config.json',
+                    paths: ['sfn-diagram.config.json'],
+                    templateFileReaders: new Map(),
+                }),
+            ).toBeNull();
+        });
+
+        it('passes an input that changed through as itself', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: null,
+                    paths: ['a.asl.json'],
+                    templateFileReaders: new Map(),
+                }),
+            ).toEqual(['a.asl.json']);
+        });
+
+        it('re-renders everything for an empty burst', () => {
+            expect(
+                inputsToRerender({
+                    args: parseArgs(['a.asl.json']),
+                    configPath: null,
+                    paths: [],
+                    templateFileReaders: new Map(),
+                }),
+            ).toBeNull();
+        });
     });
 
     it('watches even when the config file cannot be parsed', async () => {
@@ -6008,6 +6338,116 @@ describe('--watch', () => {
         process.emit('SIGINT');
         expect(await watching).toBe(0);
         expect(errors.join('')).toContain('watching');
+    }, 20_000);
+
+    /** A one-state ASL definition, so a test can tell which version was rendered. */
+    const passMachine = (state: string): string =>
+        JSON.stringify({ StartAt: state, States: { [state]: { End: true, Type: 'Pass' } } });
+    /** A SAM template whose definition lives in `definitionUri`. */
+    const samTemplate = (definitionUri: string): string =>
+        [
+            'Transform: AWS::Serverless-2016-10-31',
+            'Resources:',
+            '  Machine:',
+            '    Type: AWS::Serverless::StateMachine',
+            '    Properties:',
+            `      DefinitionUri: ${definitionUri}`,
+            '',
+        ].join('\n');
+
+    it('re-renders a SAM template when its DefinitionUri file changes', async () => {
+        const template = join(tempDir, 'template.yaml');
+        const definition = join(tempDir, 'statemachine', 'order.asl.json');
+        const output = join(tempDir, 'out.svg');
+        mkdirSync(join(tempDir, 'statemachine'));
+        writeFileSync(template, samTemplate('statemachine/order.asl.json'), 'utf-8');
+        writeFileSync(definition, passMachine('First'), 'utf-8');
+
+        const watching = run([template, '--watch', '-o', output]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('First');
+        expect(errors.join('')).toContain('watching 2 path(s)');
+
+        writeFileSync(definition, passMachine('Second'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Second'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('starts watching a DefinitionUri file the template switches to', async () => {
+        const template = join(tempDir, 'template.yaml');
+        const output = join(tempDir, 'out.svg');
+        writeFileSync(template, samTemplate('a.asl.json'), 'utf-8');
+        writeFileSync(join(tempDir, 'a.asl.json'), passMachine('Alpha'), 'utf-8');
+        writeFileSync(join(tempDir, 'b.asl.json'), passMachine('Beta'), 'utf-8');
+
+        const watching = run([template, '--watch', '-o', output]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('Alpha');
+
+        writeFileSync(template, samTemplate('b.asl.json'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Beta'));
+
+        writeFileSync(join(tempDir, 'b.asl.json'), passMachine('Gamma'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Gamma'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('re-renders a nested stack template when its fromFile asset changes', async () => {
+        const cdkDir = join(tempDir, 'cdk');
+        cpSync(join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset'), cdkDir, { recursive: true });
+        const asset = join(
+            cdkDir,
+            'asset.e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156.json',
+        );
+        const output = join(tempDir, 'out.mmd');
+
+        const watching = run([
+            join(cdkDir, 'ParentChild8B49BB45.nested.template.json'),
+            '--watch',
+            '--format',
+            'mermaid',
+            '-o',
+            output,
+        ]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('ChildPass');
+
+        writeFileSync(asset, passMachine('Edited'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Edited'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
+    it('re-renders a CDK template when its fromFile asset changes', async () => {
+        const cdkDir = join(tempDir, 'cdk');
+        cpSync(join(__dirname, 'fixtures', 'cfn', 'cdk-asset'), cdkDir, { recursive: true });
+        const asset = join(
+            cdkDir,
+            'asset.30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json',
+        );
+        const output = join(tempDir, 'out.mmd');
+
+        const watching = run([
+            join(cdkDir, 'RefundStack.template.json'),
+            '--watch',
+            '--format',
+            'mermaid',
+            '-o',
+            output,
+        ]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('LookupOrder');
+
+        writeFileSync(asset, passMachine('Edited'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Edited'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
     }, 20_000);
 
     it('writes one --check-format json line per pass, covering only re-linted inputs', async () => {
@@ -6207,4 +6647,200 @@ describe('--watch', () => {
 
         expect(await watching).toBe(0);
     }, 20_000);
+});
+
+describe('run: CDK cloud assembly directory', () => {
+    // Real `cdk synth` output; see tests/cliCdkAssembly.test.ts for what it holds.
+    const assembly = join(__dirname, 'fixtures', 'cfn', 'cdk-assembly');
+    const stems = [
+        'OrdersStack.Nested.Deeper.DeepWorkflow',
+        'OrdersStack.Nested.NestedWorkflow',
+        'OrdersStack.OrderWorkflow',
+        'OrdersStack.Refund',
+        'Prod.Eu.Svc.W',
+        'Prod.OrdersStack.Nested.NestedWorkflow',
+        'Prod.OrdersStack.OrderWorkflow',
+    ];
+    let stdout: ReturnType<typeof vi.spyOn>;
+    let stderr: ReturnType<typeof vi.spyOn>;
+    let stdoutData: string;
+    let stderrData: string;
+    let tempDir: string;
+
+    beforeEach(() => {
+        stdoutData = '';
+        stderrData = '';
+        stdout = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+            stdoutData += chunk.toString();
+            return true;
+        });
+        stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrData += chunk.toString();
+            return true;
+        });
+        tempDir = mkdtempSync(join(tmpdir(), 'sfn-cli-assembly-'));
+    });
+
+    afterEach(() => {
+        stdout.mockRestore();
+        stderr.mockRestore();
+        rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    const out = (): string => join(tempDir, 'out');
+
+    it("renders a nested stack's fromFile machines from a cloud assembly", async () => {
+        const nestedAssembly = join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset');
+        expect(await run([nestedAssembly, '--format', 'mermaid', '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out()).sort()).toEqual([
+            'Parent.Child.ChildWorkflow.mmd',
+            'Parent.Child.Deeper.DeeperWorkflow.mmd',
+            'Prod.Parent.Child.ChildWorkflow.mmd',
+        ]);
+        expect(readFileSync(join(out(), 'Parent.Child.Deeper.DeeperWorkflow.mmd'), 'utf-8')).toContain(
+            'DeeperPass',
+        );
+    });
+
+    it('renders every state machine into --out-dir, named by construct path', async () => {
+        expect(await run([assembly, '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out()).sort()).toEqual(stems.map((stem) => `${stem}.svg`));
+    });
+
+    it('renders each machine from its own template, nested stacks and fromFile included', async () => {
+        expect(await run([assembly, '--format', 'mermaid', '--out-dir', out()])).toBe(0);
+        const read = (stem: string): string => readFileSync(join(out(), `${stem}.mmd`), 'utf-8');
+        expect(read('Prod.Eu.Svc.W')).toContain('P5');
+        expect(read('OrdersStack.Refund')).toContain('R');
+        expect(read('OrdersStack.Nested.Deeper.DeepWorkflow')).toContain('P4');
+        expect(read('OrdersStack.OrderWorkflow')).toContain('P1');
+    });
+
+    it('lints every machine with --check, labelled by construct path', async () => {
+        expect(await run([assembly, '--check'])).toBe(0);
+        expect(stderrData).toContain('(Prod/Eu/Svc/W):');
+        expect(stderrData).toContain('(OrdersStack/Nested/Deeper/DeepWorkflow):');
+    });
+
+    it('fails --check when any machine has a lint error', async () => {
+        const copy = join(tempDir, 'cdk.out');
+        cpSync(assembly, copy, { recursive: true });
+        const templatePath = join(copy, 'OrdersStack.template.json');
+        const template = JSON.parse(readFileSync(templatePath, 'utf-8')) as {
+            Resources: Record<string, { Properties: Record<string, unknown> }>;
+        };
+        template.Resources.OrderWorkflow0015CDD9.Properties.DefinitionString =
+            '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true,"Next":"A"}}}';
+        writeFileSync(templatePath, JSON.stringify(template));
+        expect(await run([copy, '--check'])).toBe(1);
+        expect(stderrData).toContain('(OrdersStack/OrderWorkflow):');
+        expect(stderrData).toContain('end-with-next');
+    });
+
+    it('names the template and logical ID in --check-format json', async () => {
+        expect(await run([assembly, '--check', '--check-format', 'json'])).toBe(0);
+        const entries = (JSON.parse(stdoutData) as { files: Array<Record<string, unknown>> }).files;
+        expect(entries).toHaveLength(7);
+        expect(entries).toContainEqual(
+            expect.objectContaining({
+                file: join(assembly, 'assembly-Prod/assembly-Prod-Eu/ProdEuSvc4F47E18E.template.json')
+                    .split('\\')
+                    .join('/'),
+                resource: 'W8F2A5E99',
+            }),
+        );
+    });
+
+    it('writes one machine picked with --resource to -o', async () => {
+        const output = join(tempDir, 'w.svg');
+        expect(await run([assembly, '--resource', 'Prod/Eu/Svc/W', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P5');
+    });
+
+    it('picks one stack’s machine by its full construct path', async () => {
+        const output = join(tempDir, 'x.svg');
+        expect(await run([assembly, '--resource', 'OrdersStack/OrderWorkflow', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P1');
+    });
+
+    it('renders a template that starts with a byte order mark', async () => {
+        const copy = join(tempDir, 'cdk.out');
+        cpSync(assembly, copy, { recursive: true });
+        const templatePath = join(copy, 'assembly-Prod/assembly-Prod-Eu/ProdEuSvc4F47E18E.template.json');
+        writeFileSync(templatePath, String.fromCharCode(0xfeff) + readFileSync(templatePath, 'utf-8'));
+        const output = join(tempDir, 'w.svg');
+        expect(await run([copy, '--resource', 'Prod/Eu/Svc/W', '-o', output])).toBe(0);
+        expect(readFileSync(output, 'utf-8')).toContain('P5');
+    });
+
+    it('names the matched machines when --resource leaves several and no --out-dir', async () => {
+        expect(await run([assembly, '--resource', 'OrderWorkflow'])).toBe(2);
+        expect(stderrData).toContain('matches 2 state machines');
+        expect(stderrData).toContain('Prod/OrdersStack/OrderWorkflow');
+        expect(stderrData).toContain('one of those names');
+    });
+
+    it('names the matched machines when --resource leaves several and -o', async () => {
+        expect(await run([assembly, '--resource', 'OrderWorkflow', '-o', join(tempDir, 'x.svg')])).toBe(2);
+        expect(stderrData).toContain('matches 2 state machines');
+    });
+
+    it('asks for --out-dir or --resource for a whole assembly', async () => {
+        expect(await run([assembly])).toBe(2);
+        expect(stderrData).toContain('--out-dir is required');
+        expect(stderrData).toContain('--resource');
+    });
+
+    it('asks for --out-dir or --resource for a whole assembly with -o', async () => {
+        expect(await run([assembly, '-o', join(tempDir, 'x.svg')])).toBe(2);
+        expect(stderrData).toContain('-o takes a single output file');
+        expect(stderrData).toContain('--resource');
+    });
+
+    it.each([
+        ['--diff', () => ['--diff', simpleFixture, '--resource', 'Prod/Eu/Svc/W']],
+        [
+            '--execution',
+            () => [
+                '--execution',
+                join(__dirname, 'fixtures', 'execution-failed.json'),
+                '--resource',
+                'Prod/Eu/Svc/W',
+                '--format',
+                'html',
+            ],
+        ],
+        ['--preserve-tree', () => ['--preserve-tree', '--out-dir', join(tempDir, 'out')]],
+    ])('refuses %s with a cloud assembly', async (flag, extra) => {
+        expect(await run([assembly, ...extra()])).toBe(2);
+        expect(stderrData).toContain(flag);
+        expect(stderrData).toContain('cloud assembly');
+    });
+
+    it('fails a directory that is not a cloud assembly on its own', async () => {
+        const plain = join(tempDir, 'plain');
+        mkdirSync(plain);
+        expect(await run([plain, '-o', join(tempDir, 'x.svg')])).toBe(1);
+        expect(stderrData).toContain('is a directory but not a CDK cloud assembly');
+    });
+
+    it('still renders the other inputs when one is a plain directory', async () => {
+        const plain = join(tempDir, 'plain');
+        mkdirSync(plain);
+        expect(await run([plain, simpleFixture, '--out-dir', out()])).toBe(1);
+        expect(existsSync(join(out(), 'simple.svg'))).toBe(true);
+        expect(stderrData).toContain('is a directory but not a CDK cloud assembly');
+    });
+
+    it('renders an assembly alongside a plain file', async () => {
+        expect(await run([assembly, simpleFixture, '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out())).toHaveLength(8);
+    });
+
+    it('gives no --resource advice when another input is alongside the assembly', async () => {
+        expect(
+            await run([assembly, simpleFixture, '--resource', 'Prod/Eu/Svc/W', '-o', join(tempDir, 'x.svg')]),
+        ).toBe(2);
+        expect(stderrData).toBe('-o takes a single output file; use --out-dir for more than one input\n');
+    });
 });

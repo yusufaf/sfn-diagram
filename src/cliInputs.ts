@@ -387,7 +387,8 @@ export interface DeriveOutputNameParams {
  * @param params.format - The output format, which decides the extension
  * @param params.input - The input path; only its basename is used
  *
- * @returns The output filename, e.g. `order.svg`.
+ * @returns The output filename, e.g. `order.svg`. {@link planOutputPaths} adds a
+ *   leading `_` to a reserved Windows device name; this function does not.
  *
  * @example
  * ```typescript
@@ -414,6 +415,14 @@ export interface OutputNamingSource {
      * because an ARN has no basename and its colons cannot be part of a filename.
      */
     nameSource: string;
+    /**
+     * The output filename without its extension, used as given, except that
+     * {@link planOutputPaths} adds a leading `_` to a reserved Windows device name; no
+     * input suffix is stripped.
+     * Set for a state machine from a CDK cloud assembly, named by its construct path.
+     * {@link OutputNamingSource.nameSource} still places it under a `treeRoot`.
+     */
+    stem?: string;
 }
 
 /** One source and the file its output goes to. */
@@ -422,6 +431,33 @@ export interface PlannedOutput {
     label: string;
     /** The output path, inside the requested output directory. */
     output: string;
+}
+
+/**
+ * Names Windows reads as devices, also when an extension follows (`NUL.svg` and
+ * `NUL.Orders.svg` are `NUL` on Windows 10 and earlier), so an output filename whose
+ * first `.`-segment is one of them is unusable.
+ */
+const RESERVED_DEVICE_NAME = /^(?:AUX|CON|CONIN\$|CONOUT\$|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
+
+/**
+ * `name` with a leading `_` when its first `.`-segment, trailing spaces ignored, is a
+ * device name Windows reserves; otherwise `name` unchanged.
+ */
+function avoidReservedDeviceName(name: string): string {
+    const firstSegment = name.split('.')[0].replace(/ +$/, '');
+    return RESERVED_DEVICE_NAME.test(firstSegment) ? `_${name}` : name;
+}
+
+/**
+ * The form two output names are compared in. Composed (NFC) because macOS treats
+ * `é` and `e` plus a combining accent as one name; upper case, as NTFS compares, which
+ * also maps every sigma form to `Σ`; composed again, since some upper-case mappings
+ * produce a combining mark. Folding more than a file system does (`ß` becomes `SS`) only
+ * refuses a batch that would have worked, never loses a file.
+ */
+function foldOutputName(name: string): string {
+    return name.normalize('NFC').toUpperCase().normalize('NFC');
 }
 
 /** Parameters for {@link planOutputPaths}. */
@@ -446,7 +482,12 @@ export interface PlanOutputPathsParams {
  * half-populated output directory behind. Every colliding group is reported, not just
  * the first, because a caller fixing one would otherwise have to run again to find the
  * next. With a `treeRoot` collisions are still checked: `order.asl.json` and
- * `order.json` in one directory derive the same name whatever the layout.
+ * `order.json` in one directory derive the same name whatever the layout. Names are
+ * compared ignoring case and Unicode composition on every platform, since `Order.svg`
+ * and `order.svg` are one file on Windows and macOS. A filename whose first `.`-segment
+ * is a device name Windows reserves (`CON`, `NUL`, `COM1`, ...) gets a leading `_` before
+ * that comparison, so `nul.asl.json` writes `_nul.svg` and still collides with
+ * `_nul.asl.json`; a `--preserve-tree` directory is kept as it is.
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
@@ -483,8 +524,15 @@ export function planOutputPaths(
     params: PlanOutputPathsParams,
 ): PlannedOutput[] {
     const { format, outDir, sources, treeRoot } = params;
+    const renamed = new Set<OutputNamingSource>();
     const keys = sources.map((source) => {
-        const name = deriveOutputName({ format, input: source.nameSource });
+        const derived =
+            source.stem === undefined
+                ? deriveOutputName({ format, input: source.nameSource })
+                : `${source.stem}${OUTPUT_EXTENSIONS[format]}`;
+        // Only the filename: a --preserve-tree directory is the input's own, so it exists.
+        const name = avoidReservedDeviceName(derived);
+        if (name !== derived) renamed.add(source);
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
@@ -500,43 +548,70 @@ export function planOutputPaths(
         return join(relative(treeRoot, inputDir), name);
     });
 
-    const byKey = new Map<string, OutputNamingSource[]>();
+    // Folded on every platform, not only where the file system ignores case: the
+    // platform doesn't say how a given directory behaves (case-sensitive APFS, WSL
+    // mounts, per-directory NTFS), and a batch that passes on Linux CI must not drop a
+    // file on a Mac.
+    const byKey = new Map<
+        string,
+        { groupKeys: string[]; members: OutputNamingSource[] }
+    >();
     sources.forEach((source, index) => {
-        const existing = byKey.get(keys[index]);
+        const foldedKey = foldOutputName(keys[index]);
+        const existing = byKey.get(foldedKey);
         if (existing === undefined) {
-            byKey.set(keys[index], [source]);
+            byKey.set(foldedKey, { groupKeys: [keys[index]], members: [source] });
         } else {
-            existing.push(source);
+            existing.groupKeys.push(keys[index]);
+            existing.members.push(source);
         }
     });
 
-    const collisions = [...byKey.entries()].filter(
-        ([, group]) => group.length > 1,
-    );
+    const collisions = [...byKey.values()]
+        .filter(({ members }) => members.length > 1)
+        .map(({ groupKeys, members }): [string[], OutputNamingSource[]] => [
+            groupKeys,
+            members,
+        ]);
     if (collisions.length > 0) {
         const detail = collisions
             .map(
-                ([key, group]) =>
-                    `  ${join(outDir, key)} <- ${group.map((source) => source.label).join(', ')}`,
+                ([groupKeys, group]) =>
+                    `  ${join(outDir, groupKeys[0])} <- ${group.map((source) => source.label).join(', ')}`,
             )
             .join('\n');
+        const caseNote = collisions.some(([groupKeys]) =>
+            groupKeys.some((key) => key !== groupKeys[0]),
+        )
+            ? '\nNames that differ only in case, or in how accented letters are encoded, are one file on Windows or macOS.'
+            : '';
+        const deviceNote = collisions.some(([, group]) =>
+            group.some((source) => renamed.has(source)),
+        )
+            ? '\nA name Windows reserves as a device (CON, NUL, COM1, ...) gets a leading _.'
+            : '';
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
+        // A stem comes from a construct path, not an input directory, so --preserve-tree
+        // (refused for a cloud assembly) would not separate it.
         const hint =
-            treeRoot !== undefined
+            treeRoot !== undefined ||
+            collisions.some(([, group]) => group.some((source) => source.stem !== undefined))
                 ? 'Rename one, or render them in separate runs.'
                 : collisions.every(
                         ([, group]) =>
                             new Set(
                                 group.map((source) =>
-                                    dirname(resolve(source.nameSource)),
+                                    foldOutputName(
+                                        dirname(resolve(source.nameSource)),
+                                    ),
                                 ),
                             ).size === group.length,
                     )
                   ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
                   : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(
-            `Two or more inputs would be written to the same file:\n${detail}\n${hint}`,
+            `Two or more inputs would be written to the same file:\n${detail}${caseNote}${deviceNote}\n${hint}`,
         );
     }
 

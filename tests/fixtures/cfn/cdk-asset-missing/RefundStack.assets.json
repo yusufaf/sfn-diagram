@@ -1,0 +1,34 @@
+{
+  "version": "55.0.0",
+  "files": {
+    "30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba": {
+      "displayName": "RefundWorkflow/DefinitionBody",
+      "source": {
+        "path": "asset.30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-dd16dd27": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "30c6ecac6e6f6352d287addce4eb641687a5291561c9d20eef36c73b4fca36ba.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    },
+    "6ff6a20ab42b5c38292883552b793372860d599da96c6130eaedab14d7ef3a63": {
+      "displayName": "RefundStack Template",
+      "source": {
+        "path": "RefundStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-106f552c": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "6ff6a20ab42b5c38292883552b793372860d599da96c6130eaedab14d7ef3a63.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

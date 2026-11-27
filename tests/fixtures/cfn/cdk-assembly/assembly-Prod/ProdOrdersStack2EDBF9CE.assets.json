@@ -1,0 +1,34 @@
+{
+  "version": "55.0.0",
+  "files": {
+    "ec2daaf73527d9bd3cd7186d0ee206886ef24a6ebf495f0140801bf5b6acc424": {
+      "displayName": "Nested Nested Stack Template",
+      "source": {
+        "path": "ProdOrdersStackNested21266590.nested.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-4d0ee8ee": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "ec2daaf73527d9bd3cd7186d0ee206886ef24a6ebf495f0140801bf5b6acc424.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    },
+    "7f8934616d000df8c510ad2ab787424198e53a19300c0c2823df6c6e0278f8f0": {
+      "displayName": "Prod-OrdersStack Template",
+      "source": {
+        "path": "ProdOrdersStack2EDBF9CE.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-68fa5c5c": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "7f8934616d000df8c510ad2ab787424198e53a19300c0c2823df6c6e0278f8f0.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

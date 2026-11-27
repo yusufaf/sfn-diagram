@@ -1,0 +1,7 @@
+{
+  "StartAt": "LookupOrder",
+  "States": {
+    "LookupOrder": { "Type": "Pass", "Next": "IssueRefund" },
+    "IssueRefund": { "Type": "Task", "Resource": "${RefundFunctionArn}", "End": true }
+  }
+}

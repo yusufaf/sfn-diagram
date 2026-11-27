@@ -1,0 +1,48 @@
+{
+  "version": "55.0.0",
+  "files": {
+    "e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156": {
+      "displayName": "Child/ChildWorkflow/DefinitionBody",
+      "source": {
+        "path": "..\\asset.e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-a4ad8f97": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    },
+    "dde1a141bc0e6d08bd5f3b4bb2bbf5f546a0a9da741633d6240d3bc5fe45c161": {
+      "displayName": "Child Nested Stack Template",
+      "source": {
+        "path": "ProdParentChild9CEB70C2.nested.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-47320044": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "dde1a141bc0e6d08bd5f3b4bb2bbf5f546a0a9da741633d6240d3bc5fe45c161.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    },
+    "1e5e6cdff854730879596a1688b57aa37878eb99573ee3ec5159bdd5e0d8d0a3": {
+      "displayName": "Prod-Parent Template",
+      "source": {
+        "path": "ProdParent3456889D.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "current_account-current_region-821d318d": {
+          "bucketName": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}",
+          "objectKey": "1e5e6cdff854730879596a1688b57aa37878eb99573ee3ec5159bdd5e0d8d0a3.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-hnb659fds-file-publishing-role-${AWS::AccountId}-${AWS::Region}"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

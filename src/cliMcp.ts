@@ -13,6 +13,7 @@ import type { McpTool, McpToolResult } from './cliMcpServer';
 import { resolveCliOptions } from './cliOptions';
 import type { CliOptionSource } from './cliOptions';
 import { handleRenderRequest } from './cliRender';
+import { createTemplateFileReader } from './cliTemplateFiles';
 import type {
     RenderDefinitionInput,
     RenderErrorResponse,
@@ -137,7 +138,7 @@ const DEFINITION_PROPERTIES: Record<string, unknown> = {
     },
     resolveCfn: {
         description:
-            'Read the input as a CloudFormation/SAM/CDK template even when it is not detected as one, as YAML templates need.',
+            'Read the input as a CloudFormation/SAM/CDK template even when it is not detected as one. JSON and YAML templates with a state machine resource are detected automatically.',
         type: 'boolean',
     },
     resource: {
@@ -389,6 +390,8 @@ function readDefinition(params: ReadDefinitionParams): RenderDefinitionInput {
     }) as TextInput;
     return {
         path: input.path,
+        readFile:
+            input.path === null ? null : createTemplateFileReader({ templatePath: input.path }),
         resolveCfn: readOptionalBoolean({ args, name: 'resolveCfn' }) ?? false,
         resource: readOptionalString({ args, name: 'resource' }),
         source: input.source,
@@ -744,6 +747,10 @@ export function createMcpTools(params: CreateMcpToolsParams): McpTool[] {
             const response = await handleRenderRequest({
                 baseline: {
                     path: baseline.path,
+                    readFile:
+                        baseline.path === null
+                            ? null
+                            : createTemplateFileReader({ templatePath: baseline.path }),
                     resolveCfn: definition.resolveCfn,
                     resource: definition.resource,
                     source: baseline.source,

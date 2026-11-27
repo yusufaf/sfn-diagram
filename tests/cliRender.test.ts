@@ -20,6 +20,7 @@ import type { CliOptionSource, ResolvedCliOptions } from '../src/cliOptions';
 import { generateMermaid, generateSvg } from '../src/index';
 import { createLayoutCache } from '../src/layout';
 import { renderPng } from '../src/exporters/renderPng';
+import type { ReadFileParams } from '../src/types';
 
 const fixtures = join(__dirname, 'fixtures');
 const readFixture = (...segments: string[]): string =>
@@ -97,6 +98,7 @@ const input = (
     overrides: Partial<RenderDefinitionInput> = {},
 ): RenderDefinitionInput => ({
     path: null,
+    readFile: null,
     resolveCfn: false,
     resource: null,
     source,
@@ -119,6 +121,66 @@ const request = (
 });
 
 describe('handleRenderRequest: input detection and lint', () => {
+    // A path alone never opens a file: that is what keeps serve and inline MCP source
+    // reading nothing.
+    it('keeps the DefinitionUri diagnostic when an input has no readFile', async () => {
+        const response = await handleRenderRequest(
+            request({
+                definition: input(readFixture('cfn', 'sam-definition-uri.yaml'), {
+                    path: join(fixtures, 'cfn', 'sam-definition-uri.yaml'),
+                    resolveCfn: true,
+                }),
+            }),
+        );
+        expect(response.kind).toBe('error');
+        expect(response.kind === 'error' ? response.message : '').toMatch(
+            /cannot be read from the template alone/,
+        );
+    });
+
+    it("passes each input's readFile to its own template extraction", async () => {
+        const template = readFixture('cfn', 'sam-definition-uri.yaml');
+        const headReader = vi.fn(
+            () =>
+                '{"StartAt":"A","States":{"A":{"Type":"Pass","Next":"B"},"B":{"Type":"Pass","End":true}}}',
+        );
+        const baselineReader = vi.fn(
+            () => '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}',
+        );
+        const response = await handleRenderRequest(
+            request({
+                baseline: input(template, { readFile: baselineReader, resolveCfn: true }),
+                definition: input(template, { readFile: headReader, resolveCfn: true }),
+                options: { format: 'mermaid' },
+            }),
+        );
+        expect(response.kind).toBe('render');
+        expect(headReader).toHaveBeenCalledTimes(1);
+        expect(headReader).toHaveBeenCalledWith({ path: 'statemachine/order.asl.json' });
+        expect(baselineReader).toHaveBeenCalledTimes(1);
+        expect(baselineReader).toHaveBeenCalledWith({ path: 'statemachine/order.asl.json' });
+        expect(response.kind === 'render' ? String(response.output) : '').toContain('B');
+    });
+
+    it("passes the input's path to template extraction as its file name", async () => {
+        const readFile = vi.fn(({ path }: ReadFileParams) =>
+            path === 'RefundStack.assets.json'
+                ? readFixture('cfn', 'cdk-asset', 'RefundStack.assets.json')
+                : '{"StartAt":"A","States":{"A":{"Type":"Pass","End":true}}}',
+        );
+        const response = await handleRenderRequest(
+            request({
+                definition: input(readFixture('cfn', 'cdk-asset', 'RefundStack.template.json'), {
+                    path: join(fixtures, 'cfn', 'cdk-asset', 'RefundStack.template.json'),
+                    readFile,
+                }),
+                options: { format: 'mermaid' },
+            }),
+        );
+        expect(response.kind).toBe('render');
+        expect(readFile).toHaveBeenNthCalledWith(1, { path: 'RefundStack.assets.json' });
+    });
+
     it('lints plain ASL text with no warnings', async () => {
         const response = await handleRenderRequest(request({ mode: 'lint' }));
         expect(response).toEqual({
@@ -161,27 +223,37 @@ describe('handleRenderRequest: input detection and lint', () => {
         });
     });
 
-    it('reads a YAML template only when resolveCfn is set', async () => {
+    it('auto-detects a YAML template without resolveCfn', async () => {
         const yaml = readFixture('cfn', 'cfn-template.yaml');
-        const resolved = await handleRenderRequest(
-            request({
-                definition: input(yaml, { resolveCfn: true }),
-                mode: 'lint',
-            }),
+        const detected = await handleRenderRequest(
+            request({ definition: input(yaml), mode: 'lint' }),
         );
-        expect(resolved).toEqual({
+        expect(detected).toEqual({
             diagnostics: [],
             kind: 'lint',
             warnings: [],
         });
 
-        const unresolved = await handleRenderRequest(
-            request({ definition: input(yaml), mode: 'lint' }),
+        const forced = await handleRenderRequest(
+            request({
+                definition: input(yaml, { resolveCfn: true }),
+                mode: 'lint',
+            }),
         );
-        expect(unresolved.kind).toBe('lint');
-        if (unresolved.kind !== 'lint') return;
+        expect(forced).toEqual(detected);
+    });
+
+    it('reads YAML ASL-looking text as ASL, not a template', async () => {
+        const response = await handleRenderRequest(
+            request({
+                definition: input('StartAt: A\nStates: {}\n'),
+                mode: 'lint',
+            }),
+        );
+        expect(response.kind).toBe('lint');
+        if (response.kind !== 'lint') return;
         expect(
-            unresolved.diagnostics.map((diagnostic) => diagnostic.code),
+            response.diagnostics.map((diagnostic) => diagnostic.code),
         ).toEqual(['invalid-json']);
     });
 

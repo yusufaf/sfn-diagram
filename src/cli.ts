@@ -18,6 +18,8 @@ import {
     parseStateMachineArn,
 } from './cliAws';
 import type { ParsedExecutionArn, ParsedStateMachineArn } from './cliAws';
+import { expandCloudAssembly } from './cliCdkAssembly';
+import type { CloudAssemblyMachine } from './cliCdkAssembly';
 import { createAbortableSleep, followExecution } from './cliFollow';
 import { createFsWatchFactory, watchPaths } from './cliWatch';
 import type { CliConfig } from './cliConfig';
@@ -43,6 +45,7 @@ import { runMcp } from './cliMcp';
 import type { ResolvedCliOptions } from './cliOptions';
 import { resolveCliOptions, resolveCommentGitlabOptions } from './cliOptions';
 import { OVERLAY_FORMATS, handleRenderRequest } from './cliRender';
+import { createTemplateFileReader } from './cliTemplateFiles';
 import type { RenderErrorResponse, RenderLintResponse } from './cliRender';
 import { runServe } from './cliServe';
 import type { ParseServeQueryParams, ServeQueryResult } from './cliServe';
@@ -188,6 +191,8 @@ Usage:
   sfn-diagram <input> [options]
   sfn-diagram <input>... --out-dir <dir> [options]
   sfn-diagram '<glob>' --out-dir <dir> [options]
+  sfn-diagram <cdk.out> --out-dir <dir> [options]
+                                     (every state machine in a CDK cloud assembly)
   sfn-diagram - [options]            (read ASL from stdin)
   sfn-diagram comment gitlab [options]   (post a diagram/diff to a GitLab merge
                                           request from CI — see --help there)
@@ -274,16 +279,19 @@ Options:
   --follow-timeout <seconds>       Give up after this long and exit 1, so a CI job
                                    cannot wait forever on a run that never ends
   --resolve-cfn                    Treat the input as a CloudFormation/SAM/CDK template
-                                   (JSON templates are detected automatically; Terraform
-                                   .tf and .tf.json files are detected automatically too)
+                                   (JSON and YAML templates are detected automatically;
+                                   Terraform .tf and .tf.json files too)
   --resource <id>                  State machine to extract when a template or Terraform
                                    config has several (CloudFormation logical id, CDK
-                                   construct path, or Terraform resource name)
+                                   construct path, or Terraform resource name). With
+                                   a cdk.out directory, only the machines it matches
+                                   in each stack
   --watch                          Re-render whenever a watched file changes, until
                                    interrupted. Watches the inputs (a glob's whole
-                                   directory, so new files count), the config file and
-                                   any --theme, --diff or --execution file. Always
-                                   exits 0: a development loop, not a CI gate.
+                                   directory, so new files count), the config file,
+                                   any --theme, --diff or --execution file, and any
+                                   DefinitionUri file or CDK asset a template reads.
+                                   Always exits 0: a development loop, not a CI gate.
   --check                          Lint the definition instead of drawing it: print every
                                    diagnostic and exit 1 if any is an error
   --check-format <text|json>       With --check: json prints one JSON document to
@@ -313,16 +321,19 @@ Notes:
   progress - use --watch to re-render when one changes. Each tick
   re-fetches the whole history and rewrites the one output file atomically, so a
   reader never sees a partial document and Ctrl-C leaves the last complete render in
-  place. A browser showing the HTML needs a manual reload; there is no live push.
+  place. The definition, including a DefinitionUri file or CDK asset, is read once
+  for the whole follow. A browser showing the HTML needs a manual reload; there is
+  no live push.
 
   --watch needs file inputs: there is nothing to watch about stdin, --from-aws or an
   execution ARN, and it cannot be combined with --follow since both re-render on
-  their own schedule. A change to an input re-renders that input; a change to the
-  config, a --theme file, a --diff baseline or an --execution history re-resolves and
-  re-renders everything, since those feed every output. A deleted file is not an
-  error, and a render that fails leaves the watch running - the file you are editing
-  is briefly invalid every time you save. --watch --check re-lints on change and still
-  exits 0.
+  their own schedule. A change to an input re-renders that input, and so does a
+  change to a file its template reads (a SAM DefinitionUri, a CDK manifest.json,
+  .assets.json or asset); a change to the config, a --theme file, a --diff baseline
+  or an --execution history re-resolves and re-renders everything, since those feed
+  every output. A deleted file is not an error, and a render that fails leaves the
+  watch running - the file you are editing is briefly invalid every time you save.
+  --watch --check re-lints on change and still exits 0.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
@@ -333,12 +344,21 @@ Notes:
   Several inputs can be given as separate arguments or as a quoted glob
   ("machines/**/*.asl.json"), which is expanded even where the shell does not.
   Outputs are flat: <out-dir>/<input basename>.<ext>. Two inputs that would produce
-  the same filename are refused before anything is written. With --preserve-tree
-  they are <out-dir>/<directory relative to the inputs' common root>/<basename>.<ext>;
+  the same filename, ignoring case, are refused before anything is written.
+  With --preserve-tree they are
+  <out-dir>/<directory relative to the inputs' common root>/<basename>.<ext>;
   a glob contributes its non-glob prefix, not its matches, so adding a file never
   moves the others. Inputs on different drives are refused. --diff and --execution
   take a single input. A failing input does not stop the batch; the run exits 1 if
   any failed.
+
+  A directory with a manifest.json is read as a CDK cloud assembly (cdk.out): every
+  state machine in its stacks, its Stages and their nested stacks becomes one input,
+  written to <out-dir>/<construct path, with / as .>.<ext>, such as
+  Prod.OrdersStack.OrderWorkflow.svg. A full construct path or logical ID given to
+  --resource picks just the machines it names; a shorter path keeps each stack's
+  match. One machine left can go to -o. --watch watches the whole directory. Not
+  with --diff, --execution or --preserve-tree.
 
   Exit codes: 0 success, 1 runtime failure (unreadable or invalid input, a failed
   render or write), 2 usage error (unknown flag, invalid value, a combination that
@@ -374,7 +394,9 @@ Examples:
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 -o run.svg
   sfn-diagram state.asl.json --execution arn:...:execution:Orders:run-1 --follow -o run.svg
   cdk synth --quiet && sfn-diagram cdk.out/MyStack.template.json --format mermaid
-  sfn-diagram template.yaml --resolve-cfn --resource MyMachine -o diagram.svg
+  cdk synth --quiet && sfn-diagram cdk.out --out-dir diagrams
+  sfn-diagram cdk.out --check
+  sfn-diagram template.yaml --resource MyMachine -o diagram.svg
   sfn-diagram main.tf --resource orders -o orders.svg
   sfn-diagram state.asl.json --check
   sfn-diagram state.asl.json --watch -o diagram.svg
@@ -1459,8 +1481,17 @@ function readPackageVersion(): string {
  */
 type CliInputSource =
     | { arn: ParsedStateMachineArn; kind: 'aws' }
-    | { kind: 'file'; path: string }
+    | { kind: 'file'; machine?: CloudAssemblyMachine; path: string }
     | { kind: 'stdin' };
+
+/** Whether a path names an existing directory; `false` for anything that cannot be stat'd. */
+function isDirectory(path: string): boolean {
+    try {
+        return statSync(resolve(path)).isDirectory();
+    } catch {
+        return false;
+    }
+}
 
 /**
  * How a source is named in messages: its path, its ARN, or `stdin`.
@@ -1474,7 +1505,9 @@ function describeSource(source: CliInputSource): string {
         case 'aws':
             return source.arn.arn;
         case 'file':
-            return source.path;
+            return source.machine === undefined
+                ? source.path
+                : `${source.path} (${source.machine.name})`;
         case 'stdin':
             return 'stdin';
     }
@@ -1500,7 +1533,17 @@ async function loadSource(source: CliInputSource): Promise<string> {
         // template detection (src/cliRender.ts) parses this text itself to decide
         // whether it is a template at all.
         case 'file':
-            return stripBom(readFileSync(resolve(source.path), 'utf-8'));
+            try {
+                return stripBom(readFileSync(resolve(source.path), 'utf-8'));
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'EISDIR') {
+                    throw new Error(
+                        `${source.path} is a directory but not a CDK cloud assembly (no manifest.json with an artifacts object). Pass a file, a quoted glob such as '${toPosix(source.path)}/**/*.asl.json', or a cdk.out directory.`,
+                        { cause: error },
+                    );
+                }
+                throw error;
+            }
         case 'stdin':
             return stripBom(await readStdin());
     }
@@ -1618,19 +1661,33 @@ function writeLintReport(diagnostics: LintDiagnostic[]): void {
  * One input's entry in the `--check-format json` document: the render service's lint
  * or error response, unchanged, with the input it came from. `file` is the path as
  * given (or as a glob expanded it), the ARN for `--from-aws`, and `null` for stdin.
+ * `resource` is the logical ID of a machine from a cloud assembly, whose `file` is its
+ * template: the two together select it again with `sfn-diagram <file> --resource <id>`.
  */
 type CheckFileReport = (RenderErrorResponse | RenderLintResponse) & {
     file: string | null;
+    resource?: string;
 };
 
-interface CheckFileNameParams {
+interface CheckEntrySourceParams {
     source: CliInputSource;
 }
 
-/** The `file` value a `--check-format json` entry carries for this source. */
-function checkFileName(params: CheckFileNameParams): string | null {
+/** The `file` (and, for a cloud assembly machine, `resource`) a `--check-format json` entry starts with. */
+function checkEntrySource(
+    params: CheckEntrySourceParams,
+): Pick<CheckFileReport, 'file' | 'resource'> {
     const { source } = params;
-    return source.kind === 'stdin' ? null : describeSource(source);
+    switch (source.kind) {
+        case 'aws':
+            return { file: describeSource(source) };
+        case 'file':
+            return source.machine === undefined
+                ? { file: source.path }
+                : { file: source.path, resource: source.machine.logicalId };
+        case 'stdin':
+            return { file: null };
+    }
 }
 
 interface LintExitCodeParams {
@@ -1981,6 +2038,18 @@ interface RenderOneInputParams {
     /** Contents of `--execution`'s history, already read, or `null`. */
     historySource: string | null;
     /**
+     * Called for each file a template reads from disk (a SAM `DefinitionUri`, a CDK
+     * `manifest.json`, `.assets.json` or asset), so `--watch` can watch it. `null` when
+     * nobody asks.
+     */
+    onTemplateFileRead: ((read: TemplateFileRead) => void) | null;
+    /**
+     * Texts of the files templates read, shared across calls so each is read once.
+     * `--follow` passes one for the whole follow; everything else passes `null` and reads
+     * fresh.
+     */
+    templateFileCache: Map<string, string> | null;
+    /**
      * Whether messages should name the input.
      *
      * True only for a batch of more than one: with a single input the reader
@@ -1994,8 +2063,9 @@ interface RenderOneInputParams {
     /**
      * Whether to print what depends only on the definition and the `--diff` baseline:
      * template and Terraform extraction warnings, and the diff summary. `--follow`
-     * prints them on its first tick only. Both inputs are fixed for the whole follow,
-     * so the output never changes, and every tick would otherwise repeat it on stderr.
+     * prints them on its first tick only, since every tick would otherwise repeat them on
+     * stderr. The template text, and any `DefinitionUri` file or CDK asset it reads, is
+     * fixed for the whole follow, so later ticks would print the same thing.
      */
     reportStatic: boolean;
     /** Where this render's definition comes from. */
@@ -2037,13 +2107,24 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         definitionText,
         historySource,
         labelInput,
+        onTemplateFileRead,
         options,
         outputPath,
         reportStatic,
         source,
+        templateFileCache,
         theme,
         writeAtomically,
     } = params;
+    /** A reader for the files a template at `templatePath` points at, reporting each read. */
+    const templateFileReader = (templatePath: string, readBy: string | null) =>
+        createTemplateFileReader({
+            ...(templateFileCache === null ? {} : { cache: templateFileCache }),
+            ...(onTemplateFileRead === null
+                ? {}
+                : { onRead: ({ path }: { path: string }) => onTemplateFileRead({ path, readBy }) }),
+            templatePath,
+        });
     /** Write this render's output, honouring the atomic-write choice once. */
     const emit = (content: string): void =>
         writeOutput({ atomic: writeAtomically, content, outputPath });
@@ -2065,7 +2146,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 : `Failed to read input${label === '' ? '' : ` ${label}`}: ${message}`;
         if (checkReport !== null) {
             checkReport.push({
-                file: checkFileName({ source }),
+                ...checkEntrySource({ source }),
                 kind: 'error',
                 message: readFailure(''),
                 warnings: [],
@@ -2082,6 +2163,10 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
                 ? null
                 : {
                       path: baselineIsLive ? null : args.diff,
+                      readFile:
+                          baselineIsLive || args.diff === null
+                              ? null
+                              : templateFileReader(args.diff, null),
                       // A live baseline is already ASL; only the head can be a template.
                       resolveCfn: args.resolveCfn && !baselineIsLive,
                       resource: baselineIsLive ? null : args.resource,
@@ -2090,8 +2175,15 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         cache,
         definition: {
             path: source.kind === 'file' ? source.path : null,
+            readFile:
+                source.kind === 'file'
+                    ? templateFileReader(source.path, source.path)
+                    : null,
             resolveCfn: args.resolveCfn,
-            resource: args.resource,
+            resource:
+                source.kind === 'file' && source.machine !== undefined
+                    ? source.machine.logicalId
+                    : args.resource,
             source: aslSource,
         },
         history: historySource,
@@ -2099,7 +2191,7 @@ async function renderOneInput(params: RenderOneInputParams): Promise<number> {
         options: { ...options, theme },
     });
     if (checkReport !== null && response.kind !== 'render') {
-        checkReport.push({ file: checkFileName({ source }), ...response });
+        checkReport.push({ ...checkEntrySource({ source }), ...response });
         return response.kind === 'error'
             ? EXIT_FAILURE
             : lintExitCode({ diagnostics: response.diagnostics });
@@ -2355,7 +2447,17 @@ export async function run(argv: string[]): Promise<number> {
 
     if (args.watch) return runWatch({ args });
     const cache = createLayoutCache();
-    return (await renderResolvedBatch({ args, cache, only: null })).code;
+    return (
+        await renderResolvedBatch({ args, cache, onTemplateFileRead: null, only: null })
+    ).code;
+}
+
+/** One file a template read from disk, and which input's template read it. */
+interface TemplateFileRead {
+    /** The file's absolute path. */
+    path: string;
+    /** The input (`source.path`) whose template read it, or `null` for the `--diff` baseline. */
+    readBy: string | null;
 }
 
 /** How long a burst of filesystem events is allowed to settle before re-rendering. */
@@ -2425,7 +2527,20 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     });
 
     const cache = createLayoutCache();
-    const first = await renderResolvedBatch({ args, cache, only: null });
+    /** Which inputs' templates read each file, keyed by the file's absolute posix path. */
+    const templateFileReaders = new Map<string, Set<string | null>>();
+    const recordRead = ({ path, readBy }: TemplateFileRead): void => {
+        const key = toPosix(path);
+        const readers = templateFileReaders.get(key) ?? new Set<string | null>();
+        readers.add(readBy);
+        templateFileReaders.set(key, readers);
+    };
+    const first = await renderResolvedBatch({
+        args,
+        cache,
+        onTemplateFileRead: recordRead,
+        only: null,
+    });
     // A usage error is about the command line, which watching cannot change. Every
     // other failure is a file problem, and watching is how you fix those - so only
     // this one aborts.
@@ -2450,28 +2565,25 @@ async function runWatch(params: RunWatchParams): Promise<number> {
     try {
         await watchPaths({
             debounceMs: WATCH_DEBOUNCE_MS,
-            onChange: async ({ paths }) => {
-                // A config or theme change re-resolves and re-renders everything;
-                // anything else is an input, so only that input is redrawn. A path
-                // that is no longer an input at all - a file deleted, or one created
-                // under a glob root that does not match the pattern - falls back to a
-                // full pass, which re-expands the globs and sorts it out.
-                const inputPaths = paths.filter(
-                    (path) =>
-                        !isBatchWideTarget({
-                            args,
-                            configPath: first.configPath ?? configPath,
-                            path,
-                        }),
-                );
-                const only =
-                    inputPaths.length === paths.length && inputPaths.length > 0
-                        ? inputPaths
-                        : null;
+            onChange: async ({ addTargets, paths }) => {
+                const only = inputsToRerender({
+                    args,
+                    configPath: first.configPath ?? configPath,
+                    paths,
+                    templateFileReaders,
+                });
                 for (const path of paths) {
                     process.stderr.write(`  ${path} changed\n`);
                 }
-                await renderResolvedBatch({ args, cache, only });
+                const pass = await renderResolvedBatch({
+                    args,
+                    cache,
+                    onTemplateFileRead: recordRead,
+                    only,
+                });
+                // A template edited to point at a new DefinitionUri file read it just
+                // now; watch it from here on. Targets already watched are skipped.
+                addTargets({ targets: pass.watchTargets });
             },
             onWatchError: ({ target }) => {
                 process.stderr.write(`  cannot watch ${target}; skipping it\n`);
@@ -2541,6 +2653,63 @@ function isBatchWideTarget(params: IsBatchWideTargetParams): boolean {
     });
 }
 
+/** Parameters for {@link inputsToRerender}. */
+export interface InputsToRerenderParams {
+    /** The parsed command line. */
+    args: CliArgs;
+    /** The loaded config path, when known. */
+    configPath: string | null;
+    /** The paths one burst reported as changed. */
+    paths: string[];
+    /**
+     * Keyed by `toPosix` of a template file's absolute path: the inputs (`source.path`)
+     * whose templates read it, and `null` for the `--diff` baseline's template.
+     */
+    templateFileReaders: ReadonlyMap<string, ReadonlySet<string | null>>;
+}
+
+/**
+ * Which inputs `--watch` re-renders for one burst of changes.
+ *
+ * A config, `--theme`, `--diff` or `--execution` change, or a file the `--diff` baseline's
+ * template read, invalidates the whole batch. A file an input's template read (a SAM
+ * `DefinitionUri`, a CDK `manifest.json`, `.assets.json` or asset) re-renders that input.
+ * Anything else is taken to be an input itself; a path that turns out not to be one falls
+ * back to a full pass in {@link renderResolvedBatch}, which re-expands the globs and sorts
+ * it out.
+ *
+ * @param params - The command line, the config path, the changed paths and who read what.
+ *
+ * @returns The `only` list for {@link renderResolvedBatch}, or `null` for a full pass.
+ *
+ * @example
+ * ```typescript
+ * inputsToRerender({
+ *     args: parseArgs(['template.yaml', '--watch']),
+ *     configPath: null,
+ *     paths: ['statemachine/order.asl.json'],
+ *     templateFileReaders: new Map([['/repo/statemachine/order.asl.json', new Set(['template.yaml'])]]),
+ * });
+ * // ['statemachine/order.asl.json', 'template.yaml'] when run from /repo
+ * ```
+ */
+export function inputsToRerender(params: InputsToRerenderParams): string[] | null {
+    const { args, configPath, paths, templateFileReaders } = params;
+    const only = new Set<string>();
+    for (const path of paths) {
+        if (isBatchWideTarget({ args, configPath, path })) return null;
+        const readers = templateFileReaders.get(toPosix(resolve(path)));
+        if (readers?.has(null)) return null;
+        // The path itself stays in: it may be an input as well, and an entry that matches
+        // no input is ignored once another entry matches.
+        only.add(path);
+        for (const reader of readers ?? []) {
+            if (reader !== null) only.add(reader);
+        }
+    }
+    return only.size > 0 ? [...only] : null;
+}
+
 /** Parameters for {@link isUnderAnyRoot}. */
 interface IsUnderAnyRootParams {
     /** The candidate path. */
@@ -2574,6 +2743,12 @@ export interface CollectWatchTargetsParams {
     configPath: string | null;
     /** The expanded sources for this pass. */
     sources: CliInputSource[];
+    /**
+     * Absolute paths of the files templates pointed at (a SAM `DefinitionUri`, a CDK
+     * `manifest.json`, `.assets.json` or asset), as read so far. Omitted before the first
+     * render.
+     */
+    templateFiles?: string[];
 }
 
 /**
@@ -2587,9 +2762,11 @@ export interface CollectWatchTargetsParams {
  * The config and `--theme` files are included because `resolveCliOptions` folds them
  * into the options exactly once; without watching them, editing a config mid-watch
  * would silently do nothing. `--diff` and `--execution` are included when they name a
- * path, and skipped when they name an ARN.
+ * path, and skipped when they name an ARN. A file a template read is included unless a
+ * glob root or cloud assembly already being watched recursively covers it.
  *
- * @param params - The command line, the loaded config path, and the expanded sources.
+ * @param params - The command line, the loaded config path, the expanded sources, and the
+ *   files templates read.
  *
  * @returns Targets to watch, de-duplicated, in a stable order.
  *
@@ -2606,7 +2783,7 @@ export interface CollectWatchTargetsParams {
 export function collectWatchTargets(
     params: CollectWatchTargetsParams,
 ): string[] {
-    const { args, configPath, sources } = params;
+    const { args, configPath, sources, templateFiles = [] } = params;
     const targets: string[] = [];
 
     const globPatterns = args.inputs.filter((pattern) => hasGlobMagic(pattern));
@@ -2614,6 +2791,13 @@ export function collectWatchTargets(
     for (const pattern of globPatterns) {
         const root = patternRoot(pattern);
         roots.push(root === '' ? '.' : root);
+    }
+    // A cloud assembly is watched whole: its manifests and assets change along with
+    // its templates on every `cdk synth`.
+    for (const source of sources) {
+        if (source.kind === 'file' && source.machine !== undefined) {
+            roots.push(source.machine.assembly);
+        }
     }
     targets.push(...roots);
 
@@ -2623,9 +2807,17 @@ export function collectWatchTargets(
     // `sfn-diagram 'machines/*.asl.json' extra/other.asl.json --watch` silently
     // stopped watching the literal.
     for (const source of sources) {
-        if (source.kind !== 'file') continue;
+        if (source.kind !== 'file' || source.machine !== undefined) continue;
         if (!isUnderAnyRoot({ path: source.path, roots })) {
             targets.push(source.path);
+        }
+    }
+    // Template files are absolute, so the roots are compared resolved; a `'.'` root would
+    // otherwise cover a `../` DefinitionUri it does not watch.
+    const resolvedRoots = roots.map((root) => resolve(root));
+    for (const file of templateFiles) {
+        if (!isUnderAnyRoot({ path: resolve(file), roots: resolvedRoots })) {
+            targets.push(file);
         }
     }
 
@@ -2650,6 +2842,8 @@ interface RenderResolvedBatchParams {
      * `--watch` calls this once per pass, and a cache per pass would never hit.
      */
     cache: LayoutCache;
+    /** Passed to every render: see {@link RenderOneInputParams.onTemplateFileRead}. */
+    onTemplateFileRead: ((read: TemplateFileRead) => void) | null;
     /**
      * Render only these inputs, or `null` for all of them.
      *
@@ -2673,7 +2867,8 @@ interface RenderResolvedBatchResult {
     configPath: string | null;
     /**
      * What `--watch` should watch: each literal input, each glob's root directory,
-     * and the config and theme files. Empty when nothing on disk is involved.
+     * the config and theme files, and (once the pass has rendered) each file a template
+     * read. Empty when nothing on disk is involved.
      */
     watchTargets: string[];
 }
@@ -2694,7 +2889,7 @@ interface RenderResolvedBatchResult {
 async function renderResolvedBatch(
     params: RenderResolvedBatchParams,
 ): Promise<RenderResolvedBatchResult> {
-    const { args, cache, only } = params;
+    const { args, cache, onTemplateFileRead, only } = params;
     /** Returned alongside every early exit so a failed pass still says what to watch. */
     const watchTargets: string[] = [];
 
@@ -2879,25 +3074,70 @@ async function renderResolvedBatch(
     } else if (args.inputs.length === 0) {
         sources = [{ kind: 'stdin' as const }];
     } else {
-        let expanded: string[];
+        sources = [];
         try {
-            expanded = expandInputs({
+            const expanded = expandInputs({
                 cwd: process.cwd(),
                 patterns: args.inputs,
             });
+            for (const path of expanded) {
+                if (path === '-') {
+                    sources.push({ kind: 'stdin' });
+                    continue;
+                }
+                // A directory that is not a cloud assembly stays a plain path and fails
+                // on its own, so one stray directory doesn't stop the rest of a batch.
+                const machines = isDirectory(path)
+                    ? expandCloudAssembly({ directory: path, resource: args.resource })
+                    : null;
+                if (machines === null) {
+                    sources.push({ kind: 'file', path });
+                } else {
+                    sources.push(
+                        ...machines.map((machine) => ({
+                            kind: 'file' as const,
+                            machine,
+                            path: machine.templatePath,
+                        })),
+                    );
+                }
+            }
         } catch (error) {
             if (!(error instanceof CliInputError)) throw error;
-            // A pattern that matched nothing is about the filesystem, not the
-            // command line.
+            // A pattern that matched nothing, or a cloud assembly that cannot be read,
+            // is about the filesystem, not the command line.
             process.stderr.write(`Error: ${error.message}\n`);
             return { code: EXIT_FAILURE, configPath, watchTargets };
         }
-        sources = expanded.map((path) =>
-            path === '-'
-                ? ({ kind: 'stdin' } as const)
-                : ({ kind: 'file', path } as const),
-        );
     }
+
+    const machines = sources.flatMap((source) =>
+        source.kind === 'file' && source.machine !== undefined ? [source.machine] : [],
+    );
+    if (machines.length > 0) {
+        const refusal =
+            args.diff !== null
+                ? "--diff takes one template or ASL file, not a cloud assembly directory; pass the stack's template with --resource\n"
+                : args.execution !== null
+                  ? "--execution takes one template or ASL file, not a cloud assembly directory; pass the stack's template with --resource\n"
+                  : args.preserveTree
+                    ? '--preserve-tree mirrors input directories; outputs from a cloud assembly are named by construct path instead\n'
+                    : null;
+        if (refusal !== null) {
+            process.stderr.write(refusal);
+            return { code: EXIT_USAGE, configPath, watchTargets };
+        }
+    }
+    /** Turns a refusal of several inputs into advice on picking one machine of an assembly. */
+    const withMachineHint = (message: string): string => {
+        // With another input alongside, picking one machine would not make it one input.
+        if (machines.length === 0 || machines.length !== sources.length) return `${message}\n`;
+        if (args.resource === null) {
+            return `${message}; pass --resource to pick one state machine from a cloud assembly\n`;
+        }
+        const names = machines.map((machine) => machine.name).join(', ');
+        return `--resource '${args.resource}' matches ${machines.length} state machines in the cloud assembly: ${names}; pass --out-dir to render them all, or one of those names as --resource to pick one\n`;
+    };
 
     // There is no filename to derive an output name from when the definition arrives
     // on stdin. Left unchecked, a bare `-` wrote a file called `-.svg` and a piped
@@ -2922,13 +3162,15 @@ async function renderResolvedBatch(
         }
         if (args.output !== null) {
             process.stderr.write(
-                '-o takes a single output file; use --out-dir for more than one input\n',
+                withMachineHint(
+                    '-o takes a single output file; use --out-dir for more than one input',
+                ),
             );
             return { code: EXIT_USAGE, configPath, watchTargets };
         }
         if (args.outDir === null && !args.check) {
             process.stderr.write(
-                '--out-dir is required for more than one input\n',
+                withMachineHint('--out-dir is required for more than one input'),
             );
             return { code: EXIT_USAGE, configPath, watchTargets };
         }
@@ -2958,15 +3200,24 @@ async function renderResolvedBatch(
             planned = planOutputPaths({
                 format: options.format,
                 outDir: args.outDir,
-                sources: sources.map((source) => ({
-                    label: describeSource(source),
-                    // A file names its output after its path; an ARN after the
-                    // state machine, since an ARN's colons cannot be a filename.
-                    nameSource:
-                        source.kind === 'aws'
-                            ? source.arn.outputName
-                            : describeSource(source),
-                })),
+                sources: sources.map((source) =>
+                    // A cloud assembly machine is named after its construct path.
+                    source.kind === 'file' && source.machine !== undefined
+                        ? {
+                              label: describeSource(source),
+                              nameSource: source.path,
+                              stem: source.machine.outputStem,
+                          }
+                        : {
+                              label: describeSource(source),
+                              // A file names its output after its path; an ARN after the
+                              // state machine, since an ARN's colons cannot be a filename.
+                              nameSource:
+                                  source.kind === 'aws'
+                                      ? source.arn.outputName
+                                      : describeSource(source),
+                          },
+                ),
                 // Rooted at the command line, not the matches, so `--watch` re-runs
                 // and a newly matched file never move the other outputs.
                 treeRoot: args.preserveTree
@@ -3149,8 +3400,11 @@ async function renderResolvedBatch(
     // caller chose a pattern rather than a path, so which file was selected is
     // exactly what they do not know. A single literal input needs no label - the
     // reader just typed it.
+    // So does a cloud assembly, for the same reason.
     const labelInput =
-        work.length > 1 || args.inputs.some((pattern) => hasGlobMagic(pattern));
+        work.length > 1 ||
+        machines.length > 0 ||
+        args.inputs.some((pattern) => hasGlobMagic(pattern));
 
     // --follow owns its own render loop: one source, one destination, re-rendered
     // until the execution ends. Guards above have already established that
@@ -3175,6 +3429,12 @@ async function renderResolvedBatch(
 
     const checkReport: CheckFileReport[] | null =
         args.check && args.checkFormat === 'json' ? [] : null;
+    /** The files this pass's templates read, to watch along with everything else. */
+    const templateFiles: string[] = [];
+    const recordTemplateFileRead = (read: TemplateFileRead): void => {
+        templateFiles.push(read.path);
+        onTemplateFileRead?.(read);
+    };
     let worstCode = EXIT_OK;
     for (const item of selected) {
         // A failing input does not stop the batch: stopping at the first would hide the
@@ -3185,13 +3445,18 @@ async function renderResolvedBatch(
             baselineSource,
             cache,
             checkReport,
-            definitionText: null,
+            // The template text the assembly was expanded from, so the machine found is
+            // the machine rendered.
+            definitionText:
+                item.source.kind === 'file' ? (item.source.machine?.template ?? null) : null,
             historySource,
             labelInput,
+            onTemplateFileRead: recordTemplateFileRead,
             options,
             outputPath: item.outputPath,
             reportStatic: true,
             source: item.source,
+            templateFileCache: null,
             theme,
             writeAtomically: false,
         });
@@ -3200,7 +3465,11 @@ async function renderResolvedBatch(
     if (checkReport !== null) {
         process.stdout.write(`${JSON.stringify({ files: checkReport })}\n`);
     }
-    return { code: worstCode, configPath, watchTargets };
+    return {
+        code: worstCode,
+        configPath,
+        watchTargets: collectWatchTargets({ args, configPath, sources, templateFiles }),
+    };
 }
 
 /** Parameters for {@link runFollow}. */
@@ -3222,7 +3491,10 @@ interface RunFollowParams {
     options: ResolvedCliOptions;
     /** The single file every tick rewrites. */
     outputPath: string | null;
-    /** Where the definition comes from. Read once, before the loop starts. */
+    /**
+     * Where the definition comes from. Read once, before the loop starts; a file the
+     * template points at is read on the first tick and reused for the rest.
+     */
     source: CliInputSource;
     /** The resolved theme. */
     theme: ThemeOption;
@@ -3262,6 +3534,10 @@ async function runFollow(params: RunFollowParams): Promise<number> {
     // stdin can only be drained once and a live one would otherwise cost a
     // DescribeStateMachine per tick; the client because each one carries its own
     // keep-alive agent, so one per tick reuses no connection and strands sockets.
+    // A file the template points at (a SAM DefinitionUri, a CDK asset) is read on the
+    // first tick and kept in this cache: re-read per tick, one caught mid-save or briefly
+    // missing failed that tick, and a failed tick ends the follow.
+    const templateFileCache = new Map<string, string>();
     let definitionText: string;
     let client: SFNClient;
     try {
@@ -3308,11 +3584,13 @@ async function runFollow(params: RunFollowParams): Promise<number> {
                     // One source, and the reader chose the ARN, so there is nothing
                     // ambiguous for a label to disambiguate.
                     labelInput: false,
+                    onTemplateFileRead: null,
                     options,
                     outputPath,
                     // A failed render ends the follow, so the first tick always prints them.
                     reportStatic: ticks === 1,
                     source,
+                    templateFileCache,
                     theme,
                     writeAtomically: true,
                 });

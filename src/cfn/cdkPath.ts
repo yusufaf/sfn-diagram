@@ -137,6 +137,107 @@ export function formatMachineLabel(params: FormatMachineLabelParams): string {
     return cdkPath === undefined ? logicalId : `${logicalId} (${toConstructPath({ cdkPath })})`;
 }
 
+/** Drops the leading `/` an `aws:cdk:path` copied from `cdk.out/manifest.json` carries. */
+function normalizeResourceId(resourceId: string): string {
+    return resourceId.startsWith('/') ? resourceId.slice(1) : resourceId;
+}
+
+/** The machine's `aws:cdk:path`, with and without its trailing `/Resource`; none without one. */
+function constructPaths(machine: StateMachineCandidate): string[] {
+    return machine.cdkPath === undefined
+        ? []
+        : [machine.cdkPath, toConstructPath({ cdkPath: machine.cdkPath })];
+}
+
+/** Parameters for {@link matchStateMachines}. */
+export interface MatchStateMachinesParams<T extends StateMachineCandidate> {
+    /** One template's state machines. */
+    machines: readonly T[];
+    /** A logical ID or a CDK construct path (full, stack-relative, or a trailing part of one). */
+    resourceId: string;
+}
+
+/**
+ * Finds every state machine in the first tier that matches a `resourceId`, using the tiers
+ * {@link matchStateMachine} documents.
+ *
+ * @param params - One template's candidates and the value to match.
+ * @returns The caller's own candidates from the first tier that matches anything, or `[]`.
+ */
+export function matchStateMachines<T extends StateMachineCandidate>(
+    params: MatchStateMachinesParams<T>,
+): T[] {
+    const { machines, resourceId } = params;
+    const wanted = normalizeResourceId(resourceId);
+    const parts = wanted.split('/');
+    const computedIds = new Set<string>();
+    if (!parts.includes('')) {
+        for (const components of [[...parts, HIDDEN_FROM_HUMAN_ID], parts]) {
+            const logicalId = makeCdkLogicalId({ components });
+            if (logicalId !== undefined) {
+                computedIds.add(logicalId);
+            }
+        }
+    }
+
+    const tiers: Array<(machine: T) => boolean> = [
+        (machine) => machine.logicalId === resourceId,
+        (machine) => constructPaths(machine).includes(wanted) || computedIds.has(machine.logicalId),
+        (machine) => constructPaths(machine).some((path) => path.endsWith(`/${wanted}`)),
+    ];
+    for (const tier of tiers) {
+        const matches = machines.filter(tier);
+        if (matches.length > 0) {
+            return matches;
+        }
+    }
+    return [];
+}
+
+/** Parameters for {@link matchStateMachinesInTemplates}. */
+export interface MatchStateMachinesInTemplatesParams<T extends StateMachineCandidate> {
+    /** A logical ID or a CDK construct path (full, stack-relative, or a trailing part of one). */
+    resourceId: string;
+    /** Each template's state machines, one array per template. */
+    templates: ReadonlyArray<readonly T[]>;
+}
+
+/**
+ * Finds the state machines a `resourceId` names across several templates, such as every stack
+ * in a CDK cloud assembly.
+ *
+ * Exact hits win anywhere: a machine whose logical ID is `resourceId`, or whose full
+ * `aws:cdk:path` (with or without its trailing `/Resource`) is. Without one, each template's own
+ * {@link matchStateMachines} result is kept. Computed logical IDs and trailing parts are relative
+ * to a stack, so ranking them across templates would drop a machine that sits deeper in another
+ * stack.
+ *
+ * @param params - The templates' candidates and the value to match.
+ * @returns The matches in template order, or `[]`. Never throws on ambiguity.
+ *
+ * @example
+ * ```typescript
+ * // 'OrdersStack/OrderWorkflow' picks only that stack's machine, not the copy in Prod/OrdersStack.
+ * matchStateMachinesInTemplates({ resourceId: 'OrdersStack/OrderWorkflow', templates });
+ * ```
+ */
+export function matchStateMachinesInTemplates<T extends StateMachineCandidate>(
+    params: MatchStateMachinesInTemplatesParams<T>,
+): T[] {
+    const { resourceId, templates } = params;
+    const wanted = normalizeResourceId(resourceId);
+    const exact = templates
+        .flat()
+        .filter(
+            (machine) =>
+                machine.logicalId === resourceId || constructPaths(machine).includes(wanted),
+        );
+    if (exact.length > 0) {
+        return exact;
+    }
+    return templates.flatMap((machines) => matchStateMachines({ machines, resourceId }));
+}
+
 /** Parameters for {@link matchStateMachine}. */
 export interface MatchStateMachineParams {
     /** The template's state machines. */
@@ -164,40 +265,13 @@ export interface MatchStateMachineParams {
 export function matchStateMachine(
     params: MatchStateMachineParams,
 ): StateMachineCandidate | undefined {
-    const { machines, resourceId } = params;
-    const wanted = resourceId.startsWith('/') ? resourceId.slice(1) : resourceId;
-    const parts = wanted.split('/');
-    const computedIds = new Set<string>();
-    if (!parts.includes('')) {
-        for (const components of [[...parts, HIDDEN_FROM_HUMAN_ID], parts]) {
-            const logicalId = makeCdkLogicalId({ components });
-            if (logicalId !== undefined) {
-                computedIds.add(logicalId);
-            }
-        }
+    const matches = matchStateMachines(params);
+    if (matches.length > 1) {
+        const labels = matches.map((machine) => formatMachineLabel({ machine })).join(', ');
+        throw new Error(
+            `Resource '${params.resourceId}' matches more than one state machine: ${labels}. ` +
+                `Pass a longer construct path or a logical ID.`,
+        );
     }
-    const paths = (machine: StateMachineCandidate): string[] =>
-        machine.cdkPath === undefined
-            ? []
-            : [machine.cdkPath, toConstructPath({ cdkPath: machine.cdkPath })];
-
-    const tiers: Array<(machine: StateMachineCandidate) => boolean> = [
-        (machine) => machine.logicalId === resourceId,
-        (machine) => paths(machine).includes(wanted) || computedIds.has(machine.logicalId),
-        (machine) => paths(machine).some((path) => path.endsWith(`/${wanted}`)),
-    ];
-    for (const tier of tiers) {
-        const matches = machines.filter(tier);
-        if (matches.length > 1) {
-            const labels = matches.map((machine) => formatMachineLabel({ machine })).join(', ');
-            throw new Error(
-                `Resource '${resourceId}' matches more than one state machine: ${labels}. ` +
-                    `Pass a longer construct path or a logical ID.`,
-            );
-        }
-        if (matches.length === 1) {
-            return matches[0];
-        }
-    }
-    return undefined;
+    return matches[0];
 }

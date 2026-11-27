@@ -374,7 +374,14 @@ async function handle(params: HandleParams): Promise<void> {
         return;
     }
     const { options, resolveCfn, resource } = parsed;
-    const definition: RenderDefinitionInput = { path: null, resolveCfn, resource, source: body.text };
+    // A request body has no directory, so a template's DefinitionUri is reported, never read.
+    const definition: RenderDefinitionInput = {
+        path: null,
+        readFile: null,
+        resolveCfn,
+        resource,
+        source: body.text,
+    };
 
     if (mode === 'render' && options.format === 'png' && standalone) {
         sendError({
