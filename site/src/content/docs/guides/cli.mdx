@@ -346,6 +346,11 @@ $ echo $?
 Names that differ only in case, such as `Order.svg` and `order.svg`, are refused too, on
 every platform, because Windows and macOS treat them as one file.
 
+A name whose first part, before the first `.`, is a device name Windows reserves (`CON`,
+`NUL`, `COM1`, ...) gets a leading `_`, so `nul.asl.json` writes `_nul.svg`. Windows 10 and
+earlier read `NUL.svg` as the device itself. Directories kept by `--preserve-tree` are not
+renamed.
+
 ### Mirroring the input layout
 
 `--preserve-tree` keeps each input's directory under `--out-dir`, so inputs that share a
@@ -491,7 +496,8 @@ sfn-diagram \
 ```
 
 A version or alias qualifier is part of that name, so `Orders` and `Orders:PROD` write
-`Orders.svg` and `Orders-PROD.svg` rather than fighting over one file.
+`Orders.svg` and `Orders-PROD.svg` rather than fighting over one file. A state machine named
+after a Windows device, such as `CON`, writes `_CON.svg`.
 
 Two ARNs whose state machines share a name — the same machine in two accounts or two
 regions — collide on that filename and are refused before anything is written, the same

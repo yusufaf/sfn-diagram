@@ -376,6 +376,7 @@ describe('planOutputPaths', () => {
         expect(message).toContain('b/order.asl.json');
         expect(message).toContain(join('out', 'order.svg'));
         expect(message).not.toContain('differ only in case');
+        expect(message).not.toContain('reserves as a device');
     });
 
     it('reports every collision, not only the first', () => {
@@ -422,6 +423,98 @@ describe('planOutputPaths', () => {
         ]);
     });
 
+    const superscriptOne = String.fromCharCode(0xb9);
+
+    it.each([
+        ['nul.asl.json', '_nul.svg'],
+        ['con.order.asl.json', '_con.order.svg'],
+        ['machines/PRN.json', '_PRN.svg'],
+        ['Lpt9.asl.yaml', '_Lpt9.svg'],
+        [`COM${superscriptOne}.asl.json`, `_COM${superscriptOne}.svg`],
+        ['AUX .asl.json', '_AUX .svg'],
+        ['CONIN$.asl.json', '_CONIN$.svg'],
+        ['conout$.asl.json', '_conout$.svg'],
+    ])(
+        'prefixes a name whose first segment is a reserved Windows device name: %s',
+        (input, expected) => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: fileSources(input),
+                }),
+            ).toEqual([{ label: input, output: join('out', expected) }]);
+        },
+    );
+
+    it("prefixes an ARN's state machine name that is a device name", () => {
+        const label = 'arn:aws:states:us-east-1:123456789012:stateMachine:CON';
+        expect(
+            planOutputPaths({
+                format: 'svg',
+                outDir: 'out',
+                sources: [{ label, nameSource: 'CON' }],
+            }),
+        ).toEqual([{ label, output: join('out', '_CON.svg') }]);
+    });
+
+    it("keeps the format's extension on a prefixed name", () => {
+        expect(
+            planOutputPaths({
+                format: 'mermaid',
+                outDir: 'out',
+                sources: fileSources('nul.asl.json'),
+            }),
+        ).toEqual([{ label: 'nul.asl.json', output: join('out', '_nul.mmd') }]);
+    });
+
+    it('leaves a device name that is not the first segment, or only a prefix, alone', () => {
+        const label = 'arn:aws:states:us-east-1:123456789012:stateMachine:CON-PROD';
+        const planned = planOutputPaths({
+            format: 'svg',
+            outDir: 'out',
+            sources: [
+                ...fileSources(
+                    'orders.nul.asl.json',
+                    'Console.asl.json',
+                    'COM10.asl.json',
+                    'NULL.asl.json',
+                    '_nul.asl.json',
+                ),
+                { label, nameSource: 'CON-PROD' },
+            ],
+        });
+        expect(planned.map(({ output }) => output)).toEqual(
+            [
+                'orders.nul.svg',
+                'Console.svg',
+                'COM10.svg',
+                'NULL.svg',
+                '_nul.svg',
+                'CON-PROD.svg',
+            ].map((name) => join('out', name)),
+        );
+    });
+
+    it('prefixes a cloud assembly stem whose first segment is a device name', () => {
+        const planned = planOutputPaths({
+            format: 'svg',
+            outDir: 'out',
+            sources: [
+                { label: 'a', nameSource: 'cdk.out/S.template.json', stem: 'NUL.Orders' },
+                {
+                    label: 'b',
+                    nameSource: 'cdk.out/S.template.json',
+                    stem: 'COM1.Orders.Workflow',
+                },
+            ],
+        });
+        expect(planned.map(({ output }) => output)).toEqual([
+            join('out', '_NUL.Orders.svg'),
+            join('out', '_COM1.Orders.Workflow.svg'),
+        ]);
+    });
+
     /** The CliInputError message for a batch that must be refused. */
     const refusalMessage = (
         params: Parameters<typeof planOutputPaths>[0],
@@ -434,6 +527,29 @@ describe('planOutputPaths', () => {
         }
         return expect.unreachable('the batch should be refused');
     };
+
+    it('refuses a prefixed name that collides with a real one', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources('a/nul.asl.json', 'b/_nul.asl.json'),
+        });
+        expect(message).toContain(join('out', '_nul.svg'));
+        expect(message).toContain('a/nul.asl.json');
+        expect(message).toContain('b/_nul.asl.json');
+        expect(message).toContain('reserves as a device');
+        expect(message).not.toContain('differ only in case');
+    });
+
+    it('notes a case-only clash with a prefixed name too', () => {
+        const message = refusalMessage({
+            format: 'svg',
+            outDir: 'out',
+            sources: fileSources('a/NUL.asl.json', 'b/_nul.asl.json'),
+        });
+        expect(message).toContain('differ only in case');
+        expect(message).toContain('reserves as a device');
+    });
 
     it('suggests --preserve-tree when the colliding inputs sit in different directories', () => {
         expect(
@@ -555,6 +671,22 @@ describe('planOutputPaths', () => {
                 }),
             ).toEqual([
                 { label: 'order.asl.json', output: join('out', 'order.svg') },
+            ]);
+        });
+
+        it('prefixes the filename but not a directory named like a device', () => {
+            expect(
+                planOutputPaths({
+                    format: 'svg',
+                    outDir: 'out',
+                    sources: treeSources('con/nul.asl.json'),
+                    treeRoot: root,
+                }),
+            ).toEqual([
+                {
+                    label: 'con/nul.asl.json',
+                    output: join('out', 'con', '_nul.svg'),
+                },
             ]);
         });
 
