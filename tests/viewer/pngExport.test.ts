@@ -558,6 +558,7 @@ describe('toolbar PNG export', () => {
         const dark = await backgroundIn('dark');
         expect(light).not.toEqual(dark);
         expect(dark[0] + dark[1] + dark[2]).toBeLessThan(light[0] + light[1] + light[2]);
+        // Two pages, two exports.
     }, 2 * EXPORT_TEST_MS);
 
     it('downloads for real from a sandboxed iframe', async () => {
