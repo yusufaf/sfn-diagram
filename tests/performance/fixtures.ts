@@ -66,6 +66,95 @@ export function buildSharedCatchChain(params: BuildSharedCatchChainParams): AslD
     return { StartAt: 'Step0', States: states };
 }
 
+interface BuildChoiceFanInChainParams {
+    /** Number of Choice states in the chain */
+    length: number;
+}
+
+/**
+ * Build a chain of Choice states whose `Default` branches all go to one shared
+ * `Cleanup` state - the #434 shape. Unlike {@link buildSharedCatchChain}, every
+ * edge into the sink is an ordinary transition, not a `Catch`, so the catch
+ * lanes don't apply and each Default edge spans the ranks down to `Cleanup`.
+ */
+export function buildChoiceFanInChain(params: BuildChoiceFanInChainParams): AslDefinition {
+    const { length } = params;
+    const states: Record<string, AslState> = {};
+
+    for (let index = 0; index < length; index++) {
+        const isLast = index === length - 1;
+        states[`Check${index}`] = {
+            Type: 'Choice',
+            Choices: [{ Variable: '$.ok', BooleanEquals: true, Next: isLast ? 'Done' : `Check${index + 1}` }],
+            Default: 'Cleanup',
+        };
+    }
+
+    states.Done = { Type: 'Succeed' };
+    states.Cleanup = { Type: 'Fail' };
+
+    return { StartAt: 'Check0', States: states };
+}
+
+interface BuildNestedContainerChainParams {
+    /** Number of Parallel states in the chain */
+    length: number;
+}
+
+/**
+ * Build a chain of Parallel states, each with two branches that hold a Map, so
+ * open containers are nested two deep (Parallel, then Map) and container bounds
+ * and container-edge routing run once per container. Each `length` adds 15 parsed
+ * nodes (12 laid out by dagre), plus one `Done`.
+ *
+ * Each branch starts and ends with a Pass on purpose: a container as a branch's
+ * first or last state is not ranked against its neighbours, so the Parallels
+ * would lay out side by side instead of stacking, and a ratio test would time a
+ * wide, mostly disconnected graph.
+ */
+export function buildNestedContainerChain(params: BuildNestedContainerChainParams): AslDefinition {
+    const { length } = params;
+    const states: Record<string, AslState> = {};
+
+    for (let index = 0; index < length; index++) {
+        const isLast = index === length - 1;
+        const branches = [0, 1].map((branchIndex): AslDefinition => {
+            const prefix = `F${index}B${branchIndex}`;
+            return {
+                StartAt: `${prefix}Lead`,
+                States: {
+                    [`${prefix}Lead`]: { Type: 'Pass', Next: `${prefix}Map` },
+                    [`${prefix}Map`]: {
+                        Type: 'Map',
+                        ItemProcessor: {
+                            StartAt: `${prefix}Task`,
+                            States: {
+                                [`${prefix}Task`]: {
+                                    Type: 'Task',
+                                    Resource: 'arn:aws:lambda:us-east-1:123456789012:function:Worker',
+                                    Next: `${prefix}Pass`,
+                                },
+                                [`${prefix}Pass`]: { Type: 'Pass', End: true },
+                            },
+                        },
+                        Next: `${prefix}After`,
+                    },
+                    [`${prefix}After`]: { Type: 'Pass', End: true },
+                },
+            };
+        });
+        states[`Fork${index}`] = {
+            Type: 'Parallel',
+            Branches: branches,
+            Next: isLast ? 'Done' : `Fork${index + 1}`,
+        };
+    }
+
+    states.Done = { Type: 'Succeed' };
+
+    return { StartAt: 'Fork0', States: states };
+}
+
 interface BuildWideChoiceParams {
     /** Number of choice branches (fan-out width) */
     width: number;
