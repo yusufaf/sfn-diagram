@@ -11,11 +11,6 @@ const MANIFEST_FILE = 'manifest.json';
 const NESTED_SUFFIX = '.nested.template.json';
 /** Characters Windows refuses in a filename, besides `/`, which separates construct IDs. */
 const RESERVED_FILENAME_CHARACTERS = '<>:"\\|?*';
-/**
- * Names Windows reads as devices, also when an extension follows (`NUL.Orders.svg` is `NUL`
- * on Windows 10 and earlier), so a stem whose first `.`-segment is one of them is unusable.
- */
-const RESERVED_DEVICE_NAME = /^(?:AUX|CON|CONIN\$|CONOUT\$|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
 
 /** One state machine found in a CDK cloud assembly, ready to render as its own input. */
 export interface CloudAssemblyMachine {
@@ -25,7 +20,10 @@ export interface CloudAssemblyMachine {
     logicalId: string;
     /** Its construct path, such as `Prod/OrdersStack/OrderWorkflow`, or `<stack>/<logicalId>`. */
     name: string;
-    /** The output filename without its extension, such as `Prod.OrdersStack.OrderWorkflow`. */
+    /**
+     * The output filename without its extension, such as `Prod.OrdersStack.OrderWorkflow`,
+     * before `planOutputPaths` adds any device-name `_`.
+     */
     outputStem: string;
     /** Its template's text, byte order mark removed. */
     template: string;
@@ -48,8 +46,9 @@ export interface CloudAssemblyOutputStemParams {
  * `Prod/OrdersStack/OrderWorkflow/Resource` becomes `Prod.OrdersStack.OrderWorkflow`.
  *
  * @param params - The machine's construct path, logical ID and stack name.
- * @returns The filename stem, with characters Windows refuses and control characters as `_`,
- * and a leading `_` when its first segment is a reserved Windows device name such as `NUL`.
+ * @returns The filename stem, with characters Windows refuses and control characters as `_`.
+ * `planOutputPaths` adds a leading `_` when its first segment is a reserved Windows device
+ * name such as `NUL`.
  *
  * @example
  * ```typescript
@@ -71,9 +70,7 @@ export function cloudAssemblyOutputStem(params: CloudAssemblyOutputStemParams): 
                 : character,
         )
         .join('');
-    const stem = safe === '' ? logicalId : safe;
-    const firstSegment = stem.split('.')[0].replace(/ +$/, '');
-    return RESERVED_DEVICE_NAME.test(firstSegment) ? `_${stem}` : stem;
+    return safe === '' ? logicalId : safe;
 }
 
 /** Parameters for {@link expandCloudAssembly}. */

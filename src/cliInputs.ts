@@ -387,7 +387,8 @@ export interface DeriveOutputNameParams {
  * @param params.format - The output format, which decides the extension
  * @param params.input - The input path; only its basename is used
  *
- * @returns The output filename, e.g. `order.svg`.
+ * @returns The output filename, e.g. `order.svg`. {@link planOutputPaths} adds a
+ *   leading `_` to a reserved Windows device name; this function does not.
  *
  * @example
  * ```typescript
@@ -415,7 +416,9 @@ export interface OutputNamingSource {
      */
     nameSource: string;
     /**
-     * The output filename without its extension, used verbatim: no input suffix is stripped.
+     * The output filename without its extension, used as given, except that
+     * {@link planOutputPaths} adds a leading `_` to a reserved Windows device name; no
+     * input suffix is stripped.
      * Set for a state machine from a CDK cloud assembly, named by its construct path.
      * {@link OutputNamingSource.nameSource} still places it under a `treeRoot`.
      */
@@ -428,6 +431,22 @@ export interface PlannedOutput {
     label: string;
     /** The output path, inside the requested output directory. */
     output: string;
+}
+
+/**
+ * Names Windows reads as devices, also when an extension follows (`NUL.svg` and
+ * `NUL.Orders.svg` are `NUL` on Windows 10 and earlier), so an output filename whose
+ * first `.`-segment is one of them is unusable.
+ */
+const RESERVED_DEVICE_NAME = /^(?:AUX|CON|CONIN\$|CONOUT\$|NUL|PRN|COM[0-9¹²³]|LPT[0-9¹²³])$/i;
+
+/**
+ * `name` with a leading `_` when its first `.`-segment, trailing spaces ignored, is a
+ * device name Windows reserves; otherwise `name` unchanged.
+ */
+function avoidReservedDeviceName(name: string): string {
+    const firstSegment = name.split('.')[0].replace(/ +$/, '');
+    return RESERVED_DEVICE_NAME.test(firstSegment) ? `_${name}` : name;
 }
 
 /**
@@ -465,7 +484,10 @@ export interface PlanOutputPathsParams {
  * next. With a `treeRoot` collisions are still checked: `order.asl.json` and
  * `order.json` in one directory derive the same name whatever the layout. Names are
  * compared ignoring case and Unicode composition on every platform, since `Order.svg`
- * and `order.svg` are one file on Windows and macOS.
+ * and `order.svg` are one file on Windows and macOS. A filename whose first `.`-segment
+ * is a device name Windows reserves (`CON`, `NUL`, `COM1`, ...) gets a leading `_` before
+ * that comparison, so `nul.asl.json` writes `_nul.svg` and still collides with
+ * `_nul.asl.json`; a `--preserve-tree` directory is kept as it is.
  *
  * @param params - Planning parameters
  * @param params.format - The output format, which decides each extension
@@ -502,11 +524,15 @@ export function planOutputPaths(
     params: PlanOutputPathsParams,
 ): PlannedOutput[] {
     const { format, outDir, sources, treeRoot } = params;
+    const renamed = new Set<OutputNamingSource>();
     const keys = sources.map((source) => {
-        const name =
+        const derived =
             source.stem === undefined
                 ? deriveOutputName({ format, input: source.nameSource })
                 : `${source.stem}${OUTPUT_EXTENSIONS[format]}`;
+        // Only the filename: a --preserve-tree directory is the input's own, so it exists.
+        const name = avoidReservedDeviceName(derived);
+        if (name !== derived) renamed.add(source);
         if (treeRoot === undefined) return name;
         const inputDir = dirname(resolve(source.nameSource));
         if (!isWithin({ directory: treeRoot, path: inputDir })) {
@@ -559,6 +585,11 @@ export function planOutputPaths(
         )
             ? '\nNames that differ only in case, or in how accented letters are encoded, are one file on Windows or macOS.'
             : '';
+        const deviceNote = collisions.some(([, group]) =>
+            group.some((source) => renamed.has(source)),
+        )
+            ? '\nA name Windows reserves as a device (CON, NUL, COM1, ...) gets a leading _.'
+            : '';
         // Only point at --preserve-tree when it would separate every clash: suggesting
         // it for a same-directory pair sends the caller into a second refusal.
         // A stem comes from a construct path, not an input directory, so --preserve-tree
@@ -580,7 +611,7 @@ export function planOutputPaths(
                   ? 'Rename one, pass --preserve-tree to keep their directories apart, or render them in separate runs.'
                   : 'Rename one, give them distinct basenames, or render them in separate runs.';
         throw new CliInputError(
-            `Two or more inputs would be written to the same file:\n${detail}${caseNote}\n${hint}`,
+            `Two or more inputs would be written to the same file:\n${detail}${caseNote}${deviceNote}\n${hint}`,
         );
     }
 
