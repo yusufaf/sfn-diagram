@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.1.0...sfn-diagram-v2.2.0) (2026-11-27)
+
+
+### Features
+
+* **cfn:** match a resource ID against its CDK construct path ([#683](https://github.com/yusufaf/sfn-diagram/issues/683)) ([2167143](https://github.com/yusufaf/sfn-diagram/commit/216714373525b8384d810a519c880412191854a9))
+* **cli:** auto-detect YAML CloudFormation/SAM templates without --resolve-cfn ([#696](https://github.com/yusufaf/sfn-diagram/issues/696)) ([b9a57bc](https://github.com/yusufaf/sfn-diagram/commit/b9a57bc8bbd8e7260e0bc14071cb7a649ad1ea99))
+* **cli:** re-render under --watch when a SAM DefinitionUri file changes ([#699](https://github.com/yusufaf/sfn-diagram/issues/699)) ([95065c3](https://github.com/yusufaf/sfn-diagram/commit/95065c3aa67400d082f013d415557d88aa874044))
+* **cli:** read a CDK DefinitionBody.fromFile asset from cdk.out ([#689](https://github.com/yusufaf/sfn-diagram/issues/689)) ([949b5ca](https://github.com/yusufaf/sfn-diagram/commit/949b5cac626fbd918f73efc1652d57f35471493f))
+* **cli:** read a SAM DefinitionUri file relative to the template ([#687](https://github.com/yusufaf/sfn-diagram/issues/687)) ([f9b0dd8](https://github.com/yusufaf/sfn-diagram/commit/f9b0dd808c480ab2888ec888b0dd0db6c33a4ed7))
+* **cli:** render a CDK nested stack's fromFile definition ([#700](https://github.com/yusufaf/sfn-diagram/issues/700)) ([807903d](https://github.com/yusufaf/sfn-diagram/commit/807903d3f9c8afb7f426c7dfacfcac2c07132db7))
+* **cli:** render every state machine in a CDK cloud assembly directory ([#694](https://github.com/yusufaf/sfn-diagram/issues/694)) ([b3ecafa](https://github.com/yusufaf/sfn-diagram/commit/b3ecafa111ccffdf884be71b8665cff88789309a))
+
+
+### Bug Fixes
+
+* **cli:** prefix every --out-dir name that is a reserved Windows device name ([#701](https://github.com/yusufaf/sfn-diagram/issues/701)) ([decc7bd](https://github.com/yusufaf/sfn-diagram/commit/decc7bdd404090784d1bba110a1df98d793230a5))
+* **cli:** refuse --out-dir names that differ only in case ([#697](https://github.com/yusufaf/sfn-diagram/issues/697)) ([f1c4e64](https://github.com/yusufaf/sfn-diagram/commit/f1c4e641c9f7a3721ff51a583553cb9d0f9ee20c))
+
 ## [2.1.0](https://github.com/yusufaf/sfn-diagram/compare/sfn-diagram-v2.0.2...sfn-diagram-v2.1.0) (2026-11-21)
 
 
