@@ -502,6 +502,14 @@ describe('lint tool', () => {
         expect(result.structuredContent.kind).toBe('lint');
     });
 
+    it("reads a nested stack's CDK asset through the parent's asset manifest given by path", async () => {
+        const result = await lint({
+            path: join(fixtures, 'cfn', 'cdk-nested-asset', 'ParentChild8B49BB45.nested.template.json'),
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.kind).toBe('lint');
+    });
+
     it('keeps the DefinitionUri diagnostic for a template sent as source', async () => {
         const result = await lint({
             resolveCfn: true,

@@ -1580,6 +1580,18 @@ describe('CFN template input', () => {
         expect(stdoutData).toContain('IssueRefund');
     });
 
+    const cdkNestedDir = join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset');
+
+    it.each([
+        ['ParentChild8B49BB45.nested.template.json', 'ChildPass'],
+        ['ParentChildDeeper619894AE.nested.template.json', 'DeeperPass'],
+        [join('assembly-Prod', 'ProdParentChild9CEB70C2.nested.template.json'), 'ChildPass'],
+    ])("renders a nested stack's fromFile asset through its parent's asset manifest: %s", async (template, state) => {
+        const code = await run([join(cdkNestedDir, template), '--format', 'mermaid']);
+        expect(code).toBe(0);
+        expect(stdoutData).toContain(state);
+    });
+
     it('names the asset path it tried when the CDK asset is missing', async () => {
         const missingDir = join(__dirname, 'fixtures', 'cfn', 'cdk-asset-missing');
         const code = await run([join(missingDir, 'RefundStack.template.json'), '--format', 'mermaid']);
@@ -6384,6 +6396,33 @@ describe('--watch', () => {
         expect(await watching).toBe(0);
     }, 20_000);
 
+    it('re-renders a nested stack template when its fromFile asset changes', async () => {
+        const cdkDir = join(tempDir, 'cdk');
+        cpSync(join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset'), cdkDir, { recursive: true });
+        const asset = join(
+            cdkDir,
+            'asset.e821c2455b71ec733020d7b83a9eec9c31f277ded4b6399a0afeb1118a4a9156.json',
+        );
+        const output = join(tempDir, 'out.mmd');
+
+        const watching = run([
+            join(cdkDir, 'ParentChild8B49BB45.nested.template.json'),
+            '--watch',
+            '--format',
+            'mermaid',
+            '-o',
+            output,
+        ]);
+        await waitFor(() => existsSync(output));
+        expect(readFileSync(output, 'utf-8')).toContain('ChildPass');
+
+        writeFileSync(asset, passMachine('Edited'), 'utf-8');
+        await waitFor(() => readFileSync(output, 'utf-8').includes('Edited'));
+
+        process.emit('SIGINT');
+        expect(await watching).toBe(0);
+    }, 20_000);
+
     it('re-renders a CDK template when its fromFile asset changes', async () => {
         const cdkDir = join(tempDir, 'cdk');
         cpSync(join(__dirname, 'fixtures', 'cfn', 'cdk-asset'), cdkDir, { recursive: true });
@@ -6649,6 +6688,19 @@ describe('run: CDK cloud assembly directory', () => {
     });
 
     const out = (): string => join(tempDir, 'out');
+
+    it("renders a nested stack's fromFile machines from a cloud assembly", async () => {
+        const nestedAssembly = join(__dirname, 'fixtures', 'cfn', 'cdk-nested-asset');
+        expect(await run([nestedAssembly, '--format', 'mermaid', '--out-dir', out()])).toBe(0);
+        expect(readdirSync(out()).sort()).toEqual([
+            'Parent.Child.ChildWorkflow.mmd',
+            'Parent.Child.Deeper.DeeperWorkflow.mmd',
+            'Prod.Parent.Child.ChildWorkflow.mmd',
+        ]);
+        expect(readFileSync(join(out(), 'Parent.Child.Deeper.DeeperWorkflow.mmd'), 'utf-8')).toContain(
+            'DeeperPass',
+        );
+    });
 
     it('renders every state machine into --out-dir, named by construct path', async () => {
         expect(await run([assembly, '--out-dir', out()])).toBe(0);

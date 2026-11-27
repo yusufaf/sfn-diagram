@@ -328,12 +328,12 @@ Notes:
   --watch needs file inputs: there is nothing to watch about stdin, --from-aws or an
   execution ARN, and it cannot be combined with --follow since both re-render on
   their own schedule. A change to an input re-renders that input, and so does a
-  change to a file its template reads (a SAM DefinitionUri, a CDK .assets.json or
-  asset); a change to the config, a --theme file, a --diff baseline or an --execution
-  history re-resolves and re-renders everything, since those feed every output. A
-  deleted file is not an error, and a render that fails leaves the watch running -
-  the file you are editing is briefly invalid every time you save. --watch --check
-  re-lints on change and still exits 0.
+  change to a file its template reads (a SAM DefinitionUri, a CDK manifest.json,
+  .assets.json or asset); a change to the config, a --theme file, a --diff baseline
+  or an --execution history re-resolves and re-renders everything, since those feed
+  every output. A deleted file is not an error, and a render that fails leaves the
+  watch running - the file you are editing is briefly invalid every time you save.
+  --watch --check re-lints on change and still exits 0.
 
   --from-aws takes a state machine, version or alias ARN, never a bare name, and
   replaces the file input rather than adding to it. It cannot be combined with
