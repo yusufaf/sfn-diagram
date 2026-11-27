@@ -6,6 +6,7 @@ import {
     findCdkAssetPath,
     findNestedStackTemplates,
     isCdkAssetKey,
+    nestedStackTemplateName,
 } from '../../src/cfn/cdkAsset';
 
 const HASH = 'ab'.repeat(32);
@@ -46,6 +47,25 @@ describe('assetManifestName', () => {
     ])('names no manifest for %s', (templateFileName) => {
         expect(assetManifestName({ templateFileName })).toBeUndefined();
     });
+});
+
+describe('nestedStackTemplateName', () => {
+    it.each([
+        'cdk.out/ParentChild8B49BB45.nested.template.json',
+        'C:\\proj\\cdk.out\\assembly-Prod\\ParentChild8B49BB45.nested.template.json',
+        'ParentChild8B49BB45.nested.template.json',
+    ])('returns the file name of %s', (templateFileName) => {
+        expect(nestedStackTemplateName({ templateFileName })).toBe(
+            'ParentChild8B49BB45.nested.template.json',
+        );
+    });
+
+    it.each(['Stack.template.json', '.nested.template.json', 'template.json'])(
+        'returns undefined for %s',
+        (templateFileName) => {
+            expect(nestedStackTemplateName({ templateFileName })).toBeUndefined();
+        },
+    );
 });
 
 describe('findCdkAssetPath', () => {

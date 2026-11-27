@@ -1,0 +1,78 @@
+{
+ "Resources": {
+  "DeeperWorkflowRole8413FEC6": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Condition": {
+        "ArnLike": {
+         "aws:SourceArn": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:",
+            {
+             "Ref": "AWS::Partition"
+            },
+            ":states:",
+            {
+             "Ref": "AWS::Region"
+            },
+            ":",
+            {
+             "Ref": "AWS::AccountId"
+            },
+            ":stateMachine:*"
+           ]
+          ]
+         }
+        },
+        "StringEquals": {
+         "aws:SourceAccount": {
+          "Ref": "AWS::AccountId"
+         }
+        }
+       },
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "states.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "Parent/Child/Deeper/DeeperWorkflow/Role/Resource"
+   }
+  },
+  "DeeperWorkflowD7E80B7E": {
+   "Type": "AWS::StepFunctions::StateMachine",
+   "Properties": {
+    "DefinitionS3Location": {
+     "Bucket": {
+      "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
+     },
+     "Key": "67c512e472e3ec792e3da63299419097cf0f47dd06536634410f44e81f42851e.json"
+    },
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "DeeperWorkflowRole8413FEC6",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "DeeperWorkflowRole8413FEC6"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "Parent/Child/Deeper/DeeperWorkflow/Resource"
+   }
+  }
+ }
+}

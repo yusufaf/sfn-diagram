@@ -7,7 +7,14 @@ import type {
 } from '../types';
 import { parseAslSource } from '../AslParser';
 import { stripBom } from '../utils/bom';
-import { assetManifestName, findCdkAssetPath, isCdkAssetKey } from './cdkAsset';
+import {
+    assetManifestName,
+    findCdkAssetPath,
+    findNestedStackTemplates,
+    isCdkAssetKey,
+    nestedStackTemplateName,
+} from './cdkAsset';
+import { readCloudAssemblyManifest } from './cdkAssembly';
 import {
     formatMachineLabel,
     matchStateMachine,
@@ -173,28 +180,125 @@ function errorReason(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+const CLOUD_ASSEMBLY_MANIFEST = 'manifest.json';
+
+/** A CDK asset manifest's text and the path it was read from. */
+interface CdkAssetManifest {
+    manifest: string;
+    manifestName: string;
+}
+
+interface ReadCdkAssetManifestParams {
+    diagnostic: string;
+    readFile: (params: ReadFileParams) => string;
+    templateFileName: string;
+}
+
+/**
+ * Reads the asset manifest that lists a CDK template's assets: `<stack>.assets.json` beside a
+ * stack template, or for a nested stack template, its top-level stack's, found through the
+ * cloud assembly `manifest.json` beside it.
+ *
+ * @returns `undefined` when the template is named like neither, so no file is read.
+ */
+function readCdkAssetManifest(params: ReadCdkAssetManifestParams): CdkAssetManifest | undefined {
+    const { diagnostic, readFile, templateFileName } = params;
+    const manifestName = assetManifestName({ templateFileName });
+    if (manifestName !== undefined) {
+        try {
+            return { manifest: readFile({ path: manifestName }), manifestName };
+        } catch (error) {
+            throw new Error(
+                `${diagnostic} The CDK asset manifest beside the template could not be read: ${errorReason(error)}.`,
+                { cause: error },
+            );
+        }
+    }
+    const templateName = nestedStackTemplateName({ templateFileName });
+    return templateName === undefined
+        ? undefined
+        : findParentAssetManifest({ diagnostic, readFile, templateName });
+}
+
+interface FindParentAssetManifestParams {
+    diagnostic: string;
+    readFile: (params: ReadFileParams) => string;
+    /** The nested stack template's file name, without its directory. */
+    templateName: string;
+}
+
+/**
+ * Finds the asset manifest of the stack that holds a nested stack. `cdk synth` writes no
+ * manifest for a nested stack: its top-level stack's manifest lists the nested template and
+ * every asset it uses, at any depth. The owner is the first stack in `manifest.json` whose
+ * asset manifest lists the template.
+ */
+function findParentAssetManifest(params: FindParentAssetManifestParams): CdkAssetManifest {
+    const { diagnostic, readFile, templateName } = params;
+    let text: string;
+    try {
+        text = readFile({ path: CLOUD_ASSEMBLY_MANIFEST });
+    } catch (error) {
+        throw new Error(
+            `${diagnostic} The cloud assembly manifest beside the nested stack template could not be read: ` +
+                `${errorReason(error)}.`,
+            { cause: error },
+        );
+    }
+    const assembly = readCloudAssemblyManifest({ manifest: text });
+    if (assembly === undefined) {
+        throw new Error(
+            `${diagnostic} '${CLOUD_ASSEMBLY_MANIFEST}' beside the nested stack template is not a CDK cloud assembly manifest.`,
+        );
+    }
+    const unreadable: string[] = [];
+    for (const stack of assembly.stacks) {
+        // CDK writes a stack's template, asset manifest and nested templates side by side, so a
+        // template with a directory part (or a network path) is not this nested stack's owner.
+        if (/[\\/]/.test(stack.templateFile)) {
+            continue;
+        }
+        const manifestName = assetManifestName({ templateFileName: stack.templateFile });
+        if (manifestName === undefined) {
+            continue;
+        }
+        let manifest: string;
+        try {
+            manifest = readFile({ path: manifestName });
+        } catch (error) {
+            unreadable.push(`'${manifestName}' (${errorReason(error)})`);
+            continue;
+        }
+        const listed = findNestedStackTemplates({ manifest }).some(
+            (path) => path.replace(/\\/g, '/') === templateName,
+        );
+        if (listed) {
+            return { manifest, manifestName };
+        }
+    }
+    const notRead =
+        unreadable.length > 0 ? ` These asset manifests could not be read: ${unreadable.join(', ')}.` : '';
+    throw new Error(
+        `${diagnostic} No stack in '${CLOUD_ASSEMBLY_MANIFEST}' lists the nested stack template ` +
+            `'${templateName}' in its asset manifest.${notRead}`,
+    );
+}
+
 interface ReadCdkAssetParams {
     /** The plain "cannot be read from the template alone" message, extended on a failed lookup. */
     diagnostic: string;
     logicalId: string;
+    /** The text of the asset manifest that lists the asset. */
+    manifest: string;
     manifestName: string;
     objectKey: string;
     readFile: (params: ReadFileParams) => string;
     substitutions: Record<string, string>;
 }
 
-/** Reads a CDK `DefinitionBody.fromFile` asset through the `<stack>.assets.json` beside the template. */
+/** Reads a CDK `DefinitionBody.fromFile` asset that a CDK asset manifest lists. */
 function readCdkAsset(params: ReadCdkAssetParams): AslDefinition {
-    const { diagnostic, logicalId, manifestName, objectKey, readFile, substitutions } = params;
-    let manifest: string;
-    try {
-        manifest = readFile({ path: manifestName });
-    } catch (error) {
-        throw new Error(
-            `${diagnostic} The CDK asset manifest beside the template could not be read: ${errorReason(error)}.`,
-            { cause: error },
-        );
-    }
+    const { diagnostic, logicalId, manifest, manifestName, objectKey, readFile, substitutions } = params;
     const assetPath = findCdkAssetPath({ manifest, objectKey });
     if (assetPath === undefined) {
         throw new Error(
@@ -301,7 +405,11 @@ function parseDefinitionText(params: ParseDefinitionTextParams): AslDefinition {
  * A CDK state machine built with `DefinitionBody.fromFile` has only a
  * `DefinitionS3Location`; with `readFile` and a `templateFileName` such as
  * `OrdersStack.template.json`, its staged asset is found through
- * `OrdersStack.assets.json` beside the template and read the same way.
+ * `OrdersStack.assets.json` beside the template and read the same way. For a
+ * nested stack template (`ParentChild8B49BB45.nested.template.json`), which has
+ * no asset manifest of its own, the cloud assembly `manifest.json` beside it
+ * names the stacks, and the first whose asset manifest lists the template is
+ * used.
  *
  * @param params - Template source, optional format, optional resource id,
  * optional `readFile` and `templateFileName` for definition files.
@@ -309,7 +417,8 @@ function parseDefinitionText(params: ParseDefinitionTextParams): AslDefinition {
  * @throws If no state machine is found, `resourceId` matches none or more
  * than one, no `resourceId` is given and there are several, or the definition
  * is external and not readable (no `readFile`, an S3 location, a network
- * path, or a `DefinitionS3Location` with no CDK asset beside the template).
+ * path, or a `DefinitionS3Location` with no CDK asset beside the template, or
+ * for a nested stack template, no stack in `manifest.json` that lists it).
  *
  * @example
  * ```typescript
@@ -392,25 +501,26 @@ export function extractAslFromTemplate(params: ExtractAslFromTemplateParams): Ex
             });
             return { aslDefinition, resourceId: chosenId, warnings: substitutionWarnings };
         }
-        const manifestName =
-            templateFileName === undefined ? undefined : assetManifestName({ templateFileName });
         if (
             readFile !== undefined &&
             externalKey === 'DefinitionS3Location' &&
-            manifestName !== undefined &&
+            templateFileName !== undefined &&
             isPlainObject(location) &&
             typeof location.Key === 'string' &&
             isCdkAssetKey({ objectKey: location.Key })
         ) {
-            const aslDefinition = readCdkAsset({
-                diagnostic,
-                logicalId: chosenId,
-                manifestName,
-                objectKey: location.Key,
-                readFile,
-                substitutions,
-            });
-            return { aslDefinition, resourceId: chosenId, warnings: substitutionWarnings };
+            const assetManifest = readCdkAssetManifest({ diagnostic, readFile, templateFileName });
+            if (assetManifest !== undefined) {
+                const aslDefinition = readCdkAsset({
+                    ...assetManifest,
+                    diagnostic,
+                    logicalId: chosenId,
+                    objectKey: location.Key,
+                    readFile,
+                    substitutions,
+                });
+                return { aslDefinition, resourceId: chosenId, warnings: substitutionWarnings };
+            }
         }
         throw new Error(diagnostic);
     }
