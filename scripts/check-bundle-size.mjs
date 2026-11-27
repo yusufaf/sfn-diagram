@@ -171,11 +171,18 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * `<stack>.assets.json` beside the template (#512): the manifest lookup, its error wording, and
  * the asset's own path checks. That took cfn.js from 27,880 to 32,524 raw and from 9,621 to
  * 10,772 gzip; about 1.7 KB raw of the growth is JSDoc.
+ *
+ * `cfn.js` was restated a fourth time, to about 10% above its measurement, when a nested stack
+ * template's asset began to be found through the cloud assembly `manifest.json` beside it
+ * (#690). That brought in the manifest reader the `cdk.out` directory input already used, the
+ * search for the stack whose asset manifest lists the nested template, and three new error
+ * messages, all with their JSDoc. That took cfn.js from 33,307 to 39,966 raw and from 10,942 to
+ * 12,390 gzip.
  */
 export const BUNDLE_BUDGETS = {
     'aws.js': { gzip: 1160, raw: 3050 },
     'bin.js': { gzip: 282000, raw: 935000 },
-    'cfn.js': { gzip: 11850, raw: 35800 },
+    'cfn.js': { gzip: 13650, raw: 44000 },
     'ci.js': { gzip: 114000, raw: 390000 },
     'element-auto.js': { gzip: 143000, raw: 492000 },
     'element.js': { gzip: 143000, raw: 491500 },
