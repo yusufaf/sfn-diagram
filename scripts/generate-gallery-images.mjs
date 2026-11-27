@@ -6,18 +6,29 @@
  * verbatim into `site/public/gallery/` so the Astro build can serve them as
  * static assets with no extra CI step.
  *
+ * The gallery shows each SVG through `<img>`, and a browser loads nothing external
+ * for an SVG used that way, so service icons are embedded as data URIs. They come
+ * from the `aws-icons` dev dependency, never from jsDelivr.
+ *
+ * `--check` writes nothing and fails when a committed file differs from what this
+ * script would write, or when a gallery directory holds a file it does not write
+ * (#685); CI runs it through `pnpm run check:images`.
+ *
  * Usage: pnpm run gallery:images
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { generateSvg } from '../dist/index.js';
+import { embedIcons, generateSvg } from '../dist/index.js';
+import { runAsScript } from './lib/cliScript.mjs';
+import {
+    REGENERATE_COMMAND,
+    createLocalIconFetch,
+    embedIconsLocally,
+    resolveAwsIconsPackage,
+    writeOrCheckImages,
+} from './lib/docImages.mjs';
 import { readAslFixture, repoRootFrom } from './lib/repo-paths.mjs';
 
 const repoRoot = repoRootFrom(import.meta.url);
-const outputDirs = [
-    join(repoRoot, 'docs', 'images', 'gallery'),
-    join(repoRoot, 'site', 'public', 'gallery'),
-];
+const OUTPUT_DIRS = ['docs/images/gallery', 'site/public/gallery'];
 
 /** One card per pattern: which fixture renders it, and a caption for the gallery page. */
 const GALLERY_ITEMS = [
@@ -50,33 +61,49 @@ const GALLERY_ITEMS = [
     },
     {
         caption: 'AWS service integrations shown with service icons.',
-        fixture: 'services',
-        layout: 'LR',
+        fixture: 'service-integrations',
+        layout: 'TB',
+        // 220 fits every Comment beside its icon; revisit once #411 wraps long names.
+        nodeWidth: 220,
         showIcons: true,
         slug: 'services',
     },
 ];
 
-for (const dir of outputDirs) mkdirSync(dir, { recursive: true });
+await runAsScript({
+    importMetaUrl: import.meta.url,
+    main: async ({ check = false }) => {
+        const iconsPackage = resolveAwsIconsPackage({ repoRoot });
+        const iconFetch = createLocalIconFetch({
+            iconsPackageDir: iconsPackage.dir,
+            iconsVersion: iconsPackage.version,
+        });
 
-/** @type {{ caption: string; slug: string }[]} */
-const manifest = [];
+        /** @type {Map<string, string>} */
+        const expected = new Map();
+        /** @type {{ caption: string; slug: string }[]} */
+        const manifest = [];
 
-for (const { caption, fixture, layout, showIcons, slug } of GALLERY_ITEMS) {
-    const aslDefinition = readAslFixture(repoRoot, fixture);
+        for (const { caption, fixture, layout, nodeWidth, showIcons, slug } of GALLERY_ITEMS) {
+            const aslDefinition = readAslFixture(repoRoot, fixture);
 
-    for (const theme of /** @type {const} */ (['light', 'dark'])) {
-        const { svg } = generateSvg({ aslDefinition, layout, showIcons, theme });
-        const fileName = `${slug}-${theme}.svg`;
-        for (const dir of outputDirs) {
-            writeFileSync(join(dir, fileName), svg, 'utf-8');
+            for (const theme of /** @type {const} */ (['light', 'dark'])) {
+                let { svg } = generateSvg({ aslDefinition, layout, nodeWidth, showIcons, theme });
+                if (showIcons) svg = await embedIconsLocally({ embedIcons, iconFetch, svg });
+                for (const dir of OUTPUT_DIRS) expected.set(`${dir}/${slug}-${theme}.svg`, svg);
+            }
+            manifest.push({ caption, slug });
         }
-    }
-    manifest.push({ caption, slug });
-    console.log(`✓ ${slug} (${fixture}, light + dark)`);
-}
+        expected.set('docs/images/gallery/manifest.json', `${JSON.stringify(manifest, null, 2)}\n`);
 
-writeFileSync(
-    join(repoRoot, 'docs', 'images', 'gallery', 'manifest.json'),
-    `${JSON.stringify(manifest, null, 2)}\n`
-);
+        await writeOrCheckImages({
+            check,
+            expected,
+            ownedDirs: OUTPUT_DIRS,
+            regenerateCommand: REGENERATE_COMMAND,
+            repoRoot,
+        });
+    },
+    options: { check: { type: 'boolean' } },
+    usage: 'generate-gallery-images.mjs [--check]',
+});
