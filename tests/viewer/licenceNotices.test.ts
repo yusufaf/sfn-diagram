@@ -36,11 +36,14 @@ describe('third-party licence notices in generated HTML', () => {
         expect(withRelayout).toContain('sfnRelayout');
     });
 
+    // The copyright line is matched loosely because upstream moves its end year on a patch
+    // release (d3-shape 3.2.1 says 2010-2026); the loop below still pins it to the
+    // installed LICENSE, which is what the banner copies.
     it.each([
-        { copyright: 'Copyright (c) 2012-2014 Chris Pettitt', licence: 'node_modules/@dagrejs/dagre/LICENSE' },
-        { copyright: 'Copyright 2010-2022 Mike Bostock', licence: 'node_modules/d3-shape/LICENSE' },
+        { copyright: /Copyright \(c\) 2012-2014 Chris Pettitt/, licence: 'node_modules/@dagrejs/dagre/LICENSE' },
+        { copyright: /Copyright 2010-\d{4} Mike Bostock/, licence: 'node_modules/d3-shape/LICENSE' },
     ])('includes $copyright and every line of its licence', ({ copyright, licence }) => {
-        expect(withRelayout).toContain(copyright);
+        expect(withRelayout).toMatch(copyright);
         for (const line of licenceLines(licence)) {
             expect(withRelayout).toContain(line);
         }

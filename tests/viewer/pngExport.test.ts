@@ -138,7 +138,16 @@ const clickPng = (target: Page): Promise<void> =>
 const downloadCount = (target: Page): Promise<number> =>
     target.evaluate(() => (window as unknown as PngStore).sfnPngs.filter((entry) => entry.name).length);
 
-const waitForDownload = (target: Page, timeout = 5_000): Promise<unknown> =>
+/**
+ * How long one export may take to finish. The macOS CI runner has needed more than 5 s
+ * for a single small export, in whichever test happened to hit a slow moment (#566), so
+ * this allows 15 s. An export that never finishes still fails, just later.
+ */
+const EXPORT_WAIT_MS = 15_000;
+/** Test timeout for one export: the wait above plus opening the page and reading the PNG. */
+const EXPORT_TEST_MS = 30_000;
+
+const waitForDownload = (target: Page, timeout = EXPORT_WAIT_MS): Promise<unknown> =>
     target.waitForFunction(
         () => (window as unknown as PngStore).sfnPngs.some((entry) => entry.name),
         { polling: 20, timeout },
@@ -215,7 +224,7 @@ describe('toolbar PNG export', () => {
         expect(png.width).toBe(Math.floor(size.width * 2));
         expect(png.height).toBe(Math.floor(size.height * 2));
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('draws the diagram rather than a blank image', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -226,7 +235,7 @@ describe('toolbar PNG export', () => {
         const png = await readPng(target, [node, { x: 1, y: 1 }]);
         expect(png.pixels[0]).not.toEqual(png.pixels[1]);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('leaves search dimming out of the rasterised markup', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -259,7 +268,7 @@ describe('toolbar PNG export', () => {
         expect(markup).not.toContain('sfn-dim');
         expect(markup).not.toContain('sfn-hit');
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('draws a remote icon instead of a broken-image glyph', async () => {
         const target = await openViewer({
@@ -274,7 +283,7 @@ describe('toolbar PNG export', () => {
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         expect(await buttonLabel(target)).toBe('PNG');
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('saves without an unreachable icon and says so', async () => {
         const target = await openViewer({
@@ -294,7 +303,7 @@ describe('toolbar PNG export', () => {
         // The node's own fill shows through where the icon was, not a broken glyph.
         expect(png.pixels[0]).toEqual(rgba(fill));
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('steps down to a smaller canvas when the first is unusable', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -323,7 +332,7 @@ describe('toolbar PNG export', () => {
         );
         expect((await readPng(target)).type).toBe('image/png');
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('says Failed when no canvas works', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -335,11 +344,11 @@ describe('toolbar PNG export', () => {
         await clickPng(target);
         await target.waitForFunction(
             () => document.querySelector('[data-sfn="export-png"]')!.textContent === 'Failed',
-            { polling: 20, timeout: 5_000 },
+            { polling: 20, timeout: EXPORT_WAIT_MS },
         );
         expect(await downloadCount(target)).toBe(0);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('ignores a second click while the first is in flight', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -353,7 +362,7 @@ describe('toolbar PNG export', () => {
         await target.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)));
         expect(await downloadCount(target)).toBe(1);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('exports the swapped-in diagram after sfn-set-content', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -382,7 +391,7 @@ describe('toolbar PNG export', () => {
         expect(png.width).toBe(Math.floor(after.width * 2));
         expect(png.height).toBe(Math.floor(after.height * 2));
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('treats a stalled icon as unreachable', async () => {
         // The stalled request also holds the page's own <image>, so `load` never fires;
@@ -397,14 +406,14 @@ describe('toolbar PNG export', () => {
             () =>
                 (window as unknown as PngStore).sfnPngs.some((entry) => entry.name) &&
                 document.querySelector('[data-sfn="export-png"]')!.textContent === 'No icons',
-            { polling: 20, timeout: ICON_TIMEOUT_MS + 2_000 },
+            { polling: 20, timeout: ICON_TIMEOUT_MS + EXPORT_WAIT_MS },
         );
         // Free for another export once this one is over.
         expect(await target.$eval('[data-sfn="export-png"]', (button) => button.getAttribute('aria-disabled'))).toBe(
             null,
         );
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('keeps keyboard focus on the button while it works', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -413,7 +422,7 @@ describe('toolbar PNG export', () => {
         await waitForDownload(target);
         expect(await target.evaluate(() => document.activeElement?.getAttribute('data-sfn'))).toBe('export-png');
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('keeps a non-square icon at its own aspect ratio', async () => {
         // 64x32: on screen the square <image> box letterboxes it; stretched to fill the
@@ -433,7 +442,7 @@ describe('toolbar PNG export', () => {
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         expect(png.pixels[1]).not.toEqual([255, 0, 0, 255]);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('fills the box with a square icon that has only a viewBox', async () => {
         // The real aws-icons files declare no width or height, and an <img> may report
@@ -453,7 +462,7 @@ describe('toolbar PNG export', () => {
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         expect(png.pixels[1]).toEqual([255, 0, 0, 255]);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     // Chromium reports a viewBox-only SVG's real aspect ratio; some engines report the
     // replaced-element default instead. Simulated here, since CI has only Chromium. The
@@ -484,7 +493,7 @@ describe('toolbar PNG export', () => {
         const png = await readPng(target, [{ x: icon.x, y: icon.y - box * 0.4 }]);
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('keeps a genuine 300x150 raster icon at its own aspect ratio', async () => {
         // A URL that names a bitmap is trusted at 300x150, since a bitmap that size is 2:1.
@@ -508,7 +517,7 @@ describe('toolbar PNG export', () => {
         expect(png.pixels[0]).toEqual([255, 0, 0, 255]);
         expect(png.pixels[1]).not.toEqual([255, 0, 0, 255]);
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it('sizes the PNG from the viewBox when width and height are not pixel lengths', async () => {
         const target = await openViewer({ html: generateHtml({ aslDefinition: definition }).html });
@@ -528,7 +537,7 @@ describe('toolbar PNG export', () => {
         });
         expect(png).toEqual({ height: Math.floor(viewBox.height * 2), width: Math.floor(viewBox.width * 2) });
         await target.close();
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 
     it("follows the page's colour scheme with the auto theme", async () => {
         const backgroundIn = async (scheme: 'dark' | 'light'): Promise<number[]> => {
@@ -549,7 +558,8 @@ describe('toolbar PNG export', () => {
         const dark = await backgroundIn('dark');
         expect(light).not.toEqual(dark);
         expect(dark[0] + dark[1] + dark[2]).toBeLessThan(light[0] + light[1] + light[2]);
-    }, 20_000);
+        // Two pages, two exports.
+    }, 2 * EXPORT_TEST_MS);
 
     it('downloads for real from a sandboxed iframe', async () => {
         // A smoke test of the whole async path in an opaque-origin frame, the React
@@ -595,5 +605,5 @@ describe('toolbar PNG export', () => {
             await target.close();
             rmSync(downloadPath, { force: true, recursive: true });
         }
-    }, 20_000);
+    }, EXPORT_TEST_MS);
 });
