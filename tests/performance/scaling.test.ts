@@ -6,7 +6,14 @@ import { applySubstitutions, resolveIntrinsics } from '../../src/cfn/intrinsics'
 import { evaluateHclLiteral } from '../../src/terraform/hclExpression';
 import { tokenizeHcl } from '../../src/terraform/hclLexer';
 import type { AslDefinition, AslState } from '../../src';
-import { buildLinearChain, buildParallel, buildSharedCatchChain, buildWideChoice } from './fixtures';
+import {
+    buildChoiceFanInChain,
+    buildLinearChain,
+    buildNestedContainerChain,
+    buildParallel,
+    buildSharedCatchChain,
+    buildWideChoice,
+} from './fixtures';
 
 /**
  * Performance guard tests.
@@ -49,6 +56,75 @@ function minTimeMs(params: MinTimeMsParams): number {
     }
     return best;
 }
+
+interface MeasureLayoutRatioParams {
+    /** Builds the machine for a given size */
+    build: (size: number) => AslDefinition;
+    /** The larger size */
+    large: number;
+    /** The smaller size */
+    small: number;
+}
+
+interface LayoutRatio {
+    /** SVG height at the larger size */
+    largeHeight: number;
+    /** Best large-size time over best small-size time */
+    ratio: number;
+    /** SVG height at the smaller size */
+    smallHeight: number;
+}
+
+/**
+ * How much longer `generateSvg` takes at the larger size than at the smaller one.
+ *
+ * It times `generateSvg`, not `DagreLayout`, so the same check holds for any layout
+ * engine (#545, #547); parsing and rendering are a small, linear share of the time.
+ * No `cache` is passed, so every call lays out again (`pipeline.ts` only caches when
+ * given one). A ratio rather than a time budget keeps the check independent of how
+ * fast the runner is. The heights let a caller check the shape it timed.
+ */
+function measureLayoutRatio(params: MeasureLayoutRatioParams): LayoutRatio {
+    const { build, large, small } = params;
+    const smallDefinition = build(small);
+    const largeDefinition = build(large);
+    const renderSmall = () => generateSvg({ aslDefinition: smallDefinition });
+    const renderLarge = () => generateSvg({ aslDefinition: largeDefinition });
+
+    // Warm up both sizes, as the other ratio checks do, so JIT doesn't skew the first sample.
+    const smallHeight = renderSmall().height;
+    const largeHeight = renderLarge().height;
+
+    const smallTime = minTimeMs({ fn: renderSmall, runs: 5 });
+    const largeTime = minTimeMs({ fn: renderLarge, runs: 5 });
+    return { largeHeight, ratio: largeTime / smallTime, smallHeight };
+}
+
+/**
+ * Limit for the chain, shared Catch and Choice fan-in layout ratios. Every case spans
+ * 8x: linear-shaped layouts measured 7-14x here, quadratic is about 64x, and the Choice
+ * fan-in (#434) measures about 70x today. It catches engine-level blowups such as a
+ * dummy node per rank for long edges, not a cheap `O(n)` scan per edge, which dagre's
+ * own cost hides at these sizes (#704).
+ */
+const LAYOUT_RATIO_LIMIT = 24;
+
+/**
+ * Limit for the nested container ratio. dagre lays out chains of Parallel states
+ * superlinearly, nested or not (about n^1.3-1.45, and each Parallel widens about 20 px
+ * per Parallel that follows it). 5 -> 40 measured 10-16x on a quiet machine and up to
+ * 24x under heavy load, and the ratio grows with size (26-38x at 20 -> 160), so the
+ * shared limit would flake. 40 stays below quadratic (64x) and far below a long-edge
+ * blowup (about 100x).
+ */
+const CONTAINER_LAYOUT_RATIO_LIMIT = 40;
+
+/**
+ * At 8x the Parallels, the stacked layout is about 7.7x as tall today. Side by side
+ * (container ranking broken) it is 1.0x and times a much cheaper, mostly disconnected
+ * graph, which would pass the ratio check.
+ */
+const CONTAINER_MIN_HEIGHT_GROWTH = 4;
 
 describe('parser scaling', () => {
     test('parses a 2000-state linear chain quickly', () => {
@@ -140,6 +216,71 @@ describe('end-to-end scaling', () => {
         });
         expect(code).toContain('stateDiagram');
         expect(elapsed).toBeLessThan(2000);
+    });
+});
+
+describe('layout scaling', () => {
+    test('chain layout scales roughly linearly with state count', { timeout: 60_000 }, () => {
+        const { ratio } = measureLayoutRatio({
+            build: (size) => buildLinearChain({ length: size }),
+            large: 1000,
+            small: 125,
+        });
+        expect(ratio).toBeLessThan(LAYOUT_RATIO_LIMIT);
+    });
+
+    test('shared Catch layout scales roughly linearly with state count', { timeout: 60_000 }, () => {
+        // Guards the catch lanes (#364, #419): without them every Catch edge spans the
+        // ranks down to the shared handler and dagre adds a dummy node per rank.
+        const { ratio } = measureLayoutRatio({
+            build: (size) => buildSharedCatchChain({ length: size }),
+            large: 800,
+            small: 100,
+        });
+        expect(ratio).toBeLessThan(LAYOUT_RATIO_LIMIT);
+    });
+
+    test('nested container layout stays well below quadratic in container count', { timeout: 60_000 }, () => {
+        // 76 -> 601 parsed nodes (61 -> 481 laid out by dagre). The sizes stay small
+        // because dagre's own exponent on this shape grows with the graph.
+        const { largeHeight, ratio, smallHeight } = measureLayoutRatio({
+            build: (size) => buildNestedContainerChain({ length: size }),
+            large: 40,
+            small: 5,
+        });
+        // The Parallels stack, so this times a chain of containers, not a wide row.
+        expect(largeHeight).toBeGreaterThan(smallHeight * CONTAINER_MIN_HEIGHT_GROWTH);
+        expect(ratio).toBeLessThan(CONTAINER_LAYOUT_RATIO_LIMIT);
+    });
+
+    test(
+        'the Choice fan-in fixture renders at both sizes, with every Default edge into Cleanup',
+        { timeout: 60_000 },
+        () => {
+            // The test.fails below passes on any thrown error, so this proves the fixture
+            // parses and renders at the exact sizes it times (about 1 s for 128).
+            const { edges } = parseAsl({ definition: buildChoiceFanInChain({ length: 16 }) });
+            const intoCleanup = edges.filter((edge) => edge.to === 'Cleanup');
+            expect(intoCleanup).toHaveLength(16);
+            expect(intoCleanup.every((edge) => edge.type === 'default')).toBe(true);
+            for (const length of [16, 128]) {
+                const { svg } = generateSvg({ aslDefinition: buildChoiceFanInChain({ length }) });
+                expect(svg).toContain('<svg');
+                expect(svg).not.toContain('NaN');
+            }
+        },
+    );
+
+    // Quadratic today (#434): each Default edge spans many ranks and dagre inserts a
+    // dummy node per rank, about 70x here. Once that is fixed this starts passing,
+    // vitest reports the test.fails as failed, and the fix turns it into a plain test.
+    test.fails('Choice fan-in layout scales roughly linearly with state count (#434)', { timeout: 60_000 }, () => {
+        const { ratio } = measureLayoutRatio({
+            build: (size) => buildChoiceFanInChain({ length: size }),
+            large: 128,
+            small: 16,
+        });
+        expect(ratio).toBeLessThan(LAYOUT_RATIO_LIMIT);
     });
 });
 
